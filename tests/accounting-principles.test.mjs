@@ -31,3 +31,6 @@ test('investment dashboard follows Tally parent group and excludes income ledger
 
 test('balance sheet transfers only current fiscal-year result, not accumulated history',()=>{const nominal=[{date:'2025-04-01',amount:1000},{date:'2026-03-31',amount:-200},{date:'2026-04-01',amount:300},{date:'2026-07-10',amount:-50}],closing='2026-07-10',fyStart='2026-04-01',current=nominal.filter(x=>x.date>=fyStart&&x.date<=closing).reduce((s,x)=>s+x.amount,0),accumulated=nominal.reduce((s,x)=>s+x.amount,0);assert.equal(current,250);assert.equal(accumulated,1050);assert.notEqual(current,accumulated)})
 test('balance sheet current-year result plus carried capital avoids double counting',()=>{const carriedCapital=800,currentYearResult=250;assert.equal(carriedCapital+currentYearResult,1050)})
+
+test('closing-balance reports suppress positive and negative zero rows',()=>{const tol=.005,rows=[{name:'Zero',closing:0},{name:'Negative zero',closing:-0},{name:'Rounded zero',closing:.004},{name:'Bank',closing:10}];assert.deepEqual(rows.filter(r=>Math.abs(r.closing)>tol).map(r=>r.name),['Bank'])})
+test('dashboard capital adds the applicable income statement result',()=>{const capital=1057378.02,currentFY=-43466.54,selectedPeriod=-1000;assert.equal(capital+currentFY,1013911.48);assert.equal(capital+selectedPeriod,1056378.02)})
