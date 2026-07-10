@@ -26,3 +26,5 @@ test('new local duplicate is renumbered after historical voucher',()=>{const txs
 
 test('dashboard salary card uses the full current April-March fiscal year',()=>{const salary=[{date:'2026-03-31',amount:100},{date:'2026-04-01',amount:200},{date:'2027-03-31',amount:300},{date:'2027-04-01',amount:400}],total=salary.filter(x=>x.date>='2026-04-01'&&x.date<='2027-03-31').reduce((s,x)=>s+x.amount,0);assert.equal(total,500)})
 test('dashboard detail rows reconcile to their card total',()=>{const rows=[{closing:100},{closing:-25},{closing:50}],card=rows.reduce((s,r)=>s+r.closing,0);assert.equal(card,125)})
+
+test('investment dashboard follows Tally parent group and excludes income ledgers',()=>{const ledgers=[{name:'401K Investments',parent:'Investments',category:'Investment'},{name:'Sale of Share',parent:'Indirect Incomes',category:'Investment'},{name:'Sale of Shares - Gain / Loss',parent:'Indirect Incomes',category:'Investment'}],investment=ledgers.filter(a=>/^investments$/i.test(a.parent));assert.deepEqual(investment.map(a=>a.name),['401K Investments'])})
