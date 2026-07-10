@@ -1,0 +1,3 @@
+import {env} from "cloudflare:workers";export const dynamic="force-dynamic";
+export async function GET(){const value=await (env as any).VAULT.get("personal-ledger.vault");if(!value)return new Response("Vault not initialized",{status:404});return new Response(value,{headers:{"Content-Type":"application/json","Cache-Control":"no-store"}})}
+export async function PUT(request:Request){const body=await request.text();if(body.length<100||body.length>24_000_000)return new Response("Invalid vault",{status:400});await (env as any).VAULT.put("personal-ledger.vault",body);return Response.json({ok:true,bytes:body.length})}
