@@ -37,3 +37,6 @@ test('dashboard capital adds the applicable income statement result',()=>{const 
 
 test('mobile and desktop synchronization retain the same voucher identity',()=>{const cloud={guid:'shared-voucher',number:'251',amount:10},phone=structuredClone(cloud),desktop=structuredClone(cloud);assert.deepEqual(phone,desktop)})
 test('service worker must not cache encrypted vault API responses',()=>{const apiPath='/api/vault',shouldHandle=!apiPath.startsWith('/api/');assert.equal(shouldHandle,false)})
+
+test('biometric enrollment stores only encrypted local material',()=>{const stored={credentialId:'public-id',salt:'public-salt',iv:'public-iv',sealed:'ciphertext'};assert.equal('password' in stored,false);assert.equal('biometric' in stored,false);assert.equal(typeof stored.sealed,'string')})
+test('biometric configuration is device-local and never part of cloud vault',()=>{const cloudKeys=['version','iterations','salt','iv','tag','ciphertext'];assert.equal(cloudKeys.includes('credentialId'),false);assert.equal(cloudKeys.includes('sealedPassword'),false)})
