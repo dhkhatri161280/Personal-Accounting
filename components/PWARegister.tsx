@@ -1,0 +1,4 @@
+"use client";
+import {useEffect,useState} from "react";
+type InstallPrompt=Event&{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>};
+export function PWARegister(){const [prompt,setPrompt]=useState<InstallPrompt|null>(null);useEffect(()=>{if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js");const ready=(e:Event)=>{e.preventDefault();setPrompt(e as InstallPrompt)};window.addEventListener("beforeinstallprompt",ready);return()=>window.removeEventListener("beforeinstallprompt",ready)},[]);if(!prompt)return null;return <button className="install-app" onClick={async()=>{await prompt.prompt();await prompt.userChoice;setPrompt(null)}}>Install Android App</button>}

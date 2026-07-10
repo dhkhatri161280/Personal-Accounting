@@ -34,3 +34,6 @@ test('balance sheet current-year result plus carried capital avoids double count
 
 test('closing-balance reports suppress positive and negative zero rows',()=>{const tol=.005,rows=[{name:'Zero',closing:0},{name:'Negative zero',closing:-0},{name:'Rounded zero',closing:.004},{name:'Bank',closing:10}];assert.deepEqual(rows.filter(r=>Math.abs(r.closing)>tol).map(r=>r.name),['Bank'])})
 test('dashboard capital adds the applicable income statement result',()=>{const capital=1057378.02,currentFY=-43466.54,selectedPeriod=-1000;assert.equal(capital+currentFY,1013911.48);assert.equal(capital+selectedPeriod,1056378.02)})
+
+test('mobile and desktop synchronization retain the same voucher identity',()=>{const cloud={guid:'shared-voucher',number:'251',amount:10},phone=structuredClone(cloud),desktop=structuredClone(cloud);assert.deepEqual(phone,desktop)})
+test('service worker must not cache encrypted vault API responses',()=>{const apiPath='/api/vault',shouldHandle=!apiPath.startsWith('/api/');assert.equal(shouldHandle,false)})

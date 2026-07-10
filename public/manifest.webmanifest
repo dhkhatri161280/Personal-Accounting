@@ -1,0 +1,12 @@
+{
+  "name": "Personal Ledger",
+  "short_name": "Ledger",
+  "description": "Private end-to-end encrypted personal accounting",
+  "start_url": "/ledger?source=android-app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f7fb",
+  "theme_color": "#10223f",
+  "icons": [{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
