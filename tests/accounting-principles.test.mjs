@@ -8,3 +8,5 @@ test('month period excludes other months but carries their balance',()=>{const r
 test('Tally Balance Sheet groups never enter nominal reports',()=>{const nominal=p=>/^(direct incomes|indirect incomes|sales accounts|direct expenses|indirect expenses|purchase accounts)$/.test(p.toLowerCase());for(const group of ['Fixed Assets','Current Assets','Investments','Capital Account','Current Liabilities','Loans (Liability)'])assert.equal(nominal(group),false)});
 
 test('Credit cards follow the authoritative Bank Accounts parent',()=>{const parent='Bank Accounts'.toLowerCase();const isBank=/^(bank accounts|cash-in-hand)$/.test(parent);const isLiability=/^(capital account|current liabilities|loans \\(liability\\))$/.test(parent);assert.equal(isBank,true);assert.equal(isLiability,false)});
+
+test('capital receives only the selected period result',()=>{const r=calculate(accounts,txs,'2026'),income=r.find(x=>x.id===1),expense=r.find(x=>x.id===2);const current=(income.credit-income.debit)-(expense.debit-expense.credit);assert.equal(current,30);assert.notEqual(current,130)});
