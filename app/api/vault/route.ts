@@ -1,3 +1,5 @@
-import {env} from "cloudflare:workers";export const dynamic="force-dynamic";
-export async function GET(){const value=await (env as any).VAULT.get("personal-ledger.vault");if(!value)return new Response("Vault not initialized",{status:404});return new Response(value,{headers:{"Content-Type":"application/json","Cache-Control":"no-store"}})}
-export async function PUT(request:Request){const body=await request.text();if(body.length<100||body.length>24_000_000)return new Response("Invalid vault",{status:400});await (env as any).VAULT.put("personal-ledger.vault",body);return Response.json({ok:true,bytes:body.length})}
+import {env} from "cloudflare:workers";
+export const dynamic="force-dynamic";
+async function etag(value:string){const hash=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));return `"${Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,"0")).join("")}"`}
+export async function GET(){const value=await (env as any).VAULT.get("personal-ledger.vault");if(!value)return new Response("Vault not initialized",{status:404});return new Response(value,{headers:{"Content-Type":"application/json","Cache-Control":"no-store","ETag":await etag(value)}})}
+export async function PUT(request:Request){const body=await request.text();if(body.length<100||body.length>24_000_000)return new Response("Invalid vault",{status:400});const expected=request.headers.get("If-Match");if(expected){const current=await (env as any).VAULT.get("personal-ledger.vault");if(!current||await etag(current)!==expected)return new Response("Vault changed since download; sync again.",{status:412})}await (env as any).VAULT.put("personal-ledger.vault",body);return Response.json({ok:true,bytes:body.length,etag:await etag(body)})}
