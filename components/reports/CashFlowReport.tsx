@@ -21,6 +21,7 @@ export function CashFlowReport({
   tol,
   fmt,
   onGroup,
+  onLedger,
 }: {
   periodLabel: string;
   cashOpening: number;
@@ -33,6 +34,7 @@ export function CashFlowReport({
   tol: number;
   fmt: (n: number) => string;
   onGroup: (group: string) => void;
+  onLedger: (group: string, ledger: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["inflows", "outflows"]));
   const toggle = (k: string) =>
@@ -77,13 +79,14 @@ export function CashFlowReport({
                 </button>
                 {groupOpen &&
                   lines.map((l) => (
-                    <div
+                    <button
                       className="report-line cash-flow-ledger-line"
                       key={kind + g.group + l.name}
+                      onClick={() => onLedger(g.group, l.name)}
                     >
                       <span>{l.name}</span>
                       <strong>{fmt(l.amount)}</strong>
-                    </div>
+                    </button>
                   ))}
               </section>
             );

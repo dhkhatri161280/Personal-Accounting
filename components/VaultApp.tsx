@@ -78,7 +78,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [dashboardDetail, setDashboardDetail] = useState<
       "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "period" | null
     >(null),
-    [cashFlowDetail, setCashFlowDetail] = useState<string | null>(null),
+    [cashFlowDetail, setCashFlowDetail] = useState<{ group: string; ledger?: string } | null>(null),
     [selected, setSelected] = useState<number | null>(null),
     [selectedVoucher, setSelectedVoucher] = useState<Tx | null>(null),
     [inlineLedgerSide, setInlineLedgerSide] = useState<"debit" | "credit" | null>(null),
@@ -313,8 +313,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       );
       return false;
     }
+    if (r.status === 428) {
+      setStatus("Save failed: session expired. Please lock and re-open the vault, then try again.");
+      return false;
+    }
     if (!r.ok) {
-      setStatus("Save failed");
+      const detail = await r.text().catch(() => "");
+      setStatus(`Save failed (${r.status}${detail ? ": " + detail : ""})`);
       return false;
     }
     const saved = (await r.json().catch(() => null)) as { etag?: string } | null;
@@ -389,6 +394,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   }, []);
 
   useEffect(() => {
+    const handler = () => setTab("dashboard");
+    window.addEventListener("dk-nav-home", handler);
+    return () => window.removeEventListener("dk-nav-home", handler);
+  }, []);
+
+  useEffect(() => {
     if (!data) return;
     let checking = false;
     const check = async () => {
@@ -406,7 +417,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           checking = false;
         }
       },
-      timer = setInterval(check, 10000),
+      timer = setInterval(check, 120000),
       visible = () => {
         if (document.visibilityState === "visible") check();
       };
@@ -1320,6 +1331,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </p>
         </div>
         <div className="header-actions">
+          {status && <span className="vault-status">{status}</span>}
           {hasBiometric ? (
             <button
               className="secure-action biometric-action biometric-action--on"
@@ -1417,7 +1429,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         )}
         <span>Opening + period activity = closing</span>
       </div>
-      {status && <div className="vault-status">{status}</div>}
       {tab === "dashboard" && (
         <section className="stats dashboard-stats">
           <div className="dashboard-card-slot cash-slot">
@@ -1875,7 +1886,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 cashFlowGroups={cashFlowGroups}
                 tol={tol}
                 fmt={fmt}
-                onGroup={setCashFlowDetail}
+                onGroup={(group) => setCashFlowDetail({ group })}
+                onLedger={(group, ledger) => setCashFlowDetail({ group, ledger })}
               />
             </>
           )}{" "}
@@ -1910,16 +1922,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   ? "Copy and edit voucher"
                   : "Record balanced voucher"}
             </h3>
-            {(copyTx || editTx) && (
-              <button
-                onClick={() => {
-                  setCopyTx(null);
-                  setEditTx(null);
-                }}
-              >
-                Cancel
-              </button>
-            )}
+            <button
+              onClick={() => {
+                setCopyTx(null);
+                setEditTx(null);
+                if (!copyTx && !editTx) setTab("dashboard");
+              }}
+            >
+              Cancel
+            </button>
           </div>
           {editTx && (
             <p className="edit-note">
@@ -2029,6 +2040,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     <option value="">Select ledger</option>
                     {data.accounts
                       .filter((a) => a.active !== false)
+                      .sort((a, b) => a.name.localeCompare(b.name))
                       .map((a) => (
                         <option value={a.id} key={a.id}>
                           {a.name}
@@ -2157,17 +2169,21 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       )}
       {cashFlowDetail && (
         <div className="drill-overlay" onClick={() => setCashFlowDetail(null)}>
-          <div className="drill-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="drill-panel ledger-drill-panel" onClick={(e) => e.stopPropagation()}>
             <button className="drill-close" onClick={() => setCashFlowDetail(null)}>
               Close
             </button>
-            <h2>{cashFlowDetail}</h2>
+            <h2>{cashFlowDetail?.ledger ?? cashFlowDetail?.group}</h2>
             <p>
               Cash Flow | <PeriodSelect />
             </p>
             <TransactionTable
               transactions={cashFlowItems
-                .filter((x) => x.group === cashFlowDetail)
+                .filter((x) =>
+                  cashFlowDetail?.ledger
+                    ? x.group === cashFlowDetail.group && x.ledger === cashFlowDetail.ledger
+                    : x.group === cashFlowDetail?.group
+                )
                 .slice()
                 .reverse()
                 .map((x) => x.t)}
