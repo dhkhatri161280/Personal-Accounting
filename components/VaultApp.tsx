@@ -1071,7 +1071,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     </th>
   );
 
-  const TableFilters = () => (
+  const tableFiltersJsx = (
     <div className="table-filters">
       <label>
         Filter ledger or group
@@ -1630,7 +1630,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       )}
       {tab === "ledgers" && (
         <div className="data-panel">
-          <TableFilters />
+          {tableFiltersJsx}
           {(() => {
             const ledgerRows = filteredActive
                 .map((a) => {
@@ -1764,7 +1764,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <h3>
                 Trial Balance — <PeriodSelect />
               </h3>
-              <TableFilters />
+              {tableFiltersJsx}
               {(() => {
                 const tR = adjustedFilteredRows().map((a) => ({
                   ...a,
