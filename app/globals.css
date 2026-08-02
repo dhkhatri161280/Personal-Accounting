@@ -6540,3 +6540,73 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Privacy mode — blur every financial figure */
+.privacy-mode .dashboard-card-main strong,
+.privacy-mode .dashboard-card-highlights em,
+.privacy-mode .dashboard-card-period strong,
+.privacy-mode .dashboard-inline-row b,
+.privacy-mode td.right,
+.privacy-mode tfoot th.right,
+.privacy-mode .period-result strong,
+.privacy-mode .report-line strong,
+.privacy-mode .report-total strong,
+.privacy-mode .voucher-line-toolbar span,
+.privacy-mode .voucher-balance-ok span,
+.privacy-mode .voucher-balance-diff span,
+.privacy-mode .drill-summary strong,
+.privacy-mode .group-heading span:last-child,
+.privacy-mode .report-grand strong,
+.privacy-mode .bs-amt,
+.privacy-mode .bs-sg-head span:last-child,
+.privacy-mode .bs-row span:last-child,
+.privacy-mode .bs-total strong,
+.privacy-mode .balance-check span:last-child,
+.privacy-mode .cash-flow-main-heading span:last-child,
+.privacy-mode .cash-flow-group-total strong,
+.privacy-mode .cash-flow-ledger-line strong,
+.privacy-mode .cash-flow-summary .report-line strong,
+.privacy-mode .excel-toolbar strong {
+  filter: blur(7px);
+  user-select: none;
+  transition: filter 0.2s;
+}
+.privacy-mode .dashboard-card-main strong:hover,
+.privacy-mode .dashboard-card-highlights em:hover,
+.privacy-mode .dashboard-card-period strong:hover,
+.privacy-mode .dashboard-inline-row b:hover,
+.privacy-mode td.right:hover,
+.privacy-mode tfoot th.right:hover,
+.privacy-mode .period-result strong:hover,
+.privacy-mode .report-line strong:hover,
+.privacy-mode .report-total strong:hover,
+.privacy-mode .drill-summary strong:hover,
+.privacy-mode .group-heading span:last-child:hover,
+.privacy-mode .report-grand strong:hover,
+.privacy-mode .bs-amt:hover,
+.privacy-mode .bs-sg-head span:last-child:hover,
+.privacy-mode .bs-row span:last-child:hover,
+.privacy-mode .bs-total strong:hover,
+.privacy-mode .cash-flow-main-heading span:last-child:hover,
+.privacy-mode .cash-flow-group-total strong:hover,
+.privacy-mode .cash-flow-ledger-line strong:hover,
+.privacy-mode .excel-toolbar strong:hover {
+  filter: blur(0);
+}
+
+/* Privacy toggle button icon */
+.header-actions .privacy-toggle-button > svg {
+  display: block !important;
+  width: 22px !important;
+  height: 22px !important;
+  fill: none !important;
+  stroke: #28405f !important;
+  flex-shrink: 0 !important;
+}
+.header-actions .privacy-toggle-button.on {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+}
+.header-actions .privacy-toggle-button.on > svg {
+  stroke: #1d4ed8 !important;
+}
