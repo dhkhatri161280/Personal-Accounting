@@ -38,6 +38,7 @@ import {
 } from "@/lib/vault-accounting";
 import { getSyncState, type SyncState } from "@/lib/sync-utils";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
+import { PlaidImport } from "@/components/vault/PlaidImport";
 import { UnlockScreen } from "@/components/vault/UnlockScreen";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
@@ -1424,6 +1425,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
           Reports
         </button>
+        <button className={tab === "bank-import" ? "selected" : ""} onClick={() => setTab("bank-import")}>
+          Bank Import
+        </button>
         <button
           type="button"
           className={`new-voucher-nav ${tab === "new" ? "selected" : ""}`}
@@ -1660,6 +1664,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <DashboardInline kind="period" />
           </div>
         </section>
+      )}
+      {tab === "bank-import" && data && (
+        <div className="data-panel">
+          <PlaidImport
+            data={data}
+            apiUrl={apiUrl}
+            onSave={(next) => save(next, "bank-import")}
+          />
+        </div>
       )}
       {tab === "daybook" && (
         <div className="data-panel">

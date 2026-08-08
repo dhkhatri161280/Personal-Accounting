@@ -6630,6 +6630,48 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   stroke: #1d4ed8 !important;
 }
 
+/* ── Plaid bank import panel ───────────────────────────────────────────── */
+.plaid-import-panel { display: grid; gap: 16px; max-width: 1100px; }
+.plaid-banks-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 16px; background: #f4f8fd; border-radius: 12px; border: 1px solid #d9e3ef; }
+.plaid-banks-row strong { color: #0b4d94; font-size: 13px; }
+.plaid-none { font-size: 12px; color: #6b7fa0; }
+.plaid-bank-chip { display: inline-flex; align-items: center; gap: 6px; background: #dbeafe; color: #1d4ed8; border-radius: 20px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+.plaid-bank-chip button { background: none; border: none; color: #1d4ed8; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+.plaid-connect-btn { background: #0b4d94; color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 800; cursor: pointer; }
+.plaid-connect-btn:disabled { opacity: 0.5; cursor: default; }
+.plaid-fetch-btn { background: #eff6ff; color: #1d4ed8; border: 1.5px solid #93c5fd; border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 800; cursor: pointer; }
+.plaid-fetch-btn:disabled { opacity: 0.5; cursor: default; }
+.plaid-error { color: #dc2626; font-size: 12px; }
+.plaid-status { padding: 8px 14px; background: #fef9c3; border: 1px solid #fde047; border-radius: 8px; font-size: 12px; color: #713f12; }
+.plaid-queue-toolbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.plaid-queue-toolbar span { font-size: 12px; color: #51647f; }
+.plaid-save-btn { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 8px 18px; font-size: 12px; font-weight: 800; cursor: pointer; margin-left: auto; }
+.plaid-save-btn:disabled { opacity: 0.5; cursor: default; }
+.plaid-queue { display: grid; gap: 8px; }
+.plaid-queue-row { display: grid; grid-template-columns: 24px 1fr 220px 1fr; gap: 10px; align-items: start; background: #fff; border: 1px solid #e3ebf5; border-radius: 10px; padding: 12px; }
+.plaid-row-exists { opacity: 0.45; }
+.plaid-row-skipped { opacity: 0.6; text-decoration: line-through; }
+.plaid-row-confident { border-left: 3px solid #16a34a; }
+.plaid-row-unmatched { border-left: 3px solid #f97316; }
+.plaid-tx-info { display: grid; grid-template-columns: 90px 1fr 80px 100px; gap: 6px; align-items: center; font-size: 12px; }
+.plaid-tx-date { color: #6b7fa0; font-weight: 700; }
+.plaid-tx-name { font-weight: 800; color: #1e2d40; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plaid-tx-amt { font-weight: 900; text-align: right; }
+.plaid-tx-amt.credit { color: #16a34a; }
+.plaid-tx-amt.debit { color: #dc2626; }
+.plaid-tx-bank { font-size: 10px; color: #6b7fa0; }
+.plaid-je-meta { display: flex; flex-direction: column; gap: 5px; }
+.plaid-je-meta select, .plaid-je-meta input { font-size: 11px; padding: 4px 6px; border: 1px solid #d1dae9; border-radius: 6px; }
+.plaid-confidence-badge { background: #dcfce7; color: #15803d; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
+.plaid-unmatched-badge { background: #ffedd5; color: #c2410c; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
+.plaid-exists-badge { background: #e0e7ff; color: #3730a3; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
+.plaid-entries { display: grid; gap: 4px; }
+.plaid-entry-line { display: grid; grid-template-columns: 24px 1fr 90px; gap: 5px; align-items: center; font-size: 11px; }
+.plaid-entry-line select, .plaid-entry-line input { font-size: 11px; padding: 3px 5px; border: 1px solid #d1dae9; border-radius: 5px; }
+.plaid-dr { color: #dc2626; font-weight: 900; font-size: 10px; }
+.plaid-cr { color: #16a34a; font-weight: 900; font-size: 10px; }
+.plaid-no-entries { font-size: 11px; color: #f97316; font-weight: 700; }
+
 /* Auto-balance: last line in multi-line voucher shows a tint to indicate it is auto-computed */
 .voucher-line-auto input[type="number"] {
   background: #f0f7ff;

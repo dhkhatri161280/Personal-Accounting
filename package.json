@@ -1,5 +1,5 @@
 {
-  "name": "site-creator-vinext-starter",
+  "name": "fintech-by-dk",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -7,17 +7,22 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vinext build",
     "start": "vinext start",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@simplewebauthn/server": "^13.3.2",
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "react-plaid-link": "^5.0.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
@@ -30,6 +35,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "prettier": "^3.9.5",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
