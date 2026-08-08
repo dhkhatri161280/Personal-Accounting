@@ -45,6 +45,30 @@ import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
+function autoBalance(lines: VoucherLineDraft[], changedIndex: number): VoucherLineDraft[] {
+  const last = lines.length - 1;
+  if (lines.length < 2) return lines;
+  if (lines.length === 2) {
+    // 2-line: mirror the typed amount to the other line
+    const other = changedIndex === 0 ? 1 : 0;
+    return lines.map((row, i) => (i === other ? { ...row, amount: lines[changedIndex].amount } : row));
+  }
+  // Multi-line: auto-compute last line as running balance when any non-last line changes
+  if (changedIndex === last) return lines;
+  let drSum = 0, crSum = 0;
+  for (let i = 0; i < last; i++) {
+    const a = Math.abs(Number(lines[i].amount) || 0);
+    if (lines[i].side === "debit") drSum += a;
+    else crSum += a;
+  }
+  const diff = drSum - crSum;
+  const newSide: "debit" | "credit" = diff >= 0 ? "credit" : "debit";
+  const newAmt = Math.abs(diff);
+  return lines.map((row, i) =>
+    i === last ? { ...row, side: newSide, amount: newAmt > 0.005 ? newAmt.toFixed(2) : "" } : row
+  );
+}
+
 export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const apiUrl = book === "india" ? "/api/vault?book=india" : "/api/vault",
     biometricKey = `${BIO_KEY}-${book}`,
@@ -2039,16 +2063,24 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <span />
               </div>
               {voucherLines.map((line, index) => (
-                <div className="voucher-line-row" key={index}>
+                <div
+                  className={
+                    "voucher-line-row" +
+                    (index === voucherLines.length - 1 && voucherLines.length > 2
+                      ? " voucher-line-auto"
+                      : "")
+                  }
+                  key={index}
+                >
                   <select
                     value={line.side}
-                    onChange={(e) =>
-                      setVoucherLines((lines) =>
-                        lines.map((row, i) =>
-                          i === index ? { ...row, side: e.target.value as "debit" | "credit" } : row
-                        )
-                      )
-                    }
+                    onChange={(e) => {
+                      const val = e.target.value as "debit" | "credit";
+                      setVoucherLines((lines) => {
+                        const updated = lines.map((row, i) => i === index ? { ...row, side: val } : row);
+                        return autoBalance(updated, index);
+                      });
+                    }}
                   >
                     <option value="debit">Dr</option>
                     <option value="credit">Cr</option>
@@ -2079,13 +2111,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     min="0.01"
                     step="0.01"
                     value={line.amount}
-                    onChange={(e) =>
-                      setVoucherLines((lines) =>
-                        lines.map((row, i) =>
-                          i === index ? { ...row, amount: e.target.value } : row
-                        )
-                      )
-                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setVoucherLines((lines) => {
+                        const updated = lines.map((row, i) => i === index ? { ...row, amount: val } : row);
+                        return autoBalance(updated, index);
+                      });
+                    }}
                     required
                   />
                   <button

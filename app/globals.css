@@ -6629,3 +6629,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .header-actions .privacy-toggle-button.on > svg {
   stroke: #1d4ed8 !important;
 }
+
+/* Auto-balance: last line in multi-line voucher shows a tint to indicate it is auto-computed */
+.voucher-line-auto input[type="number"] {
+  background: #f0f7ff;
+}
+.voucher-line-auto select:first-child {
+  background: #f0f7ff;
+}
