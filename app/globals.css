@@ -1375,14 +1375,14 @@ tfoot th {
 }
 .app-nav {
   display: grid;
-  grid-template-columns: repeat(5, minmax(110px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
   margin: 4px 0 12px;
 }
 .app-nav button {
   margin: 0;
-  padding: 13px 12px;
-  font-size: 11px;
+  padding: 11px 6px;
+  font-size: 10.5px;
 }
 .app-nav button.selected {
   background: #10223f;
@@ -1915,6 +1915,9 @@ tfoot th {
   grid-area: active;
 }
 .dashboard-card-period {
+  grid-area: period;
+}
+.equity-slot {
   grid-area: period;
 }
 .dashboard-stats button {
@@ -2643,7 +2646,7 @@ aside .install-app span {
 }
 /* ERP master-data workspace */
 .app-nav {
-  grid-template-columns: repeat(6, minmax(100px, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 .masters-panel {
   position: relative;
@@ -6580,37 +6583,24 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .bs-sg-head span:last-child,
 .privacy-mode .bs-row span:last-child,
 .privacy-mode .bs-total strong,
-.privacy-mode .balance-check span:last-child,
+.privacy-mode .balance-check span,
 .privacy-mode .cash-flow-main-heading span:last-child,
 .privacy-mode .cash-flow-group-total strong,
 .privacy-mode .cash-flow-ledger-line strong,
 .privacy-mode .cash-flow-summary .report-line strong,
-.privacy-mode .excel-toolbar strong {
+.privacy-mode .excel-toolbar strong,
+.privacy-mode .gr-modal-rate,
+.privacy-mode .plaid-tx-amt,
+.privacy-mode .voucher-line-row input[type="number"],
+.privacy-mode .plaid-entry-line input[type="number"],
+.privacy-mode .equity-amt,
+.privacy-mode .equity-summary-card strong {
   filter: blur(7px);
   user-select: none;
-  transition: filter 0.2s;
 }
-.privacy-mode .dashboard-card-main strong:hover,
-.privacy-mode .dashboard-card-highlights em:hover,
-.privacy-mode .dashboard-card-period strong:hover,
-.privacy-mode .dashboard-inline-row b:hover,
-.privacy-mode td.right:hover,
-.privacy-mode tfoot th.right:hover,
-.privacy-mode .period-result strong:hover,
-.privacy-mode .report-line strong:hover,
-.privacy-mode .report-total strong:hover,
-.privacy-mode .drill-summary strong:hover,
-.privacy-mode .group-heading span:last-child:hover,
-.privacy-mode .report-grand strong:hover,
-.privacy-mode .bs-amt:hover,
-.privacy-mode .bs-sg-head span:last-child:hover,
-.privacy-mode .bs-row span:last-child:hover,
-.privacy-mode .bs-total strong:hover,
-.privacy-mode .cash-flow-main-heading span:last-child:hover,
-.privacy-mode .cash-flow-group-total strong:hover,
-.privacy-mode .cash-flow-ledger-line strong:hover,
-.privacy-mode .excel-toolbar strong:hover {
-  filter: blur(0);
+
+@media print {
+  .privacy-mode { display: none !important; }
 }
 
 /* Privacy toggle button icon */
@@ -6663,8 +6653,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-je-meta { display: flex; flex-direction: column; gap: 5px; }
 .plaid-je-meta select, .plaid-je-meta input { font-size: 11px; padding: 4px 6px; border: 1px solid #d1dae9; border-radius: 6px; }
 .plaid-confidence-badge { background: #dcfce7; color: #15803d; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
+.plaid-household-badge { background: #dbeafe; color: #1d4ed8; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
 .plaid-unmatched-badge { background: #ffedd5; color: #c2410c; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
 .plaid-exists-badge { background: #e0e7ff; color: #3730a3; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
+.plaid-new-accts-notice { background: #fef9c3; color: #854d0e; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; }
 .plaid-entries { display: grid; gap: 4px; }
 .plaid-entry-line { display: grid; grid-template-columns: 24px 1fr 90px; gap: 5px; align-items: center; font-size: 11px; }
 .plaid-entry-line select, .plaid-entry-line input { font-size: 11px; padding: 3px 5px; border: 1px solid #d1dae9; border-radius: 5px; }
@@ -6679,3 +6671,146 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .voucher-line-auto select:first-child {
   background: #f0f7ff;
 }
+
+/* ── Equity Report ──────────────────────────────────────────────────────── */
+.equity-report { padding-bottom: 2rem; }
+.equity-header { margin-bottom: 1.5rem; }
+.equity-title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem; margin-bottom: 0.75rem; }
+.equity-title-row h3 { margin: 0; }
+.equity-price-row { display: flex; align-items: center; gap: 0.75rem; font-size: 13px; }
+.equity-price { font-size: 13px; }
+.equity-price strong { color: #16a34a; }
+.equity-price-err { color: #dc2626; font-size: 12px; }
+.equity-price-loading { color: #6b7280; font-size: 12px; }
+.equity-refresh { font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+
+.equity-summary-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.equity-summary-card { background: var(--surface2, #f8fafc); border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 0.9rem 1.2rem; min-width: 170px; }
+.equity-summary-card span { display: block; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.3rem; }
+.equity-summary-card strong { font-size: 20px; font-weight: 800; display: block; margin-bottom: 0.15rem; }
+.equity-summary-card em { font-size: 10px; color: #94a3b8; font-style: normal; }
+.equity-summary-card--current { border-color: #3b82f6; background: #eff6ff; }
+.equity-summary-card--current strong { color: #1d4ed8; }
+.equity-summary-stat { cursor: pointer; text-align: left; flex: 1; min-width: 170px; transition: border-color 0.15s, box-shadow 0.15s; }
+.equity-summary-stat:hover { border-color: #3b82f6; }
+.equity-summary-stat--active { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px #bfdbfe; }
+.equity-summary-stat--active strong { color: #1d4ed8; }
+.equity-drilldown { margin-top: 1rem; border: 1px solid #bfdbfe; border-radius: 10px; background: #f8fafc; overflow: hidden; }
+.equity-drilldown-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
+.equity-drilldown-head strong { font-size: 13px; color: #1d4ed8; }
+.equity-drilldown-close { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: #fff; border: 1px solid #bfdbfe; color: #2563eb; cursor: pointer; }
+.equity-drilldown-table { margin: 0; border-radius: 0; border: none; }
+
+.equity-section-head { display: flex; justify-content: space-between; align-items: center; margin: 1.5rem 0 0.5rem; padding-bottom: 0.4rem; border-bottom: 2px solid var(--border, #e2e8f0); }
+.equity-section-head h4 { margin: 0; font-size: 14px; }
+
+.equity-form { background: var(--surface2, #f8fafc); border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.equity-form h5 { margin: 0 0 0.75rem; font-size: 13px; }
+.equity-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.65rem; }
+.equity-form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 11px; font-weight: 700; color: #374151; }
+.equity-form-grid input { font-size: 13px; padding: 5px 8px; border: 1px solid var(--border, #e2e8f0); border-radius: 5px; width: 100%; box-sizing: border-box; }
+.equity-form-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.equity-vest-form { margin-top: 0.75rem; }
+
+.equity-empty { color: #94a3b8; font-size: 12px; font-style: italic; margin: 0.5rem 0 1rem; }
+
+.equity-grant-header { display: flex; align-items: center; gap: 0.5rem; padding: 0 0.75rem 0.35rem; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+.equity-col-head { width: 112px; min-width: 112px; text-align: right; }
+.equity-col-head--gain { color: #16a34a !important; }
+.equity-col-val { width: 112px; min-width: 112px; text-align: right; display: inline-block; }
+.equity-gain-pos { color: #16a34a; font-weight: 600; }
+.equity-gain-neg { color: #dc2626; font-weight: 600; }
+.equity-sold-badge { color: #dc2626; font-weight: 600; }
+.equity-kept-badge { color: #16a34a; font-weight: 600; }
+.equity-tax-badge { color: #d97706; font-weight: 600; }
+.equity-award-price { color: #6b7280; font-size: 11px; }
+.equity-reload-btn { font-size: 11px; padding: 3px 10px; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; border-radius: 4px; cursor: pointer; }
+.equity-reload-btn:hover { background: #fef3c7; }
+.equity-neutral { color: #94a3b8; }
+
+.equity-grant { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; margin-bottom: 0.6rem; overflow: hidden; }
+.equity-grant-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0.75rem; cursor: pointer; background: var(--surface, #fff); user-select: none; }
+.equity-grant-head:hover { background: var(--surface2, #f8fafc); }
+.equity-arr { font-size: 13px; width: 13px; flex-shrink: 0; color: #64748b; }
+.equity-grant-label { flex: 1; font-size: 13px; }
+.equity-grant-label em { font-size: 11px; color: #94a3b8; font-style: normal; }
+.equity-grant-btns { display: flex; gap: 0.25rem; }
+.equity-grant-btns button { font-size: 11px; padding: 2px 7px; border-radius: 4px; }
+
+.equity-grant-body { padding: 0.75rem 1rem 1rem; border-top: 1px solid var(--border, #e2e8f0); background: var(--surface2, #f8fafc); }
+.equity-vest-table { width: 100%; font-size: 12px; border-collapse: collapse; border: 1px solid var(--border, #e2e8f0); border-radius: 6px; overflow: hidden; }
+.equity-vest-table th { text-align: left; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; padding: 5px 8px; background: var(--surface2, #f8fafc); border-bottom: 2px solid var(--border, #e2e8f0); border-right: 1px solid var(--border, #e2e8f0); white-space: nowrap; }
+.equity-vest-table th:last-child { border-right: none; }
+.equity-vest-table th.right { text-align: right; }
+.equity-vest-table td { padding: 4px 8px; border-bottom: 1px solid var(--border, #e2e8f0); border-right: 1px solid var(--border, #e2e8f0); }
+.equity-vest-table td:last-child { border-right: none; }
+.equity-vest-table tr:last-child td { border-bottom: none; }
+/* column widths: Vest Date | FMV@Vest | Total | Sold | Sale$/sh | Kept | Sale Value | Mkt Value | Gain | Actions */
+.equity-vest-table th:nth-child(1), .equity-vest-table td:nth-child(1) { min-width: 88px; }
+.equity-vest-table th:nth-child(2), .equity-vest-table td:nth-child(2) { width: 68px; }
+.equity-vest-table th:nth-child(3), .equity-vest-table td:nth-child(3) { width: 50px; }
+.equity-vest-table th:nth-child(4), .equity-vest-table td:nth-child(4) { width: 46px; }
+.equity-vest-table th:nth-child(5), .equity-vest-table td:nth-child(5) { width: 68px; }
+.equity-vest-table th:nth-child(6), .equity-vest-table td:nth-child(6) { width: 46px; }
+.equity-vest-table th:nth-child(7), .equity-vest-table td:nth-child(7) { width: 88px; }
+.equity-vest-table th:nth-child(8), .equity-vest-table td:nth-child(8) { width: 88px; }
+.equity-vest-table th:nth-child(9), .equity-vest-table td:nth-child(9) { width: 82px; }
+.equity-vest-table th:nth-child(10), .equity-vest-table td:nth-child(10) { width: 48px; }
+.equity-empty-cell { color: #94a3b8; font-style: italic; text-align: center; padding: 0.5rem; }
+.equity-unvested-row td { color: #94a3b8; font-style: italic; }
+.equity-del-btn { font-size: 10px; padding: 1px 5px; color: #dc2626; border-color: #fca5a5; border-radius: 3px; background: #fff5f5; cursor: pointer; }
+.equity-add-vest-btn { margin-top: 0.75rem; font-size: 11px; padding: 3px 10px; border-radius: 5px; cursor: pointer; }
+
+.equity-section-total { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: var(--surface2, #f8fafc); border-radius: 6px; font-size: 12px; font-weight: 700; margin-bottom: 0.5rem; }
+.equity-section-total span:first-child { flex: 1; }
+
+.equity-espp-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 0.25rem; border: 1px solid var(--border, #e2e8f0); border-radius: 6px; overflow: hidden; }
+.equity-espp-table th { text-align: left; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; padding: 5px 8px; white-space: nowrap; background: var(--surface2, #f8fafc); border-bottom: 2px solid var(--border, #e2e8f0); border-right: 1px solid var(--border, #e2e8f0); }
+.equity-espp-table th:last-child { border-right: none; }
+.equity-espp-table th.right { text-align: right; }
+.equity-espp-table td { padding: 4px 8px; border-bottom: 1px solid var(--border, #e2e8f0); border-right: 1px solid var(--border, #e2e8f0); font-size: 12px; }
+.equity-espp-table td:last-child { border-right: none; }
+.equity-espp-table tfoot th { border-top: 2px solid var(--border, #e2e8f0); padding: 6px 8px; font-size: 12px; border-bottom: none; }
+.equity-espp-table tfoot th.right { text-align: right; }
+/* column widths */
+.equity-espp-table th:nth-child(2), .equity-espp-table td:nth-child(2) { width: 60px; }
+.equity-espp-table th:nth-child(3), .equity-espp-table td:nth-child(3) { width: 82px; }
+.equity-espp-table th:nth-child(4), .equity-espp-table td:nth-child(4) { width: 72px; }
+.equity-espp-table th:nth-child(5), .equity-espp-table td:nth-child(5) { width: 58px; }
+.equity-espp-table th:nth-child(6), .equity-espp-table td:nth-child(6) { width: 58px; }
+.equity-espp-table th:nth-child(7), .equity-espp-table td:nth-child(7) { width: 90px; }
+.equity-espp-table th:nth-child(8), .equity-espp-table td:nth-child(8) { width: 90px; }
+.equity-espp-table th:nth-child(9), .equity-espp-table td:nth-child(9) { width: 52px; }
+.equity-cycle-row { background: var(--surface2, #f1f5f9); cursor: pointer; font-weight: 600; }
+.equity-cycle-row:hover { background: var(--surface3, #e2e8f0); }
+.equity-cycle-row td { padding: 6px 6px; }
+.equity-cycle-detail { background: var(--surface, #fff); }
+.equity-cycle-indent { padding-left: 2rem !important; }
+
+.equity-grand-total { display: flex; align-items: center; gap: 1.5rem; margin-top: 1.5rem; padding: 0.75rem 1rem; border-top: 2px solid var(--border, #e2e8f0); background: var(--surface2, #f8fafc); border-radius: 0 0 8px 8px; }
+.equity-grand-label { font-weight: 700; font-size: 14px; flex: 1; }
+.equity-grand-values { display: flex; border: 1px solid var(--border, #e2e8f0); border-radius: 6px; overflow: hidden; }
+.equity-grand-col { display: flex; flex-direction: column; align-items: flex-end; padding: 0.45rem 1rem; border-left: 1px solid var(--border, #e2e8f0); min-width: 135px; }
+.equity-grand-col:first-child { border-left: none; }
+.equity-grand-col > span { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; white-space: nowrap; }
+.equity-grand-col strong { font-size: 14px; font-weight: 700; }
+.equity-grand-col--gain > span { color: #16a34a; }
+.equity-grand-col--gain strong { color: #16a34a; }
+.equity-summary-card--gain { border-color: #16a34a; background: #f0fdf4; }
+.equity-summary-card--gain strong { color: #16a34a; }
+.equity-share-counts { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+.equity-share-chip { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 1px solid; font-weight: 500; }
+.equity-share-chip--held { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.equity-share-chip--unvested { background: #eff6ff; border-color: #93c5fd; color: #1e40af; }
+.equity-share-chip--tax { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+.equity-share-chip--sold { background: #fff5f5; border-color: #fca5a5; color: #991b1b; }
+.equity-share-chip--espp { background: #faf5ff; border-color: #c4b5fd; color: #6b21a8; }
+.equity-edit-btn { font-size: 11px; padding: 1px 5px; color: #2563eb; border-color: #93c5fd; border-radius: 3px; background: #eff6ff; cursor: pointer; }
+.equity-edit-row td { background: #fffbeb; padding: 8px !important; }
+.equity-edit-fields { display: inline-flex; gap: 1rem; margin-left: 1rem; }
+.equity-edit-fields label { display: flex; flex-direction: column; font-size: 10px; font-weight: 700; color: #374151; gap: 2px; }
+.equity-edit-fields input { font-size: 12px; padding: 3px 6px; border: 1px solid var(--border, #e2e8f0); border-radius: 4px; width: 140px; }
+.equity-seed-banner { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 1rem; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; margin-bottom: 1rem; }
+.equity-seed-btn { background: #0284c7; color: #fff; border: none; border-radius: 6px; padding: 0.5rem 1.2rem; font-size: 13px; font-weight: 700; cursor: pointer; }
+.equity-seed-btn:hover { background: #0369a1; }
+.equity-seed-note { font-size: 11px; color: #0369a1; margin: 0; }

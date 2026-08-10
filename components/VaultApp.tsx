@@ -43,6 +43,7 @@ import { UnlockScreen } from "@/components/vault/UnlockScreen";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
+import { EquityReport } from "@/components/reports/EquityReport";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
@@ -109,7 +110,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [selectedVoucher, setSelectedVoucher] = useState<Tx | null>(null),
     [inlineLedgerSide, setInlineLedgerSide] = useState<"debit" | "credit" | null>(null),
     [voucherLines, setVoucherLines] = useState<VoucherLineDraft[]>(blankVoucherLines()),
-    [vaultEtag, setVaultEtag] = useState("");
+    [vaultEtag, setVaultEtag] = useState(""),
+    [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
 
   async function cacheUnifiedVaultPassword(pw: string) {
     const secret = sessionStorage.getItem(unifiedSecretKey);
@@ -454,6 +456,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     };
   }, [data, password, vaultEtag]);
 
+  useEffect(() => {
+    if (!data?.equity) return;
+    fetch("/api/equity-price?ticker=NVDA")
+      .then((r) => r.json())
+      .then((d: unknown) => { const p = (d as { price?: number | null }).price; if (typeof p === "number") setNvdaPrice(p); })
+      .catch(() => {});
+  }, [data?.equity]);
+
   const calc = useMemo(() => {
     const empty = {
       opening: new Map<number, number>(),
@@ -508,6 +518,101 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       );
     return { opening, debit, credit, closing, period };
   }, [data, year, customStart, customEnd]);
+
+  const { cashFlowItems, cashFlowGroups } = useMemo(() => {
+    if (!data) return { cashFlowItems: [], cashFlowGroups: [] };
+    const tol = 0.005;
+    const isCb = (a: Account) => /^(bank accounts|cash-in-hand)$/.test((a.parent || "").toLowerCase());
+    const cashIds = new Set(data.accounts.filter(isCb).map((a) => a.id));
+    const accountById = new Map(data.accounts.map((a) => [a.id, a]));
+    const items = calc.period
+      .filter((t) => !t.cancelled)
+      .flatMap((t) => {
+        const cashEntries = t.entries.filter((e) => cashIds.has(e.accountId)),
+          cashMovement = -cashEntries.reduce((s, e) => s + e.amount, 0);
+        if (!cashEntries.length || Math.abs(cashMovement) <= tol) return [];
+        return t.entries
+          .filter((e) => !cashIds.has(e.accountId) && Math.abs(e.amount) > tol)
+          .map((e, i) => {
+            const account = accountById.get(e.accountId),
+              group = account?.parent || "Other",
+              ledger = account?.name || e.accountName || "Unknown Ledger",
+              amount = Math.abs(e.amount),
+              kind = e.amount > 0 ? "inflow" : "outflow";
+            return { t, entry: e, entryIndex: i, group, ledger, amount, kind, movement: kind === "inflow" ? amount : -amount };
+          });
+      });
+    const groups = [
+      ...items
+        .reduce(
+          (m, x) => {
+            const v = m.get(x.group) || { group: x.group, inflow: 0, outflow: 0, inflowLedgers: new Map<string, number>(), outflowLedgers: new Map<string, number>() };
+            if (x.kind === "inflow") { v.inflow += x.amount; v.inflowLedgers.set(x.ledger, (v.inflowLedgers.get(x.ledger) || 0) + x.amount); }
+            else { v.outflow += x.amount; v.outflowLedgers.set(x.ledger, (v.outflowLedgers.get(x.ledger) || 0) + x.amount); }
+            m.set(x.group, v);
+            return m;
+          },
+          new Map<string, { group: string; inflow: number; outflow: number; inflowLedgers: Map<string, number>; outflowLedgers: Map<string, number> }>()
+        )
+        .values(),
+    ]
+      .map((g) => ({
+        ...g,
+        inflowLedgers: [...g.inflowLedgers.entries()].map(([name, amount]) => ({ name, amount })).sort((a, b) => a.name.localeCompare(b.name)),
+        outflowLedgers: [...g.outflowLedgers.entries()].map(([name, amount]) => ({ name, amount })).sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.group.localeCompare(b.group));
+    return { cashFlowItems: items, cashFlowGroups: groups };
+  }, [data, calc]);
+
+  const adjustedFilteredRows = useMemo(() => {
+    if (!data) return [];
+    const tol = 0.005;
+    const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g]));
+    const natureFor = (a: Account) => {
+      const group = (a.parent || "").toLowerCase(), configured = masterGroups.get(group);
+      if (group.includes("(asset)")) return "Asset";
+      if (configured) return configured.nature;
+      if (/^(direct incomes|indirect incomes|sales accounts)$/.test(group)) return "Income";
+      if (/^(direct expenses|indirect expenses|purchase accounts)$/.test(group)) return "Expense";
+      if (/^(capital account|reserves & surplus)$/.test(group)) return "Capital";
+      if (/^(current liabilities|loans \(liability\)|bank od a\/c|secured loans|unsecured loans|duties & taxes|provisions|sundry creditors)$/.test(group)) return "Liability";
+      if (group === "bank accounts") return "Bank";
+      if (group === "cash-in-hand") return "Cash";
+      if (group === "investments") return "Investment";
+      return "Asset";
+    };
+    const isNominalLedgerRow = (a: Account) =>
+      year !== "all" && !/profit\s*&\s*loss|income\s*&\s*expenditure/i.test(a.name) && /^(Income|Expense)$/.test(natureFor(a));
+    const rows = data.accounts.map((a) => {
+      const opening = calc.opening.get(a.id) || 0, debit = calc.debit.get(a.id) || 0,
+        credit = calc.credit.get(a.id) || 0, closing = calc.closing.get(a.id) || 0,
+        nominal = isNominalLedgerRow(a);
+      return { ...a, opening: nominal ? 0 : opening, debit, credit, closing: nominal ? debit - credit : closing };
+    });
+    const active = rows.filter((a) => Math.abs(a.opening) > tol || a.debit > tol || a.credit > tol || Math.abs(a.closing) > tol);
+    const isProfitLoss = (a: typeof rows[number]) => /profit\s*&\s*loss|income\s*&\s*expenditure/i.test(a.name);
+    const isIncome = (a: typeof rows[number]) => !isProfitLoss(a) && natureFor(a) === "Income";
+    const isExpense = (a: typeof rows[number]) => !isProfitLoss(a) && natureFor(a) === "Expense";
+    const selectedPeriod = year !== "all";
+    return active
+      .map((a) => {
+        const nom = (isIncome(a) || isExpense(a)) && selectedPeriod,
+          pl = isProfitLoss(a) && selectedPeriod,
+          opening = pl || nom ? 0 : a.opening,
+          closing = opening - a.debit + a.credit;
+        return { ...a, opening, closing };
+      })
+      .filter((a) => Math.abs(a.opening) > tol || a.debit > tol || a.credit > tol || Math.abs(a.closing) > tol)
+      .filter((a) => !tableFilter || `${a.name} ${a.parent || a.category}`.toLowerCase().includes(tableFilter.toLowerCase()))
+      .filter((a) => !minAmount || Math.max(Math.abs(a.opening), a.debit, a.credit, Math.abs(a.closing)) >= Number(minAmount))
+      .sort((a, b) => {
+        const av = sortKey === "name" ? a.name.toLowerCase() : sortKey === "group" ? (a.parent || a.category).toLowerCase() : Number(a[sortKey as "opening" | "debit" | "credit" | "closing"] || 0),
+          bv = sortKey === "name" ? b.name.toLowerCase() : sortKey === "group" ? (b.parent || b.category).toLowerCase() : Number(b[sortKey as "opening" | "debit" | "credit" | "closing"] || 0),
+          result = typeof av === "string" ? av.localeCompare(String(bv)) : av - Number(bv);
+        return sortDir === "asc" ? result : -result;
+      });
+  }, [data, calc, year, tableFilter, minAmount, sortKey, sortDir]);
 
   if (!data)
     return (
@@ -590,65 +695,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
 
   const cashBank = rows.filter(isCashBank).reduce((s, a) => s - a.closing, 0),
     cashIds = new Set(rows.filter(isCashBank).map((a) => a.id)),
-    cashOpening = -rows.filter(isCashBank).reduce((s, a) => s + a.opening, 0),
-    cashFlowItems = calc.period
-      .filter((t) => !t.cancelled)
-      .flatMap((t) => {
-        const cashEntries = t.entries.filter((e) => cashIds.has(e.accountId)),
-          cashMovement = -cashEntries.reduce((s, e) => s + e.amount, 0);
-        if (!cashEntries.length || Math.abs(cashMovement) <= tol) return [];
-        return t.entries
-          .filter((e) => !cashIds.has(e.accountId) && Math.abs(e.amount) > tol)
-          .map((e, i) => {
-            const account = accountById.get(e.accountId),
-              group = account?.parent || "Other",
-              ledger = account?.name || e.accountName || "Unknown Ledger",
-              amount = Math.abs(e.amount),
-              kind = e.amount > 0 ? "inflow" : "outflow";
-            return {
-              t,
-              entry: e,
-              entryIndex: i,
-              group,
-              ledger,
-              amount,
-              kind,
-              movement: kind === "inflow" ? amount : -amount,
-            };
-          });
-      }),
-    cashFlowGroups = [
-      ...cashFlowItems
-        .reduce((m, x) => {
-          const v = m.get(x.group) || {
-            group: x.group,
-            inflow: 0,
-            outflow: 0,
-            inflowLedgers: new Map<string, number>(),
-            outflowLedgers: new Map<string, number>(),
-          };
-          if (x.kind === "inflow") {
-            v.inflow += x.amount;
-            v.inflowLedgers.set(x.ledger, (v.inflowLedgers.get(x.ledger) || 0) + x.amount);
-          } else {
-            v.outflow += x.amount;
-            v.outflowLedgers.set(x.ledger, (v.outflowLedgers.get(x.ledger) || 0) + x.amount);
-          }
-          m.set(x.group, v);
-          return m;
-        }, new Map<string, { group: string; inflow: number; outflow: number; inflowLedgers: Map<string, number>; outflowLedgers: Map<string, number> }>())
-        .values(),
-    ]
-      .map((g) => ({
-        ...g,
-        inflowLedgers: [...g.inflowLedgers.entries()]
-          .map(([name, amount]) => ({ name, amount }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        outflowLedgers: [...g.outflowLedgers.entries()]
-          .map(([name, amount]) => ({ name, amount }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      }))
-      .sort((a, b) => a.group.localeCompare(b.group)),
+    cashOpening = -rows.filter(isCashBank).reduce((s, a) => s + a.opening, 0);
+
+
+  const
     cashInflows = cashFlowGroups.reduce((s, g) => s + g.inflow, 0),
     cashOutflows = cashFlowGroups.reduce((s, g) => s + g.outflow, 0),
     cashNet = cashInflows - cashOutflows,
@@ -750,7 +800,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (!t.deleted && t.date >= balanceFYStart && t.date <= balanceEnd)
       for (const e of t.entries) if (nominalIds.has(e.accountId)) capitalTransfer += e.amount;
 
-  const filtered = calc.period
+  const filteredAll = calc.period
     .filter(
       (t) =>
         !query ||
@@ -759,8 +809,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           .includes(query.toLowerCase())
     )
     .slice()
-    .reverse()
-    .slice(0, 750);
+    .reverse();
+  const DAY_BOOK_CAP = 750;
+  const filtered = filteredAll.slice(0, DAY_BOOK_CAP);
+  const dayBookCapped = filteredAll.length > DAY_BOOK_CAP;
 
   const selectedRow = rows.find((a) => a.id === selected),
     selectedTx = selected
@@ -827,7 +879,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     );
     setVoucherLines((lines) => [
       ...lines,
-      { side: inlineLedgerSide, accountId: String(id), amount: "" },
+      { id: crypto.randomUUID(), side: inlineLedgerSide, accountId: String(id), amount: "" },
     ]);
   }
 
@@ -998,6 +1050,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         value: a.closing,
       }));
 
+  const cur = nvdaPrice ?? 0;
+  const equityRsuMktValue = (data?.equity?.grants ?? []).reduce((s, g) => {
+    const vestedTotal = g.vests.reduce((vs, v) => vs + v.shares, 0);
+    const unvested = Math.max(0, g.totalShares - vestedTotal);
+    return s + g.vests.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + unvested * cur;
+  }, 0);
+  const equityEsppMktValue = (data?.equity?.esppPurchases ?? []).reduce(
+    (s, e) => s + (e.sharesHeld || e.shares) * cur,
+    0
+  );
+  const equityMktValue = equityRsuMktValue + equityEsppMktValue;
+  // Held vested RSU at live price (excludes unvested and tax/sold)
+  const equityRsuVestedValue = (data?.equity?.grants ?? []).reduce(
+    (s, g) => s + g.vests.reduce((vs, v) => vs + v.sharesHeld * cur, 0),
+    0
+  );
+
   const filteredActive = active
     .filter(
       (a) =>
@@ -1026,47 +1095,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return sortDir === "asc" ? result : -result;
     });
 
-  const adjustedFilteredRows = () => {
-    const selectedPeriod = year !== "all";
-    return active
-      .map((a) => {
-        const nom = (isIncome(a) || isExpense(a)) && selectedPeriod,
-          pl = isProfitLoss(a) && selectedPeriod,
-          opening = pl || nom ? 0 : a.opening,
-          closing = opening - a.debit + a.credit;
-        return { ...a, opening, closing };
-      })
-      .filter(
-        (a) =>
-          Math.abs(a.opening) > tol || a.debit > tol || a.credit > tol || Math.abs(a.closing) > tol
-      )
-      .filter(
-        (a) =>
-          !tableFilter ||
-          `${a.name} ${a.parent || a.category}`.toLowerCase().includes(tableFilter.toLowerCase())
-      )
-      .filter(
-        (a) =>
-          !minAmount ||
-          Math.max(Math.abs(a.opening), a.debit, a.credit, Math.abs(a.closing)) >= Number(minAmount)
-      )
-      .sort((a, b) => {
-        const av =
-            sortKey === "name"
-              ? a.name.toLowerCase()
-              : sortKey === "group"
-                ? (a.parent || a.category).toLowerCase()
-                : Number(a[sortKey as "opening" | "debit" | "credit" | "closing"] || 0),
-          bv =
-            sortKey === "name"
-              ? b.name.toLowerCase()
-              : sortKey === "group"
-                ? (b.parent || b.category).toLowerCase()
-                : Number(b[sortKey as "opening" | "debit" | "credit" | "closing"] || 0),
-          result = typeof av === "string" ? av.localeCompare(String(bv)) : av - Number(bv);
-        return sortDir === "asc" ? result : -result;
-      });
-  };
 
   const sortBy = (key: string) => {
     if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -1129,7 +1157,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         Clear
       </button>
       <span>
-        {adjustedFilteredRows().length} of {active.length} ledgers
+        {adjustedFilteredRows.length} of {active.length} ledgers
       </span>
     </div>
   );
@@ -1426,7 +1454,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           Reports
         </button>
         <button className={tab === "bank-import" ? "selected" : ""} onClick={() => setTab("bank-import")}>
-          Bank Import
+          Import
         </button>
         <button
           type="button"
@@ -1652,16 +1680,27 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             )}
             <DashboardInline kind="active" />
           </div>
-          <div className="dashboard-card-slot period-slot">
+          <div className="dashboard-card-slot equity-slot">
             <button
-              className="dashboard-card-period"
-              onClick={() => toggleDashboardDetail("period")}
+              className="dashboard-balance-card"
+              onClick={() => { setReport("equity"); setTab("reports"); }}
             >
-              <span>Period vouchers</span>
-              <strong>{calc.period.length}</strong>
-              <small>View Day Book - {periodLabel}</small>
+              <div className="dashboard-card-main">
+                <span>Equity (NVDA)</span>
+                <strong>{fmt(equityMktValue)}</strong>
+                <small>{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</small>
+              </div>
+              <div className="dashboard-card-highlights">
+                <span>
+                  <b>RSU</b>
+                  <em>{fmt(equityRsuVestedValue)}</em>
+                </span>
+                <span>
+                  <b>ESPP</b>
+                  <em>{fmt(equityEsppMktValue)}</em>
+                </span>
+              </div>
             </button>
-            <DashboardInline kind="period" />
           </div>
         </section>
       )}
@@ -1682,6 +1721,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {dayBookCapped && (
+            <div style={{ padding: "6px 12px", background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", fontSize: "0.8rem", color: "#713f12", marginBottom: "8px" }}>
+              Showing {DAY_BOOK_CAP} of {filteredAll.length} vouchers — use the search box to find older entries.
+            </div>
+          )}
           <TransactionTable
             transactions={filtered}
             formatAmount={fmt}
@@ -1689,6 +1733,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onEdit={(t) => editVoucher(t as Tx)}
             onCopy={(t) => copyVoucher(t as Tx)}
             onDelete={(t) => deleteVoucher(t as Tx)}
+            onClearSearch={() => setQuery("")}
           />
         </div>
       )}
@@ -1822,6 +1867,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Cash and Bank
             </button>
+            <button
+              className={report === "equity" ? "selected" : ""}
+              onClick={() => setReport("equity")}
+            >
+              Equity
+            </button>
           </div>
           {report === "trial" && (
             <div className="data-panel">
@@ -1830,7 +1881,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </h3>
               {tableFiltersJsx}
               {(() => {
-                const tR = adjustedFilteredRows().map((a) => ({
+                const tR = adjustedFilteredRows.map((a) => ({
                   ...a,
                   tO: a.opening,
                   tC: a.closing,
@@ -1974,6 +2025,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </div>
             </div>
           )}
+          {report === "equity" && data && (
+            <EquityReport
+              grants={data.equity?.grants ?? []}
+              esppPurchases={data.equity?.esppPurchases ?? []}
+              onSave={async (grants, esppPurchases) => {
+                await save({ ...data, equity: { grants, esppPurchases } }, "reports");
+              }}
+              fmt={fmt}
+            />
+          )}
         </>
       )}
       {tab === "new" && (
@@ -2051,7 +2112,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   onClick={() =>
                     setVoucherLines((lines) => [
                       ...lines,
-                      { side: "debit", accountId: "", amount: "" },
+                      { id: crypto.randomUUID(), side: "debit", accountId: "", amount: "" },
                     ])
                   }
                 >
@@ -2062,7 +2123,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   onClick={() =>
                     setVoucherLines((lines) => [
                       ...lines,
-                      { side: "credit", accountId: "", amount: "" },
+                      { id: crypto.randomUUID(), side: "credit", accountId: "", amount: "" },
                     ])
                   }
                 >
@@ -2083,7 +2144,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                       ? " voucher-line-auto"
                       : "")
                   }
-                  key={index}
+                  key={line.id}
                 >
                   <select
                     value={line.side}

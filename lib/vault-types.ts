@@ -2,7 +2,7 @@ import type { MasterGroup } from "@/components/MastersPanel";
 
 export type Entry = { accountId: number; accountName: string; amount: number };
 
-export type VoucherLineDraft = { side: "debit" | "credit"; accountId: string; amount: string };
+export type VoucherLineDraft = { id: string; side: "debit" | "credit"; accountId: string; amount: string };
 
 export type Tx = {
   id: number;
@@ -37,6 +37,42 @@ export type Account = {
   masterDeletePending?: boolean;
 };
 
+export type RsuVest = {
+  id: string;
+  vestDate: string;
+  shares: number;
+  vestPrice: number;
+  sharesHeld: number;
+  taxShares?: number; // shares withheld by company for tax (auto-sold at vest FMV)
+  salePrice?: number; // actual $/share for user-initiated sales; defaults to vestPrice
+};
+
+export type RsuGrant = {
+  id: string;
+  ticker: string;
+  grantDate: string;
+  totalShares: number;
+  grantPrice: number;
+  vests: RsuVest[];
+};
+
+export type EsppPurchase = {
+  id: string;
+  ticker: string;
+  offeringDate: string;
+  purchaseDate: string;
+  shares: number;
+  offeringPrice: number;
+  purchasePrice: number;
+  marketPriceAtPurchase: number;
+  sharesHeld: number;
+};
+
+export type EquityData = {
+  grants: RsuGrant[];
+  esppPurchases: EsppPurchase[];
+};
+
 export type Ledger = {
   version: number;
   company: string;
@@ -48,6 +84,7 @@ export type Ledger = {
   currencies?: string[];
   voucherTypes?: string[];
   fiscalYearStartMonth?: number;
+  equity?: EquityData;
 };
 
 export type Vault = {

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { decryptVault } from "@/lib/vault-crypto";
-import type { Ledger, Vault } from "@/lib/vault-types";
+import type { Ledger, Vault, EquityData } from "@/lib/vault-types";
 import {
   consolidateLedger,
   neededRateMonths,
@@ -14,10 +14,11 @@ import {
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
+import { EquityReport } from "@/components/reports/EquityReport";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
-type Report = "trial" | "income" | "balance" | "cashflow" | "cash";
+type Report = "trial" | "income" | "balance" | "cashflow" | "cash" | "equity";
 type DashKind = "cash" | "investments" | "fixedassets" | "capital" | "income" | "vouchers";
 
 const fmtInr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
@@ -132,9 +133,20 @@ export function GrApp() {
   const [editMode, setEditMode] = useState(false);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [report, setReport] = useState<Report>("trial");
-  const [year, setYear] = useState("2026"); // current FY: Apr 2026 – Mar 2027
-  const [customStart, setCustomStart] = useState("2026-04");
-  const [customEnd, setCustomEnd] = useState("2026-06");
+  const [year, setYear] = useState(() => {
+    const now = new Date();
+    return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
+  });
+  const [customStart, setCustomStart] = useState(() => {
+    const now = new Date();
+    const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${fy}-04`;
+  });
+  const [customEnd, setCustomEnd] = useState(() => {
+    const now = new Date();
+    const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${fy}-06`;
+  });
   const [query, setQuery] = useState("");
   const [editRates, setEditRates] = useState<Record<string, string>>({});
   const [savingRates, setSavingRates] = useState(false);
@@ -145,9 +157,14 @@ export function GrApp() {
   const [expandedGuid, setExpandedGuid] = useState<string | null>(null);
   const [dashboardDetail, setDashboardDetail] = useState<DashKind | null>(null);
   const [selectedLedgerName, setSelectedLedgerName] = useState<string | null>(null);
-  const [overlayYear, setOverlayYear] = useState<string>("2026");
+  const [overlayYear, setOverlayYear] = useState<string>(() => {
+    const now = new Date();
+    return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
+  });
   const [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1");
   const loadedRef = useRef(false);
+  const [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
+  const [equityData, setEquityData] = useState<EquityData | null>(null);
 
   const togglePrivacy = () =>
     setPrivacyMode((p) => {
@@ -155,6 +172,17 @@ export function GrApp() {
       localStorage.setItem("dk-privacy", next ? "1" : "0");
       return next;
     });
+
+  useEffect(() => {
+    if (!equityData) return;
+    fetch("/api/equity-price?ticker=NVDA")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const p = (d as { price?: number | null }).price;
+        if (typeof p === "number") setNvdaPrice(p);
+      })
+      .catch(() => {});
+  }, [equityData]);
 
   useEffect(() => {
     if (loadedRef.current) return;
@@ -231,8 +259,16 @@ export function GrApp() {
         fxCacheSave(rates);
       }
 
+      const stillMissingFinal = needed.filter((m) => rates[m] == null);
+      if (stillMissingFinal.length > 0) {
+        setStatusMsg(
+          `Warning: FX rates unavailable for ${stillMissingFinal.length} month(s) — consolidated USD amounts may be incorrect. Check your internet connection and reload.`
+        );
+      }
+
       const consolidated = consolidateLedger(usData, inData, rates);
       setGr(consolidated);
+      if (usData.equity) setEquityData(usData.equity);
       setEditRates(
         Object.fromEntries(Object.entries(rates).map(([k, v]) => [k, String(v)]))
       );
@@ -659,6 +695,24 @@ export function GrApp() {
   const dashFixedAssetsTotal = fixedAssetAccounts.reduce((s, a) => s - a.closingInr, 0);
   const dashCapitalTotal = capitalAccounts.reduce((s, a) => s + a.closingInr, 0);
 
+  // Equity (NVDA) — USD then converted to INR via most recent available FX rate
+  const cur = nvdaPrice ?? 0;
+  const equityRsuMktValueUsd = (equityData?.grants ?? []).reduce((s, g) => {
+    const vestedTotal = g.vests.reduce((vs, v) => vs + v.shares, 0);
+    const unvested = Math.max(0, g.totalShares - vestedTotal);
+    return s + g.vests.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + unvested * cur;
+  }, 0);
+  const equityEsppMktValueUsd = (equityData?.esppPurchases ?? []).reduce(
+    (s, e) => s + (e.sharesHeld || e.shares) * cur, 0
+  );
+  const equityTotalUsd = equityRsuMktValueUsd + equityEsppMktValueUsd;
+  // Get the most recently available FX rate for INR conversion
+  const latestFxRate = Object.entries(gr.fxRates ?? {})
+    .sort(([a], [b]) => b.localeCompare(a))[0]?.[1] ?? 0;
+  const equityTotalInr = equityTotalUsd * latestFxRate;
+  const equityRsuInr = equityRsuMktValueUsd * latestFxRate;
+  const equityEsppInr = equityEsppMktValueUsd * latestFxRate;
+
   function pillClass(a: GrAccount) {
     if (a.sources.includes("US") && a.sources.includes("IN")) return "gr-dash-pill gr-dash-pill-both";
     if (a.sources.includes("US")) return "gr-dash-pill gr-dash-pill-us";
@@ -778,7 +832,7 @@ export function GrApp() {
                   .slice(0, 3)
                   .map((a) => (
                     <span key={a.name} className={pillClass(a)}>
-                      <b title={a.name}>{chipLabel(a.name)}</b>
+                      <b title={privacyMode ? undefined : a.name}>{chipLabel(a.name)}</b>
                       <em>{fmtL(Math.abs(a.closingInr))}</em>
                     </span>
                   ))}
@@ -825,7 +879,7 @@ export function GrApp() {
                   .slice(0, 3)
                   .map((a) => (
                     <span key={a.name} className={pillClass(a)}>
-                      <b title={a.name}>{chipLabel(a.name)}</b>
+                      <b title={privacyMode ? undefined : a.name}>{chipLabel(a.name)}</b>
                       <em>{fmtL(-a.closingInr)}</em>
                     </span>
                   ))}
@@ -875,7 +929,7 @@ export function GrApp() {
                   .slice(0, 3)
                   .map((a) => (
                     <span key={a.name} className={pillClass(a)}>
-                      <b title={a.name}>{chipLabel(a.name)}</b>
+                      <b title={privacyMode ? undefined : a.name}>{chipLabel(a.name)}</b>
                       <em>{fmtL(-a.closingInr)}</em>
                     </span>
                   ))}
@@ -924,7 +978,7 @@ export function GrApp() {
                   .slice(0, 3)
                   .map((a) => (
                     <span key={a.name} className={pillClass(a)}>
-                      <b title={a.name}>{chipLabel(a.name)}</b>
+                      <b title={privacyMode ? undefined : a.name}>{chipLabel(a.name)}</b>
                       <em>{fmtL(Math.abs(a.closingInr))}</em>
                     </span>
                   ))}
@@ -980,7 +1034,7 @@ export function GrApp() {
                     const v = (periodCalc.cr.get(normKey(a.name)) || 0) - (periodCalc.dr.get(normKey(a.name)) || 0);
                     return (
                       <span key={a.name} className={pillClass(a)}>
-                        <b title={a.name}>{chipLabel(a.name)}</b>
+                        <b title={privacyMode ? undefined : a.name}>{chipLabel(a.name)}</b>
                         <em>{fmtL(v)}</em>
                       </span>
                     );
@@ -1013,49 +1067,32 @@ export function GrApp() {
             )}
           </div>
 
-          {/* Card 6: Period Vouchers */}
+          {/* Card 6: Equity (NVDA) in INR */}
           <div className="dashboard-card-slot period-slot">
             <button
-              className="dashboard-card-period"
-              onClick={() => setDashboardDetail(dashboardDetail === "vouchers" ? null : "vouchers")}
+              className="dashboard-balance-card"
+              onClick={() => { setTab("reports"); setReport("equity"); }}
             >
-              <span>Period Vouchers</span>
-              <strong>{filteredTxns.filter((t) => !t.cancelled).length}</strong>
-              <small>
-                {filteredTxns.filter((t) => !t.cancelled && t.source === "US").length} US
-                {" · "}
-                {filteredTxns.filter((t) => !t.cancelled && t.source === "IN").length} IN
-                {" — "}{periodLabel}
-              </small>
-            </button>
-            {dashboardDetail === "vouchers" && (
-              <div className="dashboard-inline-detail">
-                <div className="dashboard-inline-heading">
-                  <div><strong>Recent Vouchers</strong><small>Tap card to close</small></div>
-                </div>
-                {filteredTxns
-                  .filter((t) => !t.cancelled)
-                  .slice(0, 15)
-                  .map((t) => (
-                    <button
-                      key={t.guid}
-                      className={`dashboard-inline-row dashboard-inline-button ${t.source === "US" ? "gr-row-us" : "gr-row-in"}`}
-                      onClick={() => setExpandedGuid(t.guid)}
-                    >
-                      <span>
-                        {formatDate(t.date)} · {t.type}
-                        <small>{debitNames(t).slice(0, 35)}</small>
-                      </span>
-                      <b>{fmt(t.amountInr)}</b>
-                    </button>
-                  ))}
-                {filteredTxns.filter((t) => !t.cancelled).length > 15 && (
-                  <div className="gr-inline-more">
-                    +{filteredTxns.filter((t) => !t.cancelled).length - 15} more — use Day Book tab
-                  </div>
-                )}
+              <div className="dashboard-card-main">
+                <span>Equity (NVDA)</span>
+                <strong>{equityData ? fmt(equityTotalInr) : "—"}</strong>
+                <small>
+                  {nvdaPrice && latestFxRate
+                    ? `$${nvdaPrice.toFixed(2)} × ₹${latestFxRate.toFixed(2)}`
+                    : equityData ? "loading price…" : "No equity data"}
+                </small>
               </div>
-            )}
+              <div className="dashboard-card-highlights">
+                <span>
+                  <b>RSU</b>
+                  <em>{equityData ? fmt(equityRsuInr) : "—"}</em>
+                </span>
+                <span>
+                  <b>ESPP</b>
+                  <em>{equityData ? fmt(equityEsppInr) : "—"}</em>
+                </span>
+              </div>
+            </button>
           </div>
         </section>
       )}
@@ -1286,6 +1323,12 @@ export function GrApp() {
             <button className={report === "cash" ? "selected" : ""} onClick={() => setReport("cash")}>
               Cash and Bank
             </button>
+            <button
+              className={report === "equity" ? "selected" : ""}
+              onClick={() => setReport("equity")}
+            >
+              Equity
+            </button>
           </div>
 
           {/* Trial Balance */}
@@ -1412,6 +1455,20 @@ export function GrApp() {
               fmt={(n) => fmt(n)}
               onGroup={() => {}}
               onLedger={() => {}}
+            />
+          )}
+
+          {/* Equity */}
+          {report === "equity" && (
+            <EquityReport
+              grants={equityData?.grants ?? []}
+              esppPurchases={equityData?.esppPurchases ?? []}
+              onSave={async () => {}}
+              fmt={(n) => {
+                const inr = n * latestFxRate;
+                return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Math.abs(inr) < 0.005 ? 0 : inr);
+              }}
+              readOnly={true}
             />
           )}
 
