@@ -126,21 +126,24 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
     const unvestedShares = Math.max(0, g.totalShares - vestedShares);
     const awardValue = g.totalShares * g.grantPrice;
     const vestedValue = g.vests.reduce((s, v) => s + v.shares * v.vestPrice, 0);
-    // Realized: tax shares auto-sold at vest FMV + user-sold shares at actual/vest price
+    // Tax withheld by company (goes to government — excluded from user gain)
+    const taxValue = g.vests.reduce((s, v) => s + (v.taxShares ?? 0) * v.vestPrice, 0);
+    // User-initiated sales only
     const saleValue = g.vests.reduce((s, v) => {
       const tax = v.taxShares ?? 0;
-      const userSold = v.shares - tax - v.sharesHeld;
-      return s + tax * v.vestPrice + userSold * (v.salePrice ?? v.vestPrice);
+      const userSold = Math.max(0, v.shares - tax - v.sharesHeld);
+      return s + userSold * (v.salePrice ?? v.vestPrice);
     }, 0);
     // Unrealized: held shares + unvested at live price
     const marketValue = g.vests.reduce((s, v) => s + v.sharesHeld * cur, 0) + unvestedShares * cur;
     const currentValue = saleValue + marketValue;
     const gain = currentValue - awardValue;
-    return { ...g, vestedShares, unvestedShares, awardValue, vestedValue, saleValue, marketValue, currentValue, gain };
+    return { ...g, vestedShares, unvestedShares, awardValue, vestedValue, taxValue, saleValue, marketValue, currentValue, gain };
   });
   const rsuAward = grantRows.reduce((s, g) => s + g.awardValue, 0);
   const rsuVested = grantRows.reduce((s, g) => s + g.vestedValue, 0);
-  const rsuSaleValue = grantRows.reduce((s, g) => s + g.saleValue, 0);
+  const rsuTaxValue = grantRows.reduce((s, g) => s + g.taxValue, 0);
+  const rsuSaleValue = grantRows.reduce((s, g) => s + g.saleValue, 0); // user-sold only
   const rsuMarketValue = grantRows.reduce((s, g) => s + g.marketValue, 0);
   const rsuCurrent = rsuSaleValue + rsuMarketValue;
   const rsuGain = grantRows.reduce((s, g) => s + g.gain, 0);
@@ -722,10 +725,8 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
                     }
                     const tax = v.taxShares ?? 0;
                     const userSold = Math.max(0, v.shares - tax - v.sharesHeld);
-                    const taxVal = tax * v.vestPrice;
                     const userSaleVal = userSold * sp;
-                    const totalSaleVal = taxVal + userSaleVal;
-                    const vestGain = totalSaleVal + mktVal - v.shares * g.grantPrice;
+                    const vestGain = userSaleVal + mktVal - v.shares * g.grantPrice;
                     return (
                       <tr key={v.id}>
                         <td>{fmtDate(v.vestDate)}</td>
@@ -746,7 +747,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
                         <td className="right">
                           {v.sharesHeld > 0 ? <span className="equity-kept-badge">{v.sharesHeld.toLocaleString()}</span> : <span className="equity-neutral">—</span>}
                         </td>
-                        <td className="right">{totalSaleVal > 0 ? fmt(totalSaleVal) : <span className="equity-neutral">—</span>}</td>
+                        <td className="right">{userSaleVal > 0 ? fmt(userSaleVal) : <span className="equity-neutral">—</span>}</td>
                         <td className="right">{v.sharesHeld > 0 ? fmt(mktVal) : <span className="equity-neutral">—</span>}</td>
                         <td className={`right ${vestGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(vestGain)}</td>
                         <td>
@@ -1086,6 +1087,11 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
             <div className="equity-grand-col">
               <span>Award Value</span>
               <strong className="equity-amt">{fmt(rsuAward + esppAward)}</strong>
+            </div>
+            <div className="equity-grand-col equity-grand-col--tax">
+              <span>Tax Value</span>
+              <strong className="equity-amt">{fmt(rsuTaxValue)}</strong>
+              <em className="equity-grand-col-note">withheld → govt</em>
             </div>
             <div className="equity-grand-col">
               <span>Sale Proceeds</span>

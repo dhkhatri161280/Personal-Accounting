@@ -6796,6 +6796,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-grand-col strong { font-size: 14px; font-weight: 700; }
 .equity-grand-col--gain > span { color: #16a34a; }
 .equity-grand-col--gain strong { color: #16a34a; }
+.equity-grand-col--tax { opacity: 0.55; }
+.equity-grand-col--tax > span { color: #94a3b8; }
+.equity-grand-col--tax strong { color: #9ca3af; }
+.equity-grand-col-note { font-size: 9px; color: #94a3b8; margin-top: 1px; }
 .equity-summary-card--gain { border-color: #16a34a; background: #f0fdf4; }
 .equity-summary-card--gain strong { color: #16a34a; }
 .equity-share-counts { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
