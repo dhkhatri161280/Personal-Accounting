@@ -6709,6 +6709,8 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-daily-gl-card--pos strong { color: #16a34a; }
 .equity-daily-gl-card--neg { border-color: #fca5a5; background: #fff5f5; }
 .equity-daily-gl-card--neg strong { color: #dc2626; }
+.equity-daily-chip--pos em { color: #16a34a !important; }
+.equity-daily-chip--neg em { color: #dc2626 !important; }
 .equity-drilldown { margin-top: 1rem; border: 1px solid #bfdbfe; border-radius: 10px; background: #f8fafc; overflow: hidden; }
 .equity-drilldown-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
 .equity-drilldown-head strong { font-size: 13px; color: #1d4ed8; }

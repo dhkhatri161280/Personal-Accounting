@@ -112,7 +112,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [inlineLedgerSide, setInlineLedgerSide] = useState<"debit" | "credit" | null>(null),
     [voucherLines, setVoucherLines] = useState<VoucherLineDraft[]>(blankVoucherLines()),
     [vaultEtag, setVaultEtag] = useState(""),
-    [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
+    [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
+    [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
 
   async function cacheUnifiedVaultPassword(pw: string) {
     const secret = sessionStorage.getItem(unifiedSecretKey);
@@ -461,7 +462,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (!data?.equity) return;
     fetch("/api/equity-price?ticker=NVDA")
       .then((r) => r.json())
-      .then((d: unknown) => { const p = (d as { price?: number | null }).price; if (typeof p === "number") setNvdaPrice(p); })
+      .then((d: unknown) => {
+        const j = d as { price?: number | null; previousClose?: number | null };
+        if (typeof j.price === "number") setNvdaPrice(j.price);
+        if (typeof j.previousClose === "number") setNvdaPrevClose(j.previousClose);
+      })
       .catch(() => {});
   }, [data?.equity]);
 
@@ -1067,6 +1072,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     (s, g) => s + g.vests.reduce((vs, v) => vs + v.sharesHeld * cur, 0),
     0
   );
+  // Daily G/(L): held RSU + ESPP shares × (live − prev close)
+  const equityDailyHeld = (data?.equity?.grants ?? []).reduce(
+    (s, g) => s + g.vests.reduce((vs, v) => vs + v.sharesHeld, 0), 0
+  ) + (data?.equity?.esppPurchases ?? []).reduce((s, e) => s + (e.sharesHeld || e.shares), 0);
+  const equityDailyGL = (cur > 0 && nvdaPrevClose !== null) ? equityDailyHeld * (cur - nvdaPrevClose) : null;
 
   const filteredActive = active
     .filter(
@@ -1700,6 +1710,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   <b>ESPP</b>
                   <em>{fmt(equityEsppMktValue)}</em>
                 </span>
+                {equityDailyGL !== null && (
+                  <span className={equityDailyGL >= 0 ? "equity-daily-chip--pos" : "equity-daily-chip--neg"}>
+                    <b>Today</b>
+                    <em>{equityDailyGL >= 0 ? "+" : ""}{fmt(equityDailyGL)}</em>
+                  </span>
+                )}
               </div>
             </button>
           </div>
