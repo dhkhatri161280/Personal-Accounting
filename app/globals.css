@@ -6594,7 +6594,15 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .voucher-line-row input[type="number"],
 .privacy-mode .plaid-entry-line input[type="number"],
 .privacy-mode .equity-amt,
-.privacy-mode .equity-summary-card strong {
+.privacy-mode .equity-summary-card strong,
+.privacy-mode .equity-price strong,
+.privacy-mode .equity-share-chip strong,
+.privacy-mode .equity-grant-label em,
+.privacy-mode .equity-gain-pos,
+.privacy-mode .equity-gain-neg,
+.privacy-mode .equity-cycle-row td strong,
+.privacy-mode .equity-cycle-row td em,
+.privacy-mode .equity-espp-table tfoot th {
   filter: blur(7px);
   user-select: none;
 }
