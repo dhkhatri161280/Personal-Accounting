@@ -71,6 +71,7 @@ interface EquityReportProps {
 
 export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: EquityReportProps) {
   const [price, setPrice] = useState<number | null>(null);
+  const [prevClose, setPrevClose] = useState<number | null>(null);
   const [priceErr, setPriceErr] = useState("");
   const [priceLoading, setPriceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -99,9 +100,10 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
     setPriceErr("");
     try {
       const res = await fetch("/api/equity-price?ticker=NVDA");
-      const { price: p, error } = (await res.json()) as { price: number | null; error?: string };
+      const { price: p, previousClose: pc, error } = (await res.json()) as { price: number | null; previousClose?: number | null; error?: string };
       if (typeof p !== "number") throw new Error(error ?? "No price");
       setPrice(p);
+      if (typeof pc === "number") setPrevClose(pc);
     } catch {
       setPriceErr("Live price unavailable");
     } finally {
@@ -192,6 +194,10 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
       return vs + sold * (v.salePrice ?? v.vestPrice);
     }, 0), 0);
   const summaryEsppValue = cur > 0 ? esppRows.reduce((s, e) => s + e.sharesHeld * cur, 0) : 0;
+
+  // Daily G/(L): vested held RSU + ESPP held shares × (live − prev close)
+  const dailyHeldShares = rsuHeldShares + esppHeldShares;
+  const dailyGL = (cur > 0 && prevClose !== null) ? dailyHeldShares * (cur - prevClose) : null;
 
   // Group ESPP by offering price, sorted by earliest purchase date (oldest first)
   const esppCycleMap = new Map<number, typeof esppRows[0][]>();
@@ -374,6 +380,16 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
               </button>
             );
           })}
+          {/* Daily G/(L) card */}
+          <div className={`equity-summary-card equity-summary-stat equity-daily-gl-card ${dailyGL === null ? "" : dailyGL >= 0 ? "equity-daily-gl-card--pos" : "equity-daily-gl-card--neg"}`}>
+            <span>Daily G/(L)</span>
+            <strong className="equity-amt">
+              {dailyGL === null
+                ? <span className="equity-neutral">—</span>
+                : <>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</>}
+            </strong>
+            <em>{dailyHeldShares.toLocaleString()} sh × today&apos;s move</em>
+          </div>
         </div>
 
         {/* ── Drill-down panel ─────────────────────────────────────────── */}

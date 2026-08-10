@@ -6595,6 +6595,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .plaid-entry-line input[type="number"],
 .privacy-mode .equity-amt,
 .privacy-mode .equity-summary-card strong,
+.privacy-mode .equity-daily-gl-card strong,
 .privacy-mode .equity-price strong,
 .privacy-mode .equity-share-chip strong,
 .privacy-mode .equity-grant-label em,
@@ -6692,17 +6693,22 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-price-loading { color: #6b7280; font-size: 12px; }
 .equity-refresh { font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
 
-.equity-summary-row { display: flex; gap: 1rem; flex-wrap: wrap; }
-.equity-summary-card { background: var(--surface2, #f8fafc); border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 0.9rem 1.2rem; min-width: 170px; }
-.equity-summary-card span { display: block; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.3rem; }
-.equity-summary-card strong { font-size: 20px; font-weight: 800; display: block; margin-bottom: 0.15rem; }
-.equity-summary-card em { font-size: 10px; color: #94a3b8; font-style: normal; }
+.equity-summary-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.equity-summary-card { background: var(--surface2, #f8fafc); border: 1px solid var(--border, #e2e8f0); border-radius: 10px; padding: 0.6rem 0.85rem; min-width: 140px; flex: 1; }
+.equity-summary-card span { display: block; font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.2rem; }
+.equity-summary-card strong { font-size: 16px; font-weight: 800; display: block; margin-bottom: 0.1rem; }
+.equity-summary-card em { font-size: 9.5px; color: #94a3b8; font-style: normal; }
 .equity-summary-card--current { border-color: #3b82f6; background: #eff6ff; }
 .equity-summary-card--current strong { color: #1d4ed8; }
-.equity-summary-stat { cursor: pointer; text-align: left; flex: 1; min-width: 170px; transition: border-color 0.15s, box-shadow 0.15s; }
+.equity-summary-stat { cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; }
 .equity-summary-stat:hover { border-color: #3b82f6; }
 .equity-summary-stat--active { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px #bfdbfe; }
 .equity-summary-stat--active strong { color: #1d4ed8; }
+.equity-daily-gl-card { text-align: left; }
+.equity-daily-gl-card--pos { border-color: #86efac; background: #f0fdf4; }
+.equity-daily-gl-card--pos strong { color: #16a34a; }
+.equity-daily-gl-card--neg { border-color: #fca5a5; background: #fff5f5; }
+.equity-daily-gl-card--neg strong { color: #dc2626; }
 .equity-drilldown { margin-top: 1rem; border: 1px solid #bfdbfe; border-radius: 10px; background: #f8fafc; overflow: hidden; }
 .equity-drilldown-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
 .equity-drilldown-head strong { font-size: 13px; color: #1d4ed8; }

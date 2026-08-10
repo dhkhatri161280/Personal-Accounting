@@ -10,11 +10,13 @@ export async function GET(request: Request) {
     );
     if (!res.ok) throw new Error(`Yahoo ${res.status}`);
     const json = (await res.json()) as {
-      chart?: { result?: Array<{ meta?: { regularMarketPrice?: number } }> };
+      chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; chartPreviousClose?: number } }> };
     };
-    const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    const meta = json?.chart?.result?.[0]?.meta;
+    const price = meta?.regularMarketPrice;
+    const previousClose = meta?.chartPreviousClose ?? null;
     if (typeof price !== "number") throw new Error("No price");
-    return Response.json({ ticker, price });
+    return Response.json({ ticker, price, previousClose });
   } catch (e) {
     return Response.json({ ticker, price: null, error: String(e) }, { status: 502 });
   }
