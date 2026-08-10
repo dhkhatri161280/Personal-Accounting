@@ -44,6 +44,7 @@ import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { EquityReport } from "@/components/reports/EquityReport";
+import { TradingReport } from "@/components/reports/TradingReport";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
@@ -1873,6 +1874,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Equity
             </button>
+            <button
+              className={report === "trading" ? "selected" : ""}
+              onClick={() => setReport("trading")}
+            >
+              Trading
+            </button>
           </div>
           {report === "trial" && (
             <div className="data-panel">
@@ -2034,6 +2041,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               }}
               fmt={fmt}
             />
+          )}
+          {report === "trading" && (
+            <TradingReport fmt={fmt} />
           )}
         </>
       )}
