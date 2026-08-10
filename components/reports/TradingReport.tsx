@@ -135,6 +135,156 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
         ))}
       </div>
 
+      {/* Tabs */}
+      <div className="tr-tabs">
+        <button className={activeTab === "open" ? "selected" : ""} onClick={() => setActiveTab("open")}>
+          Open Positions ({open.length})
+        </button>
+        <button className={activeTab === "closed" ? "selected" : ""} onClick={() => setActiveTab("closed")}>
+          Closed Positions ({closed.length})
+        </button>
+      </div>
+
+      {activeTab === "open" && (
+        <div className="tr-table-wrap">
+          <table className="tr-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Ticker</th>
+                <th>Broker</th>
+                <th className="right">Buy Date</th>
+                <th className="right">Days Held</th>
+                <th className="right">Units</th>
+                <th className="right">Cost/Sh</th>
+                <th className="right">Total Cost</th>
+                <th className="right">Current Price</th>
+                <th className="right">Market Value</th>
+                <th className="right">G/(L) $</th>
+                <th className="right">G/(L) %</th>
+                <th className="right">Daily G/(L) $</th>
+                <th className="right">Daily G/(L) %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {open.map((t, i) => {
+                const gl = glOf(t);
+                const pct = pctOf(t);
+                const mv = t.units * t.marketOrSalePrice;
+                const tc = costOf(t);
+                const days = daysBetween(t.buyDate, new Date().toISOString().slice(0, 10));
+                const dailyGL = t.units * (t.marketOrSalePrice - t.yesterday);
+                const dailyPct = ((t.marketOrSalePrice - t.yesterday) / t.yesterday) * 100;
+                return (
+                  <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
+                    <td>{t.company}</td>
+                    <td><span className="tr-symbol">{t.symbol}</span></td>
+                    <td><span className="tr-broker-tag">{t.broker}</span></td>
+                    <td className="right">{fmtDate(t.buyDate)}</td>
+                    <td className="right">{days}d</td>
+                    <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
+                    <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
+                    <td className="right trading-amt">{fmt(tc)}</td>
+                    <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
+                    <td className="right trading-amt">{fmt(mv)}</td>
+                    <td className={`right trading-amt ${glClass(gl)}`}>{fmt(gl)}</td>
+                    <td className="right">
+                      <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
+                    </td>
+                    <td className={`right trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</td>
+                    <td className="right">
+                      <span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={7}>Total Open</th>
+                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
+                <th />
+                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
+                <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
+                <th />
+                <th className={`right trading-amt ${glClass(open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0))}`}>
+                  {open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0) >= 0 ? "+" : ""}
+                  {fmt(open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0))}
+                </th>
+                <th />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {activeTab === "closed" && (
+        <div className="tr-table-wrap">
+          <div className="tr-sort-row">
+            <span>Sort by:</span>
+            <button className={closedSort === "date" ? "selected" : ""} onClick={() => setClosedSort("date")}>Buy Date</button>
+            <button className={closedSort === "gl" ? "selected" : ""} onClick={() => setClosedSort("gl")}>G/(L) $</button>
+            <button className={closedSort === "pct" ? "selected" : ""} onClick={() => setClosedSort("pct")}>G/(L) %</button>
+          </div>
+          <table className="tr-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Ticker</th>
+                <th>Broker</th>
+                <th className="right">Buy Date</th>
+                <th className="right">Sale Date</th>
+                <th className="right">Days</th>
+                <th className="right">Units</th>
+                <th className="right">Cost/Sh</th>
+                <th className="right">Sale/Sh</th>
+                <th className="right">Total Cost</th>
+                <th className="right">Proceeds</th>
+                <th className="right">G/(L) $</th>
+                <th className="right">G/(L) %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedClosed.map((t, i) => {
+                const gl = glOf(t);
+                const pct = pctOf(t);
+                const tc = costOf(t);
+                const proceeds = t.units * t.marketOrSalePrice;
+                const days = daysBetween(t.buyDate, t.saleDate!);
+                return (
+                  <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
+                    <td>{t.company}</td>
+                    <td><span className="tr-symbol">{t.symbol}</span></td>
+                    <td><span className="tr-broker-tag">{t.broker}</span></td>
+                    <td className="right">{fmtDate(t.buyDate)}</td>
+                    <td className="right">{fmtDate(t.saleDate!)}</td>
+                    <td className="right">{days === 0 ? "Same day" : `${days}d`}</td>
+                    <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
+                    <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
+                    <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
+                    <td className="right trading-amt">{fmt(tc)}</td>
+                    <td className="right trading-amt">{fmt(proceeds)}</td>
+                    <td className={`right trading-amt ${glClass(gl)}`}>{fmt(gl)}</td>
+                    <td className="right">
+                      <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={9}>Total Closed</th>
+                <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
+                <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
+                <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
+                <th />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
       {/* Advisor Insights */}
       <div className="tr-insights">
         <h4 className="tr-insights-heading">Advisor Insights</h4>
@@ -220,142 +370,6 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="tr-tabs">
-        <button className={activeTab === "open" ? "selected" : ""} onClick={() => setActiveTab("open")}>
-          Open Positions ({open.length})
-        </button>
-        <button className={activeTab === "closed" ? "selected" : ""} onClick={() => setActiveTab("closed")}>
-          Closed Positions ({closed.length})
-        </button>
-      </div>
-
-      {activeTab === "open" && (
-        <div className="tr-table-wrap">
-          <table className="tr-table">
-            <thead>
-              <tr>
-                <th>Company</th>
-                <th>Ticker</th>
-                <th>Broker</th>
-                <th className="right">Buy Date</th>
-                <th className="right">Days Held</th>
-                <th className="right">Units</th>
-                <th className="right">Cost/Sh</th>
-                <th className="right">Total Cost</th>
-                <th className="right">Current Price</th>
-                <th className="right">Market Value</th>
-                <th className="right">G/(L) $</th>
-                <th className="right">G/(L) %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {open.map((t, i) => {
-                const gl = glOf(t);
-                const pct = pctOf(t);
-                const mv = t.units * t.marketOrSalePrice;
-                const tc = costOf(t);
-                const days = daysBetween(t.buyDate, new Date().toISOString().slice(0, 10));
-                return (
-                  <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
-                    <td>{t.company}</td>
-                    <td><span className="tr-symbol">{t.symbol}</span></td>
-                    <td><span className="tr-broker-tag">{t.broker}</span></td>
-                    <td className="right">{fmtDate(t.buyDate)}</td>
-                    <td className="right">{days}d</td>
-                    <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
-                    <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
-                    <td className="right trading-amt">{fmt(tc)}</td>
-                    <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
-                    <td className="right trading-amt">{fmt(mv)}</td>
-                    <td className={`right trading-amt ${glClass(gl)}`}>{fmt(gl)}</td>
-                    <td className="right">
-                      <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={7}>Total Open</th>
-                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
-                <th />
-                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
-                <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
-                <th />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-
-      {activeTab === "closed" && (
-        <div className="tr-table-wrap">
-          <div className="tr-sort-row">
-            <span>Sort by:</span>
-            <button className={closedSort === "date" ? "selected" : ""} onClick={() => setClosedSort("date")}>Buy Date</button>
-            <button className={closedSort === "gl" ? "selected" : ""} onClick={() => setClosedSort("gl")}>G/(L) $</button>
-            <button className={closedSort === "pct" ? "selected" : ""} onClick={() => setClosedSort("pct")}>G/(L) %</button>
-          </div>
-          <table className="tr-table">
-            <thead>
-              <tr>
-                <th>Company</th>
-                <th>Ticker</th>
-                <th>Broker</th>
-                <th className="right">Buy Date</th>
-                <th className="right">Sale Date</th>
-                <th className="right">Days</th>
-                <th className="right">Units</th>
-                <th className="right">Cost/Sh</th>
-                <th className="right">Sale/Sh</th>
-                <th className="right">Total Cost</th>
-                <th className="right">Proceeds</th>
-                <th className="right">G/(L) $</th>
-                <th className="right">G/(L) %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedClosed.map((t, i) => {
-                const gl = glOf(t);
-                const pct = pctOf(t);
-                const tc = costOf(t);
-                const proceeds = t.units * t.marketOrSalePrice;
-                const days = daysBetween(t.buyDate, t.saleDate!);
-                return (
-                  <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
-                    <td>{t.company}</td>
-                    <td><span className="tr-symbol">{t.symbol}</span></td>
-                    <td><span className="tr-broker-tag">{t.broker}</span></td>
-                    <td className="right">{fmtDate(t.buyDate)}</td>
-                    <td className="right">{fmtDate(t.saleDate!)}</td>
-                    <td className="right">{days === 0 ? "Same day" : `${days}d`}</td>
-                    <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
-                    <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
-                    <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
-                    <td className="right trading-amt">{fmt(tc)}</td>
-                    <td className="right trading-amt">{fmt(proceeds)}</td>
-                    <td className={`right trading-amt ${glClass(gl)}`}>{fmt(gl)}</td>
-                    <td className="right">
-                      <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={9}>Total Closed</th>
-                <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
-                <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
-                <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
-                <th />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
     </div>
   );
 }
