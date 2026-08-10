@@ -150,20 +150,15 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
           <table className="tr-table">
             <thead>
               <tr>
-                <th>Company</th>
-                <th>Ticker</th>
-                <th>Broker</th>
+                <th>Stock</th>
                 <th className="right">Buy Date</th>
-                <th className="right">Days Held</th>
                 <th className="right">Units</th>
                 <th className="right">Cost/Sh</th>
                 <th className="right">Total Cost</th>
                 <th className="right">Current Price</th>
                 <th className="right">Market Value</th>
-                <th className="right">G/(L) $</th>
-                <th className="right">G/(L) %</th>
-                <th className="right">Daily G/(L) $</th>
-                <th className="right">Daily G/(L) %</th>
+                <th className="right">G/(L)</th>
+                <th className="right">Daily G/(L)</th>
               </tr>
             </thead>
             <tbody>
@@ -172,28 +167,34 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
                 const pct = pctOf(t);
                 const mv = t.units * t.marketOrSalePrice;
                 const tc = costOf(t);
-                const days = daysBetween(t.buyDate, new Date().toISOString().slice(0, 10));
                 const dailyGL = t.units * (t.marketOrSalePrice - t.yesterday);
                 const dailyPct = ((t.marketOrSalePrice - t.yesterday) / t.yesterday) * 100;
                 return (
                   <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
-                    <td>{t.company}</td>
-                    <td><span className="tr-symbol">{t.symbol}</span></td>
-                    <td><span className="tr-broker-tag">{t.broker}</span></td>
+                    <td>
+                      <div className="tr-stock-cell">
+                        <span className="tr-symbol">{t.symbol}</span>
+                        <span className="tr-company-sub">{t.company}</span>
+                        <span className="tr-broker-tag">{t.broker}</span>
+                      </div>
+                    </td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
-                    <td className="right">{days}d</td>
                     <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
                     <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
                     <td className="right trading-amt">{fmt(tc)}</td>
                     <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
                     <td className="right trading-amt">{fmt(mv)}</td>
-                    <td className={`right trading-amt ${glClass(gl)}`}>{fmt(gl)}</td>
                     <td className="right">
-                      <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
+                      <div className="tr-gl-cell">
+                        <span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span>
+                        <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
+                      </div>
                     </td>
-                    <td className={`right trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</td>
                     <td className="right">
-                      <span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span>
+                      <div className="tr-gl-cell">
+                        <span className={`trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</span>
+                        <span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -201,17 +202,15 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={7}>Total Open</th>
+                <th colSpan={4}>Total Open</th>
                 <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
                 <th />
                 <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
                 <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
-                <th />
                 <th className={`right trading-amt ${glClass(open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0))}`}>
                   {open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0) >= 0 ? "+" : ""}
                   {fmt(open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0))}
                 </th>
-                <th />
               </tr>
             </tfoot>
           </table>
@@ -229,9 +228,7 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
           <table className="tr-table">
             <thead>
               <tr>
-                <th>Company</th>
-                <th>Ticker</th>
-                <th>Broker</th>
+                <th>Stock</th>
                 <th className="right">Buy Date</th>
                 <th className="right">Sale Date</th>
                 <th className="right">Days</th>
@@ -240,8 +237,7 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
                 <th className="right">Sale/Sh</th>
                 <th className="right">Total Cost</th>
                 <th className="right">Proceeds</th>
-                <th className="right">G/(L) $</th>
-                <th className="right">G/(L) %</th>
+                <th className="right">G/(L)</th>
               </tr>
             </thead>
             <tbody>
@@ -253,9 +249,13 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
                 const days = daysBetween(t.buyDate, t.saleDate!);
                 return (
                   <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
-                    <td>{t.company}</td>
-                    <td><span className="tr-symbol">{t.symbol}</span></td>
-                    <td><span className="tr-broker-tag">{t.broker}</span></td>
+                    <td>
+                      <div className="tr-stock-cell">
+                        <span className="tr-symbol">{t.symbol}</span>
+                        <span className="tr-company-sub">{t.company}</span>
+                        <span className="tr-broker-tag">{t.broker}</span>
+                      </div>
+                    </td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
                     <td className="right">{fmtDate(t.saleDate!)}</td>
                     <td className="right">{days === 0 ? "Same day" : `${days}d`}</td>
@@ -264,9 +264,11 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
                     <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
                     <td className="right trading-amt">{fmt(tc)}</td>
                     <td className="right trading-amt">{fmt(proceeds)}</td>
-                    <td className={`right trading-amt ${glClass(gl)}`}>{fmt(gl)}</td>
                     <td className="right">
-                      <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
+                      <div className="tr-gl-cell">
+                        <span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span>
+                        <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -274,11 +276,10 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={9}>Total Closed</th>
+                <th colSpan={7}>Total Closed</th>
                 <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
                 <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
                 <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
-                <th />
               </tr>
             </tfoot>
           </table>

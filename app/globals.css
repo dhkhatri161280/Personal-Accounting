@@ -6891,5 +6891,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .tr-badge-pos { background: #dcfce7; color: #166534; }
 .tr-badge-neg { background: #fee2e2; color: #991b1b; }
 
+.tr-stock-cell { display: flex; flex-direction: column; gap: 1px; min-width: 110px; }
+.tr-company-sub { font-size: 10.5px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.tr-gl-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.tr-gl-cell .trading-amt { font-size: 12.5px; font-weight: 600; }
+
 /* Privacy mode for trading amounts */
 .privacy-mode .trading-amt { filter: blur(7px); user-select: none; }
