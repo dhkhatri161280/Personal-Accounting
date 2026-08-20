@@ -56,7 +56,7 @@ export async function GET(request: Request) {
         errors: 0,
         message: "No Tally sync status published yet",
       },
-      { headers: { "Cache-Control": "no-store" } }
+      { headers: { "Cache-Control": "public, max-age=60" } }
     );
   let parsed: unknown;
   try {
@@ -67,20 +67,20 @@ export async function GET(request: Request) {
       { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
-  return Response.json(clean(parsed, book), { headers: { "Cache-Control": "no-store" } });
+  return Response.json(clean(parsed, book), {
+    headers: { "Cache-Control": "public, max-age=60" },
+  });
 }
 
 export async function PUT(request: Request) {
   if (!bindings.VAULT) return new Response("Status storage not configured", { status: 503 });
 
-  // Auth is only enforced when SYNC_SECRET is configured on the Worker.
-  // Without it the endpoint is open (backward-compatible with existing sync scripts).
-  if (bindings.SYNC_SECRET) {
-    const authHeader = request.headers.get("authorization") || "";
-    if (!authHeader) return new Response("Missing sync authorization", { status: 401 });
-    if (authHeader !== `Bearer ${bindings.SYNC_SECRET}`)
-      return new Response("Invalid sync authorization", { status: 403 });
-  }
+  if (!bindings.SYNC_SECRET)
+    return new Response("Sync secret not configured on Worker", { status: 503 });
+  const authHeader = request.headers.get("authorization") || "";
+  if (!authHeader) return new Response("Missing sync authorization", { status: 401 });
+  if (authHeader !== `Bearer ${bindings.SYNC_SECRET}`)
+    return new Response("Invalid sync authorization", { status: 403 });
 
   const book = bookOf(request);
   let body: unknown;

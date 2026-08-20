@@ -33,37 +33,62 @@ export async function GET(request: Request) {
     url.searchParams.get("start") ||
     new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  const institutionFilter = url.searchParams.get("institution");
+  const filterList = institutionFilter ? institutionFilter.split(",").map(decodeURIComponent) : null;
+  const activeConnections = filterList
+    ? connections.filter((c) => filterList.includes(c.institution_name))
+    : connections;
+
   const allTransactions: unknown[] = [];
   const allAccounts: unknown[] = [];
   const errors: string[] = [];
 
   await Promise.all(
-    connections.map(async (conn) => {
+    activeConnections.map(async (conn) => {
       try {
-        const resp = await fetch(`${plaidBase(bindings)}/transactions/get`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            client_id: PLAID_CLIENT_ID,
-            secret: PLAID_SECRET,
-            access_token: conn.access_token,
-            start_date: startDate,
-            end_date: endDate,
-            options: { count: 500, include_personal_finance_category: true },
-          }),
-        });
-        if (resp.ok) {
-          const data = (await resp.json()) as { transactions?: unknown[]; accounts?: unknown[] };
-          (data.transactions || []).forEach((t: any) =>
-            allTransactions.push({ ...t, institution_name: conn.institution_name })
-          );
-          (data.accounts || []).forEach((a: any) =>
-            allAccounts.push({ ...a, institution_name: conn.institution_name })
-          );
-        } else {
-          const err = (await resp.json()) as { error_message?: string };
-          errors.push(`${conn.institution_name}: ${err.error_message || "fetch failed"}`);
+        // Fetch transactions and real-time balances in parallel.
+        // transactions/get returns cached balances (can be 1-2 days stale).
+        // accounts/balance/get makes a live call to the bank for current balances.
+        const [txData, balData] = await Promise.all([
+          fetch(`${plaidBase(bindings)}/transactions/get`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              client_id: PLAID_CLIENT_ID,
+              secret: PLAID_SECRET,
+              access_token: conn.access_token,
+              start_date: startDate,
+              end_date: endDate,
+              options: { count: 500, include_personal_finance_category: true },
+            }),
+          }).then((r) => r.json() as Promise<{ transactions?: unknown[]; accounts?: unknown[]; error_message?: string; error_code?: string }>),
+          fetch(`${plaidBase(bindings)}/accounts/balance/get`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              client_id: PLAID_CLIENT_ID,
+              secret: PLAID_SECRET,
+              access_token: conn.access_token,
+            }),
+          })
+            .then((r) => (r.ok ? (r.json() as Promise<{ accounts?: unknown[] }>) : null))
+            .catch(() => null),
+        ]);
+
+        if (txData.error_message || txData.error_code) {
+          errors.push(`${conn.institution_name}: ${txData.error_message || txData.error_code}`);
+          return;
         }
+
+        (txData.transactions || []).forEach((t: any) =>
+          allTransactions.push({ ...t, institution_name: conn.institution_name })
+        );
+
+        // Prefer real-time balances; fall back to cached balances from transactions/get
+        const accountSource = balData?.accounts ?? txData.accounts ?? [];
+        (accountSource as any[]).forEach((a: any) =>
+          allAccounts.push({ ...a, institution_name: conn.institution_name })
+        );
       } catch (e: any) {
         errors.push(`${conn.institution_name}: ${e.message}`);
       }

@@ -1,12 +1,37 @@
-{
-  "name": "Personal Ledger",
-  "short_name": "Ledger",
-  "description": "Private end-to-end encrypted personal accounting",
-  "start_url": "/ledger?source=android-app",
-  "scope": "/",
-  "display": "standalone",
-  "orientation": "any",
-  "background_color": "#f5f7fb",
-  "theme_color": "#10223f",
-  "icons": [{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+﻿{
+    "name":  "FinTech by DK",
+    "short_name":  "FinTech DK",
+    "description":  "Private end-to-end encrypted accounting by DK",
+    "start_url":  "/ledger?source=android-app",
+    "scope":  "/",
+    "display":  "standalone",
+    "orientation":  "any",
+    "background_color":  "#f5f7fb",
+    "theme_color":  "#10223f",
+    "icons":  [
+                  {
+                      "src":  "/tally-icon-192.png",
+                      "sizes":  "192x192",
+                      "type":  "image/png",
+                      "purpose":  "any"
+                  },
+                  {
+                      "src":  "/tally-icon-512.png",
+                      "sizes":  "512x512",
+                      "type":  "image/png",
+                      "purpose":  "any"
+                  },
+                  {
+                      "src":  "/tally-icon-maskable-192.png",
+                      "sizes":  "192x192",
+                      "type":  "image/png",
+                      "purpose":  "maskable"
+                  },
+                  {
+                      "src":  "/tally-icon-maskable-512.png",
+                      "sizes":  "512x512",
+                      "type":  "image/png",
+                      "purpose":  "maskable"
+                  }
+              ]
 }

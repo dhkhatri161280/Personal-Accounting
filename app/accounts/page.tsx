@@ -1,2 +1,56 @@
-import {Nav} from "@/components/Nav";import {getAccounts} from "@/lib/accounting";export const dynamic="force-dynamic";
-export default async function Accounts(){const accounts=await getAccounts();return <main className="shell"><Nav/><section className="workspace"><header><div><small>ACCOUNTS</small><h1>Chart of accounts</h1><p>{accounts.length} Tally ledgers with live balances</p></div><a className="action" href="/new-transaction">+ New transaction</a></header><div className="data-panel"><table><thead><tr><th>Account</th><th>Group</th><th>Type</th><th>Currency</th><th className="right">Balance</th></tr></thead><tbody>{accounts.map(a=><tr key={a.id}><td><strong>{a.name}</strong></td><td>{a.parent_name||"—"}</td><td><span className="pill">{a.category}</span></td><td>{a.currency}</td><td className={`right ${a.balance<0?"negative":""}`}>{new Intl.NumberFormat("en-US",{style:"currency",currency:a.currency}).format(a.balance)}</td></tr>)}</tbody></table></div></section></main>}
+import { Nav } from "@/components/Nav";
+import { getAccounts } from "@/lib/accounting";
+export const dynamic = "force-dynamic";
+export default async function Accounts() {
+  const accounts = await getAccounts();
+  return (
+    <main className="shell">
+      <Nav />
+      <section className="workspace">
+        <header>
+          <div>
+            <small>ACCOUNTS</small>
+            <h1>Chart of accounts</h1>
+            <p>{accounts.length} Tally ledgers with live balances</p>
+          </div>
+          <a className="action" href="/new-transaction">
+            + New transaction
+          </a>
+        </header>
+        <div className="data-panel">
+          <table>
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Group</th>
+                <th>Type</th>
+                <th>Currency</th>
+                <th className="right">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((a) => (
+                <tr key={a.id}>
+                  <td>
+                    <strong>{a.name}</strong>
+                  </td>
+                  <td>{a.parent_name || "—"}</td>
+                  <td>
+                    <span className="pill">{a.category}</span>
+                  </td>
+                  <td>{a.currency}</td>
+                  <td className={`right ${a.balance < 0 ? "negative" : ""}`}>
+                    {new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency: a.currency,
+                    }).format(a.balance)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  );
+}

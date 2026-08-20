@@ -1,7 +1,5 @@
-/** Cloudflare Worker entry point with password protection. */
-import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
-import handler from "vinext/server/app-router-entry";
-interface Env { ASSETS: Fetcher; DB: D1Database; VAULT: KVNamespace; APP_PASSWORD?: string; IMAGES:{input(stream:ReadableStream):{transform(options:Record<string,unknown>):{output(options:{format:string;quality:number}):Promise<{response():Response}>}}}; }
-interface ExecutionContext { waitUntil(promise:Promise<unknown>):void; passThroughOnException():void; }
-function authorized(request:Request,password:string){const value=request.headers.get("Authorization");if(!value?.startsWith("Basic "))return false;try{const decoded=atob(value.slice(6));const split=decoded.indexOf(":");return split>=0&&decoded.slice(split+1)===password}catch{return false}}
-const worker={async fetch(request:Request,env:Env,ctx:ExecutionContext):Promise<Response>{const url=new URL(request.url);const local=url.hostname==="localhost"||url.hostname==="127.0.0.1";if(!local){if(!env.APP_PASSWORD)return new Response("Application password is not configured.",{status:503});if(!authorized(request,env.APP_PASSWORD))return new Response("Authentication required",{status:401,headers:{"WWW-Authenticate":'Basic realm="Personal Ledger", charset="UTF-8"',"Cache-Control":"no-store"}})}if(url.pathname==="/_vinext/image"){const allowed=[...DEFAULT_DEVICE_SIZES,...DEFAULT_IMAGE_SIZES];return handleImageOptimization(request,{fetchAsset:(p)=>env.ASSETS.fetch(new Request(new URL(p,request.url))),transformImage:async(body,{width,format,quality})=>(await env.IMAGES.input(body).transform(width>0?{width}:{}).output({format,quality})).response()},allowed)}const response=await handler.fetch(request,env,ctx);const secured=new Response(response.body,response);secured.headers.set("X-Content-Type-Options","nosniff");secured.headers.set("X-Frame-Options","DENY");secured.headers.set("Referrer-Policy","no-referrer");secured.headers.set("Cache-Control","private, no-store");return secured}};export default worker;
+﻿import handler from "vinext/server/app-router-entry";
+
+const worker={async fetch(request:Request,env:unknown,ctx:unknown):Promise<Response>{return handler.fetch(request,env as never,ctx as never)}};
+export default worker;
+

@@ -70,9 +70,7 @@
       "indexes": {
         "accounts_tally_guid_unique": {
           "name": "accounts_tally_guid_unique",
-          "columns": [
-            "tally_guid"
-          ],
+          "columns": ["tally_guid"],
           "isUnique": true
         }
       },
@@ -126,12 +124,8 @@
           "name": "entries_voucher_id_vouchers_id_fk",
           "tableFrom": "entries",
           "tableTo": "vouchers",
-          "columnsFrom": [
-            "voucher_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["voucher_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -139,12 +133,8 @@
           "name": "entries_account_id_accounts_id_fk",
           "tableFrom": "entries",
           "tableTo": "accounts",
-          "columnsFrom": [
-            "account_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["account_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -293,9 +283,7 @@
       "indexes": {
         "vouchers_tally_guid_idx": {
           "name": "vouchers_tally_guid_idx",
-          "columns": [
-            "tally_guid"
-          ],
+          "columns": ["tally_guid"],
           "isUnique": true
         }
       },

@@ -52,6 +52,8 @@ export function TransactionTable({
   onCopy,
   onDelete,
   selectedLedgerName,
+  openingBalance,
+  onClearSearch,
 }: {
   transactions: VoucherRow[];
   formatAmount: (n: number) => string;
@@ -60,6 +62,8 @@ export function TransactionTable({
   onCopy: (t: VoucherRow) => void;
   onDelete: (t: VoucherRow) => void;
   selectedLedgerName?: string;
+  openingBalance?: number;
+  onClearSearch?: () => void;
 }) {
   const [filters, setFilters] = useState<Record<SortKey, string>>({
     date: "",
@@ -101,7 +105,8 @@ export function TransactionTable({
           (Object.keys(filters) as SortKey[]).every((key) => {
             const filter = filters[key].trim().toLowerCase();
             if (!filter) return true;
-            const cell = value(t, key);
+            // Date: compare against DD-MM-YYYY (what the user sees) but value() keeps YYYY-MM-DD for sorting
+            const cell = key === "date" ? t.date.split("-").reverse().join("-") : value(t, key);
             if (key === "amount") {
               const n = Number(filter.replace(/[^0-9.-]/g, ""));
               return Number.isFinite(n)
@@ -134,6 +139,40 @@ export function TransactionTable({
     () => rows.reduce((sum, t) => sum + ledgerSignedAmount(t, selectedLedgerName), 0),
     [rows, selectedLedgerName]
   );
+
+  // Running balance: computed chronologically on all (unfiltered) transactions so that
+  // each row always shows its correct cumulative balance regardless of active filters.
+  // Running balance: top-to-bottom cumulative sum that adapts to sort direction.
+  //
+  // Date-ascending  → start at opening, add each row's amount going down.
+  //                   Last row reaches closing. Standard bank-statement format.
+  //
+  // Date-descending → start at closing (top row), subtract each row's amount going down.
+  //                   Each row shows the balance before that row's transaction,
+  //                   so balance[i] = balance[i-1] − amount[i-1] always holds.
+  //                   Last row approaches opening.
+  //
+  // Both directions: balance[i] flows consistently row-by-row like Excel.
+  const balanceMap = useMemo(() => {
+    if (openingBalance === undefined || !selectedLedgerName) return null;
+    const map = new Map<string, number>();
+    if (sort.key === "date" && sort.direction === "desc") {
+      const closingBalance = openingBalance +
+        transactions.reduce((s, t) => s + ledgerSignedAmount(t, selectedLedgerName), 0);
+      let running = closingBalance;
+      for (const t of rows) {
+        map.set(t.guid, running);
+        running -= ledgerSignedAmount(t, selectedLedgerName);
+      }
+    } else {
+      let running = openingBalance;
+      for (const t of rows) {
+        running += ledgerSignedAmount(t, selectedLedgerName);
+        map.set(t.guid, running);
+      }
+    }
+    return map;
+  }, [rows, transactions, openingBalance, selectedLedgerName, sort]);
   const heading = (key: SortKey, label: string, right = false) => (
     <th className={right ? "right" : ""}>
       <button
@@ -170,17 +209,10 @@ export function TransactionTable({
           {rows.length} of {transactions.length} vouchers
         </span>
         <button
-          onClick={() =>
-            setFilters({
-              date: "",
-              type: "",
-              number: "",
-              debit: "",
-              credit: "",
-              narration: "",
-              amount: "",
-            })
-          }
+          onClick={() => {
+            setFilters({ date: "", type: "", number: "", debit: "", credit: "", narration: "", amount: "" });
+            onClearSearch?.();
+          }}
         >
           Clear all filters
         </button>
@@ -211,6 +243,7 @@ export function TransactionTable({
               {heading("credit", "Credit Ledger")}
               {heading("narration", "Narration")}
               {heading("amount", "Amount", true)}
+              {balanceMap && <th className="right balance-col">Balance</th>}
               <th>Action</th>
             </tr>
             <tr className="column-filters">
@@ -221,6 +254,7 @@ export function TransactionTable({
               <th>{filter("credit", "credit ledger")}</th>
               <th>{filter("narration", "narration")}</th>
               <th>{filter("amount", "amount")}</th>
+              {balanceMap && <th className="balance-col" />}
               <th />
             </tr>
           </thead>
@@ -243,6 +277,11 @@ export function TransactionTable({
                 <td>{credit(t)}</td>
                 <td>{text(t.narration) || "-"}</td>
                 <td className="right">{formatAmount(ledgerSignedAmount(t, selectedLedgerName))}</td>
+                {balanceMap && (
+                  <td className="right balance-col balance-running">
+                    {formatAmount(balanceMap.get(t.guid) ?? 0)}
+                  </td>
+                )}
                 <td>
                   <details className="action-menu">
                     <summary
@@ -299,6 +338,7 @@ export function TransactionTable({
             <tr>
               <th colSpan={6}>Displayed voucher total</th>
               <th className="right">{formatAmount(filteredTotal)}</th>
+              {balanceMap && <th className="balance-col" />}
               <th />
             </tr>
           </tfoot>

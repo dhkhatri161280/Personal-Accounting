@@ -47,3 +47,19 @@ next-env.d.ts
 # Local development logs
 dev-output.log
 dev-error.log
+
+# Local safety copies
+*.backup
+*.cosmetic-backup
+*.masters-backup
+/backup-*/
+*.tsx.*
+*.css.*
+*.js.*
+components/GenericHome.*.tsx
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Local tool config
+/.claude/

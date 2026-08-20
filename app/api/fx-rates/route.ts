@@ -11,7 +11,7 @@ export async function GET() {
     raw = await bindings.VAULT.get(FX_KEY);
   } catch {}
   const rates = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-  return Response.json({ rates });
+  return Response.json({ rates }, { headers: { "Cache-Control": "public, max-age=3600" } });
 }
 
 export async function POST(request: Request) {
@@ -27,28 +27,40 @@ export async function POST(request: Request) {
     if (raw) stored = JSON.parse(raw) as Record<string, number>;
   } catch {}
 
-  const missing = months.filter((m) => stored[m] == null);
-  for (const month of missing) {
+  // Determine which months we need to fetch
+  const missing = months.filter((m) => stored[m] == null).sort();
+
+  // Fetch ALL missing months in a SINGLE range query to frankfurter.app
+  if (missing.length > 0) {
+    const firstMonth = missing[0];
+    const lastMonth = missing[missing.length - 1];
+    const startDate = `${firstMonth}-01`;
+    const [ly, lm] = lastMonth.split("-").map(Number);
+    const endDate = `${lastMonth}-${String(new Date(ly, lm, 0).getDate()).padStart(2, "0")}`;
     try {
-      const [year, mon] = month.split("-");
-      const start = `${year}-${mon}-01`;
-      const nextMonthDate = new Date(Number(year), Number(mon), 1);
-      const end = new Date(nextMonthDate.getTime() - 86400000).toISOString().slice(0, 10);
-      const url = `https://api.frankfurter.app/${start}..${end}?from=USD&to=INR`;
-      const resp = await fetch(url, { headers: { "Accept": "application/json" } });
-      if (!resp.ok) continue;
-      const data = (await resp.json()) as { rates?: Record<string, { INR?: number }> };
-      if (!data.rates) continue;
-      const daily = Object.values(data.rates)
-        .map((r) => r.INR)
-        .filter((v): v is number => typeof v === "number");
-      if (daily.length) {
-        stored[month] = Math.round((daily.reduce((s, v) => s + v, 0) / daily.length) * 10000) / 10000;
+      const url = `https://api.frankfurter.app/${startDate}..${endDate}?from=USD&to=INR`;
+      const resp = await fetch(url, { headers: { Accept: "application/json" } });
+      if (resp.ok) {
+        const data = (await resp.json()) as { rates?: Record<string, { INR?: number }> };
+        if (data.rates) {
+          const buckets = new Map<string, number[]>();
+          for (const [dateStr, rateObj] of Object.entries(data.rates)) {
+            const mk = dateStr.slice(0, 7);
+            if (typeof rateObj.INR === "number") {
+              if (!buckets.has(mk)) buckets.set(mk, []);
+              buckets.get(mk)!.push(rateObj.INR);
+            }
+          }
+          for (const [mk, vals] of buckets) {
+            stored[mk] =
+              Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10000) / 10000;
+          }
+        }
       }
     } catch {}
   }
 
-  // Merge any custom rate overrides provided by the caller
+  // Apply any custom rate overrides
   if (body.customRates && typeof body.customRates === "object") {
     for (const [k, v] of Object.entries(body.customRates)) {
       if (/^\d{4}-\d{2}$/.test(k) && typeof v === "number" && v > 0) {

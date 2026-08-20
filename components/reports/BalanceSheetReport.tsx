@@ -87,6 +87,7 @@ export function BalanceSheetReport({
   tol = 0.005,
   link,
   fmt,
+  onNavigateToIE,
 }: {
   assets: BSRow[];
   liabilities: BSRow[];
@@ -95,6 +96,7 @@ export function BalanceSheetReport({
   tol?: number;
   link: (a: BSRow) => React.ReactNode;
   fmt: (n: number) => string;
+  onNavigateToIE?: () => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (k: string) =>
@@ -167,11 +169,19 @@ export function BalanceSheetReport({
           : "Profit & Loss A/c";
     return (
       <section className="bs-sec bs-pl-sec">
-        <button className="bs-sec-head" onClick={() => toggle("__pl__")}>
-          <span className="bs-arr">{isE ? "-" : "+"}</span>
-          <strong>{lbl}</strong>
-          <span className="bs-amt">{fmt(Math.abs(PLdisp))}</span>
-        </button>
+        <div className="bs-pl-head">
+          <button className="bs-pl-toggle" onClick={() => toggle("__pl__")} title="Expand">
+            <span className="bs-arr">{isE ? "-" : "+"}</span>
+          </button>
+          <button
+            className="bs-pl-nav-btn"
+            onClick={() => onNavigateToIE?.()}
+            title="View Income & Expenditure"
+          >
+            <strong>{lbl}</strong>
+            <span className="bs-amt">{fmt(Math.abs(PLdisp))}</span>
+          </button>
+        </div>
         {isE && (
           <div className="bs-body">
             <div className="bs-row">
@@ -212,11 +222,11 @@ export function BalanceSheetReport({
           </div>
         </div>
       </div>
-      <div className={`balance-check ${Math.abs(diff) < 0.01 ? "tied" : "difference"}`}>
+      <div className={`balance-check ${Math.abs(diff) < 0.005 ? "tied" : "difference"}`}>
         <strong>Balance Sheet check</strong>
         <span>{fmt(Math.abs(diff))}</span>
         <small>
-          {Math.abs(diff) < 0.01
+          {Math.abs(diff) < 0.005
             ? "Balanced"
             : "Difference: review ledger classifications or opening balances"}
         </small>

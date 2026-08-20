@@ -28,6 +28,7 @@ import {
   centsOf,
   fiscalYearOf,
   nextVoucherNumber,
+  nextTransactionIds,
   recomputeVoucherNumbers,
   cleanText,
   isDebitNatureAccount,
@@ -45,8 +46,17 @@ import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
+import { ReconReport } from "@/components/reports/ReconReport";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
+
+const VOUCHER_TYPE_ICONS: Record<string, string> = {
+  payment: "💸",
+  receipt: "💰",
+  contra: "🔄",
+  journal: "📔",
+};
+const voucherTypeIcon = (type: string) => VOUCHER_TYPE_ICONS[type.toLowerCase()] || "📄";
 
 function autoBalance(lines: VoucherLineDraft[], changedIndex: number): VoucherLineDraft[] {
   const last = lines.length - 1;
@@ -82,7 +92,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     unifiedSecretKey = "fintech-unified-prf-secret",
     unifiedSealKey = "fintech-unified-vault-seal";
   const autoBiometricStarted = useRef(false),
-    entryFormRef = useRef<HTMLFormElement>(null);
+    entryFormRef = useRef<HTMLFormElement>(null),
+    newVoucherMenuRef = useRef<HTMLDivElement>(null);
   const [password, setPassword] = useState(""),
     [data, setData] = useState<Ledger | null>(null),
     [status, setStatus] = useState(""),
@@ -103,6 +114,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [sortDir, setSortDir] = useState<"asc" | "desc">("asc"),
     [copyTx, setCopyTx] = useState<Tx | null>(null),
     [editTx, setEditTx] = useState<Tx | null>(null),
+    [newVoucherType, setNewVoucherType] = useState<string | null>(null),
+    [newVoucherMenuOpen, setNewVoucherMenuOpen] = useState(false),
     [dashboardDetail, setDashboardDetail] = useState<
       "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "period" | null
     >(null),
@@ -171,7 +184,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       if (!saved.ok) throw Error();
       const repairedSave = (await saved.json().catch(() => null)) as { etag?: string } | null;
       if (repairedSave?.etag) setVaultEtag(repairedSave.etag);
-      setStatus("Duplicate voucher number corrected with the next fiscal-year running number.");
+      const infoMsg = "Auto-fixed a duplicate voucher number — no action needed.";
+      setStatus(infoMsg);
+      setTimeout(() => setStatus((s) => (s === infoMsg ? "" : s)), 5000);
     } else setStatus("");
   }
 
@@ -428,6 +443,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     window.addEventListener("dk-nav-home", handler);
     return () => window.removeEventListener("dk-nav-home", handler);
   }, []);
+
+  useEffect(() => {
+    if (!newVoucherMenuOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (newVoucherMenuRef.current && !newVoucherMenuRef.current.contains(e.target as Node))
+        setNewVoucherMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [newVoucherMenuOpen]);
 
   useEffect(() => {
     if (!data) return;
@@ -803,9 +828,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
 
   let capitalTransfer = 0;
   for (const t of data.transactions)
-    if (!t.deleted && t.date >= balanceFYStart && t.date <= balanceEnd)
+    if (!t.deleted && !t.cancelled && t.date >= balanceFYStart && t.date <= balanceEnd)
       for (const e of t.entries) if (nominalIds.has(e.accountId)) capitalTransfer += e.amount;
 
+  // Tally Day Book order: Date ascending, then Voucher Type in Tally's default
+  // sequence (Contra, Payment, Receipt, Journal), then Voucher Number ascending.
+  const VOUCHER_TYPE_ORDER: Record<string, number> = { contra: 0, payment: 1, receipt: 2, journal: 3 };
+  const voucherTypeRank = (type: string) => VOUCHER_TYPE_ORDER[(type || "").toLowerCase()] ?? 99;
+  const voucherNumRank = (num: string) => {
+    const n = Number(num);
+    return Number.isFinite(n) ? n : Infinity;
+  };
   const filteredAll = calc.period
     .filter(
       (t) =>
@@ -815,9 +848,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           .includes(query.toLowerCase())
     )
     .slice()
-    .reverse();
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      const ta = voucherTypeRank(a.type), tb = voucherTypeRank(b.type);
+      if (ta !== tb) return ta - tb;
+      return voucherNumRank(a.number) - voucherNumRank(b.number);
+    });
   const DAY_BOOK_CAP = 750;
-  const filtered = filteredAll.slice(0, DAY_BOOK_CAP);
+  // filteredAll is oldest-first (Tally order) — cap keeps the most recent entries.
+  const filtered = filteredAll.slice(-DAY_BOOK_CAP);
   const dayBookCapped = filteredAll.length > DAY_BOOK_CAP;
 
   const selectedRow = rows.find((a) => a.id === selected),
@@ -973,15 +1012,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const type = String(f.get("type")),
       date = String(f.get("date"));
     const tx: Tx = {
-      id: editTx?.id || data.transactions.length + 1,
+      id: editTx?.id || nextTransactionIds(data.transactions, 1)[0],
       guid: editTx?.guid || crypto.randomUUID(),
       ...(editTx
         ? {
             tallyGuid: editTx.tallyGuid,
             syncFingerprint: editTx.syncFingerprint || `app-change-${Date.now()}`,
             lastSyncedAt: undefined,
+            createdAt: editTx.createdAt,  // preserve original creation time on edits
           }
-        : {}),
+        : { createdAt: new Date().toISOString() }),
       syncStatus: "pending",
       date,
       number:
@@ -1056,27 +1096,53 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         value: a.closing,
       }));
 
+  const totalIncomeDetail = rows
+    .filter(a =>
+      /^(direct incomes|indirect incomes|sales accounts)$/i.test((a.parent || "").toLowerCase()) &&
+      !/profit\s*&\s*loss|income\s*&\s*expenditure/i.test(a.name)
+    )
+    .map(a => ({ ...a, incomeAmt: a.credit - a.debit }))
+    .filter(a => a.incomeAmt > tol)
+    .sort((a, b) => b.incomeAmt - a.incomeAmt);
+  const totalIncome = totalIncomeDetail.reduce((s, a) => s + a.incomeAmt, 0);
+  const totalIncomeHighlights = totalIncomeDetail
+    .slice(0, 3)
+    .map(a => ({ label: a.name, value: a.incomeAmt }));
+
   const cur = nvdaPrice ?? 0;
   const equityRsuMktValue = (data?.equity?.grants ?? []).reduce((s, g) => {
-    const vestedTotal = g.vests.reduce((vs, v) => vs + v.shares, 0);
-    const unvested = Math.max(0, g.totalShares - vestedTotal);
-    return s + g.vests.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + unvested * cur;
+    const actualVested = g.vests.filter(v => !v.pending);
+    const pendingVests = g.vests.filter(v => v.pending);
+    const vestedTotal = actualVested.reduce((vs, v) => vs + v.shares, 0);
+    const pendingShares = pendingVests.reduce((vs, v) => vs + v.shares, 0);
+    const unvested = Math.max(0, g.totalShares - vestedTotal - pendingShares);
+    return s + actualVested.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + (pendingShares + unvested) * cur;
   }, 0);
   const equityEsppMktValue = (data?.equity?.esppPurchases ?? []).reduce(
     (s, e) => s + (e.sharesHeld || e.shares) * cur,
     0
   );
   const equityMktValue = equityRsuMktValue + equityEsppMktValue;
-  // Held vested RSU at live price (excludes unvested and tax/sold)
+  // Held vested RSU at live price (excludes scheduled/unvested)
   const equityRsuVestedValue = (data?.equity?.grants ?? []).reduce(
-    (s, g) => s + g.vests.reduce((vs, v) => vs + v.sharesHeld * cur, 0),
+    (s, g) => s + g.vests.filter(v => !v.pending).reduce((vs, v) => vs + v.sharesHeld * cur, 0),
     0
   );
-  // Daily G/(L): held RSU + ESPP shares × (live − prev close)
+  // Scheduled future vests per grant (for dashboard chips)
+  const equityScheduledGrants = (data?.equity?.grants ?? [])
+    .map(g => {
+      const sh = g.vests.filter(v => v.pending).reduce((vs, v) => vs + v.shares, 0);
+      return { grantDate: g.grantDate, scheduledShares: sh };
+    })
+    .filter(g => g.scheduledShares > 0);
+  const equityScheduledShares = equityScheduledGrants.reduce((s, g) => s + g.scheduledShares, 0);
+  const equityScheduledValue = equityScheduledShares * cur;
+  // Daily G/(L): held (non-pending) RSU + ESPP shares × (live − prev close)
   const equityDailyHeld = (data?.equity?.grants ?? []).reduce(
-    (s, g) => s + g.vests.reduce((vs, v) => vs + v.sharesHeld, 0), 0
+    (s, g) => s + g.vests.filter(v => !v.pending).reduce((vs, v) => vs + v.sharesHeld, 0), 0
   ) + (data?.equity?.esppPurchases ?? []).reduce((s, e) => s + (e.sharesHeld || e.shares), 0);
   const equityDailyGL = (cur > 0 && nvdaPrevClose !== null) ? equityDailyHeld * (cur - nvdaPrevClose) : null;
+  const fmtGrantDate = (iso: string) => { const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : iso; };
 
   const filteredActive = active
     .filter(
@@ -1234,11 +1300,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     </button>
   );
 
-  const startNewVoucher = () => {
+  const startNewVoucher = (type?: string) => {
     setEditTx(null);
     setCopyTx(null);
     setSelected(null);
     setSelectedVoucher(null);
+    setNewVoucherType(type || null);
+    setNewVoucherMenuOpen(false);
     setTab("new");
     setStatus("");
   };
@@ -1403,7 +1471,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </p>
         </div>
         <div className="header-actions">
-          {status && <span className="vault-status">{status}</span>}
+          {status && (
+            <span className={`vault-status${status.startsWith("Auto-fixed") ? " vault-status--info" : ""}`}>
+              {status}
+            </span>
+          )}
           {hasBiometric ? (
             <button
               className="secure-action biometric-action biometric-action--on"
@@ -1455,25 +1527,21 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")}>
           Day Book
         </button>
-        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")}>
-          Ledgers
+        {book !== "india" && (
+          <button className={tab === "bank-import" ? "selected" : ""} onClick={() => setTab("bank-import")}>
+            Import
+          </button>
+        )}
+        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
+          Reports
         </button>
         <button className={tab === "masters" ? "selected" : ""} onClick={() => setTab("masters")}>
           Masters
         </button>
-        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
-          Reports
+        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")}>
+          Ledgers
         </button>
-        <button className={tab === "bank-import" ? "selected" : ""} onClick={() => setTab("bank-import")}>
-          Import
-        </button>
-        <button
-          type="button"
-          className={`new-voucher-nav ${tab === "new" ? "selected" : ""}`}
-          onClick={startNewVoucher}
-        >
-          New Voucher
-        </button>
+        {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
       </div>
       <div className="period-bar">
         <strong>Financial period</strong>
@@ -1521,7 +1589,33 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </label>
           </div>
         )}
-        <span>Opening + period activity = closing</span>
+        <div className="period-bar-footer">
+          <span className="period-bar-note">Opening + period activity = closing</span>
+          <div className="new-voucher-fab-wrap" ref={newVoucherMenuRef}>
+            <button
+              type="button"
+              className={`new-voucher-fab ${book === "india" ? "new-voucher-fab-india" : "new-voucher-fab-us"} ${newVoucherMenuOpen ? "menu-open" : ""} ${tab === "new" ? "selected" : ""}`}
+              onClick={() => setNewVoucherMenuOpen((o) => !o)}
+              title="New Voucher"
+              aria-label="New Voucher"
+            >
+              +
+            </button>
+            {newVoucherMenuOpen && (
+              <>
+                <div className="new-voucher-fab-backdrop" onClick={() => setNewVoucherMenuOpen(false)} />
+                <div className="new-voucher-fab-menu">
+                  {(data.voucherTypes || ["Payment", "Receipt", "Contra", "Journal"]).map((v) => (
+                    <button key={v} type="button" onClick={() => startNewVoucher(v)}>
+                      <span>{v}</span>
+                      <em>{voucherTypeIcon(v)}</em>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
       {tab === "dashboard" && (
         <section className="stats dashboard-stats">
@@ -1594,12 +1688,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onClick={() => toggleDashboardDetail("salary")}
             >
               <div className="dashboard-card-main">
-                <span>Salary income</span>
-                <strong>{fmt(salaryIncome)}</strong>
+                <span>{book === "india" ? "Total income" : "Salary income"}</span>
+                <strong>{fmt(book === "india" ? totalIncome : salaryIncome)}</strong>
                 <small>{periodLabel}</small>
               </div>
               <div className="dashboard-card-highlights salary-highlights">
-                {salaryHighlights.map((x) => (
+                {(book === "india" ? totalIncomeHighlights : salaryHighlights).map((x) => (
                   <span key={x.label}>
                     <b title={x.label}>{x.label}</b>
                     <em>{fmt(x.value)}</em>
@@ -1691,7 +1785,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             )}
             <DashboardInline kind="active" />
           </div>
-          <div className="dashboard-card-slot equity-slot">
+          {book === "india" && (
+            <div className="dashboard-card-slot period-slot">
+              <button
+                className="dashboard-card-period"
+                onClick={() => toggleDashboardDetail("period")}
+              >
+                <span>Period vouchers</span>
+                <strong>{calc.period.length}</strong>
+                <small>View Day Book - {periodLabel}</small>
+              </button>
+              <DashboardInline kind="period" />
+            </div>
+          )}
+          {book !== "india" && <div className="dashboard-card-slot equity-slot">
             <button
               className="dashboard-balance-card"
               onClick={() => { setReport("equity"); setTab("reports"); }}
@@ -1699,7 +1806,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
                 <strong>{fmt(equityMktValue)}</strong>
-                <small>{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</small>
+                <small className="equity-price-note">{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</small>
               </div>
               <div className="dashboard-card-highlights">
                 <span>
@@ -1716,9 +1823,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     <em>{equityDailyGL >= 0 ? "+" : ""}{fmt(equityDailyGL)}</em>
                   </span>
                 )}
+                {equityScheduledShares > 0 && (
+                  <span className="equity-sch-chip">
+                    <b>Scheduled</b>
+                    <em>{fmt(equityScheduledValue)}</em>
+                  </span>
+                )}
               </div>
             </button>
-          </div>
+          </div>}
         </section>
       )}
       {tab === "bank-import" && data && (
@@ -1730,6 +1843,191 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           />
         </div>
       )}
+      {tab === "anomalies" && data && (() => {
+        const nowMonth = new Date().toISOString().slice(0, 7);
+        const nowTs = Date.now();
+        const anomalies = data.transactions
+          .filter(t => !t.deleted && !t.cancelled && t.date.slice(0, 7) !== nowMonth)
+          .sort((a, b) => {
+            const ta = a.createdAt || a.lastSyncedAt || "";
+            const tb = b.createdAt || b.lastSyncedAt || "";
+            if (ta && tb) return tb.localeCompare(ta);
+            if (ta) return -1; if (tb) return 1;
+            return b.id - a.id;
+          });
+        const recent3 = anomalies.filter(t => {
+          const ts = t.createdAt || t.lastSyncedAt;
+          return ts && (nowTs - new Date(ts).getTime()) <= 3 * 86400000;
+        });
+        const byMonth = new Map<string, typeof anomalies>();
+        for (const t of anomalies) {
+          const m = t.date.slice(0, 7);
+          if (!byMonth.has(m)) byMonth.set(m, []);
+          byMonth.get(m)!.push(t);
+        }
+        const sortedMonths = [...byMonth.keys()].sort().reverse();
+        return (
+          <div className="data-panel anomaly-panel">
+            <h3 style={{ margin: "0 0 4px" }}>Date Anomalies</h3>
+            <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 14px" }}>
+              Transactions with a vault posting date outside the current month ({nowMonth}).
+              Entries created in the last 3 days are highlighted in orange.
+              All accounts are shown.
+            </p>
+            {recent3.length > 0 && (
+              <div className="anomaly-recent-banner">
+                <strong>{recent3.length}</strong> entr{recent3.length === 1 ? "y" : "ies"} with a past/future posting date were created in the last 3 days — review for potential duplicates.
+              </div>
+            )}
+            {sortedMonths.map(month => {
+              const txs = byMonth.get(month)!;
+              const hasRecent = txs.some(t => { const ts = t.createdAt || t.lastSyncedAt; return ts && (nowTs - new Date(ts).getTime()) <= 3 * 86400000; });
+              return (
+                <details key={month} className="anomaly-month-group" open={hasRecent}>
+                  <summary className="anomaly-month-head">
+                    <span>{month}</span>
+                    <span className="anomaly-month-count">{txs.length} voucher{txs.length !== 1 ? "s" : ""}</span>
+                    {hasRecent && <span className="anomaly-recent-badge">Recent entry</span>}
+                  </summary>
+                  <table className="anomaly-table">
+                    <thead>
+                      <tr>
+                        <th>Posting Date</th>
+                        <th>Created (System)</th>
+                        <th>Type</th>
+                        <th>#</th>
+                        <th>Narration</th>
+                        <th>Debit</th>
+                        <th>Credit</th>
+                        <th className="right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {txs.map(t => {
+                        const dr = t.entries.find(e => e.amount < 0);
+                        const cr = t.entries.find(e => e.amount > 0);
+                        const amt = dr ? Math.abs(dr.amount) : 0;
+                        const createdTs = t.createdAt || t.lastSyncedAt;
+                        const isNew = createdTs && (nowTs - new Date(createdTs).getTime()) <= 3 * 86400000;
+                        const createdLabel = createdTs
+                          ? new Date(createdTs).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                          : "—";
+                        return (
+                          <tr key={t.guid} className={isNew ? "anomaly-row-new" : "anomaly-row"}>
+                            <td className="anomaly-date">{t.date}</td>
+                            <td className="anomaly-created">{createdLabel}</td>
+                            <td><span className="pill">{t.type}</span></td>
+                            <td className="anomaly-num">{t.number || "—"}</td>
+                            <td className="anomaly-narr">{t.narration || "—"}</td>
+                            <td className="anomaly-acct">{dr?.accountName || "—"}</td>
+                            <td className="anomaly-acct">{cr?.accountName || "—"}</td>
+                            <td className="right anomaly-amt">{fmt(amt)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </details>
+              );
+            })}
+            {anomalies.length === 0 && (
+              <div style={{ color: "#16a34a", fontWeight: 600, padding: 24, textAlign: "center" }}>
+                No past/future-dated entries found. All vouchers are in {nowMonth}.
+              </div>
+            )}
+          </div>
+        );
+      })()}
+      {tab === "reports" && report === "trash" && data && (() => {
+        const ledger = data as Ledger;
+        const deleted = ledger.transactions
+          .filter(t => t.deleted)
+          .sort((a, b) => b.id - a.id);
+
+        async function restoreTx(guid: string) {
+          const next: Ledger = {
+            ...ledger,
+            transactions: ledger.transactions.map(t =>
+              t.guid === guid ? { ...t, deleted: false } : t
+            ),
+          };
+          const ok = await save(next, "trash");
+          if (!ok) setStatus("Restore failed.");
+        }
+
+        async function restoreAll() {
+          if (!window.confirm(`Restore all ${deleted.length} deleted voucher(s)?`)) return;
+          const next: Ledger = {
+            ...ledger,
+            transactions: ledger.transactions.map(t => t.deleted ? { ...t, deleted: false } : t),
+          };
+          const ok = await save(next, "trash");
+          if (ok) setStatus(`${deleted.length} voucher(s) restored.`);
+          else setStatus("Restore failed.");
+        }
+
+        return (
+          <div className="data-panel trash-panel">
+            <div className="trash-header">
+              <div>
+                <h3 style={{ margin: 0 }}>Trash — Deleted Vouchers</h3>
+                <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "4px 0 0" }}>
+                  All soft-deleted vouchers. Click Restore to bring one back, or Restore All to undo all deletions.
+                  Sorted most-recently-deleted first (highest voucher ID).
+                </p>
+              </div>
+              {deleted.length > 0 && (
+                <button className="trash-restore-all-btn" onClick={restoreAll}>
+                  Restore All ({deleted.length})
+                </button>
+              )}
+            </div>
+            {deleted.length === 0 ? (
+              <div className="trash-empty">Trash is empty — no deleted vouchers.</div>
+            ) : (
+              <table className="trash-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>#</th>
+                    <th>Narration</th>
+                    <th>Debit</th>
+                    <th>Credit</th>
+                    <th className="right">Amount</th>
+                    <th>Sync</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deleted.map(t => {
+                    const dr = t.entries.find(e => e.amount < 0);
+                    const cr = t.entries.find(e => e.amount > 0);
+                    const amt = dr ? Math.abs(dr.amount) : 0;
+                    return (
+                      <tr key={t.guid} className="trash-row">
+                        <td className="trash-date">{t.date}</td>
+                        <td><span className="pill">{t.type}</span></td>
+                        <td className="trash-num">{t.number || "—"}</td>
+                        <td className="trash-narr">{t.narration || "—"}</td>
+                        <td className="trash-acct">{dr?.accountName || t.entries.map(e => e.accountName).join(", ") || "—"}</td>
+                        <td className="trash-acct">{cr?.accountName || "—"}</td>
+                        <td className="right trash-amt">{fmt(amt)}</td>
+                        <td className="trash-sync">{t.syncStatus || "—"}</td>
+                        <td>
+                          <button className="trash-restore-btn" onClick={() => restoreTx(t.guid)}>
+                            Restore
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })()}
       {tab === "daybook" && (
         <div className="data-panel">
           <input
@@ -1884,17 +2182,33 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Cash and Bank
             </button>
+            {book !== "india" && (
+              <button
+                className={report === "equity" ? "selected" : ""}
+                onClick={() => setReport("equity")}
+              >
+                Equity
+              </button>
+            )}
+            {book !== "india" && (
+              <button
+                className={report === "trading" ? "selected" : ""}
+                onClick={() => setReport("trading")}
+              >
+                Trading
+              </button>
+            )}
             <button
-              className={report === "equity" ? "selected" : ""}
-              onClick={() => setReport("equity")}
+              className={report === "recon" ? "selected" : ""}
+              onClick={() => setReport("recon")}
             >
-              Equity
+              Recon
             </button>
             <button
-              className={report === "trading" ? "selected" : ""}
-              onClick={() => setReport("trading")}
+              className={report === "trash" ? "selected" : ""}
+              onClick={() => setReport("trash")}
             >
-              Trading
+              Trash
             </button>
           </div>
           {report === "trial" && (
@@ -2005,6 +2319,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 tol={tol}
                 link={(a) => <LedgerLink a={a} />}
                 fmt={fmt}
+                onNavigateToIE={() => setReport("income")}
               />
             </>
           )}{" "}
@@ -2061,6 +2376,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "trading" && (
             <TradingReport fmt={fmt} />
           )}
+          {report === "recon" && data && (
+            <ReconReport data={data} fmt={fmt} />
+          )}
         </>
       )}
       {tab === "new" && (
@@ -2097,13 +2415,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           <form
             ref={entryFormRef}
-            key={editTx?.guid || copyTx?.guid || "new"}
+            key={editTx?.guid || copyTx?.guid || newVoucherType || "new"}
             className="entry-form voucher-lines-form"
             onSubmit={add}
           >
             <label>
               Voucher type
-              <select name="type" defaultValue={(editTx || copyTx)?.type || "Payment"}>
+              <select name="type" defaultValue={(editTx || copyTx)?.type || newVoucherType || "Payment"}>
                 {(data.voucherTypes || ["Payment", "Receipt", "Contra", "Journal"]).map((v) => (
                   <option key={v}>{v}</option>
                 ))}
@@ -2384,6 +2702,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <TransactionTable
               transactions={selectedTx}
               selectedLedgerName={selectedRow.name}
+              openingBalance={-selectedRow.opening}
               formatAmount={fmt}
               onView={(t) => setSelectedVoucher(t as Tx)}
               onEdit={(t) => editVoucher(t as Tx)}

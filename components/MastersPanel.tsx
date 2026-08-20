@@ -295,7 +295,7 @@ export function MastersPanel({
                   <td>{a.name}</td>
                   <td>{a.parent}</td>
                   <td>{a.currency}</td>
-                  <td>
+                  <td className="right">
                     {Math.abs(a.openingBalance).toFixed(2)} {a.openingBalance <= 0 ? "Dr" : "Cr"}
                   </td>
                   <td>

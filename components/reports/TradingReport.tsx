@@ -1,5 +1,7 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
+import type { WatchlistEntry } from "@/lib/watchlist-default";
 
 interface Trade {
   company: string;
@@ -14,12 +16,10 @@ interface Trade {
 }
 
 const TRADING_SEED: Trade[] = [
-  // Open positions
   { company: "MicroStrategy", symbol: "MSTR", broker: "CST", buyDate: "2025-07-22", units: 20, costPerSh: 420.71, marketOrSalePrice: 100.20, yesterday: 100.01 },
   { company: "MicroStrategy", symbol: "MSTR", broker: "CST", buyDate: "2025-07-22", units: 80, costPerSh: 186.20, marketOrSalePrice: 100.20, yesterday: 100.01 },
   { company: "Oracle", symbol: "ORCL", broker: "CST", buyDate: "2025-12-10", units: 44, costPerSh: 219.59, marketOrSalePrice: 149.80, yesterday: 147.02 },
   { company: "Sarepta Therapeutics", symbol: "SRPT", broker: "CST", buyDate: "2025-10-28", units: 300, costPerSh: 24.30, marketOrSalePrice: 16.645, yesterday: 16.78 },
-  // Closed positions
   { company: "Nokia", symbol: "NOK", broker: "CSS", buyDate: "2025-10-28", saleDate: "2026-03-12", units: 1000, costPerSh: 7.49, marketOrSalePrice: 8.25, yesterday: 9.26 },
   { company: "Palantir", symbol: "PLTR", broker: "CSS", buyDate: "2025-02-20", saleDate: "2025-12-09", units: 50, costPerSh: 96.00, marketOrSalePrice: 182.30, yesterday: 179.04 },
   { company: "Oklo", symbol: "OKLO", broker: "CSS", buyDate: "2025-09-17", saleDate: "2025-10-10", units: 150, costPerSh: 94.68, marketOrSalePrice: 155.75, yesterday: 45.32 },
@@ -48,56 +48,178 @@ const TRADING_SEED: Trade[] = [
   { company: "MicroStrategy", symbol: "MSTR", broker: "RBS", buyDate: "2024-11-27", saleDate: "2024-12-04", units: 135, costPerSh: 377.00, marketOrSalePrice: 407.50, yesterday: 100.01 },
 ];
 
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const BROKER_LABEL: Record<string, string> = { CST: "Charles Schwab (CST)", CSS: "Charles Schwab (CSS)", RBS: "Robinhood (RBS)" };
+
+function isMarketOpen(): boolean {
+  const now = new Date();
+  const day = now.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return utcMin >= 13 * 60 + 30 && utcMin < 20 * 60; // 9:30–16:00 ET (covers EDT & EST)
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 2) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 function daysBetween(d1: string, d2: string) {
   return Math.round((new Date(d2).getTime() - new Date(d1).getTime()) / 86400000);
 }
-
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-const BROKER_LABEL: Record<string, string> = { CST: "Charles Schwab (CST)", CSS: "Charles Schwab (CSS)", RBS: "Robinhood (RBS)" };
-
 export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
-  const [activeTab, setActiveTab] = useState<"open" | "closed">("open");
-  const [closedSort, setClosedSort] = useState<"date" | "gl" | "pct">("date");
+  const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">("open");
+  const [closedSort, setClosedSort]   = useState<"date" | "gl" | "pct">("date");
+  const [watchFilter, setWatchFilter] = useState<"all" | "short" | "long" | "cyclical">("all");
 
-  const open = TRADING_SEED.filter((t) => !t.saleDate);
-  const closed = TRADING_SEED.filter((t) => !!t.saleDate);
+  // ── Layer 1: Live prices with auto-refresh ───────────────────────────────
+  const [livePrices, setLivePrices]       = useState<Record<string, { price: number; prevClose: number | null }>>({});
+  const [priceLoading, setPriceLoading]   = useState(true);
+  const [pricesRefreshing, setPricesRefreshing] = useState(false);
+  const [lastPriceUpdate, setLastPriceUpdate]   = useState<Date | null>(null);
 
-  const glOf = (t: Trade) => t.units * (t.marketOrSalePrice - t.costPerSh);
-  const pctOf = (t: Trade) => ((t.marketOrSalePrice - t.costPerSh) / t.costPerSh) * 100;
-  const costOf = (t: Trade) => t.units * t.costPerSh;
-  const vsToday = (t: Trade) => t.units * (t.marketOrSalePrice - t.yesterday);
+  // ── Layer 2: Watchlist from KV ───────────────────────────────────────────
+  const [watchlistItems, setWatchlistItems] = useState<WatchlistEntry[]>(WATCHLIST_DEFAULT);
+  const [watchlistMeta, setWatchlistMeta]   = useState<{ updatedAt: string | null; source: string | null; marketSnapshot?: { spy?: number; qqq?: number; vix?: number } }>({ updatedAt: null, source: null });
+
+  // ── Layer 3: AI refresh state ────────────────────────────────────────────
+  const [aiRefreshing, setAiRefreshing]     = useState(false);
+  const [aiError, setAiError]               = useState<string | null>(null);
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
+  const aiTriggeredRef                  = useRef(false);
+
+  const currentMonth = new Date().getMonth() + 1;
+  const inBuyWindow  = (w: WatchlistEntry) => w.buyMonths?.includes(currentMonth) ?? false;
+  const inSellWindow = (w: WatchlistEntry) => w.sellMonths?.includes(currentMonth) ?? false;
+
+  // All symbols to fetch prices for (open positions + watchlist)
+  const allFetchSymbols = useMemo(() => {
+    const open  = [...new Set(TRADING_SEED.filter(t => !t.saleDate).map(t => t.symbol))];
+    const watch = [...new Set(watchlistItems.map(w => w.symbol))];
+    return [...new Set([...open, ...watch])];
+  }, [watchlistItems]);
+
+  // ── Layer 1: price fetch ─────────────────────────────────────────────────
+  const fetchPrices = useCallback(async (initial = false) => {
+    if (initial) setPriceLoading(true); else setPricesRefreshing(true);
+    try {
+      const results = await Promise.all(
+        allFetchSymbols.map(sym =>
+          fetch(`/api/equity-price?ticker=${sym}`)
+            .then(r => r.json())
+            .then((d: unknown) => {
+              const r = d as { price?: number | null; previousClose?: number | null };
+              return { sym, price: typeof r.price === "number" ? r.price : null, prevClose: typeof r.previousClose === "number" ? r.previousClose : null };
+            })
+            .catch(() => ({ sym, price: null, prevClose: null }))
+        )
+      );
+      const map: Record<string, { price: number; prevClose: number | null }> = {};
+      for (const r of results) if (r.price !== null) map[r.sym] = { price: r.price, prevClose: r.prevClose };
+      setLivePrices(map);
+      setLastPriceUpdate(new Date());
+    } finally {
+      setPriceLoading(false);
+      setPricesRefreshing(false);
+    }
+  }, [allFetchSymbols]);
+
+  // Initial fetch + 5-min auto-refresh (market hours only)
+  useEffect(() => {
+    fetchPrices(true);
+    const id = setInterval(() => { if (isMarketOpen()) fetchPrices(false); }, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [fetchPrices]);
+
+  // ── Layer 3: AI refresh ──────────────────────────────────────────────────
+  const triggerAIRefresh = useCallback(async () => {
+    setAiRefreshing(true);
+    setAiError(null);
+    try {
+      const res  = await fetch("/api/watchlist/refresh", { method: "POST" });
+      const data = await res.json() as { items?: WatchlistEntry[]; updatedAt?: string; source?: string; marketSnapshot?: { spy?: number; qqq?: number; vix?: number }; error?: string };
+      if (data.items && data.items.length > 0) {
+        setWatchlistItems(data.items);
+        setWatchlistMeta({ updatedAt: data.updatedAt ?? null, source: data.source ?? null, marketSnapshot: data.marketSnapshot });
+      } else {
+        setAiError(data.error ?? "Unknown error from AI refresh");
+      }
+    } catch (e) {
+      setAiError(String(e));
+    } finally {
+      setAiRefreshing(false);
+    }
+  }, []);
+
+  // ── Layer 2: load watchlist from KV on mount ─────────────────────────────
+  useEffect(() => {
+    fetch("/api/watchlist")
+      .then(r => r.json())
+      .then((raw: unknown) => {
+        const data = raw as { items?: WatchlistEntry[]; updatedAt?: string | null; source?: string | null; marketSnapshot?: { spy?: number; qqq?: number; vix?: number } };
+        if (data.items && data.items.length > 0) {
+          setWatchlistItems(data.items);
+          setWatchlistMeta({ updatedAt: data.updatedAt ?? null, source: data.source ?? null, marketSnapshot: data.marketSnapshot });
+        }
+      })
+      .catch(() => { /* keep defaults */ });
+  }, []);
+
+  // Auto-trigger AI refresh when watchlist tab opens if data is stale (>6h) or never AI-refreshed
+  useEffect(() => {
+    if (activeTab !== "watchlist" || aiTriggeredRef.current || aiRefreshing) return;
+    const isStale = !watchlistMeta.updatedAt || watchlistMeta.source !== "claude-ai" ||
+      (Date.now() - new Date(watchlistMeta.updatedAt).getTime() > 6 * 60 * 60 * 1000);
+    if (isStale) {
+      aiTriggeredRef.current = true;
+      triggerAIRefresh();
+    }
+  }, [activeTab, watchlistMeta, aiRefreshing, triggerAIRefresh]);
+
+  // ── Trading calculations ─────────────────────────────────────────────────
+  const livePrice    = (sym: string, fallback: number) => livePrices[sym]?.price ?? fallback;
+  const livePrevClose = (sym: string, fallback: number) => livePrices[sym]?.prevClose ?? fallback;
+
+  const open   = TRADING_SEED.filter(t => !t.saleDate);
+  const closed = TRADING_SEED.filter(t => !!t.saleDate);
+
+  const curPrice  = (t: Trade) => t.saleDate ? t.marketOrSalePrice : livePrice(t.symbol, t.marketOrSalePrice);
+  const prevClose = (t: Trade) => t.saleDate ? t.yesterday : livePrevClose(t.symbol, t.yesterday);
+  const glOf      = (t: Trade) => t.units * (curPrice(t) - t.costPerSh);
+  const pctOf     = (t: Trade) => ((curPrice(t) - t.costPerSh) / t.costPerSh) * 100;
+  const costOf    = (t: Trade) => t.units * t.costPerSh;
+  const vsToday   = (t: Trade) => t.units * (curPrice(t) - prevClose(t));
 
   const totalUnrealized = open.reduce((s, t) => s + glOf(t), 0);
-  const totalRealized = closed.reduce((s, t) => s + glOf(t), 0);
-  const netPL = totalUnrealized + totalRealized;
+  const totalRealized   = closed.reduce((s, t) => s + glOf(t), 0);
+  const netPL           = totalUnrealized + totalRealized;
+  const totalDailyGL    = open.reduce((s, t) => s + vsToday(t), 0);
 
   const brokerGL: Record<string, number> = {};
-  TRADING_SEED.forEach((t) => {
-    brokerGL[t.broker] = (brokerGL[t.broker] ?? 0) + glOf(t);
-  });
+  TRADING_SEED.forEach(t => { brokerGL[t.broker] = (brokerGL[t.broker] ?? 0) + glOf(t); });
 
   const sortedClosed = [...closed].sort((a, b) => {
-    if (closedSort === "gl") return glOf(b) - glOf(a);
+    if (closedSort === "gl")  return glOf(b) - glOf(a);
     if (closedSort === "pct") return pctOf(b) - pctOf(a);
     return new Date(b.buyDate).getTime() - new Date(a.buyDate).getTime();
   });
 
-  const glClass = (v: number) => (v > 0 ? "tr-gain-pos" : v < 0 ? "tr-gain-neg" : "");
-  const badge = (v: number) => (v >= 0 ? "tr-badge-pos" : "tr-badge-neg");
+  const glClass = (v: number) => v > 0 ? "tr-gain-pos" : v < 0 ? "tr-gain-neg" : "";
+  const badge   = (v: number) => v >= 0 ? "tr-badge-pos" : "tr-badge-neg";
 
-  // Insight data
-  const missedGains = closed.filter((t) => glOf(t) > 0 && t.yesterday > t.marketOrSalePrice);
-  const longSpeculative = closed.filter((t) => {
-    const days = daysBetween(t.buyDate, t.saleDate!);
-    return days > 365 && glOf(t) < 0;
-  });
-  const mstrTrades = TRADING_SEED.filter((t) => t.symbol === "MSTR");
-  const mstrCost = mstrTrades.reduce((s, t) => s + costOf(t), 0);
-  const totalCost = TRADING_SEED.reduce((s, t) => s + costOf(t), 0);
-  const mstrConc = (mstrCost / totalCost) * 100;
+  const missedGains     = closed.filter(t => glOf(t) > 0 && t.yesterday > t.marketOrSalePrice);
+  const longSpeculative = closed.filter(t => daysBetween(t.buyDate, t.saleDate!) > 365 && glOf(t) < 0);
+  const mstrTrades      = TRADING_SEED.filter(t => t.symbol === "MSTR");
+  const mstrConc        = (mstrTrades.reduce((s, t) => s + costOf(t), 0) / TRADING_SEED.reduce((s, t) => s + costOf(t), 0)) * 100;
 
   return (
     <div className="trading-report">
@@ -119,10 +241,24 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
           <span>Net P&amp;L</span>
           <strong className="trading-amt">{fmt(netPL)}</strong>
         </div>
+        <div className={`tr-summary-card ${totalDailyGL < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
+          <span>Daily G/(L)</span>
+          <strong className="trading-amt">{totalDailyGL >= 0 ? "+" : ""}{fmt(totalDailyGL)}</strong>
+        </div>
         <div className="tr-summary-card tr-summary-card--neutral">
           <span>Total Trades</span>
           <strong>{TRADING_SEED.length}</strong>
         </div>
+      </div>
+
+      {/* Price refresh status bar */}
+      <div className="tr-price-bar">
+        <span className="tr-price-status">
+          {priceLoading ? "Loading prices…" : pricesRefreshing ? "Refreshing…" : lastPriceUpdate ? `Prices updated ${timeAgo(lastPriceUpdate.toISOString())} · auto-refresh every 5 min${isMarketOpen() ? " (market open)" : " (market closed)"}` : ""}
+        </span>
+        <button className="tr-refresh-btn" onClick={() => fetchPrices(false)} disabled={priceLoading || pricesRefreshing}>
+          ↻ Refresh prices
+        </button>
       </div>
 
       {/* Broker breakdown */}
@@ -137,125 +273,80 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
 
       {/* Tabs */}
       <div className="tr-tabs">
-        <button className={activeTab === "open" ? "selected" : ""} onClick={() => setActiveTab("open")}>
-          Open Positions ({open.length})
-        </button>
-        <button className={activeTab === "closed" ? "selected" : ""} onClick={() => setActiveTab("closed")}>
-          Closed Positions ({closed.length})
-        </button>
+        <button className={activeTab === "open"      ? "selected" : ""} onClick={() => setActiveTab("open")}>Open Positions ({open.length})</button>
+        <button className={activeTab === "closed"    ? "selected" : ""} onClick={() => setActiveTab("closed")}>Closed Positions ({closed.length})</button>
+        <button className={activeTab === "watchlist" ? "selected" : ""} onClick={() => setActiveTab("watchlist")}>Watchlist ({watchlistItems.length})</button>
       </div>
 
+      {/* ── Open Positions ── */}
       {activeTab === "open" && (
         <div className="tr-table-wrap">
           <table className="tr-table">
-            <thead>
-              <tr>
-                <th>Stock</th>
-                <th className="right">Buy Date</th>
-                <th className="right">Units</th>
-                <th className="right">Cost/Sh</th>
-                <th className="right">Total Cost</th>
-                <th className="right">Current Price</th>
-                <th className="right">Market Value</th>
-                <th className="right">G/(L)</th>
-                <th className="right">Daily G/(L)</th>
-              </tr>
-            </thead>
+            <thead><tr>
+              <th>Stock</th><th className="right">Buy Date</th><th className="right">Units</th>
+              <th className="right">Cost/Sh</th><th className="right">Total Cost</th>
+              <th className="right">Current Price</th><th className="right">Market Value</th>
+              <th className="right">G/(L)</th><th className="right">Daily G/(L)</th>
+            </tr></thead>
             <tbody>
               {open.map((t, i) => {
-                const gl = glOf(t);
-                const pct = pctOf(t);
-                const mv = t.units * t.marketOrSalePrice;
-                const tc = costOf(t);
-                const dailyGL = t.units * (t.marketOrSalePrice - t.yesterday);
-                const dailyPct = ((t.marketOrSalePrice - t.yesterday) / t.yesterday) * 100;
+                const gl = glOf(t), pct = pctOf(t), mv = t.units * curPrice(t), tc = costOf(t);
+                const dailyGL = t.units * (curPrice(t) - prevClose(t));
+                const dailyPct = ((curPrice(t) - prevClose(t)) / prevClose(t)) * 100;
                 return (
                   <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
-                    <td>
-                      <div className="tr-stock-cell">
-                        <span className="tr-symbol">{t.symbol}</span>
-                        <span className="tr-company-sub">{t.company}</span>
-                        <span className="tr-broker-tag">{t.broker}</span>
-                      </div>
-                    </td>
+                    <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
                     <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
                     <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
                     <td className="right trading-amt">{fmt(tc)}</td>
-                    <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
+                    <td className="right trading-amt">
+                      ${curPrice(t).toFixed(2)}
+                      {priceLoading && !livePrices[t.symbol] && <span style={{fontSize:"9px",color:"#94a3b8",marginLeft:"3px"}}>…</span>}
+                    </td>
                     <td className="right trading-amt">{fmt(mv)}</td>
-                    <td className="right">
-                      <div className="tr-gl-cell">
-                        <span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span>
-                        <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
-                      </div>
-                    </td>
-                    <td className="right">
-                      <div className="tr-gl-cell">
-                        <span className={`trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</span>
-                        <span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span>
-                      </div>
-                    </td>
+                    <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
+                    <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</span><span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span></div></td>
                   </tr>
                 );
               })}
             </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={4}>Total Open</th>
-                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
-                <th />
-                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
-                <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
-                <th className={`right trading-amt ${glClass(open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0))}`}>
-                  {open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0) >= 0 ? "+" : ""}
-                  {fmt(open.reduce((s, t) => s + t.units * (t.marketOrSalePrice - t.yesterday), 0))}
-                </th>
-              </tr>
-            </tfoot>
+            <tfoot><tr>
+              <th colSpan={4}>Total Open</th>
+              <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
+              <th />
+              <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * curPrice(t), 0))}</th>
+              <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
+              {(() => { const td = open.reduce((s, t) => s + vsToday(t), 0); return <th className={`right trading-amt ${glClass(td)}`}>{td >= 0 ? "+" : ""}{fmt(td)}</th>; })()}
+            </tr></tfoot>
           </table>
         </div>
       )}
 
+      {/* ── Closed Positions ── */}
       {activeTab === "closed" && (
         <div className="tr-table-wrap">
           <div className="tr-sort-row">
             <span>Sort by:</span>
             <button className={closedSort === "date" ? "selected" : ""} onClick={() => setClosedSort("date")}>Buy Date</button>
-            <button className={closedSort === "gl" ? "selected" : ""} onClick={() => setClosedSort("gl")}>G/(L) $</button>
-            <button className={closedSort === "pct" ? "selected" : ""} onClick={() => setClosedSort("pct")}>G/(L) %</button>
+            <button className={closedSort === "gl"   ? "selected" : ""} onClick={() => setClosedSort("gl")}>G/(L) $</button>
+            <button className={closedSort === "pct"  ? "selected" : ""} onClick={() => setClosedSort("pct")}>G/(L) %</button>
           </div>
           <table className="tr-table">
-            <thead>
-              <tr>
-                <th>Stock</th>
-                <th className="right">Buy Date</th>
-                <th className="right">Sale Date</th>
-                <th className="right">Days</th>
-                <th className="right">Units</th>
-                <th className="right">Cost/Sh</th>
-                <th className="right">Sale/Sh</th>
-                <th className="right">Total Cost</th>
-                <th className="right">Proceeds</th>
-                <th className="right">G/(L)</th>
-              </tr>
-            </thead>
+            <thead><tr>
+              <th>Stock</th><th className="right">Buy Date</th><th className="right">Sale Date</th>
+              <th className="right">Days</th><th className="right">Units</th>
+              <th className="right">Cost/Sh</th><th className="right">Sale/Sh</th>
+              <th className="right">Total Cost</th><th className="right">Proceeds</th><th className="right">G/(L)</th>
+            </tr></thead>
             <tbody>
               {sortedClosed.map((t, i) => {
-                const gl = glOf(t);
-                const pct = pctOf(t);
-                const tc = costOf(t);
+                const gl = glOf(t), pct = pctOf(t), tc = costOf(t);
                 const proceeds = t.units * t.marketOrSalePrice;
                 const days = daysBetween(t.buyDate, t.saleDate!);
                 return (
                   <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
-                    <td>
-                      <div className="tr-stock-cell">
-                        <span className="tr-symbol">{t.symbol}</span>
-                        <span className="tr-company-sub">{t.company}</span>
-                        <span className="tr-broker-tag">{t.broker}</span>
-                      </div>
-                    </td>
+                    <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
                     <td className="right">{fmtDate(t.saleDate!)}</td>
                     <td className="right">{days === 0 ? "Same day" : `${days}d`}</td>
@@ -264,34 +355,178 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
                     <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
                     <td className="right trading-amt">{fmt(tc)}</td>
                     <td className="right trading-amt">{fmt(proceeds)}</td>
-                    <td className="right">
-                      <div className="tr-gl-cell">
-                        <span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span>
-                        <span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span>
-                      </div>
-                    </td>
+                    <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
                   </tr>
                 );
               })}
             </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={7}>Total Closed</th>
-                <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
-                <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
-                <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
-              </tr>
-            </tfoot>
+            <tfoot><tr>
+              <th colSpan={7}>Total Closed</th>
+              <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
+              <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
+              <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
+            </tr></tfoot>
           </table>
         </div>
       )}
+
+      {/* ── Watchlist Tab ── */}
+      {activeTab === "watchlist" && (() => {
+        const filtered   = watchFilter === "all" ? watchlistItems : watchlistItems.filter(w => w.horizon === watchFilter);
+        const activeBuy  = watchlistItems.filter(w => w.horizon === "cyclical" && inBuyWindow(w));
+        const activeSell = watchlistItems.filter(w => w.horizon === "cyclical" && inSellWindow(w));
+        const horizonLabel: Record<string, string> = { short: "Short-term", long: "Long-term", cyclical: "Cyclical" };
+        const horizonClass: Record<string, string> = { short: "wl-card--short", long: "wl-card--long", cyclical: "wl-card--cyclical" };
+
+        return (
+          <div className="wl-wrap">
+            {/* AI status bar */}
+            <div className="wl-ai-bar">
+              <div className="wl-ai-status">
+                {aiRefreshing ? (
+                  <span className="wl-ai-loading">⟳ AI is analysing market data and updating watchlist…</span>
+                ) : watchlistMeta.source === "claude-ai" && watchlistMeta.updatedAt ? (
+                  <span className="wl-ai-ok">
+                    ✦ AI-updated {timeAgo(watchlistMeta.updatedAt)}
+                    {watchlistMeta.marketSnapshot && (
+                      <em> · SPY ${watchlistMeta.marketSnapshot.spy?.toFixed(0)} · QQQ ${watchlistMeta.marketSnapshot.qqq?.toFixed(0)} · VIX ${watchlistMeta.marketSnapshot.vix?.toFixed(1)}</em>
+                    )}
+                  </span>
+                ) : (
+                  <span className="wl-ai-seed">Using default watchlist · AI refresh pending</span>
+                )}
+                {aiError && <span className="wl-ai-error" title={aiError}>⚠ {aiError.includes("GROQ_API_KEY") ? "Groq API key not configured — run: npx wrangler secret put GROQ_API_KEY --config wrangler.biometric.json" : "AI refresh failed"}</span>}
+              </div>
+              <button className="wl-ai-btn" onClick={() => { aiTriggeredRef.current = true; triggerAIRefresh(); }} disabled={aiRefreshing}>
+                {aiRefreshing ? "Updating…" : "↻ Refresh with AI"}
+              </button>
+            </div>
+
+            {/* Active window alerts — compact summary */}
+            {(activeBuy.length > 0 || activeSell.length > 0) && (
+              <div className="wl-alert-summary">
+                <div className="wl-alert-summary-line">
+                  {activeBuy.length > 0 && <span className="wl-alert-chip wl-alert-chip--buy">▲ Buy: {activeBuy.map(w => w.symbol).join(", ")}</span>}
+                  {activeSell.length > 0 && <span className="wl-alert-chip wl-alert-chip--sell">▼ Sell: {activeSell.map(w => w.symbol).join(", ")}</span>}
+                  <button className="wl-alert-toggle" onClick={() => setAlertsExpanded(p => !p)}>
+                    {alertsExpanded ? "▲ hide" : "▼ details"}
+                  </button>
+                </div>
+                {alertsExpanded && (
+                  <div className="wl-alerts">
+                    {activeBuy.map(w => (
+                      <div key={w.symbol} className="wl-alert wl-alert--buy">
+                        <strong>▲ BUY — {w.symbol}</strong>
+                        <span>{w.seasonNote} · Entry ≤ ${w.buyBelow?.toLocaleString()}</span>
+                      </div>
+                    ))}
+                    {activeSell.map(w => (
+                      <div key={w.symbol} className="wl-alert wl-alert--sell">
+                        <strong>▼ SELL — {w.symbol}</strong>
+                        <span>{w.seasonNote} · Exit ≥ ${w.sellAbove?.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Filter pills */}
+            <div className="wl-filters">
+              <span className="wl-filter-label">Show:</span>
+              {(["all","short","long","cyclical"] as const).map(f => (
+                <button key={f} className={`wl-filter-pill ${watchFilter === f ? "wl-filter-pill--active" : ""}`} onClick={() => setWatchFilter(f)}>
+                  {f === "all" ? "All" : f === "short" ? "Short-term" : f === "long" ? "Long-term" : "Cyclical"}
+                </button>
+              ))}
+            </div>
+
+            <p className="wl-source-note">Educational context only — not a trade order. AI uses live price data + Claude to refresh strategy every 6 hours.</p>
+
+            {/* Cards */}
+            <div className="wl-grid">
+              {filtered.map(w => {
+                const lp       = livePrices[w.symbol];
+                const pricePct = lp && w.analystTarget ? ((w.analystTarget - lp.price) / lp.price * 100) : null;
+                const isBuy    = w.horizon === "cyclical" && inBuyWindow(w);
+                const isSell   = w.horizon === "cyclical" && inSellWindow(w);
+                const aboveSell = lp && w.sellAbove && lp.price > w.sellAbove;
+                const belowBuy  = lp && w.buyBelow  && lp.price < w.buyBelow;
+                return (
+                  <div key={`${w.symbol}-${w.horizon}`} className={`wl-card ${horizonClass[w.horizon]} ${isBuy ? "wl-card--in-buy" : ""} ${isSell ? "wl-card--in-sell" : ""}`}>
+                    <div className="wl-card-header">
+                      <div>
+                        <span className="wl-symbol">{w.symbol}</span>
+                        <span className="wl-company">{w.company}</span>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"3px"}}>
+                        <span className={`wl-horizon-badge wl-horizon-badge--${w.horizon}`}>{horizonLabel[w.horizon]}</span>
+                        {aboveSell && <span className="wl-price-flag wl-price-flag--above">Above target</span>}
+                        {belowBuy  && <span className="wl-price-flag wl-price-flag--entry">Entry range</span>}
+                      </div>
+                    </div>
+
+                    <p className="wl-thesis">{w.thesis}</p>
+
+                    <div className="wl-targets">
+                      {lp && (
+                        <div className="wl-target-row">
+                          <span className="wl-target-label">Live</span>
+                          <span className="wl-target-val wl-live">${lp.price.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {w.buyBelow && (
+                        <div className="wl-target-row">
+                          <span className="wl-target-label">Buy below</span>
+                          <span className="wl-target-val wl-buy">${w.buyBelow.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.sellAbove && (
+                        <div className="wl-target-row">
+                          <span className="wl-target-label">Sell above</span>
+                          <span className="wl-target-val wl-sell">${w.sellAbove.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.analystTarget && (
+                        <div className="wl-target-row">
+                          <span className="wl-target-label">Analyst target</span>
+                          <span className="wl-target-val wl-analyst">
+                            ${w.analystTarget.toLocaleString()}
+                            {pricePct !== null && <em className={pricePct >= 0 ? "wl-upside-pos" : "wl-upside-neg"}> ({pricePct >= 0 ? "+" : ""}{pricePct.toFixed(0)}%)</em>}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {w.horizon === "cyclical" && w.buyMonths && w.sellMonths && (
+                      <div className="wl-season-bar">
+                        {MONTHS.map((m, i) => {
+                          const mn = i + 1;
+                          return (
+                            <div key={m} className={["wl-month", w.buyMonths!.includes(mn) ? "wl-month--buy" : "", w.sellMonths!.includes(mn) ? "wl-month--sell" : "", mn === currentMonth ? "wl-month--cur" : ""].join(" ").trim()}>
+                              {m}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {w.horizon === "cyclical" && (isBuy || isSell) && (
+                      <div className={`wl-window-badge ${isBuy ? "wl-window-badge--buy" : "wl-window-badge--sell"}`}>
+                        {isBuy ? "▲ BUY WINDOW ACTIVE" : "▼ SELL WINDOW ACTIVE"}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Advisor Insights */}
       <div className="tr-insights">
         <h4 className="tr-insights-heading">Advisor Insights</h4>
         <div className="tr-insights-grid">
-
-          {/* Alert: all open positions losing */}
           <div className="tr-insight tr-insight--warn">
             <div className="tr-insight-icon">⚠</div>
             <div className="tr-insight-body">
@@ -299,17 +534,13 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
               <p>Every open trade is in the red, totaling <span className="tr-gain-neg">{fmt(totalUnrealized)}</span> unrealized loss. MSTR has two open positions bought at $420 and $186 — currently at $100 — suggesting you were averaging down in a declining stock. Consider whether a stop-loss or exit discipline could limit further damage.</p>
             </div>
           </div>
-
-          {/* Alert: MSTR concentration */}
           <div className="tr-insight tr-insight--warn">
             <div className="tr-insight-icon">⚠</div>
             <div className="tr-insight-body">
               <strong>High concentration in MicroStrategy ({mstrConc.toFixed(0)}% of total capital deployed)</strong>
-              <p>MSTR appears across all 3 brokers in {mstrTrades.length} trades. While your closed MSTR trades were profitable short swings, the open positions at CST are deep losses. Trading the same volatile stock across multiple accounts amplifies both risk and emotional bias. Keep individual stock exposure under 15–20% of trading capital.</p>
+              <p>MSTR appears across all 3 brokers in {mstrTrades.length} trades. While your closed MSTR trades were profitable short swings, the open positions at CST are deep losses. Trading the same volatile stock across multiple accounts amplifies both risk and emotional bias.</p>
             </div>
           </div>
-
-          {/* Long-term speculation disasters */}
           {longSpeculative.length > 0 && (
             <div className="tr-insight tr-insight--warn">
               <div className="tr-insight-icon">⚠</div>
@@ -317,18 +548,13 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
                 <strong>Long-term speculative holds destroyed capital</strong>
                 <ul className="tr-insight-list">
                   {longSpeculative.map((t, i) => (
-                    <li key={i}>
-                      <strong>{t.symbol}</strong> — held {daysBetween(t.buyDate, t.saleDate!)} days, lost{" "}
-                      <span className="tr-gain-neg">{fmt(glOf(t))}</span> ({pctOf(t).toFixed(1)}%)
-                    </li>
+                    <li key={i}><strong>{t.symbol}</strong> — held {daysBetween(t.buyDate, t.saleDate!)} days, lost <span className="tr-gain-neg">{fmt(glOf(t))}</span> ({pctOf(t).toFixed(1)}%)</li>
                   ))}
                 </ul>
-                <p>Nio lost 52% over 4 years; Workhorse lost 99.7% over 3 years. Speculative small-caps carried without a stop-loss can go to near-zero. A hard rule (e.g., exit any position down &gt;25–30%) would have saved most of this capital.</p>
+                <p>Speculative small-caps carried without a stop-loss can go to near-zero. A hard rule (exit any position down &gt;25–30%) would have saved most of this capital.</p>
               </div>
             </div>
           )}
-
-          {/* Missed gains */}
           {missedGains.length > 0 && (
             <div className="tr-insight tr-insight--info">
               <div className="tr-insight-icon">ℹ</div>
@@ -337,37 +563,20 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
                 <ul className="tr-insight-list">
                   {missedGains.slice(0, 5).map((t, i) => {
                     const missed = t.units * (t.yesterday - t.marketOrSalePrice);
-                    return (
-                      <li key={i}>
-                        <strong>{t.symbol}</strong> — sold @ ${t.marketOrSalePrice.toFixed(2)}, now ${t.yesterday.toFixed(2)},{" "}
-                        missed extra <span className="tr-gain-pos">{fmt(missed)}</span>
-                      </li>
-                    );
+                    return <li key={i}><strong>{t.symbol}</strong> — sold @ ${t.marketOrSalePrice.toFixed(2)}, now ${t.yesterday.toFixed(2)}, missed extra <span className="tr-gain-pos">{fmt(missed)}</span></li>;
                   })}
                 </ul>
-                <p>These were good exits — you locked in gains. The "missed" column is hindsight; only flag if a pattern emerges (selling right after a small bounce before a larger move).</p>
+                <p>These were good exits — you locked in gains. The "missed" column is hindsight.</p>
               </div>
             </div>
           )}
-
-          {/* Good exits worth repeating */}
           <div className="tr-insight tr-insight--pos">
             <div className="tr-insight-icon">✓</div>
             <div className="tr-insight-body">
               <strong>Excellent short-term discipline — keep repeating this</strong>
-              <p>OKLO (+64.5% in 23 days), HOOD (+29.3% in 54 days), PLTR (+89.9% in 292 days), UBER (+5.1% in 62 days), SMCI (+15.4% in 56 days, SMCI later dropped). These exits show strong instinct for knowing when to take profits. Your CSS broker account runs a disciplined swing-trade style that works.</p>
+              <p>OKLO (+64.5% in 23 days), HOOD (+29.3% in 54 days), PLTR (+89.9% in 292 days), UBER (+5.1% in 62 days), SMCI (+15.4% in 56 days). These exits show strong instinct for taking profits. Your CSS broker account runs a disciplined swing-trade style that works.</p>
             </div>
           </div>
-
-          {/* Note on Daily G/(L) in source data */}
-          <div className="tr-insight tr-insight--note">
-            <div className="tr-insight-icon">ℹ</div>
-            <div className="tr-insight-body">
-              <strong>Data note: "Daily G/(L)" in your Excel is misleading for closed positions</strong>
-              <p>The Excel Daily G/(L) column compares the original sale price to today's market price — not an actual day-over-day change. For closed positions, this column shows what you'd have gained or lost if you still held today vs. when you sold. This report does not display that column; it shows realized G/(L) based on buy vs. sale prices.</p>
-            </div>
-          </div>
-
         </div>
       </div>
 

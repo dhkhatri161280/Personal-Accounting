@@ -1,0 +1,10 @@
+{
+  "name": "excel-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Updates Personal Finance USA_C.xls from the US vault",
+  "main": "excel-updater.js",
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}

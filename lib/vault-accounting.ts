@@ -1,13 +1,14 @@
 import type { Ledger, Tx, VoucherLineDraft } from "@/lib/vault-types";
 
 export const blankVoucherLines = (): VoucherLineDraft[] => [
-  { side: "debit", accountId: "", amount: "" },
-  { side: "credit", accountId: "", amount: "" },
+  { id: crypto.randomUUID(), side: "debit", accountId: "", amount: "" },
+  { id: crypto.randomUUID(), side: "credit", accountId: "", amount: "" },
 ];
 
 export const draftLinesFromTx = (tx: Tx | null): VoucherLineDraft[] =>
   tx?.entries?.length
     ? tx.entries.map((e) => ({
+        id: crypto.randomUUID(),
         side: e.amount < 0 ? ("debit" as const) : ("credit" as const),
         accountId: String(e.accountId),
         amount: String(Math.abs(e.amount)),
@@ -15,6 +16,16 @@ export const draftLinesFromTx = (tx: Tx | null): VoucherLineDraft[] =>
     : blankVoucherLines();
 
 export const centsOf = (value: number | string): number => Math.round(Number(value || 0) * 100);
+
+// Returns `count` unique, unused transaction ids (existing max + 1, 2, 3, ...).
+// Never use `data.transactions.length + 1` inside a batch .map() — every item in the
+// batch reads the same length and ends up with the identical id, silently creating
+// two rows that both display as e.g. "#9352" (they collide again on the very next save
+// too, since `length` didn't grow). Always call this once per batch, not per row.
+export const nextTransactionIds = (transactions: Tx[], count: number): number[] => {
+  const base = Math.max(0, ...transactions.map((t) => Number(t.id) || 0));
+  return Array.from({ length: count }, (_, i) => base + 1 + i);
+};
 
 export const fiscalYearOf = (date: string): number => {
   const y = Number(date.slice(0, 4)),

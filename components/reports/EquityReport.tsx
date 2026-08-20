@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
+import type { ParsedGrant, ParsedVest } from "@/lib/parse-grant-pdf";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -15,23 +16,23 @@ function fmtDate(iso: string) {
 // ── Pre-populated seed from Vesting Schedule.xlsx ────────────────────────
 const NVDA_SEED = {
   grants: [
-    { id:"44f662e1", ticker:"NVDA", grantDate:"2021-09-01", totalShares:3160, grantPrice:17.789, vests:[
+    { id:"44f662e1", ticker:"NVDA", grantDate:"2022-06-08", totalShares:3160, grantPrice:17.789, vests:[
       {id:"64997692",vestDate:"2022-09-22",shares:190,vestPrice:13.26,sharesHeld:110,taxShares:80},{id:"a3a2921a",vestDate:"2022-12-21",shares:200,vestPrice:17.67,sharesHeld:130,taxShares:70},{id:"ec53c255",vestDate:"2023-03-15",shares:200,vestPrice:24.23,sharesHeld:110,taxShares:90},{id:"215d3348",vestDate:"2023-06-21",shares:200,vestPrice:43.04,sharesHeld:110,taxShares:90},{id:"7908f8b8",vestDate:"2023-09-21",shares:190,vestPrice:42.24,sharesHeld:120,taxShares:70},{id:"acf63345",vestDate:"2023-12-21",shares:200,vestPrice:48.09,sharesHeld:120,taxShares:80},{id:"506caad4",vestDate:"2024-03-21",shares:200,vestPrice:90.37,sharesHeld:0,taxShares:90,salePrice:132.25},{id:"fc1e1eb1",vestDate:"2024-06-21",shares:200,vestPrice:135.58,sharesHeld:0,taxShares:74,salePrice:132.25},{id:"a5e3a47c",vestDate:"2024-09-21",shares:190,vestPrice:115.59,sharesHeld:0,taxShares:70,salePrice:132.25},{id:"3ba0da14",vestDate:"2024-12-21",shares:200,vestPrice:135.07,sharesHeld:0,taxShares:74,salePrice:120.00},{id:"2ef03556",vestDate:"2025-03-21",shares:200,vestPrice:115.43,sharesHeld:113,taxShares:87},{id:"1ad69f96",vestDate:"2025-06-21",shares:200,vestPrice:144.12,sharesHeld:126,taxShares:74},{id:"5f13346b",vestDate:"2025-09-21",shares:190,vestPrice:174.88,sharesHeld:120,taxShares:70},{id:"73e7d0e4",vestDate:"2025-12-21",shares:200,vestPrice:184.97,sharesHeld:126,taxShares:74},{id:"1a28c615",vestDate:"2026-03-21",shares:200,vestPrice:181.93,sharesHeld:113,taxShares:87,salePrice:173.69},{id:"3f9d52ae",vestDate:"2026-06-21",shares:200,vestPrice:207.41,sharesHeld:126,taxShares:74},
     ]},
-    { id:"006a5b73", ticker:"NVDA", grantDate:"2021-09-01", totalShares:10020, grantPrice:17.964, vests:[
+    { id:"006a5b73", ticker:"NVDA", grantDate:"2022-02-08", totalShares:10020, grantPrice:17.964, vests:[
       {id:"16ed83bd",vestDate:"2022-09-22",shares:190,vestPrice:13.26,sharesHeld:110,taxShares:80},{id:"408de10f",vestDate:"2022-12-21",shares:190,vestPrice:17.67,sharesHeld:120,taxShares:70},{id:"0b1f7848",vestDate:"2023-03-15",shares:1740,vestPrice:24.23,sharesHeld:990,taxShares:750},{id:"b1eadb7f",vestDate:"2023-03-21",shares:190,vestPrice:24.23,sharesHeld:100,taxShares:90},{id:"b6d7ae0b",vestDate:"2023-06-21",shares:630,vestPrice:43.04,sharesHeld:370,taxShares:260},{id:"ea7cfab9",vestDate:"2023-09-21",shares:620,vestPrice:42.24,sharesHeld:390,taxShares:230},{id:"f394706a",vestDate:"2023-12-21",shares:630,vestPrice:48.09,sharesHeld:390,taxShares:240},{id:"09d8dc14",vestDate:"2024-03-21",shares:630,vestPrice:90.37,sharesHeld:0,taxShares:280,salePrice:132.25},{id:"f4ef0078",vestDate:"2024-06-21",shares:620,vestPrice:135.58,sharesHeld:0,taxShares:228,salePrice:132.25},{id:"83fc2e6b",vestDate:"2024-09-21",shares:630,vestPrice:115.59,sharesHeld:0,taxShares:232,salePrice:132.25},{id:"6c724a5e",vestDate:"2024-12-21",shares:620,vestPrice:135.07,sharesHeld:271,taxShares:229,salePrice:120.00},{id:"ec66780e",vestDate:"2025-03-21",shares:630,vestPrice:115.43,sharesHeld:358,taxShares:272},{id:"f32bd5a5",vestDate:"2025-06-21",shares:630,vestPrice:144.12,sharesHeld:395,taxShares:235},{id:"5b7c6506",vestDate:"2025-09-21",shares:620,vestPrice:174.88,sharesHeld:391,taxShares:229},{id:"845fac77",vestDate:"2025-12-21",shares:630,vestPrice:184.97,sharesHeld:398,taxShares:232},{id:"fd382eb7",vestDate:"2026-03-21",shares:630,vestPrice:181.93,sharesHeld:113,taxShares:267,salePrice:173.69},{id:"084b0b42",vestDate:"2026-06-21",shares:190,vestPrice:207.41,sharesHeld:120,taxShares:70},
     ]},
-    { id:"d40e8493", ticker:"NVDA", grantDate:"2022-09-01", totalShares:3500, grantPrice:31.159, vests:[
-      {id:"65e727ed",vestDate:"2023-09-21",shares:240,vestPrice:42.24,sharesHeld:150,taxShares:90},{id:"7dd121d9",vestDate:"2023-12-21",shares:240,vestPrice:48.09,sharesHeld:150,taxShares:90},{id:"8185b9e9",vestDate:"2024-03-21",shares:240,vestPrice:90.37,sharesHeld:0,taxShares:110,salePrice:132.25},{id:"85aa96e6",vestDate:"2024-06-21",shares:240,vestPrice:135.58,sharesHeld:0,taxShares:89,salePrice:132.25},{id:"318bd367",vestDate:"2024-09-21",shares:240,vestPrice:115.59,sharesHeld:0,taxShares:89,salePrice:132.25},{id:"30b76695",vestDate:"2024-12-21",shares:240,vestPrice:135.07,sharesHeld:59,taxShares:89,salePrice:120.00},{id:"b5f5162e",vestDate:"2025-03-21",shares:240,vestPrice:115.43,sharesHeld:136,taxShares:104},{id:"9b31c159",vestDate:"2025-06-21",shares:250,vestPrice:144.12,sharesHeld:158,taxShares:92},{id:"ac672de7",vestDate:"2025-09-21",shares:240,vestPrice:174.88,sharesHeld:151,taxShares:89},{id:"616c7d6b",vestDate:"2025-12-21",shares:240,vestPrice:184.97,sharesHeld:151,taxShares:89},{id:"0e83f19d",vestDate:"2026-03-21",shares:240,vestPrice:181.93,sharesHeld:0,taxShares:91,salePrice:173.69},{id:"f88bee65",vestDate:"2026-06-21",shares:240,vestPrice:207.41,sharesHeld:151,taxShares:89},
+    { id:"d40e8493", ticker:"NVDA", grantDate:"2023-06-08", totalShares:3860, grantPrice:31.159, vests:[
+      {id:"65e727ed",vestDate:"2023-09-21",shares:240,vestPrice:42.24,sharesHeld:150,taxShares:90},{id:"7dd121d9",vestDate:"2023-12-21",shares:240,vestPrice:48.09,sharesHeld:150,taxShares:90},{id:"8185b9e9",vestDate:"2024-03-21",shares:240,vestPrice:90.37,sharesHeld:0,taxShares:110,salePrice:132.25},{id:"85aa96e6",vestDate:"2024-06-21",shares:240,vestPrice:135.58,sharesHeld:0,taxShares:89,salePrice:132.25},{id:"318bd367",vestDate:"2024-09-21",shares:240,vestPrice:115.59,sharesHeld:0,taxShares:89,salePrice:132.25},{id:"30b76695",vestDate:"2024-12-21",shares:240,vestPrice:135.07,sharesHeld:59,taxShares:89,salePrice:120.00},{id:"b5f5162e",vestDate:"2025-03-21",shares:240,vestPrice:115.43,sharesHeld:136,taxShares:104},{id:"9b31c159",vestDate:"2025-06-21",shares:250,vestPrice:144.12,sharesHeld:158,taxShares:92},{id:"ac672de7",vestDate:"2025-09-21",shares:240,vestPrice:174.88,sharesHeld:151,taxShares:89},{id:"616c7d6b",vestDate:"2025-12-21",shares:240,vestPrice:184.97,sharesHeld:151,taxShares:89},{id:"0e83f19d",vestDate:"2026-03-21",shares:240,vestPrice:181.93,sharesHeld:0,taxShares:91,salePrice:173.69},{id:"f88bee65",vestDate:"2026-06-21",shares:240,vestPrice:207.41,sharesHeld:151,taxShares:89},{id:"sc001001",vestDate:"2026-09-16",shares:240,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc001002",vestDate:"2026-12-09",shares:240,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc001003",vestDate:"2027-03-17",shares:240,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc001004",vestDate:"2027-06-16",shares:250,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},
     ]},
-    { id:"c450e6fa", ticker:"NVDA", grantDate:"2023-09-01", totalShares:1350, grantPrice:89.82, vests:[
-      {id:"0fa3a574",vestDate:"2024-09-21",shares:100,vestPrice:115.59,sharesHeld:0,taxShares:38,salePrice:132.25},{id:"7bf3689a",vestDate:"2024-12-21",shares:100,vestPrice:135.07,sharesHeld:0,taxShares:38,salePrice:120.00},{id:"0a14edb4",vestDate:"2025-03-21",shares:110,vestPrice:115.43,sharesHeld:63,taxShares:47},{id:"cf79605c",vestDate:"2025-06-21",shares:100,vestPrice:144.12,sharesHeld:62,taxShares:38},{id:"602e05f6",vestDate:"2025-09-21",shares:100,vestPrice:174.88,sharesHeld:62,taxShares:38},{id:"651292bf",vestDate:"2025-12-21",shares:110,vestPrice:184.97,sharesHeld:68,taxShares:42},{id:"1fed9de5",vestDate:"2026-03-21",shares:100,vestPrice:181.93,sharesHeld:49,taxShares:39,salePrice:173.69},{id:"17f2e01a",vestDate:"2026-06-21",shares:110,vestPrice:207.41,sharesHeld:68,taxShares:42},
+    { id:"c450e6fa", ticker:"NVDA", grantDate:"2024-04-08", totalShares:1670, grantPrice:89.82, vests:[
+      {id:"0fa3a574",vestDate:"2024-09-21",shares:100,vestPrice:115.59,sharesHeld:0,taxShares:38,salePrice:132.25},{id:"7bf3689a",vestDate:"2024-12-21",shares:100,vestPrice:135.07,sharesHeld:0,taxShares:38,salePrice:120.00},{id:"0a14edb4",vestDate:"2025-03-21",shares:110,vestPrice:115.43,sharesHeld:63,taxShares:47},{id:"cf79605c",vestDate:"2025-06-21",shares:100,vestPrice:144.12,sharesHeld:62,taxShares:38},{id:"602e05f6",vestDate:"2025-09-21",shares:100,vestPrice:174.88,sharesHeld:62,taxShares:38},{id:"651292bf",vestDate:"2025-12-21",shares:110,vestPrice:184.97,sharesHeld:68,taxShares:42},{id:"1fed9de5",vestDate:"2026-03-21",shares:100,vestPrice:181.93,sharesHeld:49,taxShares:39,salePrice:173.69},{id:"17f2e01a",vestDate:"2026-06-21",shares:110,vestPrice:207.41,sharesHeld:68,taxShares:42},{id:"sc002001",vestDate:"2026-09-16",shares:100,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc002002",vestDate:"2026-12-09",shares:110,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc002003",vestDate:"2027-03-17",shares:100,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc002004",vestDate:"2027-06-16",shares:110,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc002005",vestDate:"2027-09-15",shares:100,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc002006",vestDate:"2027-12-08",shares:110,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc002007",vestDate:"2028-03-15",shares:100,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc002008",vestDate:"2028-06-21",shares:110,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},
     ]},
-    { id:"e7c47488", ticker:"NVDA", grantDate:"2024-06-01", totalShares:617, grantPrice:129.59, vests:[
-      {id:"94c33088",vestDate:"2025-06-21",shares:53,vestPrice:144.12,sharesHeld:33,taxShares:20},{id:"29cc397f",vestDate:"2025-09-21",shares:53,vestPrice:174.88,sharesHeld:33,taxShares:20},{id:"60bf3c8d",vestDate:"2025-12-21",shares:53,vestPrice:184.97,sharesHeld:33,taxShares:20},{id:"cece266b",vestDate:"2026-03-21",shares:53,vestPrice:181.93,sharesHeld:32,taxShares:21,salePrice:173.69},{id:"cb746e23",vestDate:"2026-06-21",shares:53,vestPrice:207.41,sharesHeld:33,taxShares:20},
+    { id:"e7c47488", ticker:"NVDA", grantDate:"2025-03-10", totalShares:849, grantPrice:129.59, vests:[
+      {id:"94c33088",vestDate:"2025-06-21",shares:53,vestPrice:144.12,sharesHeld:33,taxShares:20},{id:"29cc397f",vestDate:"2025-09-21",shares:53,vestPrice:174.88,sharesHeld:33,taxShares:20},{id:"60bf3c8d",vestDate:"2025-12-21",shares:53,vestPrice:184.97,sharesHeld:33,taxShares:20},{id:"cece266b",vestDate:"2026-03-21",shares:53,vestPrice:181.93,sharesHeld:32,taxShares:21,salePrice:173.69},{id:"cb746e23",vestDate:"2026-06-21",shares:53,vestPrice:207.41,sharesHeld:33,taxShares:20},{id:"sc003001",vestDate:"2026-09-16",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003002",vestDate:"2026-12-09",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003003",vestDate:"2027-03-17",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003004",vestDate:"2027-06-16",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003005",vestDate:"2027-09-15",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003006",vestDate:"2027-12-08",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003007",vestDate:"2028-03-15",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003008",vestDate:"2028-06-21",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003009",vestDate:"2028-09-20",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003010",vestDate:"2028-12-15",shares:53,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc003011",vestDate:"2029-03-15",shares:54,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},
     ]},
-    { id:"dc8b606f", ticker:"NVDA", grantDate:"2025-06-01", totalShares:382, grantPrice:185.81, vests:[
-      {id:"0211c53a",vestDate:"2026-06-21",shares:37,vestPrice:207.41,sharesHeld:23,taxShares:14},
+    { id:"dc8b606f", ticker:"NVDA", grantDate:"2026-03-09", totalShares:592, grantPrice:185.81, vests:[
+      {id:"0211c53a",vestDate:"2026-06-21",shares:37,vestPrice:207.41,sharesHeld:23,taxShares:14},{id:"sc004001",vestDate:"2026-09-16",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004002",vestDate:"2026-12-09",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004003",vestDate:"2027-03-17",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004004",vestDate:"2027-06-16",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004005",vestDate:"2027-09-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004006",vestDate:"2027-12-08",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004007",vestDate:"2028-03-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004008",vestDate:"2028-06-21",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004009",vestDate:"2028-09-20",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004010",vestDate:"2028-12-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004011",vestDate:"2029-03-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004012",vestDate:"2029-06-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004013",vestDate:"2029-09-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004014",vestDate:"2029-12-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},{id:"sc004015",vestDate:"2030-03-15",shares:37,vestPrice:0,sharesHeld:0,taxShares:0,pending:true},
     ]},
   ] as import("@/lib/vault-types").RsuGrant[],
   esppPurchases: [
@@ -88,12 +89,23 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
   const [esppForm, setEsppForm] = useState(BLANK_ESPP);
 
   const [summaryFilter, setSummaryFilter] = useState<"vested" | "tax" | "sold" | "espp" | null>(null);
+  const [grantFilter, setGrantFilter] = useState<string | null>(null);
+  const [recordVestFor, setRecordVestFor] = useState<{ grantId: string; vestId: string } | null>(null);
+  const [recordVestForm, setRecordVestForm] = useState({ vestPrice: "", taxShares: "", sharesHeld: "" });
 
   // ── Inline edit state (Mark Sold) ─────────────────────────────────────────
   const [editVest, setEditVest] = useState<{ grantId: string; vestId: string } | null>(null);
   const [editVestForm, setEditVestForm] = useState({ sharesHeld: "", taxShares: "", salePrice: "" });
   const [editEsppId, setEditEsppId] = useState<string | null>(null);
   const [editEsppForm, setEditEsppForm] = useState({ sharesHeld: "", salePrice: "" });
+
+  // ── PDF upload / parse state ───────────────────────────────────────────────
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const [pdfParsing, setPdfParsing] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+  const [parsedGrant, setParsedGrant] = useState<ParsedGrant | null>(null);
+  const [parsedVestRows, setParsedVestRows] = useState<ParsedVest[]>([]);
+  const [parsedGrantForm, setParsedGrantForm] = useState({ ticker: "NVDA", grantDate: "", totalShares: "", grantPrice: "" });
 
   const fetchPrice = useCallback(async () => {
     setPriceLoading(true);
@@ -120,27 +132,79 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
       return n;
     });
 
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setPdfError("");
+    setPdfParsing(true);
+    try {
+      const { parseGrantPdf } = await import("@/lib/parse-grant-pdf");
+      const parsed = await parseGrantPdf(file);
+      setParsedGrant(parsed);
+      setParsedVestRows(parsed.vests);
+      setParsedGrantForm({
+        ticker: parsed.ticker || "NVDA",
+        grantDate: parsed.grantDate || "",
+        totalShares: parsed.totalShares ? String(parsed.totalShares) : "",
+        grantPrice: parsed.grantPrice ? String(parsed.grantPrice) : "",
+      });
+    } catch (err: any) {
+      setPdfError("Failed to parse PDF: " + (err?.message ?? "Unknown error"));
+    } finally {
+      setPdfParsing(false);
+    }
+  };
+
+  const confirmParsedGrant = async () => {
+    if (!parsedGrantForm.grantDate || !parsedGrantForm.totalShares || !parsedGrantForm.grantPrice) return;
+    const g: RsuGrant = {
+      id: uid(),
+      ticker: parsedGrantForm.ticker || "NVDA",
+      grantDate: parsedGrantForm.grantDate,
+      totalShares: Number(parsedGrantForm.totalShares),
+      grantPrice: Number(parsedGrantForm.grantPrice),
+      vests: parsedVestRows.map((v) => ({
+        id: uid(),
+        vestDate: v.vestDate,
+        shares: v.shares,
+        vestPrice: 0,
+        sharesHeld: 0,
+        taxShares: 0,
+        pending: true,
+      })),
+    };
+    const next = [...grants, g];
+    await doSave(next, esppPurchases);
+    setParsedGrant(null);
+  };
+
   const cur = price ?? 0;
+
+  const today = new Date().toISOString().slice(0, 10);
 
   // ── RSU computations ──────────────────────────────────────────────────────
   const grantRows = grants.map((g) => {
-    const vestedShares = g.vests.reduce((s, v) => s + v.shares, 0);
-    const unvestedShares = Math.max(0, g.totalShares - vestedShares);
+    const actualVested = g.vests.filter(v => !v.pending);
+    const pendingVests = g.vests.filter(v => v.pending);
+    const vestedShares = actualVested.reduce((s, v) => s + v.shares, 0);
+    const pendingShares = pendingVests.reduce((s, v) => s + v.shares, 0);
+    const unvestedShares = Math.max(0, g.totalShares - vestedShares - pendingShares);
     const awardValue = g.totalShares * g.grantPrice;
-    const vestedValue = g.vests.reduce((s, v) => s + v.shares * v.vestPrice, 0);
+    const vestedValue = actualVested.reduce((s, v) => s + v.shares * v.vestPrice, 0);
     // Tax withheld by company (goes to government — excluded from user gain)
-    const taxValue = g.vests.reduce((s, v) => s + (v.taxShares ?? 0) * v.vestPrice, 0);
+    const taxValue = actualVested.reduce((s, v) => s + (v.taxShares ?? 0) * v.vestPrice, 0);
     // User-initiated sales only
-    const saleValue = g.vests.reduce((s, v) => {
+    const saleValue = actualVested.reduce((s, v) => {
       const tax = v.taxShares ?? 0;
       const userSold = Math.max(0, v.shares - tax - v.sharesHeld);
       return s + userSold * (v.salePrice ?? v.vestPrice);
     }, 0);
-    // Unrealized: held shares + unvested at live price
-    const marketValue = g.vests.reduce((s, v) => s + v.sharesHeld * cur, 0) + unvestedShares * cur;
+    // Unrealized: held shares + (pending scheduled + unvested) at live price
+    const marketValue = actualVested.reduce((s, v) => s + v.sharesHeld * cur, 0) + (pendingShares + unvestedShares) * cur;
     const currentValue = saleValue + marketValue;
     const gain = currentValue - awardValue;
-    return { ...g, vestedShares, unvestedShares, awardValue, vestedValue, taxValue, saleValue, marketValue, currentValue, gain };
+    return { ...g, vestedShares, pendingShares, unvestedShares, awardValue, vestedValue, taxValue, saleValue, marketValue, currentValue, gain };
   });
   const rsuAward = grantRows.reduce((s, g) => s + g.awardValue, 0);
   const rsuVested = grantRows.reduce((s, g) => s + g.vestedValue, 0);
@@ -153,8 +217,8 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
   // Share counts for reconciliation
   const rsuHeldShares = grantRows.reduce((s, g) => s + g.vests.reduce((vs, v) => vs + v.sharesHeld, 0), 0);
   const rsuTaxShares = grantRows.reduce((s, g) => s + g.vests.reduce((vs, v) => vs + (v.taxShares ?? 0), 0), 0);
-  const rsuUserSoldShares = grantRows.reduce((s, g) => s + g.vests.reduce((vs, v) => vs + Math.max(0, v.shares - (v.taxShares ?? 0) - v.sharesHeld), 0), 0);
-  const rsuUnvestedShares = grantRows.reduce((s, g) => s + g.unvestedShares, 0);
+  const rsuUserSoldShares = grantRows.reduce((s, g) => s + g.vests.filter(v => !v.pending).reduce((vs, v) => vs + Math.max(0, v.shares - (v.taxShares ?? 0) - v.sharesHeld), 0), 0);
+  const rsuUnvestedShares = grantRows.reduce((s, g) => s + g.unvestedShares + g.pendingShares, 0);
 
   // ── ESPP computations ─────────────────────────────────────────────────────
   const esppRows = esppPurchases.map((e) => {
@@ -194,6 +258,8 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
       return vs + sold * (v.salePrice ?? v.vestPrice);
     }, 0), 0);
   const summaryEsppValue = cur > 0 ? esppRows.reduce((s, e) => s + e.sharesHeld * cur, 0) : 0;
+  const scheduledValue = cur > 0 ? grantRows.reduce((s, g) => s + g.pendingShares * cur, 0) : 0;
+  const rsuPendingShares = grantRows.reduce((s, g) => s + g.pendingShares, 0);
 
   // Daily G/(L): vested held RSU + ESPP held shares × (live − prev close)
   const dailyHeldShares = rsuHeldShares + esppHeldShares;
@@ -300,6 +366,26 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
     setEditVest(null);
   }
 
+  async function saveRecordVest() {
+    if (!recordVestFor) return;
+    const vestPrice = Number(recordVestForm.vestPrice);
+    if (!vestPrice) return;
+    const taxShares = recordVestForm.taxShares !== "" ? Number(recordVestForm.taxShares) : 0;
+    const next = grants.map((g) =>
+      g.id !== recordVestFor.grantId ? g : {
+        ...g,
+        vests: g.vests.map((v) => {
+          if (v.id !== recordVestFor.vestId) return v;
+          const held = recordVestForm.sharesHeld !== "" ? Number(recordVestForm.sharesHeld) : v.shares - taxShares;
+          return { ...v, vestPrice, sharesHeld: Math.max(0, held), taxShares, pending: false };
+        }),
+      }
+    );
+    await doSave(next, esppPurchases);
+    setRecordVestFor(null);
+    setRecordVestForm({ vestPrice: "", taxShares: "", sharesHeld: "" });
+  }
+
   async function saveEsppEdit() {
     if (!editEsppId) return;
     const held = editEsppForm.sharesHeld !== "" ? Number(editEsppForm.sharesHeld) : undefined;
@@ -367,28 +453,47 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
               sold: "user-sold lots @ sale price",
               espp: "ESPP held shares @ live price",
             };
+            const counts = {
+              vested: <><strong>{rsuHeldShares.toLocaleString()}</strong> sh held</>,
+              tax: <><strong>{rsuTaxShares.toLocaleString()}</strong> sh withheld</>,
+              sold: <><strong>{rsuUserSoldShares.toLocaleString()}</strong> sh sold</>,
+              espp: <><strong>{esppHeldShares.toLocaleString()}</strong> sh held</>,
+            };
             const active = summaryFilter === key;
             return (
-              <button
-                key={key}
-                className={`equity-summary-card equity-summary-stat ${active ? "equity-summary-stat--active" : ""}`}
-                onClick={() => setSummaryFilter(active ? null : key)}
-              >
-                <span>{labels[key]}</span>
-                <strong className="equity-amt">{fmt(values[key])}</strong>
-                <em>{subs[key]}</em>
-              </button>
+              <div key={key} className="equity-summary-col">
+                <button
+                  className={`equity-summary-card equity-summary-stat ${active ? "equity-summary-stat--active" : ""}`}
+                  onClick={() => setSummaryFilter(active ? null : key)}
+                >
+                  <span>{labels[key]}</span>
+                  <strong className="equity-amt">{fmt(values[key])}</strong>
+                  <em>{subs[key]}</em>
+                </button>
+                <p className="equity-card-count">{counts[key]}</p>
+              </div>
             );
           })}
+          {/* Scheduled Value card */}
+          <div className="equity-summary-col">
+            <div className="equity-summary-card equity-scheduled-card">
+              <span>Scheduled Value</span>
+              <strong className="equity-amt">{fmt(scheduledValue)}</strong>
+              <em>{rsuPendingShares.toLocaleString()} future vest sh @ live price</em>
+            </div>
+            <p className="equity-card-count"><strong>{rsuUnvestedShares.toLocaleString()}</strong> sh scheduled</p>
+          </div>
           {/* Daily G/(L) card */}
-          <div className={`equity-summary-card equity-summary-stat equity-daily-gl-card ${dailyGL === null ? "" : dailyGL >= 0 ? "equity-daily-gl-card--pos" : "equity-daily-gl-card--neg"}`}>
-            <span>Daily G/(L)</span>
-            <strong className="equity-amt">
-              {dailyGL === null
-                ? <span className="equity-neutral">—</span>
-                : <>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</>}
-            </strong>
-            <em>{dailyHeldShares.toLocaleString()} sh × today&apos;s move</em>
+          <div className="equity-summary-col">
+            <div className={`equity-summary-card equity-summary-stat equity-daily-gl-card ${dailyGL === null ? "" : dailyGL >= 0 ? "equity-daily-gl-card--pos" : "equity-daily-gl-card--neg"}`}>
+              <span>Daily G/(L)</span>
+              <strong className="equity-amt">
+                {dailyGL === null
+                  ? <span className="equity-neutral">—</span>
+                  : <>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</>}
+              </strong>
+              <em>{dailyHeldShares.toLocaleString()} sh × today&apos;s move</em>
+            </div>
           </div>
         </div>
 
@@ -419,6 +524,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
                   {grantRows.flatMap((g) =>
                     g.vests
                       .filter((v) => {
+                        if (v.pending) return false;
                         if (summaryFilter === "vested") return v.sharesHeld > 0;
                         if (summaryFilter === "tax") return (v.taxShares ?? 0) > 0;
                         const tax = v.taxShares ?? 0;
@@ -518,19 +624,45 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
             )}
           </div>
         )}
-        <div className="equity-share-counts">
-          <span className="equity-share-chip equity-share-chip--held">RSU held: <strong>{rsuHeldShares.toLocaleString()}</strong> sh</span>
-          <span className="equity-share-chip equity-share-chip--unvested">RSU unvested: <strong>{rsuUnvestedShares.toLocaleString()}</strong> sh</span>
-          <span className="equity-share-chip equity-share-chip--tax">RSU tax withheld: <strong>{rsuTaxShares.toLocaleString()}</strong> sh</span>
-          <span className="equity-share-chip equity-share-chip--sold">RSU sold: <strong>{rsuUserSoldShares.toLocaleString()}</strong> sh</span>
-          <span className="equity-share-chip equity-share-chip--espp">ESPP held: <strong>{esppHeldShares.toLocaleString()}</strong> sh</span>
-        </div>
       </div>
 
       {/* ── RSU Grants ─────────────────────────────────────────────────── */}
       <div className="equity-section-head">
         <h4>RSU Grants</h4>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          {!readOnly && grants.length > 0 && (
+            <button
+              className="equity-reload-btn equity-schedule-btn"
+              disabled={saving}
+              onClick={async () => {
+                if (!confirm("Add future scheduled vesting dates from seed data? Existing vests won't be changed — only new scheduled dates will be added.")) return;
+                setSaving(true);
+                try {
+                  const next = grants.map(g => {
+                    const seedGrant = NVDA_SEED.grants.find(sg => sg.id === g.id);
+                    if (!seedGrant) return g;
+                    // Update share counts on existing pending entries if seed has changed
+                    const updatedVests = g.vests.map(v => {
+                      if (!v.pending) return v;
+                      const sv = seedGrant.vests.find(s => s.vestDate === v.vestDate && s.pending);
+                      return sv && sv.shares !== v.shares ? { ...v, shares: sv.shares } : v;
+                    });
+                    const existingDates = new Set(updatedVests.map(v => v.vestDate));
+                    const newPending = seedGrant.vests.filter(v => v.pending && !existingDates.has(v.vestDate));
+                    return {
+                      ...g,
+                      grantDate: seedGrant.grantDate,
+                      totalShares: seedGrant.totalShares,
+                      vests: [...updatedVests, ...newPending].sort((a, b) => a.vestDate.localeCompare(b.vestDate)),
+                    };
+                  });
+                  await onSave(next, esppPurchases);
+                } finally { setSaving(false); }
+              }}
+            >
+              + Add scheduled vests
+            </button>
+          )}
           {!readOnly && grants.length > 0 && (
             <button
               className="equity-reload-btn"
@@ -545,15 +677,32 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
             </button>
           )}
           {!readOnly && (
-            <button
-              onClick={() => {
-                setShowAddGrant(true);
-                setEditGrant(null);
-                setGrantForm(BLANK_GRANT);
-              }}
-            >
-              + Add Grant
-            </button>
+            <>
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept=".pdf"
+                style={{ display: "none" }}
+                onChange={handlePdfUpload}
+              />
+              <button
+                className="equity-upload-btn"
+                disabled={pdfParsing}
+                onClick={() => pdfInputRef.current?.click()}
+                title="Upload a grant agreement PDF to auto-fill the vesting schedule"
+              >
+                {pdfParsing ? "Parsing…" : "📄 Upload Grant PDF"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddGrant(true);
+                  setEditGrant(null);
+                  setGrantForm(BLANK_GRANT);
+                }}
+              >
+                + Add Grant
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -613,6 +762,118 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
         </div>
       )}
 
+      {pdfError && (
+        <div className="equity-pdf-error">
+          <strong>PDF Parse Error:</strong> {pdfError}
+          <button onClick={() => setPdfError("")}>✕</button>
+        </div>
+      )}
+
+      {parsedGrant && (
+        <div className="equity-form equity-pdf-review">
+          <div className="equity-pdf-review-header">
+            <h5>📄 Review Parsed Grant</h5>
+            <p className="equity-pdf-note">Fields auto-filled from the PDF — correct anything that looks wrong before saving.</p>
+          </div>
+          {parsedGrant.warnings.length > 0 && (
+            <div className="equity-pdf-warnings">
+              {parsedGrant.warnings.map((w, i) => <div key={i}>⚠️ {w}</div>)}
+            </div>
+          )}
+          <div className="equity-form-grid">
+            <label>
+              Grant Date
+              <input
+                type="date"
+                value={parsedGrantForm.grantDate}
+                onChange={(e) => setParsedGrantForm((f) => ({ ...f, grantDate: e.target.value }))}
+              />
+            </label>
+            <label>
+              Total Shares Awarded
+              <input
+                type="number"
+                value={parsedGrantForm.totalShares}
+                onChange={(e) => setParsedGrantForm((f) => ({ ...f, totalShares: e.target.value }))}
+                placeholder="592"
+              />
+            </label>
+            <label>
+              Award Price (FMV on grant date)
+              <input
+                type="number"
+                value={parsedGrantForm.grantPrice}
+                onChange={(e) => setParsedGrantForm((f) => ({ ...f, grantPrice: e.target.value }))}
+                placeholder="185.81"
+                step="0.01"
+              />
+            </label>
+            <label>
+              Ticker
+              <input
+                value={parsedGrantForm.ticker}
+                onChange={(e) => setParsedGrantForm((f) => ({ ...f, ticker: e.target.value }))}
+              />
+            </label>
+          </div>
+
+          {parsedVestRows.length > 0 && (
+            <div className="equity-pdf-vests">
+              <strong>Vesting Schedule ({parsedVestRows.length} dates — all marked as pending)</strong>
+              <table className="equity-pdf-vest-table">
+                <thead>
+                  <tr><th>Vest Date</th><th>Shares</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {parsedVestRows.map((v, i) => (
+                    <tr key={i}>
+                      <td>
+                        <input
+                          type="date"
+                          value={v.vestDate}
+                          onChange={(e) => setParsedVestRows((rows) => rows.map((r, j) => j === i ? { ...r, vestDate: e.target.value } : r))}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          value={v.shares}
+                          onChange={(e) => setParsedVestRows((rows) => rows.map((r, j) => j === i ? { ...r, shares: Number(e.target.value) } : r))}
+                          style={{ width: "80px" }}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          className="equity-pdf-vest-del"
+                          onClick={() => setParsedVestRows((rows) => rows.filter((_, j) => j !== i))}
+                          title="Remove this vest date"
+                        >✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button
+                className="equity-pdf-add-row"
+                onClick={() => setParsedVestRows((rows) => [...rows, { vestDate: "", shares: 0 }])}
+              >
+                + Add vest date
+              </button>
+            </div>
+          )}
+
+          <div className="equity-form-actions">
+            <button
+              onClick={confirmParsedGrant}
+              disabled={saving || !parsedGrantForm.grantDate || !parsedGrantForm.totalShares || !parsedGrantForm.grantPrice}
+            >
+              {saving ? "Saving…" : "✓ Save Grant + Schedule"}
+            </button>
+            <button onClick={() => { setParsedGrant(null); setPdfError(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {grants.length === 0 && !showAddGrant && (
         <div className="equity-seed-banner">
           <p className="equity-empty">No RSU grants yet.</p>
@@ -632,6 +893,20 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
         </div>
       )}
 
+      {/* Grant date filter */}
+      {grants.length > 0 && (
+        <div className="equity-grant-filter">
+          <span className="equity-grant-filter-label">Filter grant:</span>
+          <button className={`equity-grant-filter-chip${grantFilter === null ? " equity-grant-filter-chip--active" : ""}`} onClick={() => setGrantFilter(null)}>All</button>
+          {grantRows.filter(g => g.pendingShares > 0).map(g => (
+            <button key={g.id} className={`equity-grant-filter-chip${grantFilter === g.id ? " equity-grant-filter-chip--active" : ""}`} onClick={() => setGrantFilter(grantFilter === g.id ? null : g.id)}>
+              {g.ticker} {fmtDate(g.grantDate)}
+              <span className="equity-grant-filter-count"> · {g.pendingShares.toLocaleString()} sch.</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Grant header row */}
       {grants.length > 0 && (
         <div className="equity-grant-header">
@@ -644,7 +919,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
         </div>
       )}
 
-      {grantRows.map((g) => (
+      {(grantFilter ? grantRows.filter(g => g.id === grantFilter) : grantRows).map((g) => (
         <div key={g.id} className="equity-grant">
           <div className="equity-grant-head" onClick={() => toggle(g.id)}>
             <span className="equity-arr">{expanded.has(g.id) ? "−" : "+"}</span>
@@ -652,8 +927,10 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
               <strong>{g.ticker}</strong> granted {fmtDate(g.grantDate)}
               <em>
                 {" "}
-                — {g.totalShares.toLocaleString()} shares ({g.vestedShares.toLocaleString()} vested,{" "}
-                {g.unvestedShares.toLocaleString()} unvested)
+                — {g.totalShares.toLocaleString()} shares ({g.vestedShares.toLocaleString()} vested
+                {g.pendingShares > 0 && `, ${g.pendingShares.toLocaleString()} scheduled`}
+                {g.unvestedShares > 0 && `, ${g.unvestedShares.toLocaleString()} unvested`}
+                )
               </em>
             </span>
             <span className="equity-amt equity-col-val">{fmt(g.awardValue)}</span>
@@ -735,6 +1012,66 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
                             <button onClick={saveVestEdit} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
                             {" "}
                             <button onClick={() => setEditVest(null)}>Cancel</button>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (v.pending) {
+                      const isDue = v.vestDate <= today;
+                      const isRecording = recordVestFor?.grantId === g.id && recordVestFor?.vestId === v.id;
+                      if (isRecording) {
+                        return (
+                          <tr key={v.id} className="equity-edit-row">
+                            <td colSpan={8}>
+                              <strong>{fmtDate(v.vestDate)}</strong> — {v.shares} shares vesting · look up price in Charles Schwab
+                              <span className="equity-edit-fields">
+                                <label>NVDA price on vest date
+                                  <input type="number" value={recordVestForm.vestPrice}
+                                    onChange={e => setRecordVestForm(f => ({...f, vestPrice: e.target.value}))}
+                                    placeholder="e.g. 207.41" step="0.01" autoFocus />
+                                </label>
+                                <label>Tax shares withheld
+                                  <input type="number" value={recordVestForm.taxShares}
+                                    onChange={e => setRecordVestForm(f => ({...f, taxShares: e.target.value}))}
+                                    placeholder="e.g. 14" min={0} />
+                                </label>
+                                <label>Shares deposited (held)
+                                  <input type="number" value={recordVestForm.sharesHeld}
+                                    onChange={e => setRecordVestForm(f => ({...f, sharesHeld: e.target.value}))}
+                                    placeholder={`blank = ${v.shares} − tax`} min={0} />
+                                </label>
+                              </span>
+                            </td>
+                            <td colSpan={4} className="right">
+                              <button onClick={saveRecordVest} disabled={saving || !recordVestForm.vestPrice}>{saving ? "Saving…" : "Confirm Vest"}</button>
+                              {" "}<button onClick={() => setRecordVestFor(null)}>Cancel</button>
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return (
+                        <tr key={v.id} className={`equity-pending-vest-row${isDue ? " equity-pending-due" : ""}`}>
+                          <td>{fmtDate(v.vestDate)}{isDue && <span className="equity-due-badge">Due</span>}</td>
+                          <td className="right equity-award-price">${g.grantPrice.toFixed(2)}</td>
+                          <td className="right"><span className="equity-neutral">—</span></td>
+                          <td className="right">{v.shares.toLocaleString()}</td>
+                          <td className="right"><span className="equity-neutral">—</span></td>
+                          <td className="right"><span className="equity-neutral">—</span></td>
+                          <td className="right"><span className="equity-neutral">—</span></td>
+                          <td className="right"><span className="equity-neutral">—</span></td>
+                          <td className="right"><span className="equity-neutral">—</span></td>
+                          <td className="right equity-neutral">{cur > 0 ? fmt(v.shares * cur) : "—"}</td>
+                          <td className={`right ${v.shares * (cur - g.grantPrice) >= 0 ? "equity-gain-pos" : "equity-gain-neg"} equity-neutral`}>{cur > 0 ? fmt(v.shares * (cur - g.grantPrice)) : "—"}</td>
+                          <td>
+                            {isDue && !readOnly && (
+                              <button className="equity-record-vest-btn" title="Record vest price" onClick={() => {
+                                setRecordVestFor({ grantId: g.id, vestId: v.id });
+                                setRecordVestForm({ vestPrice: "", taxShares: "", sharesHeld: "" });
+                              }}>Record</button>
+                            )}
+                            {!readOnly && (
+                              <button className="equity-del-btn" onClick={() => deleteVest(g.id, v.id)}>✕</button>
+                            )}
                           </td>
                         </tr>
                       );

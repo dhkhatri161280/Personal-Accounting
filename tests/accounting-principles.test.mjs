@@ -1,4 +1,4 @@
-import test from "node:test";import assert from "node:assert/strict";
+﻿import test from "node:test";import assert from "node:assert/strict";
 function calculate(accounts,txs,period){const start=period.length===7?`${period}-01`:`${period}-01-01`,end=period.length===7?`${period}-31`:`${period}-12-31`,opening=new Map(accounts.map(a=>[a.id,a.opening||0])),debit=new Map,credit=new Map;for(const t of txs){if(t.date<start)for(const e of t.entries)opening.set(e.id,(opening.get(e.id)||0)+e.amount);else if(t.date<=end)for(const e of t.entries)e.amount<0?debit.set(e.id,(debit.get(e.id)||0)-e.amount):credit.set(e.id,(credit.get(e.id)||0)+e.amount)}return accounts.map(a=>({id:a.id,opening:opening.get(a.id)||0,debit:debit.get(a.id)||0,credit:credit.get(a.id)||0,closing:(opening.get(a.id)||0)-(debit.get(a.id)||0)+(credit.get(a.id)||0)}))}
 const accounts=[{id:1,type:'income'},{id:2,type:'expense'},{id:3,type:'bank'},{id:4,type:'capital'}],txs=[{date:'2025-06-01',entries:[{id:1,amount:100},{id:3,amount:-100}]},{date:'2026-02-01',entries:[{id:1,amount:50},{id:3,amount:-50}]},{date:'2026-03-01',entries:[{id:2,amount:-20},{id:3,amount:20}]}];
 test('every voucher is balanced',()=>{for(const t of txs)assert.equal(t.entries.reduce((s,e)=>s+e.amount,0),0)});
@@ -46,3 +46,7 @@ test('salary dashboard follows selected period and matches any ledger name conta
 test('investment assets present normal debit balances as positive values',()=>{const ledgers=[{closing:-91759.47},{closing:-96325.49},{closing:25000}],display=ledgers.map(x=>-x.closing),total=display.reduce((s,n)=>s+n,0);assert.deepEqual(display,[91759.47,96325.49,-25000]);assert.equal(Math.round(total*100)/100,163084.96)})
 
 test('sync upload uses optimistic concurrency to prevent stale overwrite',()=>{const downloaded='etag-a',current='etag-b';assert.equal(downloaded===current,false);assert.equal(downloaded===downloaded,true)})
+
+test('cash flow reconciles opening plus net movement to closing cash and bank',()=>{const opening=1000,items=[{group:'Direct Incomes',movement:500},{group:'Indirect Expenses',movement:-125},{group:'Investments',movement:-200},{group:'Cash transfer',movement:0}],inflows=items.filter(x=>x.movement>0).reduce((s,x)=>s+x.movement,0),outflows=items.filter(x=>x.movement<0).reduce((s,x)=>s-x.movement,0),net=inflows-outflows,closing=opening+net;assert.equal(inflows,500);assert.equal(outflows,325);assert.equal(net,175);assert.equal(closing,1175)})
+test('cash flow excludes internal cash and bank transfers',()=>{const cashEntries=[-500,500],movement=-cashEntries.reduce((s,n)=>s+n,0);assert.equal(Math.abs(movement),0)})
+

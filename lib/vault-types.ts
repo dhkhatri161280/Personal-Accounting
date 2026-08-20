@@ -11,6 +11,7 @@ export type Tx = {
   syncFingerprint?: string;
   syncStatus?: string;
   lastSyncedAt?: string;
+  createdAt?: string;   // ISO timestamp when this entry was first saved to vault
   date: string;
   number: string;
   type: string;
@@ -45,6 +46,7 @@ export type RsuVest = {
   sharesHeld: number;
   taxShares?: number; // shares withheld by company for tax (auto-sold at vest FMV)
   salePrice?: number; // actual $/share for user-initiated sales; defaults to vestPrice
+  pending?: boolean;  // true = future scheduled vest, not yet received
 };
 
 export type RsuGrant = {
@@ -73,6 +75,11 @@ export type EquityData = {
   esppPurchases: EsppPurchase[];
 };
 
+export type TallyLedgerSnapshot = {
+  asOf: string;
+  balances: { name: string; parent?: string; closingBalance: number }[];
+};
+
 export type Ledger = {
   version: number;
   company: string;
@@ -85,6 +92,7 @@ export type Ledger = {
   voucherTypes?: string[];
   fiscalYearStartMonth?: number;
   equity?: EquityData;
+  tallyLedgerSnapshot?: TallyLedgerSnapshot;
 };
 
 export type Vault = {

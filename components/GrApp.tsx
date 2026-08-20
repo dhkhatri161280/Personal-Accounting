@@ -164,6 +164,7 @@ export function GrApp() {
   const [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1");
   const loadedRef = useRef(false);
   const [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
+  const [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
   const [equityData, setEquityData] = useState<EquityData | null>(null);
 
   const togglePrivacy = () =>
@@ -178,8 +179,9 @@ export function GrApp() {
     fetch("/api/equity-price?ticker=NVDA")
       .then((r) => r.json())
       .then((d: unknown) => {
-        const p = (d as { price?: number | null }).price;
+        const { price: p, previousClose: pc } = d as { price?: number | null; previousClose?: number | null };
         if (typeof p === "number") setNvdaPrice(p);
+        if (typeof pc === "number") setNvdaPrevClose(pc);
       })
       .catch(() => {});
   }, [equityData]);
@@ -698,10 +700,19 @@ export function GrApp() {
   // Equity (NVDA) — USD then converted to INR via most recent available FX rate
   const cur = nvdaPrice ?? 0;
   const equityRsuMktValueUsd = (equityData?.grants ?? []).reduce((s, g) => {
-    const vestedTotal = g.vests.reduce((vs, v) => vs + v.shares, 0);
-    const unvested = Math.max(0, g.totalShares - vestedTotal);
-    return s + g.vests.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + unvested * cur;
+    const actualVested = g.vests.filter(v => !v.pending);
+    const pendingVests = g.vests.filter(v => v.pending);
+    const vestedTotal = actualVested.reduce((vs, v) => vs + v.shares, 0);
+    const pendingShares = pendingVests.reduce((vs, v) => vs + v.shares, 0);
+    const unvested = Math.max(0, g.totalShares - vestedTotal - pendingShares);
+    return s + actualVested.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + (pendingShares + unvested) * cur;
   }, 0);
+  const equityRsuVestedValueUsd = (equityData?.grants ?? []).reduce(
+    (s, g) => s + g.vests.filter(v => !v.pending).reduce((vs, v) => vs + v.sharesHeld * cur, 0), 0
+  );
+  const equityScheduledSharesGr = (equityData?.grants ?? []).reduce(
+    (s, g) => s + g.vests.filter(v => v.pending).reduce((vs, v) => vs + v.shares, 0), 0
+  );
   const equityEsppMktValueUsd = (equityData?.esppPurchases ?? []).reduce(
     (s, e) => s + (e.sharesHeld || e.shares) * cur, 0
   );
@@ -710,8 +721,15 @@ export function GrApp() {
   const latestFxRate = Object.entries(gr.fxRates ?? {})
     .sort(([a], [b]) => b.localeCompare(a))[0]?.[1] ?? 0;
   const equityTotalInr = equityTotalUsd * latestFxRate;
-  const equityRsuInr = equityRsuMktValueUsd * latestFxRate;
+  const equityRsuInr = equityRsuVestedValueUsd * latestFxRate;
   const equityEsppInr = equityEsppMktValueUsd * latestFxRate;
+  const equityScheduledInr = equityScheduledSharesGr * cur * latestFxRate;
+  const equityDailyHeldGr = (equityData?.grants ?? []).reduce(
+    (s, g) => s + g.vests.filter(v => !v.pending).reduce((vs, v) => vs + v.sharesHeld, 0), 0
+  ) + (equityData?.esppPurchases ?? []).reduce((s, e) => s + (e.sharesHeld || e.shares), 0);
+  const equityDailyGLInr = (cur > 0 && nvdaPrevClose !== null && latestFxRate > 0)
+    ? equityDailyHeldGr * (cur - nvdaPrevClose) * latestFxRate
+    : null;
 
   function pillClass(a: GrAccount) {
     if (a.sources.includes("US") && a.sources.includes("IN")) return "gr-dash-pill gr-dash-pill-both";
@@ -921,7 +939,7 @@ export function GrApp() {
                 <strong>{fmt(dashFixedAssetsTotal)}</strong>
                 <small>Fixed asset ledgers</small>
               </div>
-              <div className="dashboard-card-highlights fixed-asset-highlights">
+              <div className="dashboard-card-highlights">
                 {fixedAssetAccounts
                   .slice()
                   .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
@@ -1076,21 +1094,33 @@ export function GrApp() {
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
                 <strong>{equityData ? fmt(equityTotalInr) : "—"}</strong>
-                <small>
+                <small className="equity-price-note">
                   {nvdaPrice && latestFxRate
-                    ? `$${nvdaPrice.toFixed(2)} × ₹${latestFxRate.toFixed(2)}`
+                    ? `$${nvdaPrice.toFixed(2)} × ₹${latestFxRate.toFixed(2)} = ₹${(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                     : equityData ? "loading price…" : "No equity data"}
                 </small>
               </div>
               <div className="dashboard-card-highlights">
-                <span>
+                <span className="gr-dash-pill gr-dash-pill-us">
                   <b>RSU</b>
-                  <em>{equityData ? fmt(equityRsuInr) : "—"}</em>
+                  <em>{equityData ? fmtL(equityRsuInr) : "—"}</em>
                 </span>
-                <span>
+                <span className="gr-dash-pill gr-dash-pill-us">
                   <b>ESPP</b>
-                  <em>{equityData ? fmt(equityEsppInr) : "—"}</em>
+                  <em>{equityData ? fmtL(equityEsppInr) : "—"}</em>
                 </span>
+                {equityDailyGLInr !== null && (
+                  <span className={`gr-dash-pill ${equityDailyGLInr >= 0 ? "equity-daily-chip--pos" : "equity-daily-chip--neg"}`}>
+                    <b>Today</b>
+                    <em>{equityDailyGLInr >= 0 ? "+" : "-"}{fmtL(equityDailyGLInr)}</em>
+                  </span>
+                )}
+                {equityScheduledSharesGr > 0 && (
+                  <span className="gr-dash-pill equity-sch-chip">
+                    <b>Scheduled</b>
+                    <em>{fmtL(equityScheduledInr)}</em>
+                  </span>
+                )}
               </div>
             </button>
           </div>

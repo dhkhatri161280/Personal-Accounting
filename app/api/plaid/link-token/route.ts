@@ -31,7 +31,7 @@ export async function POST() {
 
   const data = await resp.json();
   if (!resp.ok) {
-    console.error("Plaid link-token error:", JSON.stringify(data));
+    console.error("Plaid link-token error:", (data as any)?.error_code, (data as any)?.error_type);
     return Response.json(data, { status: 400 });
   }
   return Response.json(data);

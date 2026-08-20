@@ -84,7 +84,7 @@ export function consolidateLedger(
   const latestRate =
     Object.entries(fxRates).sort(([a], [b]) => b.localeCompare(a))[0]?.[1] ?? 84;
 
-  // Build transactions
+  // ── Build transactions ───────────────────────────────────────────────────
   const transactions: GrTx[] = [];
 
   for (const t of indiaData.transactions) {
@@ -141,7 +141,7 @@ export function consolidateLedger(
 
   transactions.sort((a, b) => b.date.localeCompare(a.date));
 
-  // Build accounts
+  // ── Build accounts ───────────────────────────────────────────────────────
   const accountMap = new Map<string, GrAccount>();
   const normKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -171,7 +171,7 @@ export function consolidateLedger(
     return accountMap.get(k)!;
   };
 
-  // IN accounts: compute period dr/cr from transactions
+  // IN accounts
   const inDr = new Map<number, number>(),
     inCr = new Map<number, number>();
   for (const t of indiaData.transactions) {
@@ -193,7 +193,7 @@ export function consolidateLedger(
     ga.inClosingInr = acc.openingBalance - dr + cr;
   }
 
-  // US accounts: convert each entry by per-tx rate
+  // US accounts: convert at per-tx rates, track native totals for closing USD
   const usDrInr = new Map<number, number>(),
     usCrInr = new Map<number, number>(),
     usDrNative = new Map<number, number>(),
@@ -213,21 +213,41 @@ export function consolidateLedger(
     }
   }
 
+  // FX translation adjustment accumulator.
+  // Per-account: usClosingInrHistoric = openingBalance × latestRate - drInr + crInr
+  //              usClosingInrFair      = usClosingUsd × latestRate
+  // Difference goes to a synthetic Currency Adjustment account so balances stay correct.
+  let totalFxAdj = 0;
+
   for (const acc of usData.accounts) {
     const ga = getAcc(acc.name, acc.parent);
     if (!ga.sources.includes("US")) ga.sources.push("US");
     const drInr = usDrInr.get(acc.id) || 0,
       crInr = usCrInr.get(acc.id) || 0;
+    const closingUsd =
+      acc.openingBalance -
+      (usDrNative.get(acc.id) || 0) +
+      (usCrNative.get(acc.id) || 0);
+
     ga.usOpeningUsd = acc.openingBalance;
     ga.usOpeningInr = acc.openingBalance * latestRate;
     ga.usDebitInr = drInr;
     ga.usCreditInr = crInr;
-    ga.usClosingUsd =
-      acc.openingBalance - (usDrNative.get(acc.id) || 0) + (usCrNative.get(acc.id) || 0);
-    ga.usClosingInr = acc.openingBalance * latestRate - drInr + crInr;
+    ga.usClosingUsd = closingUsd;
+
+    // Historic INR closing (what per-rate conversion gives)
+    const historicInr = acc.openingBalance * latestRate - drInr + crInr;
+    // Fair-value INR closing (closing USD at current rate — zero if account is zero)
+    const fairInr = closingUsd * latestRate;
+    // Accumulated FX translation difference
+    const fxDiff = historicInr - fairInr;
+    totalFxAdj += fxDiff;
+
+    // Use fair-value so zero-USD accounts → zero INR contribution
+    ga.usClosingInr = fairInr;
   }
 
-  // Combine
+  // Combine account totals
   const accounts: GrAccount[] = [];
   for (const ga of accountMap.values()) {
     ga.openingInr = ga.inOpeningInr + ga.usOpeningInr;
@@ -235,6 +255,35 @@ export function consolidateLedger(
     ga.creditInr = ga.inCreditInr + ga.usCreditInr;
     ga.closingInr = ga.inClosingInr + ga.usClosingInr;
     accounts.push(ga);
+  }
+
+  // Add synthetic Currency Adjustment account if the total FX diff is material (> ₹1)
+  if (Math.abs(totalFxAdj) > 1) {
+    // Find the "US Fund Transfer" account to borrow its parent group,
+    // or default to "Reserves & Surplus"
+    const usFundKey = normKey("us fund transfer");
+    const usFundAcc = accountMap.get(usFundKey);
+    const adjParent = usFundAcc?.parent || "Reserves & Surplus";
+
+    accounts.push({
+      name: "Currency Adjustment (US/GR)",
+      parent: adjParent,
+      sources: ["US"],
+      inOpeningInr: 0,
+      inDebitInr: 0,
+      inCreditInr: 0,
+      inClosingInr: 0,
+      usOpeningUsd: 0,
+      usClosingUsd: 0,
+      usOpeningInr: 0,
+      usDebitInr: 0,
+      usCreditInr: 0,
+      usClosingInr: totalFxAdj,
+      openingInr: 0,
+      debitInr: 0,
+      creditInr: 0,
+      closingInr: totalFxAdj,
+    });
   }
 
   return { accounts, transactions, fxRates, missingRateMonths, latestRate };
