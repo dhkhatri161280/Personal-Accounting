@@ -1818,7 +1818,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   <em>{fmt(equityEsppMktValue)}</em>
                 </span>
                 {equityDailyGL !== null && (
-                  <span className={equityDailyGL >= 0 ? "equity-daily-chip--pos" : "equity-daily-chip--neg"}>
+                  <span className={equityDailyGL > 0 ? "equity-daily-chip--pos" : equityDailyGL < 0 ? "equity-daily-chip--neg" : "equity-daily-chip--zero"}>
                     <b>Today</b>
                     <em>{equityDailyGL >= 0 ? "+" : ""}{fmt(equityDailyGL)}</em>
                   </span>
@@ -1934,96 +1934,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <div style={{ color: "#16a34a", fontWeight: 600, padding: 24, textAlign: "center" }}>
                 No past/future-dated entries found. All vouchers are in {nowMonth}.
               </div>
-            )}
-          </div>
-        );
-      })()}
-      {tab === "reports" && report === "trash" && data && (() => {
-        const ledger = data as Ledger;
-        const deleted = ledger.transactions
-          .filter(t => t.deleted)
-          .sort((a, b) => b.id - a.id);
-
-        async function restoreTx(guid: string) {
-          const next: Ledger = {
-            ...ledger,
-            transactions: ledger.transactions.map(t =>
-              t.guid === guid ? { ...t, deleted: false } : t
-            ),
-          };
-          const ok = await save(next, "trash");
-          if (!ok) setStatus("Restore failed.");
-        }
-
-        async function restoreAll() {
-          if (!window.confirm(`Restore all ${deleted.length} deleted voucher(s)?`)) return;
-          const next: Ledger = {
-            ...ledger,
-            transactions: ledger.transactions.map(t => t.deleted ? { ...t, deleted: false } : t),
-          };
-          const ok = await save(next, "trash");
-          if (ok) setStatus(`${deleted.length} voucher(s) restored.`);
-          else setStatus("Restore failed.");
-        }
-
-        return (
-          <div className="data-panel trash-panel">
-            <div className="trash-header">
-              <div>
-                <h3 style={{ margin: 0 }}>Trash — Deleted Vouchers</h3>
-                <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "4px 0 0" }}>
-                  All soft-deleted vouchers. Click Restore to bring one back, or Restore All to undo all deletions.
-                  Sorted most-recently-deleted first (highest voucher ID).
-                </p>
-              </div>
-              {deleted.length > 0 && (
-                <button className="trash-restore-all-btn" onClick={restoreAll}>
-                  Restore All ({deleted.length})
-                </button>
-              )}
-            </div>
-            {deleted.length === 0 ? (
-              <div className="trash-empty">Trash is empty — no deleted vouchers.</div>
-            ) : (
-              <table className="trash-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>#</th>
-                    <th>Narration</th>
-                    <th>Debit</th>
-                    <th>Credit</th>
-                    <th className="right">Amount</th>
-                    <th>Sync</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deleted.map(t => {
-                    const dr = t.entries.find(e => e.amount < 0);
-                    const cr = t.entries.find(e => e.amount > 0);
-                    const amt = dr ? Math.abs(dr.amount) : 0;
-                    return (
-                      <tr key={t.guid} className="trash-row">
-                        <td className="trash-date">{t.date}</td>
-                        <td><span className="pill">{t.type}</span></td>
-                        <td className="trash-num">{t.number || "—"}</td>
-                        <td className="trash-narr">{t.narration || "—"}</td>
-                        <td className="trash-acct">{dr?.accountName || t.entries.map(e => e.accountName).join(", ") || "—"}</td>
-                        <td className="trash-acct">{cr?.accountName || "—"}</td>
-                        <td className="right trash-amt">{fmt(amt)}</td>
-                        <td className="trash-sync">{t.syncStatus || "—"}</td>
-                        <td>
-                          <button className="trash-restore-btn" onClick={() => restoreTx(t.guid)}>
-                            Restore
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
             )}
           </div>
         );
@@ -2211,6 +2121,96 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               Trash
             </button>
           </div>
+          {report === "trash" && data && (() => {
+            const ledger = data as Ledger;
+            const deleted = ledger.transactions
+              .filter(t => t.deleted)
+              .sort((a, b) => b.id - a.id);
+
+            async function restoreTx(guid: string) {
+              const next: Ledger = {
+                ...ledger,
+                transactions: ledger.transactions.map(t =>
+                  t.guid === guid ? { ...t, deleted: false } : t
+                ),
+              };
+              const ok = await save(next, "trash");
+              if (!ok) setStatus("Restore failed.");
+            }
+
+            async function restoreAll() {
+              if (!window.confirm(`Restore all ${deleted.length} deleted voucher(s)?`)) return;
+              const next: Ledger = {
+                ...ledger,
+                transactions: ledger.transactions.map(t => t.deleted ? { ...t, deleted: false } : t),
+              };
+              const ok = await save(next, "trash");
+              if (ok) setStatus(`${deleted.length} voucher(s) restored.`);
+              else setStatus("Restore failed.");
+            }
+
+            return (
+              <div className="data-panel trash-panel">
+                <div className="trash-header">
+                  <div>
+                    <h3 style={{ margin: 0 }}>Trash — Deleted Vouchers</h3>
+                    <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "4px 0 0" }}>
+                      All soft-deleted vouchers. Click Restore to bring one back, or Restore All to undo all deletions.
+                      Sorted most-recently-deleted first (highest voucher ID).
+                    </p>
+                  </div>
+                  {deleted.length > 0 && (
+                    <button className="trash-restore-all-btn" onClick={restoreAll}>
+                      Restore All ({deleted.length})
+                    </button>
+                  )}
+                </div>
+                {deleted.length === 0 ? (
+                  <div className="trash-empty">Trash is empty — no deleted vouchers.</div>
+                ) : (
+                  <table className="trash-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>#</th>
+                        <th>Narration</th>
+                        <th>Debit</th>
+                        <th>Credit</th>
+                        <th className="right">Amount</th>
+                        <th>Sync</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deleted.map(t => {
+                        const dr = t.entries.find(e => e.amount < 0);
+                        const cr = t.entries.find(e => e.amount > 0);
+                        const amt = dr ? Math.abs(dr.amount) : 0;
+                        return (
+                          <tr key={t.guid} className="trash-row">
+                            <td className="trash-date">{t.date}</td>
+                            <td><span className="pill">{t.type}</span></td>
+                            <td className="trash-num">{t.number || "—"}</td>
+                            <td className="trash-narr">{t.narration || "—"}</td>
+                            <td className="trash-acct">{dr?.accountName || t.entries.map(e => e.accountName).join(", ") || "—"}</td>
+                            <td className="trash-acct">{cr?.accountName || "—"}</td>
+                            <td className="right trash-amt">{fmt(amt)}</td>
+                            <td className="trash-sync">{t.syncStatus || "—"}</td>
+                            <td>
+                              <button className="trash-restore-btn" onClick={() => restoreTx(t.guid)}>
+                                Restore
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })()}
           {report === "trial" && (
             <div className="data-panel">
               <h3>

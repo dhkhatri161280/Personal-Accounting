@@ -90,6 +90,24 @@ export async function PUT(request: Request) {
   }
   const cleaned = clean(body, book);
   cleaned.lastCheckedAt = new Date().toISOString();
+
+  // Skip the KV write entirely when nothing but the timestamp changed — the
+  // sync script may call this far more often than the underlying status
+  // actually changes, and every write counts against the daily KV put quota.
+  try {
+    const existingRaw = await bindings.VAULT.get(key(book));
+    if (existingRaw) {
+      const existing = clean(JSON.parse(existingRaw), book);
+      const { lastCheckedAt: _a, ...existingRest } = existing;
+      const { lastCheckedAt: _b, ...newRest } = cleaned;
+      if (JSON.stringify(existingRest) === JSON.stringify(newRest)) {
+        return Response.json({ ok: true, ...existing, lastCheckedAt: existing.lastCheckedAt });
+      }
+    }
+  } catch {
+    // fall through and write — better to over-write than lose a real update
+  }
+
   try {
     await bindings.VAULT.put(key(book), JSON.stringify(cleaned));
   } catch {

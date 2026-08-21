@@ -7072,6 +7072,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .dashboard-card-highlights .equity-daily-chip--pos b { background: #dcfce7 !important; color: #16a34a !important; }
 .dashboard-card-highlights .equity-daily-chip--neg b { background: #fee2e2 !important; color: #dc2626 !important; }
 .dashboard-card-highlights .equity-sch-chip b { background: #eef2ff !important; color: #4f46e5 !important; }
+/* Today chip value: font color only reflects gain/loss direction — no border or background change. */
+.dashboard-card-highlights .equity-daily-chip--pos em { color: #16a34a !important; }
+.dashboard-card-highlights .equity-daily-chip--neg em { color: #dc2626 !important; }
+.dashboard-card-highlights .equity-daily-chip--zero em { color: #000000 !important; }
 .equity-drilldown { margin-top: 1rem; border: 1px solid #bfdbfe; border-radius: 10px; background: #f8fafc; overflow: hidden; }
 .equity-drilldown-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
 .equity-drilldown-head strong { font-size: 13px; color: #1d4ed8; }
