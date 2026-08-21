@@ -14,13 +14,24 @@ export async function withEdgeCache(
   const cache = (caches as unknown as { default: Cache }).default;
   const cacheKey = new Request(request.url, { method: "GET" });
 
+  // Responses returned by the Cache API always have immutable headers — rebuilding into a
+  // fresh Response is required here too, not just on the miss path below, or the caller's
+  // own header-merging (e.g. vinext's Vary-header step) throws "Can't modify immutable
+  // headers" the moment it tries to touch them.
   const cached = await cache.match(cacheKey);
-  if (cached) return cached;
+  if (cached) return await rebuildMutable(cached);
 
   const response = await compute();
-  if (response.ok) {
-    response.headers.set("Cache-Control", `public, max-age=${ttlSeconds}`);
-    await cache.put(cacheKey, response.clone());
-  }
-  return response;
+  if (!response.ok) return response;
+
+  const cacheable = await rebuildMutable(response);
+  cacheable.headers.set("Cache-Control", `public, max-age=${ttlSeconds}`);
+  await cache.put(cacheKey, cacheable.clone());
+  return cacheable;
+}
+
+async function rebuildMutable(response: Response): Promise<Response> {
+  const headers = new Headers(response.headers);
+  const body = await response.arrayBuffer();
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
