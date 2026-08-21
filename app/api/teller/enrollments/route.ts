@@ -43,6 +43,10 @@ export async function DELETE(request: Request) {
 
   const enrollments = await loadEnrollments();
   const filtered = enrollments.filter((e) => e.enrollment_id !== body.enrollment_id);
-  await bindings.VAULT.put(ENROLLMENTS_KEY, JSON.stringify(filtered));
+  try {
+    await bindings.VAULT.put(ENROLLMENTS_KEY, JSON.stringify(filtered));
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "write failed"), { status: 503 });
+  }
   return Response.json({ ok: true, removed: enrollments.length - filtered.length });
 }

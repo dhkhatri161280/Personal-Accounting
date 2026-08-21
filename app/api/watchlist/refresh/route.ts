@@ -145,7 +145,11 @@ No other fields. No markdown. No explanation. Just the JSON array.`;
       vix: priceMap["^VIX"]?.price,
     },
   };
-  await bindings.VAULT.put(KV_KEY, JSON.stringify(result));
+  try {
+    await bindings.VAULT.put(KV_KEY, JSON.stringify(result));
+  } catch (e: any) {
+    return Response.json({ error: "Watchlist storage unavailable: " + (e?.message || "write failed") }, { status: 503 });
+  }
 
   return Response.json(result);
 }

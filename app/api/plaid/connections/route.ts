@@ -43,6 +43,10 @@ export async function DELETE(request: Request) {
 
   const connections = await loadConnections();
   const filtered = connections.filter((c) => c.item_id !== body.item_id);
-  await bindings.VAULT.put(CONNECTIONS_KEY, JSON.stringify(filtered));
+  try {
+    await bindings.VAULT.put(CONNECTIONS_KEY, JSON.stringify(filtered));
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "write failed"), { status: 503 });
+  }
   return Response.json({ ok: true, removed: connections.length - filtered.length });
 }

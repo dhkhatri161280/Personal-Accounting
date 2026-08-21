@@ -93,7 +93,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     unifiedSealKey = "fintech-unified-vault-seal";
   const autoBiometricStarted = useRef(false),
     entryFormRef = useRef<HTMLFormElement>(null),
-    newVoucherMenuRef = useRef<HTMLDivElement>(null);
+    newVoucherMenuRef = useRef<HTMLDivElement>(null),
+    autoSyncTriggerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [password, setPassword] = useState(""),
     [data, setData] = useState<Ledger | null>(null),
     [status, setStatus] = useState(""),
@@ -373,7 +374,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setLastSynced(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     setStatus("Encrypted save complete");
     setTab(destination);
+    scheduleAutoSyncTrigger();
     return true;
+  }
+
+  // Debounce: wait until saves settle before asking the local Tally daemon to sync,
+  // so entering several vouchers in a row triggers one sync, not one per voucher.
+  function scheduleAutoSyncTrigger() {
+    if (autoSyncTriggerTimer.current) clearTimeout(autoSyncTriggerTimer.current);
+    autoSyncTriggerTimer.current = setTimeout(() => {
+      autoSyncTriggerTimer.current = null;
+      fetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {});
+    }, 20000);
   }
 
   async function syncNow(silent = false) {

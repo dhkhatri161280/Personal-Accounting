@@ -81,6 +81,10 @@ export async function PUT(request: Request) {
   if (expected && current && (await etag(current)) !== expected)
     return new Response("Vault changed since download; sync again.", { status: 412 });
 
-  await bindings.VAULT.put(key, body);
+  try {
+    await bindings.VAULT.put(key, body);
+  } catch (e: any) {
+    return new Response("Vault storage unavailable: " + (e?.message || "write failed"), { status: 503 });
+  }
   return Response.json({ ok: true, bytes: body.length, etag: await etag(body) });
 }

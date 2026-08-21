@@ -67,7 +67,11 @@ export async function POST(request: Request) {
     });
   }
 
-  await bindings.VAULT.put(KEY, JSON.stringify(matches));
+  try {
+    await bindings.VAULT.put(KEY, JSON.stringify(matches));
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "write failed"), { status: 503 });
+  }
   return Response.json({ ok: true });
 }
 
@@ -81,6 +85,10 @@ export async function DELETE(request: Request) {
     .map((m) => ({ ...m, confirmed_tx_ids: m.confirmed_tx_ids.filter((id) => id !== body.tx_id) }))
     .filter((m) => m.confirmed_tx_ids.length > 0);
 
-  await bindings.VAULT.put(KEY, JSON.stringify(next));
+  try {
+    await bindings.VAULT.put(KEY, JSON.stringify(next));
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "write failed"), { status: 503 });
+  }
   return Response.json({ ok: true });
 }

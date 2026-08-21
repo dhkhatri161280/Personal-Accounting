@@ -58,6 +58,10 @@ export async function POST(request: Request) {
     connected_at: new Date().toISOString(),
   });
 
-  await bindings.VAULT.put(CONNECTIONS_KEY, JSON.stringify(connections));
+  try {
+    await bindings.VAULT.put(CONNECTIONS_KEY, JSON.stringify(connections));
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "write failed"), { status: 503 });
+  }
   return Response.json({ ok: true, institution_name: institution_name || "Bank" });
 }
