@@ -53,7 +53,7 @@ export async function POST() {
 
   // 2. Fetch 5-day price data for all symbols + market indices
   const symbols       = [...new Set(currentItems.map(w => w.symbol))];
-  const marketSymbols = ["SPY", "QQQ", "VIX"];
+  const marketSymbols = ["SPY", "QQQ", "^VIX"];
   const priceResults  = await Promise.all([...symbols, ...marketSymbols].map(fetchPrice5d));
   const priceMap      = Object.fromEntries(priceResults.map(p => [p.symbol, p]));
 
@@ -62,7 +62,7 @@ export async function POST() {
   const currentMonth  = new Date().getMonth() + 1;
 
   const marketCtx = marketSymbols
-    .map(s => { const p = priceMap[s]; return `${s}: $${p.price?.toFixed(2) ?? "N/A"} (5d: ${p.change5d?.toFixed(1) ?? "N/A"}%)`; })
+    .map(s => { const p = priceMap[s]; return `${s.replace("^", "")}: $${p.price?.toFixed(2) ?? "N/A"} (5d: ${p.change5d?.toFixed(1) ?? "N/A"}%)`; })
     .join(" | ");
 
   const stockCtx = currentItems.map(w => {
@@ -96,7 +96,7 @@ No other fields. No markdown. No explanation. Just the JSON array.`;
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "llama-3.1-8b-instant",
+      model: "openai/gpt-oss-20b",
       max_tokens: 4096,
       messages: [
         { role: "system", content: "You are a US equity strategist. Return only valid JSON arrays, no markdown, no explanation." },
@@ -142,7 +142,7 @@ No other fields. No markdown. No explanation. Just the JSON array.`;
     marketSnapshot: {
       spy: priceMap["SPY"]?.price,
       qqq: priceMap["QQQ"]?.price,
-      vix: priceMap["VIX"]?.price,
+      vix: priceMap["^VIX"]?.price,
     },
   };
   await bindings.VAULT.put(KV_KEY, JSON.stringify(result));

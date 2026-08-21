@@ -46,6 +46,23 @@ export async function GET(request: Request) {
   await Promise.all(
     activeConnections.map(async (conn) => {
       try {
+        // Ask Plaid to go re-pull fresh transactions from the institution right now —
+        // without this, transactions/get only returns Plaid's last cached sync, which can
+        // lag hours behind what's actually posted at the bank. Best-effort: ignore failures
+        // and give Plaid a moment to complete the refresh before reading.
+        try {
+          await fetch(`${plaidBase(bindings)}/transactions/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              client_id: PLAID_CLIENT_ID,
+              secret: PLAID_SECRET,
+              access_token: conn.access_token,
+            }),
+          });
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        } catch {}
+
         // Fetch transactions and real-time balances in parallel.
         // transactions/get returns cached balances (can be 1-2 days stale).
         // accounts/balance/get makes a live call to the bank for current balances.

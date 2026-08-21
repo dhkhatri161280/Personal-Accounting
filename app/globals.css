@@ -6742,6 +6742,8 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .equity-gain-neg,
 .privacy-mode .equity-cycle-row td strong,
 .privacy-mode .equity-cycle-row td em,
+.privacy-mode .equity-card-count,
+.privacy-mode .equity-summary-card em,
 .privacy-mode .equity-espp-table tfoot th {
   filter: blur(7px);
   user-select: none;
@@ -6847,6 +6849,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-no-entries { font-size: 11px; color: #f97316; font-weight: 700; }
 .plaid-add-entries-btn { background: none; border: none; color: #f97316; font-size: 11px; font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline; }
 .plaid-add-entries-btn:hover { color: #c2410c; }
+.plaid-undo-match-btn { background: none; border: none; color: #dc2626; font-size: 10px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; margin-left: 6px; }
+.plaid-undo-match-btn:hover { color: #991b1b; }
+.plaid-dup-blocked-banner { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 6px 8px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; font-size: 10px; color: #9f1239; }
+.plaid-force-save-btn { background: none; border: none; color: #9f1239; font-size: 10px; font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline; white-space: nowrap; }
+.plaid-force-save-btn:hover { color: #7f1d1d; }
 
 /* Plaid tabs */
 .plaid-tabs { display: flex; gap: 4px; border-bottom: 2px solid #dbeafe; padding-bottom: 0; }

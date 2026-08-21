@@ -70,3 +70,17 @@ export async function POST(request: Request) {
   await bindings.VAULT.put(KEY, JSON.stringify(matches));
   return Response.json({ ok: true });
 }
+
+export async function DELETE(request: Request) {
+  let body: { tx_id: string };
+  try { body = await request.json(); }
+  catch { return new Response("Invalid JSON", { status: 400 }); }
+
+  const matches = await load();
+  const next = matches
+    .map((m) => ({ ...m, confirmed_tx_ids: m.confirmed_tx_ids.filter((id) => id !== body.tx_id) }))
+    .filter((m) => m.confirmed_tx_ids.length > 0);
+
+  await bindings.VAULT.put(KEY, JSON.stringify(next));
+  return Response.json({ ok: true });
+}

@@ -1,17 +1,20 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { withEdgeCache } from "@/lib/edge-cache";
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
 const FX_KEY = "fintech-by-dk.fx-rates.usd-inr";
 
-export async function GET() {
-  let raw: string | null = null;
-  try {
-    raw = await bindings.VAULT.get(FX_KEY);
-  } catch {}
-  const rates = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-  return Response.json({ rates }, { headers: { "Cache-Control": "public, max-age=3600" } });
+export async function GET(request: Request) {
+  return withEdgeCache(request, 3600, async () => {
+    let raw: string | null = null;
+    try {
+      raw = await bindings.VAULT.get(FX_KEY);
+    } catch {}
+    const rates = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    return Response.json({ rates });
+  });
 }
 
 export async function POST(request: Request) {

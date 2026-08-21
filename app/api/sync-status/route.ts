@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { withEdgeCache } from "@/lib/edge-cache";
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
@@ -33,19 +34,20 @@ export async function GET(request: Request) {
       { status: "pending", message: "Status storage not configured" },
       { headers: { "Cache-Control": "no-store" } }
     );
-  const book = bookOf(request);
-  let raw: string | null;
-  try {
-    raw = await bindings.VAULT.get(key(book));
-  } catch {
-    return Response.json(
-      { book, status: "error", message: "Sync status storage unavailable" },
-      { status: 503, headers: { "Cache-Control": "no-store" } }
-    );
-  }
-  if (!raw)
-    return Response.json(
-      {
+
+  return withEdgeCache(request, 60, async () => {
+    const book = bookOf(request);
+    let raw: string | null;
+    try {
+      raw = await bindings.VAULT.get(key(book));
+    } catch {
+      return Response.json(
+        { book, status: "error", message: "Sync status storage unavailable" },
+        { status: 503, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+    if (!raw)
+      return Response.json({
         book,
         status: "pending",
         lastCheckedAt: null,
@@ -55,20 +57,17 @@ export async function GET(request: Request) {
         conflicts: 0,
         errors: 0,
         message: "No Tally sync status published yet",
-      },
-      { headers: { "Cache-Control": "public, max-age=60" } }
-    );
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return Response.json(
-      { book, status: "error", message: "Sync status record corrupted" },
-      { status: 500, headers: { "Cache-Control": "no-store" } }
-    );
-  }
-  return Response.json(clean(parsed, book), {
-    headers: { "Cache-Control": "public, max-age=60" },
+      });
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return Response.json(
+        { book, status: "error", message: "Sync status record corrupted" },
+        { status: 500, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+    return Response.json(clean(parsed, book));
   });
 }
 

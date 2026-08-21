@@ -53,6 +53,11 @@ interface ImportRow {
   entries: EntryDraft[];
   confidence: number; // 0–1, 1 = high confidence (payroll template), < 0.5 = needs review
   source?: "payroll" | "history" | "household" | "none" | "duplicate";
+  // Set when a save attempt was blocked by the vault-duplicate guardrail so the user can
+  // review and explicitly confirm it's actually a separate transaction, not a re-save.
+  dupBlocked?: boolean;
+  // User confirmed this is NOT a duplicate despite matching the guardrail — bypass it on retry.
+  forceSave?: boolean;
 }
 
 interface ConfirmedMatch {
@@ -273,6 +278,16 @@ function enforceContraType<T extends { voucherType: string; entries: { accountId
     return a && (isCcAcct(a) || isBankAcct(a));
   });
   return allFinancial ? { ...result, voucherType: "Contra" } : result;
+}
+
+// A pending negative-amount (money-in) transaction that is actually a card bill payment,
+// not a merchant refund/credit — payments are already reflected in both Plaid's current
+// balance and the vault, so they must not be double-counted as an "uncleared credit".
+function isCardPayment(tx: PlaidTxRaw): boolean {
+  const cat = (tx.personal_finance_category?.primary || "").toLowerCase();
+  const detailed = (tx.personal_finance_category?.detailed || "").toLowerCase();
+  if (cat.includes("loan_payments") || detailed.includes("payment")) return true;
+  return /payment/i.test(tx.name);
 }
 
 // BofA "Pay & Transfer" reports one card payment as two rows: a "PAYMENT TO ACCT #..." debit
@@ -1123,26 +1138,36 @@ export function PlaidImport({ data, onSave }: Props) {
       : data.accounts;
     const importedAt = new Date().toISOString();
     const newIds = nextTransactionIds(data.transactions, toSave.length);
-    const allTxs: Tx[] = toSave.map((r, i) => ({
-      id: newIds[i],
-      guid: crypto.randomUUID(),
-      syncStatus: "bank-pending",
-      createdAt: importedAt,
-      date: r.plaidTx.date,
-      number: "",
-      type: r.voucherType,
-      narration: r.narration,
-      historical: false,
-      cancelled: false,
-      entries: r.entries,
+    const drafts = toSave.map((r, i) => ({
+      row: r,
+      tx: {
+        id: newIds[i],
+        guid: crypto.randomUUID(),
+        syncStatus: "bank-pending" as const,
+        createdAt: importedAt,
+        date: r.plaidTx.date,
+        number: "",
+        type: r.voucherType,
+        narration: r.narration,
+        historical: false,
+        cancelled: false,
+        entries: r.entries,
+      } satisfies Tx,
     }));
     const existingTxs = data.transactions;
     const safeTxs: Tx[] = [];
-    for (const t of allTxs) {
-      if (vaultHasDuplicate(t, [...existingTxs, ...safeTxs])) continue;
-      safeTxs.push(t);
+    const blockedTxIds = new Set<string>();
+    for (const { row, tx } of drafts) {
+      if (!row.forceSave && vaultHasDuplicate(tx, [...existingTxs, ...safeTxs])) {
+        blockedTxIds.add(row.plaidTx.transaction_id);
+        continue;
+      }
+      safeTxs.push(tx);
     }
-    const blocked = allTxs.length - safeTxs.length;
+    const blocked = blockedTxIds.size;
+    if (blockedTxIds.size) {
+      setPendingRows((rs) => rs.map((r) => (blockedTxIds.has(r.plaidTx.transaction_id) ? { ...r, dupBlocked: true } : r)));
+    }
     if (!safeTxs.length) {
       setStatus(`All ${blocked} pending voucher(s) already exist in vault.`);
       setSavingPending(false);
@@ -1156,7 +1181,8 @@ export function PlaidImport({ data, onSave }: Props) {
         ? `${safeTxs.length} saved. ${blocked} duplicate(s) were blocked.`
         : `${safeTxs.length} pending voucher(s) saved.`;
       setStatus(msg);
-      setPendingRows((rs) => rs.map((r) => (r.skip ? r : { ...r, alreadyImported: true, skip: true })));
+      const savedIds = new Set(drafts.filter((d) => safeTxs.includes(d.tx)).map((d) => d.row.plaidTx.transaction_id));
+      setPendingRows((rs) => rs.map((r) => (savedIds.has(r.plaidTx.transaction_id) ? { ...r, alreadyImported: true, skip: true } : r)));
     } else {
       setStatus("Save failed.");
     }
@@ -1239,28 +1265,38 @@ export function PlaidImport({ data, onSave }: Props) {
 
     const importedAt = new Date().toISOString();
     const newIds = nextTransactionIds(data.transactions, toSave.length);
-    const allTxs: Tx[] = toSave.map((r, i) => ({
-      id: newIds[i],
-      guid: crypto.randomUUID(),
-      syncStatus: "pending" as const,
-      createdAt: importedAt,
-      date: r.plaidTx.date,
-      number: "",
-      type: r.voucherType,
-      narration: r.narration,
-      historical: false,
-      cancelled: false,
-      entries: r.entries,
+    const drafts = toSave.map((r, i) => ({
+      row: r,
+      tx: {
+        id: newIds[i],
+        guid: crypto.randomUUID(),
+        syncStatus: "pending" as const,
+        createdAt: importedAt,
+        date: r.plaidTx.date,
+        number: "",
+        type: r.voucherType,
+        narration: r.narration,
+        historical: false,
+        cancelled: false,
+        entries: r.entries,
+      } satisfies Tx,
     }));
 
-    // Guardrail: skip any draft that would create a vault duplicate
+    // Guardrail: skip any draft that would create a vault duplicate (unless the user force-saved it)
     const existingTxs = data.transactions;
     const safeTxs: Tx[] = [];
-    for (const t of allTxs) {
-      if (vaultHasDuplicate(t, [...existingTxs, ...safeTxs])) continue;
-      safeTxs.push(t);
+    const blockedTxIds = new Set<string>();
+    for (const { row, tx } of drafts) {
+      if (!row.forceSave && vaultHasDuplicate(tx, [...existingTxs, ...safeTxs])) {
+        blockedTxIds.add(row.plaidTx.transaction_id);
+        continue;
+      }
+      safeTxs.push(tx);
     }
-    const blocked = allTxs.length - safeTxs.length;
+    const blocked = blockedTxIds.size;
+    if (blockedTxIds.size) {
+      setRows((rs) => rs.map((r) => (blockedTxIds.has(r.plaidTx.transaction_id) ? { ...r, dupBlocked: true } : r)));
+    }
 
     if (!safeTxs.length) {
       setStatus(`All ${blocked} voucher(s) already exist in vault — nothing saved.`);
@@ -1281,7 +1317,8 @@ export function PlaidImport({ data, onSave }: Props) {
         ? `${safeTxs.length} saved. ${blocked} duplicate(s) were blocked — check Duplicates tab.`
         : `${safeTxs.length} voucher(s) saved.`;
       setStatus(msg);
-      setRows((rs) => rs.map((r) => (r.skip ? r : { ...r, alreadyImported: true, skip: true })));
+      const savedIds = new Set(drafts.filter((d) => safeTxs.includes(d.tx)).map((d) => d.row.plaidTx.transaction_id));
+      setRows((rs) => rs.map((r) => (savedIds.has(r.plaidTx.transaction_id) ? { ...r, alreadyImported: true, skip: true } : r)));
     } else {
       setStatus("Save failed — see vault status for details.");
     }
@@ -1384,6 +1421,22 @@ export function PlaidImport({ data, onSave }: Props) {
     updatePendingRow(rowIdx, { alreadyImported: true });
     setPendingPickerRowIdx(null);
     setPendingPickerSearch("");
+  }
+
+  async function undoPendingMatch(rowIdx: number) {
+    const tx = pendingRows[rowIdx]?.plaidTx;
+    if (!tx) return;
+    await fetch("/api/plaid/confirmed-matches", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tx_id: tx.transaction_id }),
+    });
+    setConfirmedMatches((prev) =>
+      prev
+        .map((m) => ({ ...m, confirmed_tx_ids: m.confirmed_tx_ids.filter((id) => id !== tx.transaction_id) }))
+        .filter((m) => m.confirmed_tx_ids.length > 0)
+    );
+    updatePendingRow(rowIdx, { alreadyImported: false, skip: false });
   }
 
   const toImport = rows.filter((r) => !r.skip && !r.alreadyImported);
@@ -1650,6 +1703,18 @@ export function PlaidImport({ data, onSave }: Props) {
                     >
                       {pickerRowIdx === idx ? "✕ Cancel" : "Already posted?"}
                     </button>
+                    {row.dupBlocked && !row.forceSave && (
+                      <div className="plaid-dup-blocked-banner">
+                        <span>Blocked — matches a vault voucher with the same amount, accounts, and a nearby date.</span>
+                        <button
+                          type="button"
+                          className="plaid-force-save-btn"
+                          onClick={() => updateRow(idx, { forceSave: true, dupBlocked: false })}
+                        >
+                          Not a duplicate — save anyway
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1788,7 +1853,19 @@ export function PlaidImport({ data, onSave }: Props) {
                         placeholder="Narration"
                         disabled={row.alreadyImported}
                       />
-                      {row.alreadyImported && <span className="plaid-exists-badge">saved</span>}
+                      {row.alreadyImported && (
+                        <>
+                          <span className="plaid-exists-badge">saved</span>
+                          <button
+                            type="button"
+                            className="plaid-undo-match-btn"
+                            title="Not actually already posted — reopen for import"
+                            onClick={() => undoPendingMatch(idx)}
+                          >
+                            ✕ Undo match
+                          </button>
+                        </>
+                      )}
                     </div>
                     {!row.alreadyImported && (
                       <div className="plaid-entries">
@@ -1835,6 +1912,18 @@ export function PlaidImport({ data, onSave }: Props) {
                         >
                           {pendingPickerRowIdx === idx ? "✕ Cancel" : "Already posted?"}
                         </button>
+                        {row.dupBlocked && !row.forceSave && (
+                          <div className="plaid-dup-blocked-banner">
+                            <span>Blocked — matches a vault voucher with the same amount, accounts, and a nearby date.</span>
+                            <button
+                              type="button"
+                              className="plaid-force-save-btn"
+                              onClick={() => updatePendingRow(idx, { forceSave: true, dupBlocked: false })}
+                            >
+                              Not a duplicate — save anyway
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2085,26 +2174,12 @@ export function PlaidImport({ data, onSave }: Props) {
 
                     return groups.map((g, i) => {
                       const vaultBal = g.vaultAcct ? vaultBookBalance(g.vaultAcct.id, g.plaidType, data) : null;
-                      // Credit cards — Plaid current balance behaviour:
-                      //   Pending PAYMENTS: already applied by bank, in both Plaid current AND vault → no adjustment.
-                      //   Pending CHARGES:  NOT in Plaid current (per Plaid docs), but posted to vault → vault is
-                      //                     ahead by this amount; add it back so Diff = 0 when reconciled.
-                      // Depository: uses `available` (excludes holds) → no adjustment.
                       const acctIdSet = new Set(g.plaidAccts.map((a) => a.account_id));
-                      const pendingChargesSum = g.plaidType === "credit"
-                        ? pendingTxs.filter((tx) => acctIdSet.has(tx.account_id) && tx.amount > 0)
-                            .reduce((s, tx) => s + tx.amount, 0)
-                        : 0;
-                      const diff = g.plaidBal !== null && vaultBal !== null ? g.plaidBal - vaultBal + pendingChargesSum : null;
-                      const balanced = diff !== null && Math.abs(diff) < 1;
-                      const isExpanded = expandedReconIdx === i;
-                      const isUnclearedExpanded = expandedUnclearedIdx === i;
 
                       // Drill-down: identify which transactions explain the gap
-                      const acctIds = new Set(g.plaidAccts.map((a) => a.account_id));
                       const plaidTxsForGroup = [
-                        ...rows.filter((r) => acctIds.has(r.plaidTx.account_id)),
-                        ...pendingRows.filter((r) => acctIds.has(r.plaidTx.account_id)),
+                        ...rows.filter((r) => acctIdSet.has(r.plaidTx.account_id)),
+                        ...pendingRows.filter((r) => acctIdSet.has(r.plaidTx.account_id)),
                       ].sort((a, b) => b.plaidTx.date.localeCompare(a.plaidTx.date));
 
                       // Vault entries for this account (last 90 days to cover Plaid window)
@@ -2125,6 +2200,7 @@ export function PlaidImport({ data, onSave }: Props) {
                       // For depository: deposit = negative on both Plaid and vault Dr entry
                       const usedPlaidForMatch = new Set<number>();
                       const matchedVaultIdx = new Set<number>();
+                      const matchedPairs: { vi: number; pi: number }[] = [];
                       recentVaultEntries.forEach((ve, vi) => {
                         const vMs = new Date(ve.date + "T12:00:00Z").getTime();
                         plaidTxsForGroup.forEach((pr, pi) => {
@@ -2136,6 +2212,7 @@ export function PlaidImport({ data, onSave }: Props) {
                           ) {
                             matchedVaultIdx.add(vi);
                             usedPlaidForMatch.add(pi);
+                            matchedPairs.push({ vi, pi });
                           }
                         });
                       });
@@ -2144,12 +2221,47 @@ export function PlaidImport({ data, onSave }: Props) {
                       const notInVault = plaidTxsForGroup.filter((r) => !r.alreadyImported && !r.plaidTx.pending);
                       const onlyInVault = recentVaultEntries.filter((_, vi) => !matchedVaultIdx.has(vi));
 
+                      // Credit cards — Plaid current balance behaviour:
+                      //   Pending, NOT YET in vault: Plaid current doesn't include it yet, and neither does the
+                      //                     vault — no adjustment needed for genuinely unposted charges/credits
+                      //                     (payments are excluded here; they're not "to-do" items).
+                      //   Pending, ALREADY matched to a vault entry (charge, credit, OR payment): the vault
+                      //                     reflects it but Plaid's current balance apparently doesn't yet —
+                      //                     add back the vault entry's own signed amount so Diff = 0 once
+                      //                     Plaid catches up. Using the vault's amount (not the raw Plaid
+                      //                     amount) correctly handles BofA's double-reported card payments,
+                      //                     where only one leg (the Contra voucher) ever reaches the vault.
+                      // Depository: uses `available` (excludes holds) → no adjustment.
+                      const matchedPendingAdjustment = g.plaidType === "credit"
+                        ? matchedPairs
+                            .filter(({ pi }) => plaidTxsForGroup[pi].plaidTx.pending)
+                            .reduce((s, { vi }) => s + recentVaultEntries[vi].amount, 0)
+                        : 0;
+                      const matchedTxIds = new Set(
+                        matchedPairs.map(({ pi }) => plaidTxsForGroup[pi].plaidTx.transaction_id)
+                      );
+                      const pendingChargesSum = g.plaidType === "credit"
+                        ? pendingTxs.filter((tx) => acctIdSet.has(tx.account_id) && tx.amount > 0 && !matchedTxIds.has(tx.transaction_id))
+                            .reduce((s, tx) => s + tx.amount, 0)
+                        : 0;
+                      const pendingCreditsSum = g.plaidType === "credit"
+                        ? pendingTxs.filter((tx) => acctIdSet.has(tx.account_id) && tx.amount < 0 && !isCardPayment(tx) && !matchedTxIds.has(tx.transaction_id))
+                            .reduce((s, tx) => s + tx.amount, 0)
+                        : 0;
+                      const diff = g.plaidBal !== null && vaultBal !== null
+                        ? g.plaidBal - vaultBal + pendingChargesSum + pendingCreditsSum + matchedPendingAdjustment
+                        : null;
+                      const pendingClearingTotal = pendingChargesSum + Math.abs(pendingCreditsSum);
+                      const balanced = diff !== null && Math.abs(diff) < 1;
+                      const isExpanded = expandedReconIdx === i;
+                      const isUnclearedExpanded = expandedUnclearedIdx === i;
+
                       // Net contribution of each side to the difference (Plaid − Vault)
                       // Positive Plaid amount (charge) in notInVault → vault missing it → diff tilts positive
                       // Positive vault amount (Cr = charge) in onlyInVault → vault has extra → diff tilts negative
                       const plaidOnlyNet = notInVault.reduce((s, r) => s + r.plaidTx.amount, 0);
                       const vaultOnlyNet = onlyInVault.reduce((s, ve) => s + ve.amount, 0);
-                      const fetchExplained = plaidOnlyNet - vaultOnlyNet;
+                      const fetchExplained = plaidOnlyNet - vaultOnlyNet + pendingChargesSum + pendingCreditsSum + matchedPendingAdjustment;
                       const unexplained = diff !== null ? diff - fetchExplained : null;
 
                       return (
@@ -2165,11 +2277,11 @@ export function PlaidImport({ data, onSave }: Props) {
                             <td className="plaid-recon-type">{g.types.join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
                             <td
-                              className={`plaid-recon-pending${pendingChargesSum > 0 ? " plaid-recon-clickable" : ""}`}
-                              onClick={() => pendingChargesSum > 0 && setExpandedUnclearedIdx(isUnclearedExpanded ? null : i)}
+                              className={`plaid-recon-pending${pendingClearingTotal > 0 ? " plaid-recon-clickable" : ""}`}
+                              onClick={() => pendingClearingTotal > 0 && setExpandedUnclearedIdx(isUnclearedExpanded ? null : i)}
                             >
-                              {pendingChargesSum > 0
-                                ? <>{`$${pendingChargesSum.toFixed(2)}`}<span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
+                              {pendingClearingTotal > 0
+                                ? <>{`$${pendingClearingTotal.toFixed(2)}`}<span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
                                 : <span className="plaid-recon-zero">—</span>}
                             </td>
                             <td className="plaid-recon-amt">{vaultBal !== null ? `$${vaultBal.toFixed(2)}` : <span className="plaid-recon-nomatch">no match</span>}</td>
@@ -2179,9 +2291,15 @@ export function PlaidImport({ data, onSave }: Props) {
                             </td>
                           </tr>
                           {isUnclearedExpanded && (() => {
-                            // Only show pending CHARGES (amount > 0) — payments are already in Plaid current and vault
+                            // Pending charges AND pending merchant credits both count as "uncleared" —
+                            // pending card payments are excluded (already applied on both sides), and anything
+                            // already matched to a vault entry is excluded (it's reflected in matchedPendingAdjustment
+                            // above, not in this "still needs posting" total, to avoid double-counting).
                             const pendingChargeRows = pendingRows.filter(
-                              (r) => acctIdSet.has(r.plaidTx.account_id) && r.plaidTx.amount > 0
+                              (r) => acctIdSet.has(r.plaidTx.account_id) && r.plaidTx.amount > 0 && !matchedTxIds.has(r.plaidTx.transaction_id)
+                            );
+                            const pendingCreditRows = pendingRows.filter(
+                              (r) => acctIdSet.has(r.plaidTx.account_id) && r.plaidTx.amount < 0 && !isCardPayment(r.plaidTx) && !matchedTxIds.has(r.plaidTx.transaction_id)
                             );
                             return (
                               <tr className="plaid-recon-detail-row">
@@ -2189,23 +2307,27 @@ export function PlaidImport({ data, onSave }: Props) {
                                   <div className="plaid-recon-detail">
                                     <div className="plaid-recon-detail-col">
                                       <div className="plaid-recon-detail-title">
-                                        Pending charges at bank — {pendingChargeRows.length} transaction{pendingChargeRows.length !== 1 ? "s" : ""} not yet settled
-                                        {pendingChargeRows.length > 0 && (
+                                        Pending at bank — {pendingChargeRows.length + pendingCreditRows.length} transaction{pendingChargeRows.length + pendingCreditRows.length !== 1 ? "s" : ""} not yet settled
+                                        {pendingClearingTotal > 0 && (
                                           <span className="plaid-recon-detail-total debit">
-                                            {" "}· −${pendingChargesSum.toFixed(2)}
+                                            {" "}· ${pendingClearingTotal.toFixed(2)} net
                                           </span>
                                         )}
                                       </div>
-                                      {pendingChargeRows.length === 0
+                                      {pendingChargeRows.length === 0 && pendingCreditRows.length === 0
                                         ? <div className="plaid-recon-detail-empty">No uncleared charges for this account.</div>
-                                        : pendingChargeRows.map((row, j) => (
-                                          <div key={j} className="plaid-recon-detail-item di-missing">
-                                            <span className="di-date">{row.plaidTx.date}</span>
-                                            <span className="di-name">{row.plaidTx.name}</span>
-                                            <span className="di-amt debit">−${row.plaidTx.amount.toFixed(2)}</span>
-                                            <span className="di-status">⏳ {row.alreadyImported ? "in vault" : "not yet posted"}</span>
-                                          </div>
-                                        ))
+                                        : [...pendingChargeRows, ...pendingCreditRows]
+                                            .sort((a, b) => b.plaidTx.date.localeCompare(a.plaidTx.date))
+                                            .map((row, j) => (
+                                              <div key={j} className="plaid-recon-detail-item di-missing">
+                                                <span className="di-date">{row.plaidTx.date}</span>
+                                                <span className="di-name">{row.plaidTx.name}</span>
+                                                <span className={`di-amt ${row.plaidTx.amount < 0 ? "credit" : "debit"}`}>
+                                                  {row.plaidTx.amount < 0 ? "+" : "−"}${Math.abs(row.plaidTx.amount).toFixed(2)}
+                                                </span>
+                                                <span className="di-status">⏳ {row.alreadyImported ? "in vault" : "not yet posted"}</span>
+                                              </div>
+                                            ))
                                       }
                                     </div>
                                   </div>
@@ -2269,6 +2391,12 @@ export function PlaidImport({ data, onSave }: Props) {
                                     <span>Gap: <strong>{diff >= 0 ? "+" : ""}${diff.toFixed(2)}</strong></span>
                                     <span className="plaid-recon-gap-sep">·</span>
                                     <span>Explained by this fetch: <strong>{fetchExplained >= 0 ? "+" : ""}${fetchExplained.toFixed(2)}</strong></span>
+                                    {matchedPendingAdjustment !== 0 && (
+                                      <>
+                                        <span className="plaid-recon-gap-sep">·</span>
+                                        <span>Pending in vault, not yet in Plaid's balance: <strong>{matchedPendingAdjustment >= 0 ? "+" : ""}${matchedPendingAdjustment.toFixed(2)}</strong></span>
+                                      </>
+                                    )}
                                     {Math.abs(unexplained ?? 0) > 0.5 && (
                                       <>
                                         <span className="plaid-recon-gap-sep">·</span>
