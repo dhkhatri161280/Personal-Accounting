@@ -2221,48 +2221,56 @@ export function PlaidImport({ data, onSave }: Props) {
                       const notInVault = plaidTxsForGroup.filter((r) => !r.alreadyImported && !r.plaidTx.pending);
                       const onlyInVault = recentVaultEntries.filter((_, vi) => !matchedVaultIdx.has(vi));
 
-                      // Credit cards — Plaid current balance behaviour:
-                      //   Pending, NOT YET in vault: Plaid current doesn't include it yet, and neither does the
-                      //                     vault — no adjustment needed for genuinely unposted charges/credits
-                      //                     (payments are excluded here; they're not "to-do" items).
-                      //   Pending, ALREADY matched to a vault entry (charge, credit, OR payment): the vault
-                      //                     reflects it but Plaid's current balance apparently doesn't yet —
-                      //                     add back the vault entry's own signed amount so Diff = 0 once
-                      //                     Plaid catches up. Using the vault's amount (not the raw Plaid
-                      //                     amount) correctly handles BofA's double-reported card payments,
-                      //                     where only one leg (the Contra voucher) ever reaches the vault.
+                      // Credit cards — Plaid current balance behaviour. Everything pending that Plaid's
+                      // current balance hasn't caught up on yet folds into ONE "Uncleared" figure, per
+                      // Difference = Plaid − Vault + Uncleared:
+                      //   Not yet posted to vault (charge or merchant credit, not a payment): use the raw
+                      //     Plaid amount — neither side reflects it yet, so this "pre-applies" it the way
+                      //     it will look once posted.
+                      //   Already matched to a vault entry (charge, credit, OR payment): use the vault
+                      //     entry's own signed amount instead of the raw Plaid amount — this correctly
+                      //     handles BofA's double-reported card payments, where Plaid reports the same
+                      //     transfer from two accounts but only one leg (the Contra voucher) ever reaches
+                      //     the vault.
                       // Depository: uses `available` (excludes holds) → no adjustment.
-                      const matchedPendingAdjustment = g.plaidType === "credit"
-                        ? matchedPairs
-                            .filter(({ pi }) => plaidTxsForGroup[pi].plaidTx.pending)
-                            .reduce((s, { vi }) => s + recentVaultEntries[vi].amount, 0)
-                        : 0;
                       const matchedTxIds = new Set(
                         matchedPairs.map(({ pi }) => plaidTxsForGroup[pi].plaidTx.transaction_id)
                       );
-                      const pendingChargesSum = g.plaidType === "credit"
-                        ? pendingTxs.filter((tx) => acctIdSet.has(tx.account_id) && tx.amount > 0 && !matchedTxIds.has(tx.transaction_id))
-                            .reduce((s, tx) => s + tx.amount, 0)
-                        : 0;
-                      const pendingCreditsSum = g.plaidType === "credit"
-                        ? pendingTxs.filter((tx) => acctIdSet.has(tx.account_id) && tx.amount < 0 && !isCardPayment(tx) && !matchedTxIds.has(tx.transaction_id))
-                            .reduce((s, tx) => s + tx.amount, 0)
-                        : 0;
+                      type UnclearedItem = { date: string; name: string; amount: number; matched: boolean };
+                      const unclearedItems: UnclearedItem[] = g.plaidType !== "credit" ? [] : [
+                        ...matchedPairs
+                          .filter(({ pi }) => plaidTxsForGroup[pi].plaidTx.pending)
+                          .map(({ vi, pi }) => ({
+                            date: plaidTxsForGroup[pi].plaidTx.date,
+                            name: plaidTxsForGroup[pi].plaidTx.name,
+                            amount: recentVaultEntries[vi].amount,
+                            matched: true,
+                          })),
+                        ...pendingTxs
+                          .filter((tx) =>
+                            acctIdSet.has(tx.account_id) &&
+                            !matchedTxIds.has(tx.transaction_id) &&
+                            (tx.amount > 0 || !isCardPayment(tx))
+                          )
+                          .map((tx) => ({ date: tx.date, name: tx.name, amount: tx.amount, matched: false })),
+                      ];
+                      const uncleared = unclearedItems.reduce((s, u) => s + u.amount, 0);
                       const diff = g.plaidBal !== null && vaultBal !== null
-                        ? g.plaidBal - vaultBal + pendingChargesSum + pendingCreditsSum + matchedPendingAdjustment
+                        ? g.plaidBal - vaultBal + uncleared
                         : null;
-                      const pendingClearingTotal = pendingChargesSum + Math.abs(pendingCreditsSum);
+                      const pendingClearingTotal = unclearedItems.reduce((s, u) => s + Math.abs(u.amount), 0);
                       const balanced = diff !== null && Math.abs(diff) < 1;
                       const isExpanded = expandedReconIdx === i;
                       const isUnclearedExpanded = expandedUnclearedIdx === i;
 
-                      // Net contribution of each side to the difference (Plaid − Vault)
-                      // Positive Plaid amount (charge) in notInVault → vault missing it → diff tilts positive
-                      // Positive vault amount (Cr = charge) in onlyInVault → vault has extra → diff tilts negative
+                      // Net contribution of each side to the difference (Plaid − Vault) from settled,
+                      // non-pending transactions only — for the "In Plaid, not in vault" / "In vault, no
+                      // Plaid match" columns above. Purely diagnostic (candidate causes to review) — not
+                      // arithmetic that needs subtracting from diff, since diff (Plaid balance − Vault
+                      // balance + Uncleared) is already the complete, self-contained figure.
                       const plaidOnlyNet = notInVault.reduce((s, r) => s + r.plaidTx.amount, 0);
                       const vaultOnlyNet = onlyInVault.reduce((s, ve) => s + ve.amount, 0);
-                      const fetchExplained = plaidOnlyNet - vaultOnlyNet + pendingChargesSum + pendingCreditsSum + matchedPendingAdjustment;
-                      const unexplained = diff !== null ? diff - fetchExplained : null;
+                      const rawGap = g.plaidBal !== null && vaultBal !== null ? g.plaidBal - vaultBal : null;
 
                       return (
                         <React.Fragment key={i}>
@@ -2290,51 +2298,39 @@ export function PlaidImport({ data, onSave }: Props) {
                               {!balanced && diff !== null && <span className="plaid-recon-expand-icon">{isExpanded ? " ▲" : " ▼"}</span>}
                             </td>
                           </tr>
-                          {isUnclearedExpanded && (() => {
-                            // Pending charges AND pending merchant credits both count as "uncleared" —
-                            // pending card payments are excluded (already applied on both sides), and anything
-                            // already matched to a vault entry is excluded (it's reflected in matchedPendingAdjustment
-                            // above, not in this "still needs posting" total, to avoid double-counting).
-                            const pendingChargeRows = pendingRows.filter(
-                              (r) => acctIdSet.has(r.plaidTx.account_id) && r.plaidTx.amount > 0 && !matchedTxIds.has(r.plaidTx.transaction_id)
-                            );
-                            const pendingCreditRows = pendingRows.filter(
-                              (r) => acctIdSet.has(r.plaidTx.account_id) && r.plaidTx.amount < 0 && !isCardPayment(r.plaidTx) && !matchedTxIds.has(r.plaidTx.transaction_id)
-                            );
-                            return (
-                              <tr className="plaid-recon-detail-row">
-                                <td colSpan={7}>
-                                  <div className="plaid-recon-detail">
-                                    <div className="plaid-recon-detail-col">
-                                      <div className="plaid-recon-detail-title">
-                                        Pending at bank — {pendingChargeRows.length + pendingCreditRows.length} transaction{pendingChargeRows.length + pendingCreditRows.length !== 1 ? "s" : ""} not yet settled
-                                        {pendingClearingTotal > 0 && (
-                                          <span className="plaid-recon-detail-total debit">
-                                            {" "}· ${pendingClearingTotal.toFixed(2)} net
-                                          </span>
-                                        )}
-                                      </div>
-                                      {pendingChargeRows.length === 0 && pendingCreditRows.length === 0
-                                        ? <div className="plaid-recon-detail-empty">No uncleared charges for this account.</div>
-                                        : [...pendingChargeRows, ...pendingCreditRows]
-                                            .sort((a, b) => b.plaidTx.date.localeCompare(a.plaidTx.date))
-                                            .map((row, j) => (
-                                              <div key={j} className="plaid-recon-detail-item di-missing">
-                                                <span className="di-date">{row.plaidTx.date}</span>
-                                                <span className="di-name">{row.plaidTx.name}</span>
-                                                <span className={`di-amt ${row.plaidTx.amount < 0 ? "credit" : "debit"}`}>
-                                                  {row.plaidTx.amount < 0 ? "+" : "−"}${Math.abs(row.plaidTx.amount).toFixed(2)}
-                                                </span>
-                                                <span className="di-status">⏳ {row.alreadyImported ? "in vault" : "not yet posted"}</span>
-                                              </div>
-                                            ))
-                                      }
+                          {isUnclearedExpanded && (
+                            <tr className="plaid-recon-detail-row">
+                              <td colSpan={7}>
+                                <div className="plaid-recon-detail">
+                                  <div className="plaid-recon-detail-col">
+                                    <div className="plaid-recon-detail-title">
+                                      Pending at bank — {unclearedItems.length} transaction{unclearedItems.length !== 1 ? "s" : ""} Plaid's current balance doesn't reflect yet
+                                      {pendingClearingTotal > 0 && (
+                                        <span className="plaid-recon-detail-total debit">
+                                          {" "}· ${pendingClearingTotal.toFixed(2)} gross, {uncleared >= 0 ? "+" : ""}${uncleared.toFixed(2)} net
+                                        </span>
+                                      )}
                                     </div>
+                                    {unclearedItems.length === 0
+                                      ? <div className="plaid-recon-detail-empty">No uncleared charges for this account.</div>
+                                      : [...unclearedItems]
+                                          .sort((a, b) => b.date.localeCompare(a.date))
+                                          .map((u, j) => (
+                                            <div key={j} className="plaid-recon-detail-item di-missing">
+                                              <span className="di-date">{u.date}</span>
+                                              <span className="di-name">{u.name}</span>
+                                              <span className={`di-amt ${u.amount < 0 ? "credit" : "debit"}`}>
+                                                {u.amount < 0 ? "+" : "−"}${Math.abs(u.amount).toFixed(2)}
+                                              </span>
+                                              <span className="di-status">⏳ {u.matched ? "in vault, awaiting Plaid" : "not yet posted"}</span>
+                                            </div>
+                                          ))
+                                    }
                                   </div>
-                                </td>
-                              </tr>
-                            );
-                          })()}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                           {isExpanded && (
                             <tr className="plaid-recon-detail-row">
                               <td colSpan={7}>
@@ -2386,22 +2382,18 @@ export function PlaidImport({ data, onSave }: Props) {
                                     }
                                   </div>
                                 </div>
-                                {diff !== null && (
+                                {diff !== null && rawGap !== null && (
                                   <div className="plaid-recon-gap-summary">
-                                    <span>Gap: <strong>{diff >= 0 ? "+" : ""}${diff.toFixed(2)}</strong></span>
+                                    <span>Raw balance gap: <strong>{rawGap >= 0 ? "+" : ""}${rawGap.toFixed(2)}</strong></span>
                                     <span className="plaid-recon-gap-sep">·</span>
-                                    <span>Explained by this fetch: <strong>{fetchExplained >= 0 ? "+" : ""}${fetchExplained.toFixed(2)}</strong></span>
-                                    {matchedPendingAdjustment !== 0 && (
-                                      <>
-                                        <span className="plaid-recon-gap-sep">·</span>
-                                        <span>Pending in vault, not yet in Plaid's balance: <strong>{matchedPendingAdjustment >= 0 ? "+" : ""}${matchedPendingAdjustment.toFixed(2)}</strong></span>
-                                      </>
-                                    )}
-                                    {Math.abs(unexplained ?? 0) > 0.5 && (
+                                    <span>Uncleared: <strong>{uncleared >= 0 ? "+" : ""}${uncleared.toFixed(2)}</strong></span>
+                                    <span className="plaid-recon-gap-sep">·</span>
+                                    <span>Gap: <strong>{diff >= 0 ? "+" : ""}${diff.toFixed(2)}</strong></span>
+                                    {!balanced && notInVault.length === 0 && onlyInVault.length === 0 && (
                                       <>
                                         <span className="plaid-recon-gap-sep">·</span>
                                         <span className="plaid-recon-gap-unexplained">
-                                          <strong>${Math.abs(unexplained!).toFixed(2)}</strong> gap from outside Plaid fetch window (historical data difference or Plaid balance sync lag)
+                                          No specific transaction explains the remaining ${Math.abs(diff).toFixed(2)} — check for entries older than 90 days, or a Plaid balance sync lag.
                                         </span>
                                       </>
                                     )}
