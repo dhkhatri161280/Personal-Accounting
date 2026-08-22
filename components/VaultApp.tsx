@@ -106,7 +106,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [tab, setTab] = useState("dashboard"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
     [report, setReport] = useState("trial"),
-    [focusGrantId, setFocusGrantId] = useState<string | null>(null),
     [year, setYear] = useState("all"),
     [customStart, setCustomStart] = useState("2026-04"),
     [customEnd, setCustomEnd] = useState("2026-06"),
@@ -2393,8 +2392,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 await save({ ...data, equity: { grants, esppPurchases } }, "reports");
               }}
               fmt={fmt}
-              focusGrantId={focusGrantId}
-              onFocusHandled={() => setFocusGrantId(null)}
             />
           )}
           {report === "trading" && (
@@ -2409,7 +2406,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 await save({ ...data, payroll }, "reports");
               }}
               onViewVoucher={editVoucher}
-              onViewGrant={(grantId) => { setFocusGrantId(grantId); setReport("equity"); }}
               fmt={fmt}
             />
           )}

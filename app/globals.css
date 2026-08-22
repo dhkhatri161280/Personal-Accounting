@@ -6721,6 +6721,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .excel-toolbar strong,
 .privacy-mode .gr-modal-rate,
 .privacy-mode .plaid-tx-amt,
+.privacy-mode .tax-manual-input,
 .privacy-mode .voucher-line-row input[type="number"],
 .privacy-mode .plaid-entry-line input[type="number"],
 .privacy-mode .plaid-recon-amt,
@@ -7109,8 +7110,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-reload-btn:hover { background: #fef3c7; }
 .equity-neutral { color: #94a3b8; }
 
-.equity-grant { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; margin-bottom: 0.6rem; overflow: hidden; transition: box-shadow 0.3s, border-color 0.3s; }
-.equity-grant--flash { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25); }
+.equity-grant { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; margin-bottom: 0.6rem; overflow: hidden; }
 .equity-grant-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0.75rem; cursor: pointer; background: var(--surface, #fff); user-select: none; }
 .equity-grant-head:hover { background: var(--surface2, #f8fafc); }
 .equity-arr { font-size: 13px; width: 13px; flex-shrink: 0; color: #64748b; }

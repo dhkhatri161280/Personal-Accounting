@@ -1,4 +1,4 @@
-import type { PayrollData, PayrollYear, Tx } from "@/lib/vault-types";
+import type { PayrollData, PayrollYear, PayrollRow, Tx, ManualPayrollPeriod } from "@/lib/vault-types";
 
 const MONTHS: Record<string, string> = {
   Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
@@ -111,10 +111,12 @@ export function buildShadowPeriod(t: Tx): ShadowPeriod {
 }
 
 // Salary vouchers posted in the vault (manual entry, Tally sync, or Plaid import) for a
-// date not covered by any period already in the imported Excel — i.e. the books have moved
-// on since the last "Total Salary Details.xlsx" import.
+// date not covered by any period already in the imported Excel, AND not already turned into
+// a persisted manual period — i.e. genuinely new since the last Excel import or manual entry.
 export function findUncoveredSalaryVouchers(transactions: Tx[], yr: PayrollYear): Tx[] {
+  const manualGuids = new Set((yr.manualPeriods ?? []).map((m) => m.txGuid));
   return transactions.filter((t) => {
+    if (manualGuids.has(t.guid)) return false;
     if (!t.date.startsWith(yr.year)) return false;
     if (!isSalaryVoucher(t)) return false;
     const covered = yr.periodLabels.some((label) => {
@@ -127,4 +129,67 @@ export function findUncoveredSalaryVouchers(transactions: Tx[], yr: PayrollYear)
     });
     return !covered;
   });
+}
+
+function rowFor(rows: PayrollRow[], label: string): PayrollRow | undefined {
+  return rows.find((r) => r.label === label);
+}
+
+// A first-pass estimate for a voucher-derived period: finds the existing period (Excel or
+// already-saved manual) whose Base+Telephone amount is closest to this voucher's, then applies
+// THAT period's Federal:SSN:Medicare:State W-H:State SDI ratio-of-total-tax to this voucher's
+// own (known) lump tax total. Marked `estimated: true` — meant to be corrected once the user
+// has their real paystub, not treated as authoritative.
+export function estimateManualPeriod(yr: PayrollYear, t: Tx): ManualPayrollPeriod {
+  const shadow = buildShadowPeriod(t);
+  const base = rowFor(yr.rows, "Base");
+  const telephone = rowFor(yr.rows, "Telephone");
+  const federal = rowFor(yr.rows, "Federal");
+  const ssn = rowFor(yr.rows, "SSN");
+  const medicare = rowFor(yr.rows, "Medicare");
+  const stateWH = rowFor(yr.rows, "State W/H");
+  const stateSDI = rowFor(yr.rows, "State SDI");
+  const totalTax = rowFor(yr.rows, "Total Tax");
+  const targetGross = shadow.base + shadow.telephone;
+
+  let bestIdx = -1;
+  let bestDiff = Infinity;
+  for (let i = 0; i < yr.periodLabels.length; i++) {
+    const g = (base?.values[i] ?? 0) + (telephone?.values[i] ?? 0);
+    const refTax = totalTax?.values[i] ?? 0;
+    if (!g || !refTax) continue;
+    const diff = Math.abs(g - targetGross);
+    if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+  }
+
+  let federalEst = 0, ssnEst = 0, medicareEst = 0, stateWHEst = 0, stateSDIEst = 0;
+  if (bestIdx >= 0) {
+    const refTax = totalTax?.values[bestIdx] ?? 0;
+    if (refTax > 0) {
+      const scale = (r?: PayrollRow) => ((r?.values[bestIdx] ?? 0) / refTax) * shadow.tax;
+      federalEst = scale(federal);
+      ssnEst = scale(ssn);
+      medicareEst = scale(medicare);
+      stateWHEst = scale(stateWH);
+      stateSDIEst = scale(stateSDI);
+    }
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    label: shadow.label,
+    txGuid: t.guid,
+    base: shadow.base,
+    telephone: shadow.telephone,
+    medical: shadow.medical,
+    k401: shadow.k401,
+    federal: federalEst,
+    ssn: ssnEst,
+    medicare: medicareEst,
+    stateWH: stateWHEst,
+    stateSDI: stateSDIEst,
+    totalTax: shadow.tax,
+    net: shadow.net,
+    estimated: true,
+  };
 }

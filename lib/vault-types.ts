@@ -80,6 +80,30 @@ export type PayrollRow = {
   annual: number;       // "Salary" column — full-year total
   cumulative: number;   // "CUMULATIVE" column — YTD as of last filled period
   values: number[];     // one value per period, aligned to PayrollYear.periodLabels
+  stockTotal?: number;  // sum of the sheet's separate "Stocks" vesting-tax-event columns
+                         // for this row label — real money, but not tied to a pay period.
+};
+
+// A pay period created from a posted Receipt voucher rather than the Excel import — either
+// because the books have moved past the last Excel export, or the user filled in real
+// paystub numbers by hand. Persisted (unlike the live-only "shadow period" preview) so
+// edits survive and don't get recomputed from a rough estimate on every render.
+export type ManualPayrollPeriod = {
+  id: string;
+  label: string;       // e.g. "Aug 16 Aug 31"
+  txGuid: string;       // the linked Receipt voucher
+  base: number;
+  telephone: number;
+  medical: number;
+  k401: number;
+  federal: number;
+  ssn: number;
+  medicare: number;
+  stateWH: number;
+  stateSDI: number;
+  totalTax: number;
+  net: number;
+  estimated: boolean;   // true until the user edits it with real paystub numbers
 };
 
 // Records that a Plaid-confirmed bank deposit was matched to a specific pay period —
@@ -98,6 +122,7 @@ export type PayrollYear = {
   periodLabels: string[]; // e.g. ["Jan 01 Jan 15", "Jan 16 Jan 31", ...]
   rows: PayrollRow[];
   matches?: PayrollMatch[];
+  manualPeriods?: ManualPayrollPeriod[];
 };
 
 export type PayrollData = {
