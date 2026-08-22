@@ -7053,6 +7053,15 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-summary-card em { font-size: 9.5px; color: #94a3b8; font-style: normal; }
 .equity-summary-card--current { border-color: #3b82f6; background: #eff6ff; }
 .equity-summary-card--current strong { color: #1d4ed8; }
+
+/* Tax tab has more summary cards than Equity — squeeze them onto one row instead of
+   wrapping to a second, scrolling horizontally only if the window is genuinely too narrow. */
+.tax-report .equity-summary-row { flex-wrap: nowrap; overflow-x: auto; gap: 0.4rem; }
+.tax-report .equity-summary-col { min-width: 0; }
+.tax-report .equity-summary-card { min-width: 108px; padding: 0.45rem 0.55rem; }
+.tax-report .equity-summary-card span { font-size: 8.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tax-report .equity-summary-card strong { font-size: 13px; white-space: nowrap; }
+.tax-report .equity-summary-card em { font-size: 8px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .equity-summary-stat { cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; }
 .equity-summary-stat:hover { border-color: #3b82f6; }
 .equity-summary-stat--active { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px #bfdbfe; }
