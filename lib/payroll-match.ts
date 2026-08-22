@@ -60,11 +60,71 @@ export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel
   const endPlus = new Date(range.end + "T00:00:00Z");
   endPlus.setUTCDate(endPlus.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
   const endPlusStr = endPlus.toISOString().slice(0, 10);
-  return transactions.find((t) => {
-    if (t.cancelled || t.deleted) return false;
-    if (t.date < range.start || t.date > endPlusStr) return false;
-    const narrationMatch = /salary/i.test(t.narration || "");
-    const entryMatch = t.entries.some((e) => /salary income/i.test(e.accountName || ""));
-    return narrationMatch || entryMatch;
+  return transactions.find((t) => isSalaryVoucher(t) && t.date >= range.start && t.date <= endPlusStr);
+}
+
+export function isSalaryVoucher(t: Tx): boolean {
+  if (t.cancelled || t.deleted) return false;
+  const narrationMatch = /salary/i.test(t.narration || "");
+  const entryMatch = t.entries.some((e) => /salary income/i.test(e.accountName || ""));
+  return narrationMatch || entryMatch;
+}
+
+// Semi-monthly period label matching the "Mon DD Mon DD" format the Excel import uses,
+// so a voucher posted for a period the imported workbook doesn't cover yet (e.g. the
+// user's books run ahead of their last Excel export) still renders consistently.
+export function inferPeriodLabel(dateIso: string): string {
+  const d = new Date(dateIso + "T00:00:00Z");
+  const month = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  const day = d.getUTCDate();
+  if (day <= 15) return `${month} 01 ${month} 15`;
+  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${month} 16 ${month} ${lastDay}`;
+}
+
+export type ShadowPeriod = {
+  label: string;
+  tx: Tx;
+  base: number;
+  telephone: number;
+  medical: number;
+  k401: number;
+  tax: number; // lump total — vouchers only carry one blended "Tax Deduction" line, not the
+  // Federal/SSN/Medicare/State W-H/State SDI breakdown the Excel import provides.
+  net: number;
+};
+
+function entrySum(t: Tx, pattern: RegExp): number {
+  return t.entries.filter((e) => pattern.test(e.accountName || "")).reduce((s, e) => s + Math.abs(e.amount), 0);
+}
+
+export function buildShadowPeriod(t: Tx): ShadowPeriod {
+  const base = entrySum(t, /salary income/i);
+  const telephone = entrySum(t, /telephone/i);
+  const medical = entrySum(t, /health insurance|medical/i);
+  const k401 = entrySum(t, /401\s*k/i);
+  const tax = entrySum(t, /tax deduction|^tax$/i);
+  // The bank-side deposit is whatever's left once the known buckets balance out —
+  // avoids having to guess the bank account's name (varies by institution).
+  const net = Math.max(0, base + telephone - medical - k401 - tax);
+  return { label: inferPeriodLabel(t.date), tx: t, base, telephone, medical, k401, tax, net };
+}
+
+// Salary vouchers posted in the vault (manual entry, Tally sync, or Plaid import) for a
+// date not covered by any period already in the imported Excel — i.e. the books have moved
+// on since the last "Total Salary Details.xlsx" import.
+export function findUncoveredSalaryVouchers(transactions: Tx[], yr: PayrollYear): Tx[] {
+  return transactions.filter((t) => {
+    if (!t.date.startsWith(yr.year)) return false;
+    if (!isSalaryVoucher(t)) return false;
+    const covered = yr.periodLabels.some((label) => {
+      if (!label) return false;
+      const range = parsePeriodRange(label, yr.year);
+      if (!range) return false;
+      const endPlus = new Date(range.end + "T00:00:00Z");
+      endPlus.setUTCDate(endPlus.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
+      return t.date >= range.start && t.date <= endPlus.toISOString().slice(0, 10);
+    });
+    return !covered;
   });
 }

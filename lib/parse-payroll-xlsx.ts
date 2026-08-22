@@ -46,12 +46,23 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
   }
   if (annualCol === -1 || cumulativeCol === -1) return null;
 
-  const periodStartCol = cumulativeCol + 1;
-  let lastCol = periodStartCol;
-  while (hRow[lastCol] !== undefined && hRow[lastCol] !== null && hRow[lastCol] !== "") lastCol++;
-
   const labelRowIdx = headerRowIdx + 1;
   const dateRow = grid[labelRowIdx] ?? [];
+
+  // This sheet packs a second sub-table (e.g. quarterly "Stocks" vesting events) directly
+  // to the right of the pay-period columns, reusing the SAME sequential header numbering
+  // (..., 24, 25, 26, 27) with no gap — so the numeric-header scan alone can't tell where
+  // the real periods end. The period date-range row ("Mon DD Mon DD") can: stop as soon as
+  // a column's label stops looking like a period, even though the number sequence continues.
+  const PERIOD_LABEL_RE = /^[A-Za-z]{3}\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{1,2}$/;
+  const periodStartCol = cumulativeCol + 1;
+  let lastCol = periodStartCol;
+  while (hRow[lastCol] !== undefined && hRow[lastCol] !== null && hRow[lastCol] !== "") {
+    const dateLabel = String(dateRow[lastCol] ?? "").trim();
+    if (dateLabel && !PERIOD_LABEL_RE.test(dateLabel)) break;
+    lastCol++;
+  }
+
   const periodLabels: string[] = [];
   for (let c = periodStartCol; c < lastCol; c++) periodLabels.push(String(dateRow[c] ?? "").trim());
 

@@ -68,9 +68,11 @@ interface EquityReportProps {
   onSave: (grants: RsuGrant[], espp: EsppPurchase[]) => Promise<void>;
   fmt: (n: number) => string;
   readOnly?: boolean;
+  focusGrantId?: string | null;
+  onFocusHandled?: () => void;
 }
 
-export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: EquityReportProps) {
+export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, focusGrantId, onFocusHandled }: EquityReportProps) {
   const [price, setPrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
   const [priceErr, setPriceErr] = useState("");
@@ -124,6 +126,17 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
   }, []);
 
   useEffect(() => { fetchPrice(); }, [fetchPrice]);
+
+  useEffect(() => {
+    if (!focusGrantId) return;
+    setExpanded((prev) => (prev.has(focusGrantId) ? prev : new Set(prev).add(focusGrantId)));
+    const el = document.getElementById(`equity-grant-${focusGrantId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.classList.add("equity-grant--flash");
+    const timer = setTimeout(() => el?.classList.remove("equity-grant--flash"), 2000);
+    onFocusHandled?.();
+    return () => clearTimeout(timer);
+  }, [focusGrantId, onFocusHandled]);
 
   const toggle = (id: string) =>
     setExpanded((prev) => {
@@ -920,7 +933,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
       )}
 
       {(grantFilter ? grantRows.filter(g => g.id === grantFilter) : grantRows).map((g) => (
-        <div key={g.id} className="equity-grant">
+        <div key={g.id} id={`equity-grant-${g.id}`} className="equity-grant">
           <div className="equity-grant-head" onClick={() => toggle(g.id)}>
             <span className="equity-arr">{expanded.has(g.id) ? "−" : "+"}</span>
             <span className="equity-grant-label">

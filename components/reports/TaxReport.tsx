@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useMemo, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData } from "@/lib/vault-types";
-import { findPayrollVoucher, parsePeriodRange } from "@/lib/payroll-match";
+import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, buildShadowPeriod, type ShadowPeriod } from "@/lib/payroll-match";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -9,6 +9,7 @@ interface TaxReportProps {
   equity: EquityData | undefined;
   onSave: (payroll: PayrollData) => Promise<void>;
   onViewVoucher: (tx: Tx) => void;
+  onViewGrant: (grantId: string) => void;
   fmt: (n: number) => string;
   readOnly?: boolean;
 }
@@ -21,12 +22,21 @@ function at(r: PayrollRow | undefined, i: number): number {
   return r?.values[i] ?? 0;
 }
 
-export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher, fmt, readOnly }: TaxReportProps) {
+// Some rows (Effective Salary, 401K Emplr, Total Inv) never got a full-year figure typed
+// into the Excel's "Salary" column — only CUMULATIVE (YTD actual) is populated for them.
+// Prefer annual when it's real; otherwise fall back to YTD rather than showing a bare $0.
+function annualOrYtd(r: PayrollRow | undefined): { value: number; ytd: boolean } {
+  if (!r) return { value: 0, ytd: false };
+  if (r.annual > 0) return { value: r.annual, ytd: false };
+  return { value: r.cumulative, ytd: r.cumulative > 0 };
+}
+
+export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher, onViewGrant, fmt, readOnly }: TaxReportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
-  const [expandedPeriod, setExpandedPeriod] = useState<number | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
 
   const years = payroll?.years ?? [];
@@ -89,7 +99,20 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const afterTax = row(rows, "After Tax Salary");
   const effective = row(rows, "Effective Salary");
 
-  const effectiveRate = gross && gross.annual > 0 && totalTax ? (totalTax.annual / gross.annual) * 100 : 0;
+  // Vault salary vouchers posted for a pay period beyond what the last Excel import covers —
+  // shown alongside the imported periods so the tab stays current between Excel re-imports.
+  // Only the lump Total Tax is known here (vouchers don't itemize Federal/SSN/Medicare/State);
+  // the detailed columns show "—" for these rather than a fabricated $0.
+  const shadowPeriods: ShadowPeriod[] = findUncoveredSalaryVouchers(transactions, yr)
+    .map(buildShadowPeriod)
+    .sort((a, b) => a.tx.date.localeCompare(b.tx.date));
+  const shadowGross = shadowPeriods.reduce((s, p) => s + p.base + p.telephone, 0);
+  const shadowTax = shadowPeriods.reduce((s, p) => s + p.tax, 0);
+  const shadowNet = shadowPeriods.reduce((s, p) => s + p.net, 0);
+
+  const totalGross = (gross?.annual ?? 0) + shadowGross;
+  const totalTaxAll = (totalTax?.annual ?? 0) + shadowTax;
+  const effectiveRate = totalGross > 0 ? (totalTaxAll / totalGross) * 100 : 0;
 
   // The Excel's per-row "Salary" (annual) column is blank/0 for Stock — it only tracks a
   // CUMULATIVE total there, not a real annual figure, and doesn't break it out per vest date.
@@ -101,17 +124,23 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const stockVestedValue = yearVests
     .filter(({ vest }) => !vest.pending)
     .reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
-  const stockScheduledValue = yearVests
-    .filter(({ vest }) => vest.pending)
-    .reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
+  // Pending vests carry vestPrice 0 (unknown until the vest actually happens), so a share
+  // count is the only honest "what's pending" figure — a $ total would just read as $0.
+  const stockScheduledShares = yearVests.filter(({ vest }) => vest.pending).reduce((s, { vest }) => s + vest.shares, 0);
+
+  const effectiveSalary = annualOrYtd(effective);
 
   const summaryCards: { label: string; value: number; sub: string }[] = [
-    { label: "Gross Salary", value: gross?.annual ?? 0, sub: "Base + Bonus + Stock + other" },
-    { label: "Total Tax", value: totalTax?.annual ?? 0, sub: `${effectiveRate.toFixed(1)}% effective rate` },
-    { label: "Net Salary", value: netSalary?.annual ?? 0, sub: "after deductions" },
+    { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other" },
+    { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate` },
+    { label: "Net Salary", value: (netSalary?.annual ?? 0) + shadowNet, sub: "after deductions" },
     { label: "After Tax Salary", value: afterTax?.annual ?? 0, sub: "take-home" },
     { label: "Stock (RSU) Vested", value: stockVestedValue, sub: "from Equity report vest records" },
-    { label: "Effective Salary", value: effective?.annual ?? 0, sub: "incl. employer 401K + ESPP" },
+    {
+      label: "Effective Salary",
+      value: effectiveSalary.value,
+      sub: effectiveSalary.ytd ? "YTD actual — Excel has no full-year figure for this row" : "incl. employer 401K + ESPP",
+    },
   ];
 
   return (
@@ -139,7 +168,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             <button
               key={y.year}
               className={`equity-grant-filter-chip${yr.year === y.year ? " equity-grant-filter-chip--active" : ""}`}
-              onClick={() => { setSelectedYear(y.year); setExpandedPeriod(null); }}
+              onClick={() => { setSelectedYear(y.year); setExpandedKey(null); }}
             >
               {y.year}
             </button>
@@ -183,7 +212,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             const g = at(gross, i);
             const t = at(totalTax, i);
             if (!g && !t && !at(federal, i)) return null; // skip empty future periods
-            const expanded = expandedPeriod === i;
+            const key = `excel-${i}`;
+            const expanded = expandedKey === key;
             const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label) : undefined;
             const match = yr.matches?.find((m) => m.periodIndex === i);
             const expectedNet = at(netSalary, i);
@@ -192,8 +222,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             const range = label ? parsePeriodRange(label, yr.year) : null;
             const isPast = range ? range.end < todayIso : false;
             return (
-              <Fragment key={i}>
-                <tr onClick={() => setExpandedPeriod(expanded ? null : i)} style={{ cursor: "pointer" }}>
+              <Fragment key={key}>
+                <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer" }}>
                   <td>{label || `Period ${i + 1}`}</td>
                   <td className="right">{fmt(g)}</td>
                   <td className="right">{fmt(at(federal, i))}</td>
@@ -243,52 +273,123 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
               </Fragment>
             );
           })}
+          {shadowPeriods.map((s, i) => {
+            const key = `shadow-${i}`;
+            const expanded = expandedKey === key;
+            return (
+              <Fragment key={key}>
+                <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer", background: "#fffbeb" }}>
+                  <td title="Posted in the vault but not yet in the imported Excel file">{s.label} <em style={{ fontSize: 10, opacity: 0.6 }}>(from voucher)</em></td>
+                  <td className="right equity-amt">{fmt(s.base + s.telephone)}</td>
+                  <td className="right" style={{ opacity: 0.4 }}>—</td>
+                  <td className="right" style={{ opacity: 0.4 }}>—</td>
+                  <td className="right" style={{ opacity: 0.4 }}>—</td>
+                  <td className="right" style={{ opacity: 0.4 }}>—</td>
+                  <td className="right" style={{ opacity: 0.4 }}>—</td>
+                  <td className="right equity-amt" title="Lump total — voucher doesn't itemize Federal/SSN/Medicare/State">{fmt(s.tax)}</td>
+                  <td className="right equity-amt">{fmt(s.net)}</td>
+                  <td>
+                    <button
+                      className="tax-voucher-link"
+                      onClick={(e) => { e.stopPropagation(); onViewVoucher(s.tx); }}
+                      title={s.tx.narration || ""}
+                      style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, font: "inherit", textDecoration: "underline" }}
+                    >
+                      🔗 {s.tx.type} #{s.tx.number || "—"} · {new Date(s.tx.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </button>
+                  </td>
+                </tr>
+                {expanded && (
+                  <tr>
+                    <td colSpan={10} style={{ background: "var(--panel-2, #f6f7f9)" }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", padding: "0.5rem 0.25rem" }}>
+                        {[
+                          ["Base", s.base], ["Telephone", s.telephone], ["Medical", s.medical],
+                          ["401K", s.k401], ["Tax (lump)", s.tax], ["Net", s.net],
+                        ].map(([lbl, val]) => (
+                          <div key={lbl as string} style={{ minWidth: 140 }}>
+                            <div style={{ fontSize: 11, opacity: 0.7 }}>{lbl}</div>
+                            <strong className="equity-amt">{fmt(val as number)}</strong>
+                          </div>
+                        ))}
+                        <p style={{ width: "100%", fontSize: 11, opacity: 0.6, margin: 0 }}>
+                          Not yet in the imported Excel — re-import an updated Total Salary Details.xlsx for the full Federal/SSN/Medicare/State breakdown.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
         <tfoot>
           <tr>
             <th>Total</th>
-            <th className="right">{fmt(gross?.annual ?? 0)}</th>
+            <th className="right">{fmt(totalGross)}</th>
             <th className="right">{fmt(federal?.annual ?? 0)}</th>
             <th className="right">{fmt(ssn?.annual ?? 0)}</th>
             <th className="right">{fmt(medicare?.annual ?? 0)}</th>
             <th className="right">{fmt(stateWH?.annual ?? 0)}</th>
             <th className="right">{fmt(stateSDI?.annual ?? 0)}</th>
-            <th className="right">{fmt(totalTax?.annual ?? 0)}</th>
-            <th className="right">{fmt(netSalary?.annual ?? 0)}</th>
+            <th className="right">{fmt(totalTaxAll)}</th>
+            <th className="right">{fmt((netSalary?.annual ?? 0) + shadowNet)}</th>
             <th>
-              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length} / {yr.periodLabels.filter((l) => l).length} linked
+              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length + shadowPeriods.length}
+              {" / "}
+              {yr.periodLabels.filter((l) => l).length + shadowPeriods.length} linked
             </th>
           </tr>
         </tfoot>
       </table>
+      {shadowPeriods.length > 0 && (
+        <p className="equity-seed-note" style={{ marginTop: "-0.5rem" }}>
+          {shadowPeriods.length} pay period(s) found in your books beyond the last Excel import (highlighted above) —
+          only Base/Telephone/lump Tax/Net are known from the voucher. Re-import Total Salary Details.xlsx once it's
+          updated to get the full Federal/SSN/Medicare/State breakdown for these.
+        </p>
+      )}
 
       <div className="equity-section-head">
         <h4>RSU Vesting — {yr.year}</h4>
       </div>
+      <p className="equity-seed-note" style={{ marginTop: "-0.25rem" }}>
+        Full dollar detail (award value, gain, tax withheld, sale price) lives in Reports → Equity — click a row to jump straight to that grant.
+        {stockScheduledShares > 0 && ` ${stockScheduledShares.toLocaleString()} sh still scheduled to vest in ${yr.year}.`}
+      </p>
       <table className="equity-table equity-drilldown-table">
         <thead>
           <tr>
             <th>Vest Date</th>
             <th>Grant</th>
             <th className="right">Shares</th>
-            <th className="right">Vest $/sh</th>
-            <th className="right">Value</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody>
           {yearVests.length === 0 && (
             <tr>
-              <td colSpan={6} style={{ opacity: 0.5 }}>No RSU vests recorded for {yr.year} in the Equity report.</td>
+              <td colSpan={4} style={{ opacity: 0.5 }}>No RSU vests recorded for {yr.year} in the Equity report.</td>
             </tr>
           )}
           {yearVests.map(({ grant, vest }) => (
-            <tr key={vest.id}>
+            <tr
+              key={vest.id}
+              onClick={() => onViewGrant(grant.id)}
+              style={{ cursor: "pointer" }}
+              title="View this grant in Reports → Equity"
+            >
               <td>{new Date(vest.vestDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
-              <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {grant.grantDate}</td>
+              <td>
+                <button
+                  className="tax-voucher-link"
+                  onClick={(e) => { e.stopPropagation(); onViewGrant(grant.id); }}
+                  style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, font: "inherit", textDecoration: "underline" }}
+                >
+                  🔗 {grant.ticker} granted {grant.grantDate}
+                </button>
+              </td>
               <td className="right">{vest.shares.toLocaleString()}</td>
-              <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
-              <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
               <td>
                 {vest.pending
                   ? <span style={{ color: "#888" }}>Scheduled</span>
@@ -297,15 +398,6 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             </tr>
           ))}
         </tbody>
-        {yearVests.length > 0 && (
-          <tfoot>
-            <tr>
-              <th colSpan={4}>Total</th>
-              <th className="right equity-amt">{fmt(stockVestedValue + stockScheduledValue)}</th>
-              <th />
-            </tr>
-          </tfoot>
-        )}
       </table>
     </div>
   );
