@@ -1,7 +1,8 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod } from "@/lib/vault-types";
-import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod } from "@/lib/payroll-match";
+import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels } from "@/lib/payroll-match";
+import type { RsuGrant, RsuVest } from "@/lib/vault-types";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -49,6 +50,38 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 
 const linkBtnStyle: React.CSSProperties = { background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, font: "inherit", textDecoration: "underline" };
 
+function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]; fmt: (n: number) => string }) {
+  return (
+    <table className="equity-table" style={{ width: "100%" }}>
+      <thead>
+        <tr>
+          <th>Vest Date</th>
+          <th>Grant</th>
+          <th className="right">Shares</th>
+          <th className="right">Vest $/sh</th>
+          <th className="right">Value</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.length === 0 && (
+          <tr><td colSpan={6} style={{ opacity: 0.5 }}>No RSU vests recorded.</td></tr>
+        )}
+        {items.map(({ grant, vest }) => (
+          <tr key={vest.id}>
+            <td>{new Date(vest.vestDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
+            <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {grant.grantDate}</td>
+            <td className="right">{vest.shares.toLocaleString()}</td>
+            <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
+            <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
+            <td>{vest.pending ? <span style={{ color: "#888" }}>Scheduled</span> : <span style={{ color: "#16a34a" }}>Vested</span>}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 const MANUAL_FIELDS: { key: keyof typeof BLANK_MANUAL_FORM; label: string }[] = [
   { key: "base", label: "Base" },
   { key: "telephone", label: "Telephone" },
@@ -75,10 +108,13 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
   const [showRsuModal, setShowRsuModal] = useState(false);
+  const [periodVestModal, setPeriodVestModal] = useState<{ label: string; items: { grant: RsuGrant; vest: RsuVest }[] } | null>(null);
   const [voucherModalTx, setVoucherModalTx] = useState<Tx | null>(null);
   const [editingManualId, setEditingManualId] = useState<string | null>(null);
   const [manualForm, setManualForm] = useState(BLANK_MANUAL_FORM);
   const [savingManual, setSavingManual] = useState(false);
+  const [startingManualYear, setStartingManualYear] = useState(false);
+  const [manualYearInput, setManualYearInput] = useState(() => String(new Date().getFullYear()));
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
@@ -121,6 +157,24 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
     }
   }
 
+  async function startWithoutExcel() {
+    const year = manualYearInput.trim();
+    if (!/^\d{4}$/.test(year)) return;
+    const newYear: PayrollYear = {
+      year,
+      sheetName: "(manual entry)",
+      periodLabels: generateStandardPeriodLabels(year),
+      rows: [],
+      manualPeriods: [],
+    };
+    const next: PayrollData = payroll
+      ? { ...payroll, years: [...payroll.years.filter((y) => y.year !== year), newYear] }
+      : { years: [newYear], importedAt: new Date().toISOString(), sourceFileName: "(manual entry — no Excel)" };
+    await onSave(next);
+    setSelectedYear(year);
+    setStartingManualYear(false);
+  }
+
   if (!payroll || payroll.years.length === 0) {
     return (
       <div className="data-panel tax-report">
@@ -135,6 +189,30 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             State W/H, State SDI, and Net/After-Tax Salary — broken down per pay period.
           </p>
           {importError && <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>{importError}</p>}
+
+          <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid #e2e8f0" }}>
+            {!startingManualYear ? (
+              <button onClick={() => setStartingManualYear(true)}>Or track manually — no Excel needed</button>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <label style={{ fontSize: 12 }}>
+                  Year
+                  <input
+                    type="number"
+                    value={manualYearInput}
+                    onChange={(e) => setManualYearInput(e.target.value)}
+                    style={{ display: "block", width: 90 }}
+                  />
+                </label>
+                <button onClick={startWithoutExcel}>Start {manualYearInput}</button>
+                <button onClick={() => setStartingManualYear(false)}>Cancel</button>
+              </div>
+            )}
+            <p className="equity-seed-note" style={{ marginTop: "0.5rem" }}>
+              Creates an empty year with standard semi-monthly periods. Every salary Receipt you post from then on
+              (Plaid or manual) automatically adds a line here, with Federal/SSN/Medicare/State fields you can edit yourself.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -312,6 +390,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             <th className="right">State SDI</th>
             <th className="right">Total Tax</th>
             <th className="right">Net</th>
+            <th>Stock</th>
             <th>Voucher</th>
           </tr>
         </thead>
@@ -329,6 +408,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             const varianceFlag = match && Math.abs(variance) > 1;
             const range = label ? parsePeriodRange(label, yr.year) : null;
             const isPast = range ? range.end < todayIso : false;
+            const periodVests = range ? yearVests.filter(({ vest }) => vest.vestDate >= range.start && vest.vestDate <= range.end) : [];
+            const periodVestShares = periodVests.reduce((s, { vest }) => s + vest.shares, 0);
             return (
               <Fragment key={key}>
                 <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer" }}>
@@ -341,6 +422,19 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                   <td className="right">{fmt(at(stateSDI, i))}</td>
                   <td className="right">{fmt(t)}</td>
                   <td className="right">{fmt(at(netSalary, i))}</td>
+                  <td>
+                    {periodVests.length > 0 ? (
+                      <button
+                        className="tax-voucher-link"
+                        onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: label || `Period ${i + 1}`, items: periodVests }); }}
+                        style={linkBtnStyle}
+                      >
+                        📈 {periodVestShares.toLocaleString()} sh
+                      </button>
+                    ) : (
+                      <span style={{ opacity: 0.3 }}>—</span>
+                    )}
+                  </td>
                   <td>
                     {linkedTx ? (
                       <button className="tax-voucher-link" onClick={(e) => { e.stopPropagation(); openVoucherModal(linkedTx); }} title={linkedTx.narration || ""} style={linkBtnStyle}>
@@ -361,7 +455,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                 </tr>
                 {expanded && (
                   <tr>
-                    <td colSpan={10} style={{ background: "var(--panel-2, #f6f7f9)" }}>
+                    <td colSpan={11} style={{ background: "var(--panel-2, #f6f7f9)" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", padding: "0.5rem 0.25rem" }}>
                         {rows.map((r, ri) => (
                           <div key={ri} style={{ minWidth: 140 }}>
@@ -381,6 +475,9 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             const expanded = expandedKey === key;
             const tx = transactions.find((t) => t.guid === m.txGuid);
             const editing = editingManualId === m.id;
+            const mRange = parsePeriodRange(m.label, yr.year);
+            const mVests = mRange ? yearVests.filter(({ vest }) => vest.vestDate >= mRange.start && vest.vestDate <= mRange.end) : [];
+            const mVestShares = mVests.reduce((s, { vest }) => s + vest.shares, 0);
             return (
               <Fragment key={key}>
                 <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer", background: "#fffbeb" }}>
@@ -396,6 +493,19 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                   <td className="right equity-amt">{fmt(m.totalTax)}</td>
                   <td className="right equity-amt">{fmt(m.net)}</td>
                   <td>
+                    {mVests.length > 0 ? (
+                      <button
+                        className="tax-voucher-link"
+                        onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: m.label, items: mVests }); }}
+                        style={linkBtnStyle}
+                      >
+                        📈 {mVestShares.toLocaleString()} sh
+                      </button>
+                    ) : (
+                      <span style={{ opacity: 0.3 }}>—</span>
+                    )}
+                  </td>
+                  <td>
                     {tx ? (
                       <button className="tax-voucher-link" onClick={(e) => { e.stopPropagation(); openVoucherModal(tx); }} title={tx.narration || ""} style={linkBtnStyle}>
                         🔗 {tx.type} #{tx.number || "—"} · {new Date(tx.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
@@ -407,7 +517,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                 </tr>
                 {expanded && (
                   <tr>
-                    <td colSpan={10} style={{ background: "var(--panel-2, #f6f7f9)" }}>
+                    <td colSpan={11} style={{ background: "var(--panel-2, #f6f7f9)" }}>
                       {!editing ? (
                         <div style={{ padding: "0.5rem 0.25rem" }}>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", marginBottom: "0.75rem" }}>
@@ -472,6 +582,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             <th className="right">{fmt(totalStateSDI)}</th>
             <th className="right">{fmt(totalTaxAll)}</th>
             <th className="right">{fmt(totalNet)}</th>
+            <th>{(yearVests.reduce((s, { vest }) => s + vest.shares, 0)).toLocaleString()} sh</th>
             <th>
               {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length + manualPeriods.length}
               {" / "}
@@ -489,33 +600,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
 
       {showRsuModal && (
         <Modal title={`RSU Vesting — ${yr.year}`} onClose={() => setShowRsuModal(false)} wide>
-          <table className="equity-table" style={{ width: "100%" }}>
-            <thead>
-              <tr>
-                <th>Vest Date</th>
-                <th>Grant</th>
-                <th className="right">Shares</th>
-                <th className="right">Vest $/sh</th>
-                <th className="right">Value</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {yearVests.length === 0 && (
-                <tr><td colSpan={6} style={{ opacity: 0.5 }}>No RSU vests recorded for {yr.year} in the Equity report.</td></tr>
-              )}
-              {yearVests.map(({ grant, vest }) => (
-                <tr key={vest.id}>
-                  <td>{new Date(vest.vestDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
-                  <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {grant.grantDate}</td>
-                  <td className="right">{vest.shares.toLocaleString()}</td>
-                  <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
-                  <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
-                  <td>{vest.pending ? <span style={{ color: "#888" }}>Scheduled</span> : <span style={{ color: "#16a34a" }}>Vested</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <VestTable items={yearVests} fmt={fmt} />
           {stockScheduledShares > 0 && (
             <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0 0" }}>{stockScheduledShares.toLocaleString()} sh still scheduled to vest in {yr.year}.</p>
           )}
@@ -537,6 +622,15 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
           )}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowRsuModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {periodVestModal && (
+        <Modal title={`RSU Vesting — ${periodVestModal.label}`} onClose={() => setPeriodVestModal(null)} wide>
+          <VestTable items={periodVestModal.items} fmt={fmt} />
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setPeriodVestModal(null)}>Close</button>
           </div>
         </Modal>
       )}

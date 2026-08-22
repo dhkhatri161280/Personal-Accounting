@@ -23,6 +23,22 @@ export function parsePeriodRange(label: string, year: string): { start: string; 
   };
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Standard semi-monthly period labels (1st-15th, 16th-end) for a full year — used to bootstrap
+// a Tax tab year with no Excel import at all, so posted salary vouchers alone can populate it.
+export function generateStandardPeriodLabels(year: string): string[] {
+  const y = Number(year);
+  const labels: string[] = [];
+  for (let m = 0; m < 12; m++) {
+    const mon = MONTH_NAMES[m];
+    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    labels.push(`${mon} 01 ${mon} 15`);
+    labels.push(`${mon} 16 ${mon} ${lastDay}`);
+  }
+  return labels;
+}
+
 export type PayrollPeriodRef = { yearIdx: number; periodIndex: number };
 
 // Bank deposits (payday) typically post a few days after the pay period ends.
