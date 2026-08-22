@@ -91,16 +91,23 @@ export async function PUT(request: Request) {
   const cleaned = clean(body, book);
   cleaned.lastCheckedAt = new Date().toISOString();
 
-  // Skip the KV write entirely when nothing but the timestamp changed — the
-  // sync script may call this far more often than the underlying status
-  // actually changes, and every write counts against the daily KV put quota.
+  // Hard write floor: this is a status ping, not user data, so it's safe to
+  // guarantee at most one real KV write per book per MIN_WRITE_INTERVAL_MS —
+  // no matter how often (or how differently) any caller invokes this, ever.
+  // Combined with the content-equality skip below, this caps worst case at
+  // 2 books * (86400s / 300s) = 576 writes/day, well under the 1000/day quota.
+  const MIN_WRITE_INTERVAL_MS = 5 * 60 * 1000;
   try {
     const existingRaw = await bindings.VAULT.get(key(book));
     if (existingRaw) {
       const existing = clean(JSON.parse(existingRaw), book);
       const { lastCheckedAt: _a, ...existingRest } = existing;
       const { lastCheckedAt: _b, ...newRest } = cleaned;
-      if (JSON.stringify(existingRest) === JSON.stringify(newRest)) {
+      const unchanged = JSON.stringify(existingRest) === JSON.stringify(newRest);
+      const existingAgeMs = existing.lastCheckedAt
+        ? Date.now() - new Date(existing.lastCheckedAt).getTime()
+        : Infinity;
+      if (unchanged || existingAgeMs < MIN_WRITE_INTERVAL_MS) {
         return Response.json({ ok: true, ...existing, lastCheckedAt: existing.lastCheckedAt });
       }
     }

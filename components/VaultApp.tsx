@@ -46,6 +46,7 @@ import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
+import { TaxReport } from "@/components/reports/TaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
@@ -2120,6 +2121,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Trading
               </button>
             )}
+            {book !== "india" && (
+              <button
+                className={report === "tax" ? "selected" : ""}
+                onClick={() => setReport("tax")}
+              >
+                Tax
+              </button>
+            )}
             <button
               className={report === "recon" ? "selected" : ""}
               onClick={() => setReport("recon")}
@@ -2387,6 +2396,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "trading" && (
             <TradingReport fmt={fmt} />
+          )}
+          {report === "tax" && data && (
+            <TaxReport
+              payroll={data.payroll}
+              onSave={async (payroll) => {
+                await save({ ...data, payroll }, "reports");
+              }}
+              fmt={fmt}
+            />
           )}
           {report === "recon" && data && (
             <ReconReport data={data} fmt={fmt} />

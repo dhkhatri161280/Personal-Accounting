@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePlaidLink, type PlaidLinkOnSuccess, type PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
+import { matchPayrollPeriod, rowValue } from "@/lib/payroll-match";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -326,16 +327,30 @@ function buildDraft(
     const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America");
 
     if (salaryAcc && taxAcc && medAcc && k401Acc && bankAcc) {
-      const taxAmount = Math.max(0, PAYROLL_GROSS - PAYROLL_MEDICAL - PAYROLL_401K - netDeposit);
+      // Prefer the actual imported paystub numbers (Reports → Tax) for this pay period
+      // over the hardcoded fallback constants, when available.
+      const match = matchPayrollPeriod(ledger.payroll, tx.date);
+      let base = PAYROLL_BASE;
+      let telephone = PAYROLL_TELEPHONE;
+      let medical = PAYROLL_MEDICAL;
+      let k401 = PAYROLL_401K;
+      if (match) {
+        const y = ledger.payroll!.years[match.yearIdx];
+        base = rowValue(y, "Base", match.periodIndex) + rowValue(y, "Bonus", match.periodIndex);
+        telephone = rowValue(y, "Telephone", match.periodIndex);
+        medical = rowValue(y, "Medical", match.periodIndex);
+        k401 = rowValue(y, "401K", match.periodIndex);
+      }
+      const taxAmount = Math.max(0, base + telephone - medical - k401 - netDeposit);
       const entries: EntryDraft[] = [
-        { accountId: salaryAcc.id, accountName: salaryAcc.name, amount: PAYROLL_BASE },
-        ...(telAcc ? [{ accountId: telAcc.id, accountName: telAcc.name, amount: PAYROLL_TELEPHONE }] : []),
+        { accountId: salaryAcc.id, accountName: salaryAcc.name, amount: base },
+        ...(telAcc ? [{ accountId: telAcc.id, accountName: telAcc.name, amount: telephone }] : []),
         { accountId: taxAcc.id, accountName: taxAcc.name, amount: -taxAmount },
-        { accountId: medAcc.id, accountName: medAcc.name, amount: -PAYROLL_MEDICAL },
-        { accountId: k401Acc.id, accountName: k401Acc.name, amount: -PAYROLL_401K },
+        { accountId: medAcc.id, accountName: medAcc.name, amount: -medical },
+        { accountId: k401Acc.id, accountName: k401Acc.name, amount: -k401 },
         { accountId: bankAcc.id, accountName: bankAcc.name, amount: -netDeposit },
       ];
-      return { entries, voucherType: "Receipt", narration: "Salary Income - Semi Monthly", confidence: 0.95, source: "payroll" };
+      return { entries, voucherType: "Receipt", narration: "Salary Income - Semi Monthly", confidence: match ? 0.98 : 0.95, source: "payroll" };
     }
   }
 
@@ -1310,7 +1325,31 @@ export function PlaidImport({ data, onSave }: Props) {
       setStatus(`Saving ${safeTxs.length} voucher(s)${blocked ? ` (${blocked} duplicate(s) blocked)` : ""}…`);
     }
 
-    const next: Ledger = { ...data, accounts: updatedAccounts, transactions: [...data.transactions, ...safeTxs] };
+    // Record confirmed bank deposits against their matching pay period in Reports → Tax,
+    // so that tab reflects which paychecks are actually confirmed vs. still projected.
+    let nextPayroll = data.payroll;
+    if (nextPayroll) {
+      const payrollSaved = drafts.filter((d) => d.row.source === "payroll" && safeTxs.includes(d.tx));
+      if (payrollSaved.length) {
+        const years = nextPayroll.years.map((y) => ({ ...y, matches: y.matches ? [...y.matches] : [] }));
+        for (const { row: draftRow, tx } of payrollSaved) {
+          const ref = matchPayrollPeriod(nextPayroll, tx.date);
+          if (!ref) continue;
+          const y = years[ref.yearIdx];
+          if (y.matches!.some((m) => m.periodIndex === ref.periodIndex)) continue;
+          y.matches!.push({
+            periodIndex: ref.periodIndex,
+            txGuid: tx.guid,
+            txDate: tx.date,
+            depositAmount: Math.abs(draftRow.plaidTx.amount),
+            confirmedAt: importedAt,
+          });
+        }
+        nextPayroll = { ...nextPayroll, years };
+      }
+    }
+
+    const next: Ledger = { ...data, accounts: updatedAccounts, transactions: [...data.transactions, ...safeTxs], payroll: nextPayroll };
     const ok = await onSave(next);
     if (ok) {
       const msg = blocked

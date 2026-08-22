@@ -81,6 +81,11 @@ export async function PUT(request: Request) {
   if (expected && current && (await etag(current)) !== expected)
     return new Response("Vault changed since download; sync again.", { status: 412 });
 
+  // Skip the KV write entirely when the incoming vault is byte-identical to
+  // what's already stored — an automated sync process may re-save unchanged
+  // data on every cycle, and every write counts against the daily KV put quota.
+  if (current === body) return Response.json({ ok: true, bytes: body.length, etag: await etag(body) });
+
   try {
     await bindings.VAULT.put(key, body);
   } catch (e: any) {

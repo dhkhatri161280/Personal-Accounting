@@ -75,6 +75,37 @@ export type EquityData = {
   esppPurchases: EsppPurchase[];
 };
 
+export type PayrollRow = {
+  label: string;       // e.g. "Base", "Bonus", "Stock", "Federal", "Total Tax"
+  annual: number;       // "Salary" column — full-year total
+  cumulative: number;   // "CUMULATIVE" column — YTD as of last filled period
+  values: number[];     // one value per period, aligned to PayrollYear.periodLabels
+};
+
+// Records that a Plaid-confirmed bank deposit was matched to a specific pay period —
+// set when the user saves an auto-detected payroll transaction in Plaid Import.
+export type PayrollMatch = {
+  periodIndex: number;   // index into PayrollYear.periodLabels / PayrollRow.values
+  txGuid: string;        // guid of the vault Tx this deposit was posted as
+  txDate: string;        // ISO date of the bank deposit
+  depositAmount: number; // actual $ that hit the bank, from Plaid
+  confirmedAt: string;   // ISO timestamp when the match was recorded
+};
+
+export type PayrollYear = {
+  year: string;         // e.g. "2026"
+  sheetName: string;    // source sheet name, e.g. "Yearly 2026"
+  periodLabels: string[]; // e.g. ["Jan 01 Jan 15", "Jan 16 Jan 31", ...]
+  rows: PayrollRow[];
+  matches?: PayrollMatch[];
+};
+
+export type PayrollData = {
+  years: PayrollYear[];
+  importedAt: string;
+  sourceFileName: string;
+};
+
 export type TallyLedgerSnapshot = {
   asOf: string;
   balances: { name: string; parent?: string; closingBalance: number }[];
@@ -92,6 +123,7 @@ export type Ledger = {
   voucherTypes?: string[];
   fiscalYearStartMonth?: number;
   equity?: EquityData;
+  payroll?: PayrollData;
   tallyLedgerSnapshot?: TallyLedgerSnapshot;
 };
 
