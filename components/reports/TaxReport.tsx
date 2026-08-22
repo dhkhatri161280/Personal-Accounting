@@ -1,10 +1,14 @@
 "use client";
 import { Fragment, useMemo, useRef, useState } from "react";
-import type { PayrollData, PayrollRow, PayrollYear } from "@/lib/vault-types";
+import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData } from "@/lib/vault-types";
+import { findPayrollVoucher, parsePeriodRange } from "@/lib/payroll-match";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
+  transactions: Tx[];
+  equity: EquityData | undefined;
   onSave: (payroll: PayrollData) => Promise<void>;
+  onViewVoucher: (tx: Tx) => void;
   fmt: (n: number) => string;
   readOnly?: boolean;
 }
@@ -17,12 +21,13 @@ function at(r: PayrollRow | undefined, i: number): number {
   return r?.values[i] ?? 0;
 }
 
-export function TaxReport({ payroll, onSave, fmt, readOnly }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher, fmt, readOnly }: TaxReportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
   const [expandedPeriod, setExpandedPeriod] = useState<number | null>(null);
+  const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
 
   const years = payroll?.years ?? [];
   const activeYear: PayrollYear | undefined = useMemo(
@@ -74,7 +79,6 @@ export function TaxReport({ payroll, onSave, fmt, readOnly }: TaxReportProps) {
   const yr = activeYear!;
   const rows = yr.rows;
   const gross = row(rows, "Gross Salary");
-  const stock = row(rows, "Stock");
   const federal = row(rows, "Federal");
   const ssn = row(rows, "SSN");
   const medicare = row(rows, "Medicare");
@@ -87,12 +91,26 @@ export function TaxReport({ payroll, onSave, fmt, readOnly }: TaxReportProps) {
 
   const effectiveRate = gross && gross.annual > 0 && totalTax ? (totalTax.annual / gross.annual) * 100 : 0;
 
+  // The Excel's per-row "Salary" (annual) column is blank/0 for Stock — it only tracks a
+  // CUMULATIVE total there, not a real annual figure, and doesn't break it out per vest date.
+  // The Equity report's vest records are the authoritative source for RSU activity, so use
+  // those (already reconciled against grants) instead of the Excel's Stock row.
+  const yearVests = (equity?.grants ?? [])
+    .flatMap((g) => g.vests.filter((v) => v.vestDate.startsWith(yr.year)).map((v) => ({ grant: g, vest: v })))
+    .sort((a, b) => a.vest.vestDate.localeCompare(b.vest.vestDate));
+  const stockVestedValue = yearVests
+    .filter(({ vest }) => !vest.pending)
+    .reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
+  const stockScheduledValue = yearVests
+    .filter(({ vest }) => vest.pending)
+    .reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
+
   const summaryCards: { label: string; value: number; sub: string }[] = [
     { label: "Gross Salary", value: gross?.annual ?? 0, sub: "Base + Bonus + Stock + other" },
     { label: "Total Tax", value: totalTax?.annual ?? 0, sub: `${effectiveRate.toFixed(1)}% effective rate` },
     { label: "Net Salary", value: netSalary?.annual ?? 0, sub: "after deductions" },
     { label: "After Tax Salary", value: afterTax?.annual ?? 0, sub: "take-home" },
-    { label: "Stock (RSU)", value: stock?.annual ?? 0, sub: "included in gross + taxed" },
+    { label: "Stock (RSU) Vested", value: stockVestedValue, sub: "from Equity report vest records" },
     { label: "Effective Salary", value: effective?.annual ?? 0, sub: "incl. employer 401K + ESPP" },
   ];
 
@@ -157,7 +175,7 @@ export function TaxReport({ payroll, onSave, fmt, readOnly }: TaxReportProps) {
             <th className="right">State SDI</th>
             <th className="right">Total Tax</th>
             <th className="right">Net</th>
-            <th className="right">Bank Deposit</th>
+            <th>Voucher</th>
           </tr>
         </thead>
         <tbody>
@@ -166,10 +184,13 @@ export function TaxReport({ payroll, onSave, fmt, readOnly }: TaxReportProps) {
             const t = at(totalTax, i);
             if (!g && !t && !at(federal, i)) return null; // skip empty future periods
             const expanded = expandedPeriod === i;
+            const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label) : undefined;
             const match = yr.matches?.find((m) => m.periodIndex === i);
             const expectedNet = at(netSalary, i);
             const variance = match ? match.depositAmount - expectedNet : 0;
             const varianceFlag = match && Math.abs(variance) > 1;
+            const range = label ? parsePeriodRange(label, yr.year) : null;
+            const isPast = range ? range.end < todayIso : false;
             return (
               <Fragment key={i}>
                 <tr onClick={() => setExpandedPeriod(expanded ? null : i)} style={{ cursor: "pointer" }}>
@@ -182,16 +203,26 @@ export function TaxReport({ payroll, onSave, fmt, readOnly }: TaxReportProps) {
                   <td className="right">{fmt(at(stateSDI, i))}</td>
                   <td className="right">{fmt(t)}</td>
                   <td className="right">{fmt(at(netSalary, i))}</td>
-                  <td className="right">
-                    {match ? (
+                  <td>
+                    {linkedTx ? (
+                      <button
+                        className="tax-voucher-link"
+                        onClick={(e) => { e.stopPropagation(); onViewVoucher(linkedTx); }}
+                        title={linkedTx.narration || ""}
+                        style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, font: "inherit", textDecoration: "underline" }}
+                      >
+                        🔗 {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </button>
+                    ) : match ? (
                       <span
+                        className="equity-amt"
                         title={`Confirmed via Plaid on ${new Date(match.confirmedAt).toLocaleDateString()}${varianceFlag ? ` — differs from expected net by ${fmt(variance)}` : ""}`}
                         style={{ color: varianceFlag ? "#dc2626" : "#16a34a" }}
                       >
-                        ✓ {fmt(match.depositAmount)}
+                        ✓ {fmt(match.depositAmount)} (no voucher link)
                       </span>
                     ) : (
-                      <span style={{ opacity: 0.4 }}>Pending</span>
+                      <span style={{ opacity: 0.4 }}>{isPast ? "Not posted" : "—"}</span>
                     )}
                   </td>
                 </tr>
@@ -224,9 +255,57 @@ export function TaxReport({ payroll, onSave, fmt, readOnly }: TaxReportProps) {
             <th className="right">{fmt(stateSDI?.annual ?? 0)}</th>
             <th className="right">{fmt(totalTax?.annual ?? 0)}</th>
             <th className="right">{fmt(netSalary?.annual ?? 0)}</th>
-            <th className="right">{fmt((yr.matches ?? []).reduce((s, m) => s + m.depositAmount, 0))}</th>
+            <th>
+              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length} / {yr.periodLabels.filter((l) => l).length} linked
+            </th>
           </tr>
         </tfoot>
+      </table>
+
+      <div className="equity-section-head">
+        <h4>RSU Vesting — {yr.year}</h4>
+      </div>
+      <table className="equity-table equity-drilldown-table">
+        <thead>
+          <tr>
+            <th>Vest Date</th>
+            <th>Grant</th>
+            <th className="right">Shares</th>
+            <th className="right">Vest $/sh</th>
+            <th className="right">Value</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {yearVests.length === 0 && (
+            <tr>
+              <td colSpan={6} style={{ opacity: 0.5 }}>No RSU vests recorded for {yr.year} in the Equity report.</td>
+            </tr>
+          )}
+          {yearVests.map(({ grant, vest }) => (
+            <tr key={vest.id}>
+              <td>{new Date(vest.vestDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
+              <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {grant.grantDate}</td>
+              <td className="right">{vest.shares.toLocaleString()}</td>
+              <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
+              <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
+              <td>
+                {vest.pending
+                  ? <span style={{ color: "#888" }}>Scheduled</span>
+                  : <span style={{ color: "#16a34a" }}>Vested</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        {yearVests.length > 0 && (
+          <tfoot>
+            <tr>
+              <th colSpan={4}>Total</th>
+              <th className="right equity-amt">{fmt(stockVestedValue + stockScheduledValue)}</th>
+              <th />
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );

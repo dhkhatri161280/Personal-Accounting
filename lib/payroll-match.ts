@@ -1,4 +1,4 @@
-import type { PayrollData, PayrollYear } from "@/lib/vault-types";
+import type { PayrollData, PayrollYear, Tx } from "@/lib/vault-types";
 
 const MONTHS: Record<string, string> = {
   Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
@@ -9,7 +9,7 @@ const MONTHS: Record<string, string> = {
 // (2024+). Older/prior-employer sheets use inconsistent labels ("Dec 2021", etc.) —
 // those simply fail to parse here and are skipped, which is fine since Plaid's
 // payroll auto-detection is NVIDIA-specific anyway.
-function parsePeriodRange(label: string, year: string): { start: string; end: string } | null {
+export function parsePeriodRange(label: string, year: string): { start: string; end: string } | null {
   const m = label.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{1,2})$/);
   if (!m) return null;
   const mo1 = MONTHS[m[1]];
@@ -47,4 +47,24 @@ export function matchPayrollPeriod(payroll: PayrollData | undefined, txDate: str
 export function rowValue(year: PayrollYear, label: string, periodIndex: number, occurrence = 0): number {
   const r = year.rows.filter((x) => x.label === label)[occurrence];
   return r?.values[periodIndex] ?? 0;
+}
+
+// Live-detect an existing Receipt voucher (manually entered, Tally-synced, or Plaid-imported —
+// doesn't matter how it got there) that already accounts for a given pay period, so the Tax tab
+// can link straight to it instead of tracking a separate "confirmed" flag.
+const VOUCHER_WINDOW_DAYS_AFTER = 10;
+
+export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string): Tx | undefined {
+  const range = parsePeriodRange(periodLabel, year);
+  if (!range) return undefined;
+  const endPlus = new Date(range.end + "T00:00:00Z");
+  endPlus.setUTCDate(endPlus.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
+  const endPlusStr = endPlus.toISOString().slice(0, 10);
+  return transactions.find((t) => {
+    if (t.cancelled || t.deleted) return false;
+    if (t.date < range.start || t.date > endPlusStr) return false;
+    const narrationMatch = /salary/i.test(t.narration || "");
+    const entryMatch = t.entries.some((e) => /salary income/i.test(e.accountName || ""));
+    return narrationMatch || entryMatch;
+  });
 }

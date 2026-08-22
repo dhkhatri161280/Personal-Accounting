@@ -2400,9 +2400,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "tax" && data && (
             <TaxReport
               payroll={data.payroll}
+              transactions={data.transactions}
+              equity={data.equity}
               onSave={async (payroll) => {
                 await save({ ...data, payroll }, "reports");
               }}
+              onViewVoucher={editVoucher}
               fmt={fmt}
             />
           )}
