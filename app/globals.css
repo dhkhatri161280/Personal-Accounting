@@ -4192,7 +4192,8 @@ button.group-heading:hover {
     border-radius: 8px !important;
   }
   .header-actions .sync-now-button > svg,
-  .header-actions .privacy-toggle-button > svg {
+  .header-actions .privacy-toggle-button > svg,
+  .header-actions .ui-theme-toggle-button > svg {
     width: 16px !important;
     height: 16px !important;
   }
@@ -6771,6 +6772,23 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   stroke: #1d4ed8 !important;
 }
 
+/* UI theme toggle button (Classic <-> Refresh look) — mirrors privacy-toggle-button styling */
+.header-actions .ui-theme-toggle-button > svg {
+  display: block !important;
+  width: 22px !important;
+  height: 22px !important;
+  fill: none !important;
+  stroke: #28405f !important;
+  flex-shrink: 0 !important;
+}
+.header-actions .ui-theme-toggle-button.on {
+  background: #f5f3ff !important;
+  border-color: #c4b5fd !important;
+}
+.header-actions .ui-theme-toggle-button.on > svg {
+  stroke: #7c3aed !important;
+}
+
 /* ── Plaid bank import panel ───────────────────────────────────────────── */
 .plaid-import-panel { display: grid; gap: 16px; max-width: 1100px; }
 .plaid-banks-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; background: #f4f8fd; border-radius: 12px; border: 1px solid #d9e3ef; }
@@ -7413,4 +7431,80 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .tr-insight-list {
   filter: blur(7px);
   user-select: none;
+}
+
+/* ============================================================================
+   UI REFRESH THEME
+   Toggled via the palette icon next to Privacy Mode (localStorage "dk-ui-theme").
+   Every rule below is scoped under .ui-refresh and ADDITIVE ONLY — nothing above
+   this line is modified or removed. Turning the toggle off (the default) gives a
+   pixel-identical rollback to the classic look with no redeploy needed.
+   ============================================================================ */
+
+.ui-refresh {
+  --ref-radius: 12px;
+  --ref-border: #e5e7eb;
+  --ref-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --ref-shadow-hover: 0 4px 12px rgba(16, 24, 40, 0.09);
+  --ref-blue: #1e40af;
+  --ref-green: #16a34a;
+  --ref-amber: #d97706;
+  --ref-red: #dc2626;
+  --ref-purple: #7c3aed;
+  --ref-cyan: #0891b2;
+}
+
+/* Icon-avatar swatch (components/Icon.tsx StatIcon) */
+.ui-refresh .stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  margin-bottom: 6px;
+}
+
+/* Tax / Equity / Trading summary cards -> flat-elevation cards with icon avatars */
+.ui-refresh .equity-summary-card {
+  border-radius: var(--ref-radius) !important;
+  border: 1px solid var(--ref-border) !important;
+  box-shadow: var(--ref-shadow);
+  background: #fff !important;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.ui-refresh .equity-summary-card:hover { box-shadow: var(--ref-shadow-hover); }
+.ui-refresh .equity-summary-card span { font-size: 9px !important; }
+.ui-refresh .equity-summary-card strong { font-size: 16px !important; }
+.ui-refresh .equity-summary-card em { font-size: 8.5px !important; }
+.ui-refresh .equity-summary-stat--active { border-color: var(--ref-blue) !important; box-shadow: 0 0 0 2px #bfdbfe; }
+
+/* Data panels / tables — flat elevation, consistent radius */
+.ui-refresh .data-panel { border-radius: var(--ref-radius); }
+.ui-refresh .equity-table { border-radius: var(--ref-radius); overflow: hidden; border: 1px solid var(--ref-border); }
+.ui-refresh .equity-table th { background: #f8fafc; }
+
+/* Dashboard cards — flat elevation polish only; grid layout/highlight badges untouched
+   (that internal structure has several overlapping !important rules across breakpoints
+   and is out of scope for this pass — see redesign plan). */
+.ui-refresh .dashboard-balance-card {
+  border-radius: var(--ref-radius) !important;
+  border: 1px solid var(--ref-border) !important;
+  box-shadow: var(--ref-shadow);
+  background: #fff !important;
+  transition: box-shadow 0.15s;
+}
+.ui-refresh .dashboard-balance-card:hover { box-shadow: var(--ref-shadow-hover); }
+.ui-refresh .dashboard-inline-detail { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow); }
+
+/* Buttons — slightly larger radius, matching the friend's shape.borderRadius: 12 (dialed
+   back a touch for our denser UI) */
+.ui-refresh button {
+  border-radius: 8px;
+}
+.ui-refresh .equity-grant-filter-chip,
+.ui-refresh .privacy-toggle-button,
+.ui-refresh .ui-theme-toggle-button {
+  border-radius: 999px;
 }

@@ -105,6 +105,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [showPasswordFallback, setShowPasswordFallback] = useState(false),
     [tab, setTab] = useState("dashboard"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
+    [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
+      typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
+    ),
     [report, setReport] = useState("trial"),
     [year, setYear] = useState("all"),
     [customStart, setCustomStart] = useState("2026-04"),
@@ -1468,8 +1471,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return next;
     });
 
+  const toggleUiTheme = () =>
+    setUiTheme((t) => {
+      const next = t === "refresh" ? "classic" : "refresh";
+      localStorage.setItem("dk-ui-theme", next);
+      return next;
+    });
+
   return (
-    <div className={privacyMode ? "privacy-mode" : undefined}>
+    <div className={[privacyMode ? "privacy-mode" : "", uiTheme === "refresh" ? "ui-refresh" : ""].filter(Boolean).join(" ") || undefined}>
       <header>
         <div>
           <small>FINTECH BY DK - ACCOUNTING RELEASE 5</small>
@@ -1508,6 +1518,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <span className="secure-icon" aria-hidden="true" />
             </button>
           )}
+          <button
+            type="button"
+            className={`ui-theme-toggle-button ${uiTheme === "refresh" ? "on" : "off"}`}
+            onClick={toggleUiTheme}
+            title={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
+            aria-label={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+              <circle cx="12" cy="12" r="4" />
+            </svg>
+          </button>
           <button
             type="button"
             className={`privacy-toggle-button ${privacyMode ? "on" : "off"}`}
@@ -2407,6 +2429,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               }}
               onViewVoucher={editVoucher}
               fmt={fmt}
+              uiTheme={uiTheme}
             />
           )}
           {report === "recon" && data && (

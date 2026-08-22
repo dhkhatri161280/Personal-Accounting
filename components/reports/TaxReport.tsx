@@ -2,6 +2,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear } from "@/lib/payroll-match";
+import { StatIcon, type IconKind } from "@/components/Icon";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -11,6 +12,7 @@ interface TaxReportProps {
   onViewVoucher: (tx: Tx) => void; // only used for the explicit "Edit in Daybook" action inside the voucher popup
   fmt: (n: number) => string;
   readOnly?: boolean;
+  uiTheme?: "classic" | "refresh";
 }
 
 function row(rows: PayrollRow[], label: string, occurrence = 0): PayrollRow | undefined {
@@ -138,7 +140,7 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher, fmt, readOnly }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher, fmt, readOnly, uiTheme }: TaxReportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
@@ -339,16 +341,16 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
     .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
   const esppDiscountValue = yearEspp.reduce((s, e) => s + (e.marketPriceAtPurchase - e.purchasePrice) * e.shares, 0);
 
-  const summaryCards: { label: string; value: number; sub: string; onClick?: () => void }[] = [
-    { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other" },
-    { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate` },
-    { label: "Net Salary", value: totalNet, sub: "after deductions" },
-    { label: "After Tax Salary", value: totalAfterTax, sub: "take-home" },
-    { label: "401K (Employee)", value: totalK401, sub: "payroll deduction" },
-    { label: "401K Employer Match", value: totalK401Emplr, sub: "not in the paycheck deposit" },
-    { label: "ESPP Deduction", value: totalEsppDeduction, sub: `${fmt(esppDiscountValue)} discount value — click for details →`, onClick: () => setShowEsppModal(true) },
-    { label: "Stock (RSU) Vested", value: stockVestedValue, sub: "click for vest details →", onClick: () => setShowRsuModal(true) },
-    { label: "Effective Salary", value: totalEffective, sub: "incl. employer 401K + ESPP" },
+  const summaryCards: { label: string; value: number; sub: string; onClick?: () => void; icon: IconKind; color: string }[] = [
+    { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other", icon: "cash", color: "#1e40af" },
+    { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate`, icon: "receipt", color: "#dc2626" },
+    { label: "Net Salary", value: totalNet, sub: "after deductions", icon: "wallet", color: "#16a34a" },
+    { label: "After Tax Salary", value: totalAfterTax, sub: "take-home", icon: "bank", color: "#0891b2" },
+    { label: "401K (Employee)", value: totalK401, sub: "payroll deduction", icon: "shield", color: "#7c3aed" },
+    { label: "401K Employer Match", value: totalK401Emplr, sub: "not in the paycheck deposit", icon: "shield", color: "#9333ea" },
+    { label: "ESPP Deduction", value: totalEsppDeduction, sub: `${fmt(esppDiscountValue)} discount value — click for details →`, onClick: () => setShowEsppModal(true), icon: "tag", color: "#d97706" },
+    { label: "Stock (RSU) Vested", value: stockVestedValue, sub: "click for vest details →", onClick: () => setShowRsuModal(true), icon: "stock", color: "#1e40af" },
+    { label: "Effective Salary", value: totalEffective, sub: "incl. employer 401K + ESPP", icon: "trending-up", color: "#16a34a" },
   ];
 
   function openVoucherModal(tx: Tx) {
@@ -440,6 +442,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                 style={c.onClick ? { cursor: "pointer" } : undefined}
                 onClick={c.onClick}
               >
+                {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
                 <span>{c.label}</span>
                 <strong className="equity-amt">{fmt(c.value)}</strong>
                 <em>{c.sub}</em>
