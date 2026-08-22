@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
-import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels } from "@/lib/payroll-match";
+import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear } from "@/lib/payroll-match";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -259,7 +259,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   }
 
   const years = payroll.years;
-  const yr: PayrollYear = years.find((y) => y.year === activeYearLabel) ?? years[0];
+  const yr: PayrollYear = normalizePayrollYear(years.find((y) => y.year === activeYearLabel) ?? years[0]);
   const rows = yr.rows;
   const gross = row(rows, "Gross Salary");
   const federal = row(rows, "Federal");

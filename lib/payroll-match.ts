@@ -39,6 +39,29 @@ export function generateStandardPeriodLabels(year: string): string[] {
   return labels;
 }
 
+// Self-heal payroll years imported before the "Stocks" sub-table fix — those stored the
+// sheet's 4 quarterly vesting-tax columns as if they were extra trailing pay periods
+// (periodLabels literally "Stocks", "Stocks", ...), instead of a separate stockValues array.
+// Applied at render time so already-imported data displays correctly without requiring the
+// user to notice and manually re-import.
+export function normalizePayrollYear(yr: PayrollYear): PayrollYear {
+  let splitIdx = yr.periodLabels.length;
+  for (let i = 0; i < yr.periodLabels.length; i++) {
+    const label = yr.periodLabels[i];
+    if (label && !parsePeriodRange(label, yr.year)) { splitIdx = i; break; }
+  }
+  if (splitIdx === yr.periodLabels.length) return yr; // already clean (new import, or no trailing junk)
+  return {
+    ...yr,
+    periodLabels: yr.periodLabels.slice(0, splitIdx),
+    rows: yr.rows.map((r) => ({
+      ...r,
+      values: r.values.slice(0, splitIdx),
+      stockValues: r.stockValues && r.stockValues.length > 0 ? r.stockValues : r.values.slice(splitIdx),
+    })),
+  };
+}
+
 export type PayrollPeriodRef = { yearIdx: number; periodIndex: number };
 
 // Bank deposits (payday) typically post a few days after the pay period ends.
