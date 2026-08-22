@@ -1,8 +1,7 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod } from "@/lib/vault-types";
+import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels } from "@/lib/payroll-match";
-import type { RsuGrant, RsuVest } from "@/lib/vault-types";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -25,7 +24,12 @@ function at(r: PayrollRow | undefined, i: number): number {
 // Total for a row = every real pay-period value + the sheet's separate "Stocks" vesting-tax-
 // event columns for that row (confirmed with the user: that money is real and should count).
 function sumRow(r: PayrollRow | undefined): number {
-  return (r?.values.reduce((s, v) => s + v, 0) ?? 0) + (r?.stockTotal ?? 0);
+  return (r?.values.reduce((s, v) => s + v, 0) ?? 0) + (r?.stockValues?.reduce((s, v) => s + v, 0) ?? 0);
+}
+
+function stockVal(r: PayrollRow | undefined, idx: number): number | null {
+  const v = r?.stockValues?.[idx];
+  return v === undefined ? null : v;
 }
 
 function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
@@ -82,11 +86,45 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
   );
 }
 
+function EsppTable({ items, fmt }: { items: EsppPurchase[]; fmt: (n: number) => string }) {
+  return (
+    <table className="equity-table" style={{ width: "100%" }}>
+      <thead>
+        <tr>
+          <th>Purchase Date</th>
+          <th className="right">Shares</th>
+          <th className="right">Offering $/sh</th>
+          <th className="right">Purchase $/sh</th>
+          <th className="right">Market $/sh</th>
+          <th className="right">Discount Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.length === 0 && (
+          <tr><td colSpan={6} style={{ opacity: 0.5 }}>No ESPP purchases recorded.</td></tr>
+        )}
+        {items.map((e) => (
+          <tr key={e.id}>
+            <td>{new Date(e.purchaseDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
+            <td className="right">{e.shares.toLocaleString()}</td>
+            <td className="right">${e.offeringPrice.toFixed(2)}</td>
+            <td className="right">${e.purchasePrice.toFixed(2)}</td>
+            <td className="right">${e.marketPriceAtPurchase.toFixed(2)}</td>
+            <td className="right equity-amt">{fmt((e.marketPriceAtPurchase - e.purchasePrice) * e.shares)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 const MANUAL_FIELDS: { key: keyof typeof BLANK_MANUAL_FORM; label: string }[] = [
   { key: "base", label: "Base" },
   { key: "telephone", label: "Telephone" },
   { key: "medical", label: "Medical" },
-  { key: "k401", label: "401K" },
+  { key: "k401", label: "401K (employee)" },
+  { key: "k401Emplr", label: "401K Employer Match" },
+  { key: "espp", label: "ESPP Deduction" },
   { key: "federal", label: "Federal" },
   { key: "ssn", label: "SSN" },
   { key: "medicare", label: "Medicare" },
@@ -96,7 +134,7 @@ const MANUAL_FIELDS: { key: keyof typeof BLANK_MANUAL_FORM; label: string }[] = 
 ];
 
 const BLANK_MANUAL_FORM = {
-  base: "", telephone: "", medical: "", k401: "",
+  base: "", telephone: "", medical: "", k401: "", k401Emplr: "", espp: "",
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
@@ -109,6 +147,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
   const [showRsuModal, setShowRsuModal] = useState(false);
   const [periodVestModal, setPeriodVestModal] = useState<{ label: string; items: { grant: RsuGrant; vest: RsuVest }[] } | null>(null);
+  const [showEsppModal, setShowEsppModal] = useState(false);
+  const [periodEsppModal, setPeriodEsppModal] = useState<{ label: string; items: EsppPurchase[] } | null>(null);
   const [voucherModalTx, setVoucherModalTx] = useState<Tx | null>(null);
   const [editingManualId, setEditingManualId] = useState<string | null>(null);
   const [manualForm, setManualForm] = useState(BLANK_MANUAL_FORM);
@@ -231,6 +271,9 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const netSalary = row(rows, "Net Salary", 1) ?? row(rows, "Net Salary", 0);
   const afterTax = row(rows, "After Tax Salary");
   const effective = row(rows, "Effective Salary");
+  const k401 = row(rows, "401K");
+  const k401Emplr = row(rows, "401K Emplr");
+  const esppRow = row(rows, "ESPP");
 
   const manualPeriods = yr.manualPeriods ?? [];
   const manualGross = manualPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
@@ -241,6 +284,9 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const manualStateSDI = manualPeriods.reduce((s, m) => s + m.stateSDI, 0);
   const manualTax = manualPeriods.reduce((s, m) => s + m.totalTax, 0);
   const manualNet = manualPeriods.reduce((s, m) => s + m.net, 0);
+  const manualK401 = manualPeriods.reduce((s, m) => s + m.k401, 0);
+  const manualK401Emplr = manualPeriods.reduce((s, m) => s + (m.k401Emplr ?? 0), 0);
+  const manualEspp = manualPeriods.reduce((s, m) => s + (m.espp ?? 0), 0);
 
   const totalGross = sumRow(gross) + manualGross;
   const totalFederal = sumRow(federal) + manualFederal;
@@ -252,6 +298,9 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const totalNet = sumRow(netSalary) + manualNet;
   const totalAfterTax = sumRow(afterTax);
   const totalEffective = sumRow(effective);
+  const totalK401 = sumRow(k401) + manualK401;
+  const totalK401Emplr = sumRow(k401Emplr) + manualK401Emplr;
+  const totalEsppDeduction = sumRow(esppRow) + manualEspp;
   const effectiveRate = totalGross > 0 ? (totalTaxAll / totalGross) * 100 : 0;
 
   // RSU vest records come from Reports > Equity (authoritative for date/shares/price) —
@@ -263,18 +312,41 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
     .filter(({ vest }) => !vest.pending)
     .reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
   const stockScheduledShares = yearVests.filter(({ vest }) => vest.pending).reduce((s, { vest }) => s + vest.shares, 0);
-  const stockFederal = federal?.stockTotal ?? 0;
-  const stockSsn = ssn?.stockTotal ?? 0;
-  const stockMedicare = medicare?.stockTotal ?? 0;
-  const stockStateWH = stateWH?.stockTotal ?? 0;
-  const stockStateSDI = stateSDI?.stockTotal ?? 0;
-  const stockTaxTotal = totalTax?.stockTotal ?? 0;
+  const stockFederal = federal?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+  const stockSsn = ssn?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+  const stockMedicare = medicare?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+  const stockStateWH = stateWH?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+  const stockStateSDI = stateSDI?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+  const stockTaxTotal = totalTax?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+
+  // Group vest events by date (multiple grants can vest the same day) and line them up in
+  // chronological order with the Excel's "Stocks" columns — column N is the Nth vest date of
+  // the year (quarterly: Mar/Jun/Sep/Dec), not a lump sum for the whole year.
+  const vestGroups = Array.from(
+    yearVests.reduce((map, item) => {
+      const list = map.get(item.vest.vestDate) ?? [];
+      list.push(item);
+      map.set(item.vest.vestDate, list);
+      return map;
+    }, new Map<string, { grant: RsuGrant; vest: RsuVest }[]>())
+  )
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, items], idx) => ({ date, items, stockIdx: idx }));
+
+  // ESPP purchases come from Reports > Equity the same way RSU vests do.
+  const yearEspp = (equity?.esppPurchases ?? [])
+    .filter((e) => e.purchaseDate.startsWith(yr.year))
+    .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
+  const esppDiscountValue = yearEspp.reduce((s, e) => s + (e.marketPriceAtPurchase - e.purchasePrice) * e.shares, 0);
 
   const summaryCards: { label: string; value: number; sub: string; onClick?: () => void }[] = [
     { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other" },
     { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate` },
     { label: "Net Salary", value: totalNet, sub: "after deductions" },
     { label: "After Tax Salary", value: totalAfterTax, sub: "take-home" },
+    { label: "401K (Employee)", value: totalK401, sub: "payroll deduction" },
+    { label: "401K Employer Match", value: totalK401Emplr, sub: "not in the paycheck deposit" },
+    { label: "ESPP Deduction", value: totalEsppDeduction, sub: `${fmt(esppDiscountValue)} discount value — click for details →`, onClick: () => setShowEsppModal(true) },
     { label: "Stock (RSU) Vested", value: stockVestedValue, sub: "click for vest details →", onClick: () => setShowRsuModal(true) },
     { label: "Effective Salary", value: totalEffective, sub: "incl. employer 401K + ESPP" },
   ];
@@ -297,6 +369,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
         telephone: Number(manualForm.telephone) || 0,
         medical: Number(manualForm.medical) || 0,
         k401: Number(manualForm.k401) || 0,
+        k401Emplr: Number(manualForm.k401Emplr) || 0,
+        espp: Number(manualForm.espp) || 0,
         federal: federalV,
         ssn: ssnV,
         medicare: medicareV,
@@ -318,7 +392,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
 
   function startManualEdit(m: ManualPayrollPeriod) {
     setManualForm({
-      base: String(m.base), telephone: String(m.telephone), medical: String(m.medical), k401: String(m.k401),
+      base: String(m.base), telephone: String(m.telephone), medical: String(m.medical),
+      k401: String(m.k401), k401Emplr: String(m.k401Emplr ?? 0), espp: String(m.espp ?? 0),
       federal: String(m.federal), ssn: String(m.ssn), medicare: String(m.medicare),
       stateWH: String(m.stateWH), stateSDI: String(m.stateSDI), net: String(m.net),
     });
@@ -390,7 +465,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             <th className="right">State SDI</th>
             <th className="right">Total Tax</th>
             <th className="right">Net</th>
-            <th>Stock</th>
+            <th>ESPP</th>
             <th>Voucher</th>
           </tr>
         </thead>
@@ -408,8 +483,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             const varianceFlag = match && Math.abs(variance) > 1;
             const range = label ? parsePeriodRange(label, yr.year) : null;
             const isPast = range ? range.end < todayIso : false;
-            const periodVests = range ? yearVests.filter(({ vest }) => vest.vestDate >= range.start && vest.vestDate <= range.end) : [];
-            const periodVestShares = periodVests.reduce((s, { vest }) => s + vest.shares, 0);
+            const periodEspp = range ? yearEspp.filter((e) => e.purchaseDate >= range.start && e.purchaseDate <= range.end) : [];
+            const periodEsppShares = periodEspp.reduce((s, e) => s + e.shares, 0);
             return (
               <Fragment key={key}>
                 <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer" }}>
@@ -423,13 +498,13 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                   <td className="right">{fmt(t)}</td>
                   <td className="right">{fmt(at(netSalary, i))}</td>
                   <td>
-                    {periodVests.length > 0 ? (
+                    {periodEspp.length > 0 ? (
                       <button
                         className="tax-voucher-link"
-                        onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: label || `Period ${i + 1}`, items: periodVests }); }}
+                        onClick={(e) => { e.stopPropagation(); setPeriodEsppModal({ label: label || `Period ${i + 1}`, items: periodEspp }); }}
                         style={linkBtnStyle}
                       >
-                        📈 {periodVestShares.toLocaleString()} sh
+                        🏷️ {periodEsppShares.toLocaleString()} sh
                       </button>
                     ) : (
                       <span style={{ opacity: 0.3 }}>—</span>
@@ -476,8 +551,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             const tx = transactions.find((t) => t.guid === m.txGuid);
             const editing = editingManualId === m.id;
             const mRange = parsePeriodRange(m.label, yr.year);
-            const mVests = mRange ? yearVests.filter(({ vest }) => vest.vestDate >= mRange.start && vest.vestDate <= mRange.end) : [];
-            const mVestShares = mVests.reduce((s, { vest }) => s + vest.shares, 0);
+            const mEspp = mRange ? yearEspp.filter((e) => e.purchaseDate >= mRange.start && e.purchaseDate <= mRange.end) : [];
+            const mEsppShares = mEspp.reduce((s, e) => s + e.shares, 0);
             return (
               <Fragment key={key}>
                 <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer", background: "#fffbeb" }}>
@@ -493,13 +568,13 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                   <td className="right equity-amt">{fmt(m.totalTax)}</td>
                   <td className="right equity-amt">{fmt(m.net)}</td>
                   <td>
-                    {mVests.length > 0 ? (
+                    {mEspp.length > 0 ? (
                       <button
                         className="tax-voucher-link"
-                        onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: m.label, items: mVests }); }}
+                        onClick={(e) => { e.stopPropagation(); setPeriodEsppModal({ label: m.label, items: mEspp }); }}
                         style={linkBtnStyle}
                       >
-                        📈 {mVestShares.toLocaleString()} sh
+                        🏷️ {mEsppShares.toLocaleString()} sh
                       </button>
                     ) : (
                       <span style={{ opacity: 0.3 }}>—</span>
@@ -522,7 +597,8 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                         <div style={{ padding: "0.5rem 0.25rem" }}>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", marginBottom: "0.75rem" }}>
                             {[
-                              ["Base", m.base], ["Telephone", m.telephone], ["Medical", m.medical], ["401K", m.k401],
+                              ["Base", m.base], ["Telephone", m.telephone], ["Medical", m.medical],
+                              ["401K (employee)", m.k401], ["401K Employer Match", m.k401Emplr ?? 0], ["ESPP Deduction", m.espp ?? 0],
                               ["Federal", m.federal], ["SSN", m.ssn], ["Medicare", m.medicare],
                               ["State W/H", m.stateWH], ["State SDI", m.stateSDI], ["Net", m.net],
                             ].map(([lbl, val]) => (
@@ -570,6 +646,50 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
               </Fragment>
             );
           })}
+          {vestGroups.map(({ date, items, stockIdx }) => {
+            const key = `vest-${date}`;
+            const expanded = expandedKey === key;
+            const anyPending = items.some(({ vest }) => vest.pending);
+            const shares = items.reduce((s, { vest }) => s + vest.shares, 0);
+            const grossVal = items.reduce((s, { vest }) => s + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0);
+            const fed = stockVal(federal, stockIdx);
+            const ssnV = stockVal(ssn, stockIdx);
+            const med = stockVal(medicare, stockIdx);
+            const swh = stockVal(stateWH, stockIdx);
+            const ssdi = stockVal(stateSDI, stockIdx);
+            const taxV = stockVal(totalTax, stockIdx);
+            const showDash = (v: number | null) => (v === null ? <span style={{ opacity: 0.3 }}>—</span> : fmt(v));
+            return (
+              <tr
+                key={key}
+                onClick={() => setExpandedKey(expanded ? null : key)}
+                style={{ cursor: "pointer", background: "#eef2ff" }}
+              >
+                <td title="Quarterly RSU vesting event, from the payroll Excel's 'Stocks' columns">
+                  {new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })} Vesting
+                  {anyPending && <em style={{ fontSize: 10, opacity: 0.6 }}> (scheduled)</em>}
+                </td>
+                <td className="right">{anyPending ? <span style={{ opacity: 0.3 }}>—</span> : <span className="equity-amt">{fmt(grossVal)}</span>}</td>
+                <td className="right">{showDash(fed)}</td>
+                <td className="right">{showDash(ssnV)}</td>
+                <td className="right">{showDash(med)}</td>
+                <td className="right">{showDash(swh)}</td>
+                <td className="right">{showDash(ssdi)}</td>
+                <td className="right">{showDash(taxV)}</td>
+                <td className="right"><span style={{ opacity: 0.3 }}>—</span></td>
+                <td><span style={{ opacity: 0.3 }}>—</span></td>
+                <td>
+                  <button
+                    className="tax-voucher-link"
+                    onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: `${new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} Vesting`, items }); }}
+                    style={linkBtnStyle}
+                  >
+                    📈 {shares.toLocaleString()} sh
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
         <tfoot>
           <tr>
@@ -582,7 +702,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             <th className="right">{fmt(totalStateSDI)}</th>
             <th className="right">{fmt(totalTaxAll)}</th>
             <th className="right">{fmt(totalNet)}</th>
-            <th>{(yearVests.reduce((s, { vest }) => s + vest.shares, 0)).toLocaleString()} sh</th>
+            <th>{(yearEspp.reduce((s, e) => s + e.shares, 0)).toLocaleString()} sh</th>
             <th>
               {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length + manualPeriods.length}
               {" / "}
@@ -631,6 +751,24 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
           <VestTable items={periodVestModal.items} fmt={fmt} />
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setPeriodVestModal(null)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {showEsppModal && (
+        <Modal title={`ESPP Purchases — ${yr.year}`} onClose={() => setShowEsppModal(false)} wide>
+          <EsppTable items={yearEspp} fmt={fmt} />
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setShowEsppModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {periodEsppModal && (
+        <Modal title={`ESPP Purchases — ${periodEsppModal.label}`} onClose={() => setPeriodEsppModal(null)} wide>
+          <EsppTable items={periodEsppModal.items} fmt={fmt} />
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setPeriodEsppModal(null)}>Close</button>
           </div>
         </Modal>
       )}

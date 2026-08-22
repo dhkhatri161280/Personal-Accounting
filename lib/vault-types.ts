@@ -80,8 +80,10 @@ export type PayrollRow = {
   annual: number;       // "Salary" column — full-year total
   cumulative: number;   // "CUMULATIVE" column — YTD as of last filled period
   values: number[];     // one value per period, aligned to PayrollYear.periodLabels
-  stockTotal?: number;  // sum of the sheet's separate "Stocks" vesting-tax-event columns
-                         // for this row label — real money, but not tied to a pay period.
+  stockValues?: number[]; // one value per quarterly "Stocks" vesting-event column (separate
+                           // from the pay-period columns) — the tax withheld on that specific
+                           // vest, not a lump sum. Index N lines up with the Nth vest date of
+                           // the year (chronological) in the Equity report.
 };
 
 // A pay period created from a posted Receipt voucher rather than the Excel import — either
@@ -95,7 +97,10 @@ export type ManualPayrollPeriod = {
   base: number;
   telephone: number;
   medical: number;
-  k401: number;
+  k401: number;         // employee 401K contribution — can be derived from the voucher
+  k401Emplr?: number;   // employer 401K match — NOT in the voucher (employer deposits it
+                         // directly into the plan, not through the paycheck); manual entry only
+  espp?: number;        // ESPP payroll deduction — also not in the voucher; manual entry only
   federal: number;
   ssn: number;
   medicare: number;

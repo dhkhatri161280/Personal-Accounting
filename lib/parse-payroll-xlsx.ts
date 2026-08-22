@@ -63,10 +63,10 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
     lastCol++;
   }
 
-  // The trailing sub-table (e.g. "Stocks") is real money — extra tax withheld specifically
-  // on RSU vesting events — just not tied to a pay period. Keep scanning the same contiguous
-  // numeric-header run to find where THAT block ends, and sum it per row instead of dropping
-  // it, so totals stay accurate without pretending it's a 25th/26th pay period.
+  // The trailing "Stocks" sub-table is one column per quarterly RSU vesting event — real
+  // tax withheld on that specific vest, not tied to a regular pay period. Keep scanning the
+  // same contiguous numeric-header run to find where THAT block ends, and keep each column's
+  // value separately (not summed) so it can still be matched back to its specific vest date.
   let stockColEnd = lastCol;
   while (hRow[stockColEnd] !== undefined && hRow[stockColEnd] !== null && hRow[stockColEnd] !== "") stockColEnd++;
 
@@ -81,9 +81,9 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
     if (typeof label !== "string" || !label.trim() || label.trim() === "Period") continue;
     const values: number[] = [];
     for (let c = periodStartCol; c < lastCol; c++) values.push(toNum(row[c]));
-    let stockTotal = 0;
-    for (let c = lastCol; c < stockColEnd; c++) stockTotal += toNum(row[c]);
-    rows.push({ label: label.trim(), annual: toNum(row[annualCol]), cumulative: toNum(row[cumulativeCol]), values, stockTotal });
+    const stockValues: number[] = [];
+    for (let c = lastCol; c < stockColEnd; c++) stockValues.push(toNum(row[c]));
+    rows.push({ label: label.trim(), annual: toNum(row[annualCol]), cumulative: toNum(row[cumulativeCol]), values, stockValues });
   }
 
   return { year, sheetName, periodLabels, rows };
