@@ -631,16 +631,18 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                       {editing ? (
                         <EditFieldsForm form={manualForm} onChange={setManualForm} onSave={saveEdit} onCancel={() => setEditingTarget(null)} saving={savingManual} />
                       ) : (
-                        <div style={{ padding: "0.5rem 0.25rem" }}>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", marginBottom: "0.75rem" }}>
+                        <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", padding: "0.5rem 0.25rem" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.6rem 1.25rem", flex: 1 }}>
                             {rows.map((r, ri) => (
-                              <div key={ri} style={{ minWidth: 140 }}>
+                              <div key={ri}>
                                 <div style={{ fontSize: 11, opacity: 0.7 }}>{r.label}</div>
                                 <strong className="equity-amt">{fmt(r.values[i] ?? 0)}</strong>
                               </div>
                             ))}
                           </div>
-                          {!readOnly && <button onClick={() => startEditExcel(i, label)}>✎ Edit with real paystub numbers</button>}
+                          {!readOnly && (
+                            <button onClick={() => startEditExcel(i, label)} style={{ flexShrink: 0 }}>✎ Edit with real paystub numbers</button>
+                          )}
                         </div>
                       )}
                     </td>
@@ -700,27 +702,29 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                     <td colSpan={11} style={{ background: "var(--panel-2, #f6f7f9)" }}>
                       {!editing ? (
                         <div style={{ padding: "0.5rem 0.25rem" }}>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", marginBottom: "0.75rem" }}>
-                            {[
-                              ["Base", m.base], ["Telephone", m.telephone], ["Medical", m.medical],
-                              ["401K (employee)", m.k401], ["401K Employer Match", m.k401Emplr ?? 0], ["ESPP Deduction", m.espp ?? 0],
-                              ["Federal", m.federal], ["SSN", m.ssn], ["Medicare", m.medicare],
-                              ["State W/H", m.stateWH], ["State SDI", m.stateSDI], ["Net", m.net],
-                            ].map(([lbl, val]) => (
-                              <div key={lbl as string} style={{ minWidth: 130 }}>
-                                <div style={{ fontSize: 11, opacity: 0.7 }}>{lbl}</div>
-                                <strong className="equity-amt">{fmt(val as number)}</strong>
-                              </div>
-                            ))}
-                          </div>
                           {m.estimated ? (
-                            <p style={{ fontSize: 11, opacity: 0.7, margin: "0 0 0.5rem" }}>
+                            <p style={{ fontSize: 11, opacity: 0.7, margin: "0 0 0.6rem" }}>
                               Federal/SSN/Medicare/State are estimated from your closest matching pay period — replace with your real paystub numbers once you have them.
                             </p>
                           ) : null}
-                          {!readOnly && (
-                            <button onClick={() => startEditExisting(m)}>✎ Edit with real paystub numbers</button>
-                          )}
+                          <div style={{ display: "flex", gap: "1.25rem", alignItems: "center" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.6rem 1.25rem", flex: 1 }}>
+                              {[
+                                ["Base", m.base], ["Telephone", m.telephone], ["Medical", m.medical],
+                                ["401K (employee)", m.k401], ["401K Employer Match", m.k401Emplr ?? 0], ["ESPP Deduction", m.espp ?? 0],
+                                ["Federal", m.federal], ["SSN", m.ssn], ["Medicare", m.medicare],
+                                ["State W/H", m.stateWH], ["State SDI", m.stateSDI], ["Net", m.net],
+                              ].map(([lbl, val]) => (
+                                <div key={lbl as string}>
+                                  <div style={{ fontSize: 11, opacity: 0.7 }}>{lbl}</div>
+                                  <strong className="equity-amt">{fmt(val as number)}</strong>
+                                </div>
+                              ))}
+                            </div>
+                            {!readOnly && (
+                              <button onClick={() => startEditExisting(m)} style={{ flexShrink: 0 }}>✎ Edit with real paystub numbers</button>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <EditFieldsForm form={manualForm} onChange={setManualForm} onSave={saveEdit} onCancel={() => setEditingTarget(null)} saving={savingManual} />
