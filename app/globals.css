@@ -7513,14 +7513,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .equity-summary-stat--active { border-color: var(--ref-blue) !important; box-shadow: 0 0 0 2px #bfdbfe; }
 .ui-refresh .equity-summary-row { gap: 10px !important; }
 
-/* At the real .workspace/.data-panel width (~1075-1314px usable, not the ~1900px a bare
-   test page without the app's sidebar/padding chrome suggested), 9 cards cannot all fit on
-   one line without either dropping the icon, cutting decimal precision off the dollar
-   amounts, or shrinking the font past legibility -- all worse than a clean, even wrap.
-   minmax(190px, 1fr) gives each card enough room to show icon + full-precision amount on
-   one line; auto-fit wraps to a tidy 5-and-4 (or similar) split instead of the previous
-   uneven 8-and-1 split, and instead of occluding text under the next card. */
-.ui-refresh .tax-report .equity-summary-row {
+/* Applies to every .equity-summary-row consumer (Tax, Equity, and any future report), not
+   just Tax -- the same wrapping/occlusion trap applies wherever this shared card-row pattern
+   is reused. At the real .workspace/.data-panel width (~1075-1314px usable, not the
+   ~1900px a bare test page without the app's sidebar/padding chrome suggested), 6-9 cards
+   cannot all fit on one line without either dropping the icon, cutting decimal precision
+   off the dollar amounts, or shrinking the font past legibility -- all worse than a clean,
+   even wrap. minmax(190px, 1fr) gives each card enough room to show icon + full-precision
+   amount on one line; auto-fit wraps to a tidy split instead of an uneven "8-and-1" spill,
+   and instead of occluding text under the next card. */
+.ui-refresh .equity-summary-row {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 10px !important;
@@ -7528,21 +7530,21 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   overflow-x: visible !important;
   width: 100% !important;
 }
-.ui-refresh .tax-report .equity-summary-col {
+.ui-refresh .equity-summary-col {
   min-width: 0 !important;
   width: 100% !important;
 }
-.ui-refresh .tax-report .equity-summary-card {
+.ui-refresh .equity-summary-card {
   min-width: 0 !important;
   width: 100% !important;
 }
-.ui-refresh .tax-report .equity-summary-card span,
-.ui-refresh .tax-report .equity-summary-card em {
+.ui-refresh .equity-summary-card span,
+.ui-refresh .equity-summary-card em {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
 }
-.ui-refresh .tax-report .equity-summary-card strong {
+.ui-refresh .equity-summary-card strong {
   /* nowrap + overflow:visible looked fine in isolation, but at a too-narrow card width a
      wide dollar amount overflows its own box and gets painted UNDER the next card's opaque
      background (later DOM siblings paint on top) -- it LOOKS clipped even though nothing

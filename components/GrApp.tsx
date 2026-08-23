@@ -1521,6 +1521,7 @@ export function GrApp() {
                 return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Math.abs(inr) < 0.005 ? 0 : inr);
               }}
               readOnly={true}
+              uiTheme={uiTheme}
             />
           )}
 

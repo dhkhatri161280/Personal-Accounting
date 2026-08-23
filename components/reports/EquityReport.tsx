@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import type { ParsedGrant, ParsedVest } from "@/lib/parse-grant-pdf";
+import { StatIcon, type IconKind } from "@/components/Icon";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -68,9 +69,17 @@ interface EquityReportProps {
   onSave: (grants: RsuGrant[], espp: EsppPurchase[]) => Promise<void>;
   fmt: (n: number) => string;
   readOnly?: boolean;
+  uiTheme?: "classic" | "refresh";
 }
 
-export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: EquityReportProps) {
+const SUMMARY_ICON: Record<"vested" | "tax" | "sold" | "espp", { icon: IconKind; color: string }> = {
+  vested: { icon: "stock", color: "#1e40af" },
+  tax: { icon: "shield", color: "#7c3aed" },
+  sold: { icon: "cash", color: "#16a34a" },
+  espp: { icon: "tag", color: "#d97706" },
+};
+
+export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiTheme }: EquityReportProps) {
   const [price, setPrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
   const [priceErr, setPriceErr] = useState("");
@@ -466,9 +475,12 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
                   className={`equity-summary-card equity-summary-stat ${active ? "equity-summary-stat--active" : ""}`}
                   onClick={() => setSummaryFilter(active ? null : key)}
                 >
-                  <span>{labels[key]}</span>
-                  <strong className="equity-amt">{fmt(values[key])}</strong>
-                  <em>{subs[key]}</em>
+                  {uiTheme === "refresh" && <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />}
+                  <div className="equity-summary-card-body">
+                    <span>{labels[key]}</span>
+                    <strong className="equity-amt">{fmt(values[key])}</strong>
+                    <em>{subs[key]}</em>
+                  </div>
                 </button>
                 <p className="equity-card-count">{counts[key]}</p>
               </div>
@@ -477,22 +489,30 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly }: E
           {/* Scheduled Value card */}
           <div className="equity-summary-col">
             <div className="equity-summary-card equity-scheduled-card">
-              <span>Scheduled Value</span>
-              <strong className="equity-amt">{fmt(scheduledValue)}</strong>
-              <em>{rsuPendingShares.toLocaleString()} future vest sh @ live price</em>
+              {uiTheme === "refresh" && <StatIcon kind="calendar" color="#0891b2" />}
+              <div className="equity-summary-card-body">
+                <span>Scheduled Value</span>
+                <strong className="equity-amt">{fmt(scheduledValue)}</strong>
+                <em>{rsuPendingShares.toLocaleString()} future vest sh @ live price</em>
+              </div>
             </div>
             <p className="equity-card-count"><strong>{rsuUnvestedShares.toLocaleString()}</strong> sh scheduled</p>
           </div>
           {/* Daily G/(L) card */}
           <div className="equity-summary-col">
             <div className={`equity-summary-card equity-summary-stat equity-daily-gl-card ${dailyGL === null ? "" : dailyGL >= 0 ? "equity-daily-gl-card--pos" : "equity-daily-gl-card--neg"}`}>
-              <span>Daily G/(L)</span>
-              <strong className="equity-amt">
-                {dailyGL === null
-                  ? <span className="equity-neutral">—</span>
-                  : <>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</>}
-              </strong>
-              <em>{dailyHeldShares.toLocaleString()} sh × today&apos;s move</em>
+              {uiTheme === "refresh" && (
+                <StatIcon kind="trending-up" color={dailyGL === null ? "#64748b" : dailyGL >= 0 ? "#16a34a" : "#dc2626"} />
+              )}
+              <div className="equity-summary-card-body">
+                <span>Daily G/(L)</span>
+                <strong className="equity-amt">
+                  {dailyGL === null
+                    ? <span className="equity-neutral">—</span>
+                    : <>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</>}
+                </strong>
+                <em>{dailyHeldShares.toLocaleString()} sh × today&apos;s move</em>
+              </div>
             </div>
           </div>
         </div>

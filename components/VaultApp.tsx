@@ -2414,6 +2414,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 await save({ ...data, equity: { grants, esppPurchases } }, "reports");
               }}
               fmt={fmt}
+              uiTheme={uiTheme}
             />
           )}
           {report === "trading" && (
