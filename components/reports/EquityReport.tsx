@@ -8,6 +8,26 @@ function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: "#fff", borderRadius: 10, maxWidth: wide ? 760 : 480, width: "100%", maxHeight: "85vh", overflow: "auto", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.9rem 1.1rem", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, background: "#fff" }}>
+          <strong>{title}</strong>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", lineHeight: 1, color: "#64748b" }}>✕</button>
+        </div>
+        <div style={{ padding: "1rem 1.1rem" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 // ISO YYYY-MM-DD → DD-MM-YYYY (matches the rest of the app)
 function fmtDate(iso: string) {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -101,6 +121,16 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
   const [grantFilter, setGrantFilter] = useState<string | null>(null);
   const [recordVestFor, setRecordVestFor] = useState<{ grantId: string; vestId: string } | null>(null);
   const [recordVestForm, setRecordVestForm] = useState({ vestPrice: "", taxShares: "", sharesHeld: "" });
+
+  // ── Vesting Day batch entry ──────────────────────────────────────────────
+  // NVDA vests everyone quarterly on the same date, so one real-world vesting
+  // event usually means a pending tranche lands in several grants (different
+  // grant years) at once. This lets the user enter the shared stock price
+  // once and confirm every grant's tranche for that date in a single save,
+  // instead of repeating the single-vest form once per grant.
+  const [vestDayFor, setVestDayFor] = useState<string | null>(null);
+  const [vestDayPrice, setVestDayPrice] = useState("");
+  const [vestDayRows, setVestDayRows] = useState<Record<string, { taxShares: string; sharesHeld: string }>>({});
 
   // ── Inline edit state (Mark Sold) ─────────────────────────────────────────
   const [editVest, setEditVest] = useState<{ grantId: string; vestId: string } | null>(null);
@@ -222,6 +252,22 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
   const rsuMarketValue = grantRows.reduce((s, g) => s + g.marketValue, 0);
   const rsuCurrent = rsuSaleValue + rsuMarketValue;
   const rsuGain = grantRows.reduce((s, g) => s + g.gain, 0);
+
+  // Pending tranches grouped by vest date, across every grant — NVDA vests quarterly on the
+  // same date for everyone, so one real-world vesting event usually shows up as a pending
+  // entry in several grants (different grant years) at once.
+  const pendingVestDays = Array.from(
+    grants
+      .flatMap((g) => g.vests.filter((v) => v.pending).map((v) => ({ grant: g, vest: v })))
+      .reduce((map, item) => {
+        const list = map.get(item.vest.vestDate) ?? [];
+        list.push(item);
+        map.set(item.vest.vestDate, list);
+        return map;
+      }, new Map<string, { grant: RsuGrant; vest: RsuVest }[]>())
+  )
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, items]) => ({ date, items, totalShares: items.reduce((s, it) => s + it.vest.shares, 0) }));
 
   // Share counts for reconciliation
   const rsuHeldShares = grantRows.reduce((s, g) => s + g.vests.reduce((vs, v) => vs + v.sharesHeld, 0), 0);
@@ -393,6 +439,28 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
     await doSave(next, esppPurchases);
     setRecordVestFor(null);
     setRecordVestForm({ vestPrice: "", taxShares: "", sharesHeld: "" });
+  }
+
+  // Confirms every grant's pending tranche for one vest date in a single save, using the
+  // shared stock price plus each row's own tax-shares-withheld/shares-held entry.
+  async function saveVestDay() {
+    if (!vestDayFor) return;
+    const vestPrice = Number(vestDayPrice);
+    if (!vestPrice) return;
+    const next = grants.map((g) => ({
+      ...g,
+      vests: g.vests.map((v) => {
+        if (!v.pending || v.vestDate !== vestDayFor) return v;
+        const row = vestDayRows[v.id] ?? { taxShares: "", sharesHeld: "" };
+        const taxShares = row.taxShares !== "" ? Number(row.taxShares) : 0;
+        const held = row.sharesHeld !== "" ? Number(row.sharesHeld) : v.shares - taxShares;
+        return { ...v, vestPrice, sharesHeld: Math.max(0, held), taxShares, pending: false };
+      }),
+    }));
+    await doSave(next, esppPurchases);
+    setVestDayFor(null);
+    setVestDayPrice("");
+    setVestDayRows({});
   }
 
   async function saveEsppEdit() {
@@ -726,6 +794,106 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
           )}
         </div>
       </div>
+
+      {pendingVestDays.length > 0 && (
+        <div className="equity-vest-day-list">
+          {pendingVestDays.map(({ date, items, totalShares }) => (
+            <div className="equity-vest-day-row" key={date}>
+              <span className="equity-vest-day-date">
+                {new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
+              </span>
+              <span className="equity-vest-day-summary">
+                {items.length} grant{items.length === 1 ? "" : "s"} · {totalShares.toLocaleString()} sh scheduled
+              </span>
+              {!readOnly && (
+                <button
+                  className="equity-vest-day-process"
+                  onClick={() => {
+                    setVestDayFor(date);
+                    setVestDayPrice("");
+                    setVestDayRows(
+                      Object.fromEntries(items.map(({ vest }) => [vest.id, { taxShares: "", sharesHeld: "" }]))
+                    );
+                  }}
+                >
+                  Process vesting day →
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {vestDayFor && (() => {
+        const items = pendingVestDays.find((d) => d.date === vestDayFor)?.items ?? [];
+        return (
+          <Modal
+            title={`Confirm Vesting — ${new Date(vestDayFor + "T00:00:00Z").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`}
+            onClose={() => setVestDayFor(null)}
+            wide
+          >
+            <label style={{ display: "block", marginBottom: "0.9rem", fontSize: 13 }}>
+              NVDA Price on Vest Date (applies to every grant below)
+              <input
+                type="number"
+                step="0.01"
+                value={vestDayPrice}
+                onChange={(e) => setVestDayPrice(e.target.value)}
+                style={{ display: "block", width: 160, marginTop: 4 }}
+                autoFocus
+              />
+            </label>
+            <table className="equity-table" style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th>Grant</th>
+                  <th className="right">Scheduled Shares</th>
+                  <th className="right">Tax Shares Withheld</th>
+                  <th className="right">Shares Held</th>
+                  <th className="right">Vest Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(({ grant, vest }) => {
+                  const row = vestDayRows[vest.id] ?? { taxShares: "", sharesHeld: "" };
+                  const priceNum = Number(vestDayPrice) || 0;
+                  return (
+                    <tr key={vest.id}>
+                      <td>{grant.ticker} granted {grant.grantDate}</td>
+                      <td className="right">{vest.shares.toLocaleString()}</td>
+                      <td className="right">
+                        <input
+                          type="number"
+                          value={row.taxShares}
+                          placeholder="0"
+                          onChange={(e) => setVestDayRows((r) => ({ ...r, [vest.id]: { ...row, taxShares: e.target.value } }))}
+                          style={{ width: 90, textAlign: "right" }}
+                        />
+                      </td>
+                      <td className="right">
+                        <input
+                          type="number"
+                          value={row.sharesHeld}
+                          placeholder={String(vest.shares - (Number(row.taxShares) || 0))}
+                          onChange={(e) => setVestDayRows((r) => ({ ...r, [vest.id]: { ...row, sharesHeld: e.target.value } }))}
+                          style={{ width: 90, textAlign: "right" }}
+                        />
+                      </td>
+                      <td className="right equity-amt">{fmt(vest.shares * priceNum)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+              <button onClick={() => setVestDayFor(null)} disabled={saving}>Cancel</button>
+              <button onClick={saveVestDay} disabled={saving || !vestDayPrice}>
+                {saving ? "Saving…" : `Confirm ${items.length} Vesting${items.length === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {showAddGrant && (
         <div className="equity-form">
