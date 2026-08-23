@@ -7631,6 +7631,33 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .bs-total { border-radius: 0 0 var(--ref-radius) var(--ref-radius); font-size: 12.5px !important; }
 .ui-refresh .balance-check { border-radius: var(--ref-radius) !important; }
 
+/* Trading — the summary bar used the exact same flex-wrap + flex:1 pattern that caused the
+   Tax tab's card-wrapping bug (unpredictable packing, occlusion risk for wide P&L figures).
+   Same auto-fit grid fix applied here pre-emptively rather than waiting to hit it. The
+   watchlist grid (.wl-grid) already uses auto-fit/minmax and doesn't need this. */
+.ui-refresh .tr-summary-bar {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px !important;
+  flex-wrap: unset !important;
+}
+.ui-refresh .tr-summary-card {
+  border-radius: var(--ref-radius) !important;
+  box-shadow: var(--ref-shadow);
+  min-width: 0 !important;
+  width: 100%;
+  padding: 10px 13px !important;
+}
+.ui-refresh .tr-summary-card span { white-space: normal; overflow: visible; }
+.ui-refresh .tr-summary-card strong {
+  font-size: 16px !important;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.ui-refresh .tr-broker-chip { border-radius: 999px !important; box-shadow: var(--ref-shadow); }
+.ui-refresh .wl-card { border-radius: var(--ref-radius) !important; box-shadow: var(--ref-shadow); }
+.ui-refresh .tr-insight { border-radius: var(--ref-radius) !important; }
+
 /* Buttons — slightly larger radius, matching the friend's shape.borderRadius: 12 (dialed
    back a touch for our denser UI) */
 .ui-refresh button {
