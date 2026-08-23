@@ -3,6 +3,9 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear } from "@/lib/payroll-match";
 import { StatIcon, type IconKind } from "@/components/Icon";
+import { classifyRsuSales, classifyEsppSales, summarizeCapitalGains } from "@/lib/tax-classify";
+import { estimateUsFederalTax } from "@/lib/tax-usa-engine";
+import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -191,6 +194,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const [savingManual, setSavingManual] = useState(false);
   const [startingManualYear, setStartingManualYear] = useState(false);
   const [manualYearInput, setManualYearInput] = useState(() => String(new Date().getFullYear()));
+  const [filingStatus, setFilingStatus] = useState<UsFilingStatus>("mfj");
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
@@ -403,6 +407,24 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
     .filter((e) => e.purchaseDate.startsWith(yr.year))
     .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
   const esppDiscountValue = yearEspp.reduce((s, e) => s + (e.marketPriceAtPurchase - e.purchasePrice) * e.shares, 0);
+
+  // Federal tax estimate — wages (totalGross) already include RSU-vest/ESPP-discount
+  // ordinary income from payroll, so only realized capital gains from shares actually SOLD
+  // (an explicit salePrice on the vest/purchase) are added on top, split short/long term.
+  const taxEstimateYear = listUsTaxYears().includes(yr.year) ? yr.year : listUsTaxYears()[0]!;
+  const gainEvents = [
+    ...classifyRsuSales(equity?.grants ?? [], yr.year, 365),
+    ...classifyEsppSales(equity?.esppPurchases ?? [], yr.year, 365),
+  ];
+  const gainTotals = summarizeCapitalGains(gainEvents);
+  const taxEstimate = estimateUsFederalTax({
+    taxYear: taxEstimateYear,
+    filingStatus,
+    wages: totalGross,
+    federalWithheld: totalFederal,
+    shortTermGain: gainTotals.shortTermGain,
+    longTermGain: gainTotals.longTermGain,
+  });
 
   const summaryCards: { label: string; value: number; sub: string; onClick?: () => void; icon: IconKind; color: string }[] = [
     { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other", icon: "cash", color: "#1e40af" },
@@ -820,6 +842,63 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
           {overrideByIndex.size > 0 && `${overrideByIndex.size} period(s) corrected from the Excel import. `}
           Rows highlighted above — expand any row (including regular Excel-imported ones) and click "✎ Edit" to enter real paystub numbers.
         </p>
+      )}
+
+      <div className="equity-section-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+        <h4>Estimated Tax Liability — {yr.year} (Federal)</h4>
+        <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          Filing status
+          <select value={filingStatus} onChange={(e) => setFilingStatus(e.target.value as UsFilingStatus)}>
+            <option value="mfj">Married filing jointly</option>
+            <option value="single">Single</option>
+          </select>
+        </label>
+      </div>
+      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
+        Estimate only — federal only, not tax advice. No state tax, itemized deductions, AMT, or NIIT. ESPP
+        disqualifying-disposition ordinary income isn&apos;t modeled (treated as capital gain). Based on {taxEstimate.rules.ruleVersion}.
+      </p>
+      <div className="equity-summary-row">
+        {[
+          { label: "AGI", value: taxEstimate.agi, sub: "wages + net capital gains", icon: "wallet" as IconKind, color: "#1e40af" },
+          { label: "Taxable Ordinary Income", value: taxEstimate.taxableOrdinary, sub: `after ${fmt(taxEstimate.rules.standardDeduction)} standard deduction`, icon: "cash" as IconKind, color: "#0891b2" },
+          { label: "Long-Term Capital Gain", value: taxEstimate.longTermGain, sub: `${gainEvents.length} sale(s) matched`, icon: "trending-up" as IconKind, color: "#7c3aed" },
+          { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax, sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)}`, icon: "receipt" as IconKind, color: "#dc2626" },
+          { label: "Federal Withheld", value: taxEstimate.federalWithheld, sub: "from payroll", icon: "shield" as IconKind, color: "#16a34a" },
+          taxEstimate.refund > 0
+            ? { label: "Estimated Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
+            : { label: "Estimated Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
+        ].map((c) => (
+          <div key={c.label} className="equity-summary-col">
+            <div className="equity-summary-card">
+              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <div className="equity-summary-card-body">
+                <span>{c.label}</span>
+                <strong className="equity-amt">{fmt(c.value)}</strong>
+                <em>{c.sub}</em>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {gainEvents.length > 0 && (
+        <table className="equity-table" style={{ marginTop: "1rem" }}>
+          <thead>
+            <tr><th>Sale</th><th className="right">Shares</th><th className="right">Cost Basis</th><th className="right">Proceeds</th><th className="right">Gain/(Loss)</th><th>Term</th></tr>
+          </thead>
+          <tbody>
+            {gainEvents.map((g) => (
+              <tr key={g.id}>
+                <td>{g.label}</td>
+                <td className="right">{g.shares.toLocaleString()}</td>
+                <td className="right">{fmt(g.costBasis)}</td>
+                <td className="right">{fmt(g.proceeds)}</td>
+                <td className="right equity-amt" style={{ color: g.gain >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(g.gain)}</td>
+                <td>{g.term === "long" ? "Long-term" : "Short-term"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       {showRsuModal && (
