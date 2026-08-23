@@ -7461,12 +7461,12 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   flex-shrink: 0;
 }
-.ui-refresh .stat-icon svg { width: 20px; height: 20px; }
+.ui-refresh .stat-icon svg { width: 17px; height: 17px; }
 
 /* Tax / Equity / Trading summary cards -> flat-elevation cards, icon + text side by side.
    Sized for density: this is a KPI strip, not a hero panel — noticeably bolder than the
@@ -7479,7 +7479,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   border: 1px solid var(--ref-border) !important;
   box-shadow: var(--ref-shadow);
   background: #fff !important;
-  padding: 11px 14px !important;
+  padding: 9px 11px !important;
   transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
 }
 .ui-refresh .equity-summary-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
@@ -7497,15 +7497,14 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .equity-summary-row { gap: 10px !important; }
 
 /* The Tax tab's "squeeze onto one row" fix (added when cards were tiny/compact) used
-   flex-wrap + flex-grow, which packs unpredictably: it left only 6 of 9 cards per row and
-   over-stretched each one, wasting space instead of fitting all 9 compactly. CSS Grid with
-   auto-fit + minmax is the correct tool here: pack as many >=160px columns as fit per row,
-   evenly, and only wrap to a second row if the window is genuinely too narrow for all 9 —
-   this also means all 9 sit on one row if there's a container-nested div of .tax-report so
-   this needs a descendant combinator (not a compound selector) to actually match. */
+   flex-wrap + flex-grow, which packs unpredictably. CSS Grid with auto-fit + minmax packs
+   deterministically instead. The real constraint: .workspace caps content at 1430px (minus
+   36px padding) and .data-panel adds another 36px of padding -- ~1314px actually available,
+   NOT the ~1900px a bare test page without the app's sidebar/padding chrome suggested. 9
+   cards at 130px + 8x10px gaps = 1250px, comfortably inside 1314px. */
 .ui-refresh .tax-report .equity-summary-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 10px;
 }
 .ui-refresh .tax-report .equity-summary-col {

@@ -641,7 +641,14 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                             ))}
                           </div>
                           {!readOnly && (
-                            <button onClick={() => startEditExcel(i, label)} style={{ flexShrink: 0 }}>✎ Edit with real paystub numbers</button>
+                            <button
+                              onClick={() => startEditExcel(i, label)}
+                              title="Edit with real paystub numbers"
+                              aria-label="Edit with real paystub numbers"
+                              style={{ flexShrink: 0, fontSize: 15, lineHeight: 1, padding: "6px 9px", cursor: "pointer" }}
+                            >
+                              ✎
+                            </button>
                           )}
                         </div>
                       )}
@@ -722,7 +729,14 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                               ))}
                             </div>
                             {!readOnly && (
-                              <button onClick={() => startEditExisting(m)} style={{ flexShrink: 0 }}>✎ Edit with real paystub numbers</button>
+                              <button
+                                onClick={() => startEditExisting(m)}
+                                title="Edit with real paystub numbers"
+                                aria-label="Edit with real paystub numbers"
+                                style={{ flexShrink: 0, fontSize: 15, lineHeight: 1, padding: "6px 9px", cursor: "pointer" }}
+                              >
+                                ✎
+                              </button>
                             )}
                           </div>
                         </div>
