@@ -29,6 +29,16 @@ function at(r: PayrollRow | undefined, i: number): number {
   return r?.values[i] ?? 0;
 }
 
+// Display-only: "Jan 01 Jan 15" -> "Jan 15" to save space in the Pay Periods table. The full
+// label is still what's stored/matched against everywhere else -- only this rendering uses
+// the shortened form. Falls back to the raw label if it isn't a parseable period range.
+function periodEndLabel(label: string, year: string): string {
+  const range = parsePeriodRange(label, year);
+  if (!range) return label;
+  const d = new Date(range.end + "T00:00:00Z");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
 // Total for a row = every real pay-period value + the sheet's separate "Stocks" vesting-tax-
 // event columns for that row (confirmed with the user: that money is real and should count).
 function sumRow(r: PayrollRow | undefined): number {
@@ -653,7 +663,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             return (
               <Fragment key={key}>
                 <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer" }}>
-                  <td>{label || `Period ${i + 1}`}</td>
+                  <td title={label || undefined}>{label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`}</td>
                   <td className="right">{fmt(g)}</td>
                   <td className="right">{fmt(fed)}</td>
                   <td className="right">{fmt(ssnV)}</td>
@@ -738,8 +748,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             return (
               <Fragment key={key}>
                 <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : "#fffbeb" }}>
-                  <td title={isOverride ? "Corrected from the Excel import" : "Posted in the vault but not yet in the imported Excel file"}>
-                    {m.label} <em style={{ fontSize: 10, opacity: 0.6 }}>{isOverride ? "(edited)" : m.estimated ? "(from voucher, estimated)" : "(from voucher, edited)"}</em>
+                  <td title={`${m.label} — ${isOverride ? "corrected from the Excel import" : "posted in the vault but not yet in the imported Excel file"}`}>
+                    {periodEndLabel(m.label, yr.year)} <em style={{ fontSize: 10, opacity: 0.6 }}>{isOverride ? "(edited)" : m.estimated ? "(from voucher, estimated)" : "(from voucher, edited)"}</em>
                   </td>
                   <td className="right equity-amt">{fmt(m.base + m.telephone)}</td>
                   <td className="right equity-amt" style={m.estimated ? { opacity: 0.6, fontStyle: "italic" } : undefined}>{fmt(m.federal)}</td>
