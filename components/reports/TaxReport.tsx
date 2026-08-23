@@ -91,7 +91,7 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
         )}
         {items.map(({ grant, vest }) => (
           <tr key={vest.id}>
-            <td>{new Date(vest.vestDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
+            <td>{new Date(vest.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
             <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {grant.grantDate}</td>
             <td className="right">{vest.shares.toLocaleString()}</td>
             <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
@@ -123,7 +123,7 @@ function EsppTable({ items, fmt }: { items: EsppPurchase[]; fmt: (n: number) => 
         )}
         {items.map((e) => (
           <tr key={e.id}>
-            <td>{new Date(e.purchaseDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
+            <td>{new Date(e.purchaseDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
             <td className="right">{e.shares.toLocaleString()}</td>
             <td className="right">${e.offeringPrice.toFixed(2)}</td>
             <td className="right">${e.purchasePrice.toFixed(2)}</td>
@@ -688,7 +688,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   <td>
                     {linkedTx ? (
                       <button className="tax-voucher-link" onClick={(e) => { e.stopPropagation(); openVoucherModal(linkedTx); }} title={linkedTx.narration || ""} style={linkBtnStyle}>
-                        🔗 {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        🔗 {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                       </button>
                     ) : match ? (
                       <span
@@ -775,7 +775,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   <td>
                     {tx ? (
                       <button className="tax-voucher-link" onClick={(e) => { e.stopPropagation(); openVoucherModal(tx); }} title={tx.narration || ""} style={linkBtnStyle}>
-                        🔗 {tx.type} #{tx.number || "—"} · {new Date(tx.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        🔗 {tx.type} #{tx.number || "—"} · {new Date(tx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                       </button>
                     ) : (
                       <span style={{ opacity: 0.4 }}>{m.txGuid ? "Voucher removed" : "—"}</span>
@@ -847,7 +847,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 style={{ cursor: "pointer", background: "#eef2ff" }}
               >
                 <td title="Quarterly RSU vesting event, from the payroll Excel's 'Stocks' columns">
-                  {new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })} Vesting
+                  {new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })} Vesting
                   {anyPending && <em style={{ fontSize: 10, opacity: 0.6 }}> (scheduled)</em>}
                 </td>
                 <td className="right">{anyPending ? <span style={{ opacity: 0.3 }}>—</span> : <span className="equity-amt">{fmt(grossVal)}</span>}</td>
@@ -862,7 +862,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 <td>
                   <button
                     className="tax-voucher-link"
-                    onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: `${new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} Vesting`, items }); }}
+                    onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: `${new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} Vesting`, items }); }}
                     style={linkBtnStyle}
                   >
                     📈 {shares.toLocaleString()} sh
@@ -1125,7 +1125,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       {voucherModalTx && (
         <Modal title={`${voucherModalTx.type} #${voucherModalTx.number || "—"}`} onClose={() => setVoucherModalTx(null)}>
           <p style={{ margin: "0 0 0.75rem", fontSize: 13, opacity: 0.75 }}>
-            {new Date(voucherModalTx.date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+            {new Date(voucherModalTx.date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })}
           </p>
           {voucherModalTx.narration && <p style={{ margin: "0 0 0.75rem", fontSize: 13 }}>{voucherModalTx.narration}</p>}
           <table className="equity-table" style={{ width: "100%" }}>

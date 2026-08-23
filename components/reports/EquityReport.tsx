@@ -634,7 +634,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
                         return (
                           <tr key={`${g.id}-${v.id}`}>
                             <td className="equity-neutral" style={{ fontSize: 11 }}>{g.ticker} {g.grantDate}</td>
-                            <td>{new Date(v.vestDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
+                            <td>{new Date(v.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
                             {summaryFilter === "vested" && (
                               <>
                                 <td className="right">{v.sharesHeld.toLocaleString()}</td>
@@ -702,7 +702,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
                 <tbody>
                   {esppRows.filter(e => e.sharesHeld > 0).map((e) => (
                     <tr key={e.id}>
-                      <td>{new Date(e.purchaseDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</td>
+                      <td>{new Date(e.purchaseDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
                       <td className="right">{e.sharesHeld.toLocaleString()}</td>
                       <td className="right">{cur > 0 ? `$${cur.toFixed(2)}` : "—"}</td>
                       <td className="right equity-gain-pos">{cur > 0 ? fmt(e.sharesHeld * cur) : "—"}</td>
