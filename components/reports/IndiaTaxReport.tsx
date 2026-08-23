@@ -178,21 +178,29 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         setItrImportProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
       }
       if (parsed.length > 0) {
-        // Upsert by Assessment Year, but a batch (or a later re-import) can mix document
-        // types for the same year -- an ITR-V/Acknowledgement, a Receipt, and the full ITR
-        // Form -- with different fields reliably extractable from each (the Form's page 1
-        // often lacks TDS/refund; some legacy Acknowledgements lack a few too). Keep
-        // whichever of (existing, incoming) has more non-zero informative fields rather than
-        // blindly letting the last one processed win, so a less-complete document can't
-        // clobber a more-complete one already on file.
+        // A single import batch can mix document types for the same year -- an ITR-V/
+        // Acknowledgement, a Receipt, and the full ITR Form -- with different fields reliably
+        // extractable from each (the Form's page 1 often lacks TDS/refund; some legacy
+        // Acknowledgements lack a few too). Resolve THAT conflict by keeping whichever of the
+        // freshly-parsed candidates has more non-zero informative fields.
+        //
+        // That completeness check must NOT extend to whatever was already saved from a
+        // PREVIOUS import, though -- a stale, since-fixed parsing bug could have saved a wrong
+        // non-zero number that now outscores the correct (genuinely zero) re-parsed value,
+        // silently keeping the bad data even after re-importing the exact same file. Once a
+        // year has been freshly re-parsed in this batch, it always replaces whatever was on
+        // file, full stop -- matching what the UI already promises ("re-importing a file for a
+        // year already on record replaces it").
         const completeness = (y: IndiaItrYear) =>
           [y.grossTotalIncome, y.deductionsChapterVIA, y.totalIncome, y.taxPayable, y.advanceTax, y.tds, y.tcs, y.selfAssessmentTax, y.refundOrDemand]
             .filter((v) => v !== 0).length;
-        const byYear = new Map((indiaTax?.itrYears ?? []).map((y) => [y.assessmentYear, y]));
+        const freshByYear = new Map<string, IndiaItrYear>();
         for (const row of parsed) {
-          const existing = byYear.get(row.assessmentYear);
-          if (!existing || completeness(row) >= completeness(existing)) byYear.set(row.assessmentYear, row);
+          const existing = freshByYear.get(row.assessmentYear);
+          if (!existing || completeness(row) >= completeness(existing)) freshByYear.set(row.assessmentYear, row);
         }
+        const byYear = new Map((indiaTax?.itrYears ?? []).map((y) => [y.assessmentYear, y]));
+        for (const row of freshByYear.values()) byYear.set(row.assessmentYear, row);
         const next = Array.from(byYear.values());
         try {
           await onSave({ payslips: indiaTax?.payslips, itrYears: next });
