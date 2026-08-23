@@ -7304,6 +7304,17 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   cursor: pointer;
 }
 .equity-vest-day-process:hover { background: #fef3c7; }
+.equity-vest-day-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 0.75rem;
+}
+.equity-vest-day-toggle:hover { text-decoration: underline; }
 
 .equity-scheduled-card { border-color: #a5b4fc; background: #eef2ff; }
 .equity-scheduled-card span { color: #4f46e5; }

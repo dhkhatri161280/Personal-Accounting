@@ -131,6 +131,9 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
   const [vestDayFor, setVestDayFor] = useState<string | null>(null);
   const [vestDayPrice, setVestDayPrice] = useState("");
   const [vestDayRows, setVestDayRows] = useState<Record<string, { taxShares: string; sharesHeld: string }>>({});
+  // Only the next (soonest) date is shown by default — the full list stretches out to every
+  // future quarter for years and is only actually needed once that quarter arrives.
+  const [showAllVestDays, setShowAllVestDays] = useState(false);
 
   // ── Inline edit state (Mark Sold) ─────────────────────────────────────────
   const [editVest, setEditVest] = useState<{ grantId: string; vestId: string } | null>(null);
@@ -797,7 +800,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
 
       {pendingVestDays.length > 0 && (
         <div className="equity-vest-day-list">
-          {pendingVestDays.map(({ date, items, totalShares }) => (
+          {(showAllVestDays ? pendingVestDays : pendingVestDays.slice(0, 1)).map(({ date, items, totalShares }) => (
             <div className="equity-vest-day-row" key={date}>
               <span className="equity-vest-day-date">
                 {new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
@@ -821,6 +824,13 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
               )}
             </div>
           ))}
+          {pendingVestDays.length > 1 && (
+            <button className="equity-vest-day-toggle" onClick={() => setShowAllVestDays((v) => !v)}>
+              {showAllVestDays
+                ? "▴ Hide future vesting dates"
+                : `▾ Show ${pendingVestDays.length - 1} more upcoming vesting date${pendingVestDays.length - 1 === 1 ? "" : "s"}`}
+            </button>
+          )}
         </div>
       )}
 
