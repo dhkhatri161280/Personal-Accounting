@@ -7090,13 +7090,34 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-summary-card--current strong { color: #1d4ed8; }
 
 /* Tax tab has more summary cards than Equity — squeeze them onto one row instead of
-   wrapping to a second, scrolling horizontally only if the window is genuinely too narrow. */
+   wrapping to a second, scrolling horizontally only if the window is genuinely too narrow.
+   This only holds up on wide-enough screens: below ~820px there isn't room for 9 cards even
+   at their 108px floor, and flexbox doesn't fall back to the row's overflow-x scroll the way
+   the comment above assumed -- cards get crushed well under their own min-width instead,
+   with the dollar values occluded (painted under the next card, same failure mode fixed
+   elsewhere in the refreshed theme). Confirmed via live test: at 390px every card shrank to
+   33px and every value was occluded. Below that breakpoint, wrap instead of forcing one row. */
 .tax-report .equity-summary-row { flex-wrap: nowrap; overflow-x: auto; gap: 0.4rem; }
 .tax-report .equity-summary-col { min-width: 0; }
 .tax-report .equity-summary-card { min-width: 108px; padding: 0.45rem 0.55rem; }
 .tax-report .equity-summary-card span { font-size: 8.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tax-report .equity-summary-card strong { font-size: 13px; white-space: nowrap; }
 .tax-report .equity-summary-card em { font-size: 8px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 820px) {
+  .tax-report .equity-summary-row { flex-wrap: wrap; overflow-x: visible; }
+  .tax-report .equity-summary-col { min-width: 140px; }
+  .tax-report .equity-summary-card { min-width: 140px; }
+  .tax-report .equity-summary-card span,
+  .tax-report .equity-summary-card em {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .tax-report .equity-summary-card strong {
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+}
 .equity-summary-stat { cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; }
 .equity-summary-stat:hover { border-color: #3b82f6; }
 .equity-summary-stat--active { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 2px #bfdbfe; }
