@@ -212,6 +212,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [hsaCoverage, setHsaCoverage] = useState<HsaCoverage>("family");
   const [showGainEventsModal, setShowGainEventsModal] = useState(false);
   const [showDeductionsModal, setShowDeductionsModal] = useState(false);
+  const [periodBreakdownModal, setPeriodBreakdownModal] = useState<{ label: string; row: PayrollRow | undefined } | null>(null);
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
@@ -515,15 +516,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   });
 
   const summaryCards: { label: string; value: number; sub: string; onClick?: () => void; icon: IconKind; color: string }[] = [
-    { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other", icon: "cash", color: "#1e40af" },
-    { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate`, icon: "receipt", color: "#dc2626" },
-    { label: "Net Salary", value: totalNet, sub: "after deductions", icon: "wallet", color: "#16a34a" },
-    { label: "After Tax Salary", value: totalAfterTax, sub: "take-home", icon: "bank", color: "#0891b2" },
-    { label: "401K (Employee)", value: totalK401, sub: "payroll deduction", icon: "shield", color: "#7c3aed" },
-    { label: "401K Employer Match", value: totalK401Emplr, sub: "not in the paycheck deposit", icon: "shield", color: "#9333ea" },
+    { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Gross Salary", row: gross }), icon: "cash", color: "#1e40af" },
+    { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate — click for details →`, onClick: () => setPeriodBreakdownModal({ label: "Total Tax", row: totalTax }), icon: "receipt", color: "#dc2626" },
+    { label: "Net Salary", value: totalNet, sub: "after deductions — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Net Salary", row: netSalary }), icon: "wallet", color: "#16a34a" },
+    { label: "After Tax Salary", value: totalAfterTax, sub: "take-home — click for details →", onClick: () => setPeriodBreakdownModal({ label: "After Tax Salary", row: afterTax }), icon: "bank", color: "#0891b2" },
+    { label: "401K (Employee)", value: totalK401, sub: "payroll deduction — click for details →", onClick: () => setPeriodBreakdownModal({ label: "401K (Employee)", row: k401 }), icon: "shield", color: "#7c3aed" },
+    { label: "401K Employer Match", value: totalK401Emplr, sub: "not in the paycheck deposit — click for details →", onClick: () => setPeriodBreakdownModal({ label: "401K Employer Match", row: k401Emplr }), icon: "shield", color: "#9333ea" },
     { label: "ESPP Deduction", value: totalEsppDeduction, sub: `${fmt(esppDiscountValue)} discount value — click for details →`, onClick: () => setShowEsppModal(true), icon: "tag", color: "#d97706" },
     { label: "Stock (RSU) Vested", value: stockVestedValue, sub: "click for vest details →", onClick: () => setShowRsuModal(true), icon: "stock", color: "#1e40af" },
-    { label: "Effective Salary", value: totalEffective, sub: "incl. employer 401K + ESPP", icon: "trending-up", color: "#16a34a" },
+    { label: "Effective Salary", value: totalEffective, sub: "incl. employer 401K + ESPP — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Effective Salary", row: effective }), icon: "trending-up", color: "#16a34a" },
   ];
 
   function openVoucherModal(tx: Tx) {
@@ -1139,6 +1140,50 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           <EsppTable items={yearEspp} fmt={fmt} />
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowEsppModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {periodBreakdownModal && (
+        <Modal title={`${periodBreakdownModal.label} — ${yr.year}`} onClose={() => setPeriodBreakdownModal(null)} wide>
+          <table className="equity-table equity-drilldown-table">
+            <thead>
+              <tr>
+                <th>Period</th>
+                <th className="right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {yr.periodLabels.map((label, i) => {
+                const v = periodBreakdownModal.row?.values[i] ?? 0;
+                if ((gross?.values[i] ?? 0) === 0 && v === 0) return null; // no pay period recorded yet
+                return (
+                  <tr key={label || i}>
+                    <td title={label || undefined}>{label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`}</td>
+                    <td className="right">{fmt(v)}</td>
+                  </tr>
+                );
+              })}
+              {vestGroups.map(({ date, stockIdx }) => {
+                const v = periodBreakdownModal.row?.stockValues?.[stockIdx];
+                if (v === undefined || Math.abs(v) < 0.005) return null;
+                return (
+                  <tr key={date}>
+                    <td>{fmtDate(date)} (vesting)</td>
+                    <td className="right">{fmt(v)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td className="right">{fmt(sumRow(periodBreakdownModal.row))}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setPeriodBreakdownModal(null)}>Close</button>
           </div>
         </Modal>
       )}
