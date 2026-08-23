@@ -413,9 +413,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
   const esppDiscountValue = yearEspp.reduce((s, e) => s + (e.marketPriceAtPurchase - e.purchasePrice) * e.shares, 0);
 
-  // Federal tax estimate — wages (totalGross) already include RSU-vest/ESPP-discount
-  // ordinary income from payroll, so only realized capital gains from shares actually SOLD
-  // (an explicit salePrice on the vest/purchase) are added on top, split short/long term.
+  // Federal tax estimate — totalGross is GROSS pay (Base+Bonus+Stock+other), not W-2 Box 1
+  // federal taxable wages: a traditional 401(k) employee contribution is pretax and reduces
+  // Box 1, so it has to come out here or the estimate overtaxes that money. (Assumes a
+  // traditional, not Roth, 401(k) -- Roth contributions are post-tax and wouldn't reduce
+  // wages; this app doesn't distinguish the two.) ESPP deductions are always post-tax and
+  // correctly aren't subtracted. RSU-vest/ESPP-discount ordinary income is already included
+  // in totalGross via payroll; only realized capital gains from shares actually SOLD (an
+  // explicit salePrice on the vest/purchase) are added on top, split short/long term.
+  const taxableWages = Math.max(0, totalGross - totalK401);
   const taxEstimateYear = listUsTaxYears().includes(yr.year) ? yr.year : listUsTaxYears()[0]!;
   const gainEvents = [
     ...classifyRsuSales(equity?.grants ?? [], yr.year, 365),
@@ -427,7 +433,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // property tax, state income tax paid, charitable). Shown in the UI so a miss is obvious
   // and fixable by renaming the ledger, rather than silently wrong.
   const deductionMatches = matchDeductionLedgers(accounts, transactions, yr.year);
-  const preliminaryAgi = totalGross + gainTotals.shortTermGain + gainTotals.longTermGain;
+  const preliminaryAgi = taxableWages + gainTotals.shortTermGain + gainTotals.longTermGain;
   const federalItemized = computeItemizedDeduction(preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
@@ -438,7 +444,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const taxEstimate = estimateUsFederalTax({
     taxYear: taxEstimateYear,
     filingStatus,
-    wages: totalGross,
+    wages: taxableWages,
     federalWithheld: totalFederal,
     shortTermGain: gainTotals.shortTermGain,
     longTermGain: gainTotals.longTermGain,
@@ -891,14 +897,17 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         </label>
       </div>
       <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
-        Estimate only — not tax advice. Federal: no AMT or NIIT; ESPP disqualifying-disposition ordinary income
-        isn&apos;t modeled (treated as capital gain). CA: uses federal AGI as a proxy for CA AGI; no CA-specific
-        addback/subtraction items modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit
-        (can&apos;t be checked from ledger data alone). Based on {taxEstimate.rules.ruleVersion} / {caTaxEstimate.rules.ruleVersion}.
+        Estimate only — not tax advice. Wages = gross pay less your 401(k) employee contribution (assumed
+        traditional/pretax — Roth 401(k) contributions are post-tax and wouldn&apos;t reduce this; not distinguished
+        here). No other pretax deductions (e.g. health premiums) are subtracted since the app doesn&apos;t separately
+        track them. Federal: no AMT or NIIT; ESPP disqualifying-disposition ordinary income isn&apos;t modeled (treated
+        as capital gain). CA: uses federal AGI as a proxy for CA AGI; no CA-specific addback/subtraction items
+        modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit (can&apos;t be checked from
+        ledger data alone). Based on {taxEstimate.rules.ruleVersion} / {caTaxEstimate.rules.ruleVersion}.
       </p>
       <div className="equity-summary-row">
         {[
-          { label: "AGI", value: taxEstimate.agi, sub: "wages + net capital gains", icon: "wallet" as IconKind, color: "#1e40af" },
+          { label: "AGI", value: taxEstimate.agi, sub: `wages less ${fmt(totalK401)} 401(k) + net capital gains`, icon: "wallet" as IconKind, color: "#1e40af" },
           {
             label: "Deduction Used", value: taxEstimate.deductionUsed,
             sub: deductionMatches.length > 0
