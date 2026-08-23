@@ -83,7 +83,12 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
     for (let c = periodStartCol; c < lastCol; c++) values.push(toNum(row[c]));
     const stockValues: number[] = [];
     for (let c = lastCol; c < stockColEnd; c++) stockValues.push(toNum(row[c]));
-    rows.push({ label: label.trim(), annual: toNum(row[annualCol]), cumulative: toNum(row[cumulativeCol]), values, stockValues });
+    // Some employer sheets (e.g. a prior employer's "<year> RCS" tab) use the tax's official
+    // name "OASDI" instead of "SSN" -- same Social Security withholding, different label. The
+    // rest of the app looks it up as "SSN" specifically, so normalize at parse time rather
+    // than teach every lookup site both spellings.
+    const normalizedLabel = label.trim() === "OASDI" ? "SSN" : label.trim();
+    rows.push({ label: normalizedLabel, annual: toNum(row[annualCol]), cumulative: toNum(row[cumulativeCol]), values, stockValues });
   }
 
   return { year, sheetName, periodLabels, rows };
@@ -96,7 +101,11 @@ export async function parsePayrollXlsx(file: File): Promise<PayrollData> {
 
   const years: PayrollYear[] = [];
   for (const sheetName of wb.SheetNames) {
-    const m = sheetName.match(/^Yearly\s+(\d{4})$/);
+    // Most years are "Yearly <YYYY>" (current employer). A prior employer's year, before that
+    // naming convention started, is instead named "<YYYY> RCS" -- same internal layout
+    // (Particulars/Period header, Base/Gross Salary/Federal/.../Net Salary rows), just a
+    // different tab name and no "Yearly" prefix.
+    const m = sheetName.match(/^Yearly\s+(\d{4})$/) ?? sheetName.match(/^(\d{4})\s+RCS$/i);
     if (!m) continue;
     const y = parseSheet(wb.Sheets[sheetName], sheetName, m[1], XLSX);
     if (y) years.push(y);
