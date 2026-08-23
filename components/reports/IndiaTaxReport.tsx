@@ -439,21 +439,22 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         <h4>Annual Tax Return Archive (by Assessment Year)</h4>
       </div>
 
-      <div className="equity-grant-filter">
+      <div className="equity-grant-filter" style={{ flexWrap: "nowrap", overflowX: "auto" }}>
         {itrYears.length > 0 && (
           <>
-            <span className="equity-grant-filter-label">AY:</span>
-            {itrYears.map((y) => (
-              <button
-                key={y.id}
-                className={`equity-grant-filter-chip${activeAy === y.assessmentYear ? " equity-grant-filter-chip--active" : ""}`}
-                onClick={() => setSelectedAy(y.assessmentYear)}
-              >
-                {y.assessmentYear}
-              </button>
-            ))}
+            <span className="equity-grant-filter-label" style={{ flexShrink: 0 }}>AY:</span>
+            <select
+              value={activeAy ?? ""}
+              onChange={(e) => setSelectedAy(e.target.value)}
+              className="india-tax-input"
+              style={{ flexShrink: 0, fontWeight: 600 }}
+            >
+              {itrYears.map((y) => (
+                <option key={y.id} value={y.assessmentYear}>{y.assessmentYear}</option>
+              ))}
+            </select>
             {activeItrYear && (
-              <span style={{ display: "flex", gap: "0.5rem" }}>
+              <span style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
                 <button onClick={() => openEditItr(activeItrYear)}>Edit</button>
                 <button onClick={() => deleteItr(activeItrYear.id)}>Delete</button>
               </span>
@@ -470,16 +471,17 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         />
         <input
           type="password"
-          placeholder="ITR PDF password (older years only)"
+          placeholder="ITR password"
+          title="ITR PDF password (older years only)"
           value={itrPassword}
           onChange={(e) => setItrPassword(e.target.value)}
           className="india-tax-input"
-          style={{ maxWidth: 220, marginLeft: "auto" }}
+          style={{ width: 110, flexShrink: 0, marginLeft: "auto" }}
         />
-        <button onClick={() => itrFileInputRef.current?.click()} disabled={importingItr}>
+        <button onClick={() => itrFileInputRef.current?.click()} disabled={importingItr} style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
           {importingItr ? `Importing… ${itrImportProgress ? `${itrImportProgress.done}/${itrImportProgress.total}` : ""}` : "📄 Import ITR PDFs"}
         </button>
-        <button onClick={openAddItr}>+ Add Year</button>
+        <button onClick={openAddItr} style={{ flexShrink: 0, whiteSpace: "nowrap" }}>+ Add Year</button>
       </div>
       <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
         Select one or more ITR-V / Acknowledgement / Receipt PDFs — most recent downloads aren&apos;t
