@@ -444,6 +444,12 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
     setRecordVestForm({ vestPrice: "", taxShares: "", sharesHeld: "" });
   }
 
+  function openVestDay(date: string, items: { grant: RsuGrant; vest: RsuVest }[]) {
+    setVestDayFor(date);
+    setVestDayPrice("");
+    setVestDayRows(Object.fromEntries(items.map(({ vest }) => [vest.id, { taxShares: "", sharesHeld: "" }])));
+  }
+
   // Confirms every grant's pending tranche for one vest date in a single save, using the
   // shared stock price plus each row's own tax-shares-withheld/shares-held entry.
   async function saveVestDay() {
@@ -718,8 +724,42 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
       </div>
 
       {/* ── RSU Grants ─────────────────────────────────────────────────── */}
-      <div className="equity-section-head">
-        <h4>RSU Grants</h4>
+      <div className="equity-section-head" style={{ position: "relative" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <h4>RSU Grants</h4>
+          {pendingVestDays.length > 0 && !readOnly && (
+            <>
+              <button
+                className="equity-vest-day-pill"
+                onClick={() => openVestDay(pendingVestDays[0].date, pendingVestDays[0].items)}
+                title="Process this vesting date across every grant"
+              >
+                📅 Next vest{" "}
+                {new Date(pendingVestDays[0].date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                {" · "}{pendingVestDays[0].items.length}g · {pendingVestDays[0].totalShares.toLocaleString()}sh →
+              </button>
+              {pendingVestDays.length > 1 && (
+                <button className="equity-vest-day-more" onClick={() => setShowAllVestDays((v) => !v)}>
+                  {showAllVestDays ? "▴" : `▾ +${pendingVestDays.length - 1} more`}
+                </button>
+              )}
+              {showAllVestDays && (
+                <div className="equity-vest-day-dropdown">
+                  {pendingVestDays.slice(1).map(({ date, items, totalShares }) => (
+                    <button
+                      className="equity-vest-day-dropdown-row"
+                      key={date}
+                      onClick={() => { openVestDay(date, items); setShowAllVestDays(false); }}
+                    >
+                      <span>{new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</span>
+                      <span>{items.length}g · {totalShares.toLocaleString()}sh</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           {!readOnly && grants.length > 0 && (
             <button
@@ -797,42 +837,6 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
           )}
         </div>
       </div>
-
-      {pendingVestDays.length > 0 && (
-        <div className="equity-vest-day-list">
-          {(showAllVestDays ? pendingVestDays : pendingVestDays.slice(0, 1)).map(({ date, items, totalShares }) => (
-            <div className="equity-vest-day-row" key={date}>
-              <span className="equity-vest-day-date">
-                {new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
-              </span>
-              <span className="equity-vest-day-summary">
-                {items.length} grant{items.length === 1 ? "" : "s"} · {totalShares.toLocaleString()} sh scheduled
-              </span>
-              {!readOnly && (
-                <button
-                  className="equity-vest-day-process"
-                  onClick={() => {
-                    setVestDayFor(date);
-                    setVestDayPrice("");
-                    setVestDayRows(
-                      Object.fromEntries(items.map(({ vest }) => [vest.id, { taxShares: "", sharesHeld: "" }]))
-                    );
-                  }}
-                >
-                  Process vesting day →
-                </button>
-              )}
-            </div>
-          ))}
-          {pendingVestDays.length > 1 && (
-            <button className="equity-vest-day-toggle" onClick={() => setShowAllVestDays((v) => !v)}>
-              {showAllVestDays
-                ? "▴ Hide future vesting dates"
-                : `▾ Show ${pendingVestDays.length - 1} more upcoming vesting date${pendingVestDays.length - 1 === 1 ? "" : "s"}`}
-            </button>
-          )}
-        </div>
-      )}
 
       {vestDayFor && (() => {
         const items = pendingVestDays.find((d) => d.date === vestDayFor)?.items ?? [];

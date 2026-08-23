@@ -7277,44 +7277,64 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-grant-filter-count { color: #94a3b8; font-weight: 400; }
 .equity-grant-filter-chip--active .equity-grant-filter-count { color: #60a5fa; }
 
-/* Upcoming vesting dates — one row per date with pending tranches across any grant, since
-   NVDA vests everyone quarterly on the same date (see "Process vesting day" batch-entry
-   modal). */
-.equity-vest-day-list { display: flex; flex-direction: column; gap: 0.4rem; padding: 0 0.75rem 0.75rem; }
-.equity-vest-day-row {
-  display: flex;
+/* Next vesting date — a single compact pill inline with the "RSU Grants" heading instead of
+   a full-width row, since NVDA vests everyone quarterly on the same date and most of the
+   time only the next one matters (see "Process vesting day" batch-entry modal). */
+.equity-vest-day-pill {
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
+  gap: 4px;
   background: #fffbeb;
   border: 1px solid #fde68a;
-  border-radius: 8px;
-  font-size: 12.5px;
-}
-.equity-vest-day-date { font-weight: 700; color: #92400e; min-width: 110px; }
-.equity-vest-day-summary { color: #78716c; flex: 1; }
-.equity-vest-day-process {
-  background: #fff;
-  border: 1px solid #f59e0b;
   color: #92400e;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
-.equity-vest-day-process:hover { background: #fef3c7; }
-.equity-vest-day-toggle {
-  align-self: flex-start;
+.equity-vest-day-pill:hover { background: #fef3c7; }
+.equity-vest-day-more {
   background: none;
   border: none;
   color: #92400e;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  padding: 2px 0.75rem;
+  padding: 2px 4px;
+  white-space: nowrap;
 }
-.equity-vest-day-toggle:hover { text-decoration: underline; }
+.equity-vest-day-more:hover { text-decoration: underline; }
+.equity-vest-day-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 4px;
+}
+.equity-vest-day-dropdown-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+}
+.equity-vest-day-dropdown-row:hover { background: #f8fafc; }
+.equity-vest-day-dropdown-row span:last-child { color: #92400e; font-weight: 600; }
 
 .equity-scheduled-card { border-color: #a5b4fc; background: #eef2ff; }
 .equity-scheduled-card span { color: #4f46e5; }
