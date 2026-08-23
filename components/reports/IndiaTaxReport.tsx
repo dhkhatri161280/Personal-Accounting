@@ -216,7 +216,12 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               onChange={(e) => setPassword(e.target.value)}
               style={{ maxWidth: 220 }}
             />
-            <button className="equity-seed-btn" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+            <button
+              className="equity-seed-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing || !password.trim()}
+              title={!password.trim() ? "Enter the payslip PDF password first" : undefined}
+            >
               {importing ? `Importing… ${importProgress ? `${importProgress.done}/${importProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
             </button>
           </div>
@@ -254,7 +259,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               onChange={(e) => setPassword(e.target.value)}
               style={{ maxWidth: 180, marginLeft: "auto" }}
             />
-            <button onClick={() => fileInputRef.current?.click()} disabled={importing}>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing || !password.trim()}
+              title={!password.trim() ? "Enter the payslip PDF password first" : undefined}
+            >
               {importing ? `Importing… ${importProgress ? `${importProgress.done}/${importProgress.total}` : ""}` : "↻ Import more payslips"}
             </button>
           </div>
