@@ -38,6 +38,33 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
+// Marks a payslip-month entry as hand-built (not parsed from a real payslip PDF) — e.g. one
+// annual figure spread from an ITR when the real monthly payslips no longer exist.
+const RECONSTRUCTED_SOURCE = "Manual entry — reconstructed from ITR archive";
+
+const BLANK_RECONSTRUCTED_FORM = {
+  financialYear: "", // e.g. "2007-08"
+  employer: "", // optional -- a FY split across employers (job change mid-year) gets one entry each
+  grossEarnings: "",
+  incomeTax: "",
+};
+
+// A real payslip that exists only as a scanned image (no text layer, so the PDF importer can't
+// read it) -- transcribed by hand with the full field breakdown, same shape as an auto-parsed
+// month, just tagged with a different source label so it's clear how the numbers got in.
+const TRANSCRIBED_SOURCE_PREFIX = "Manual entry — transcribed from scanned payslip";
+
+const BLANK_MANUAL_MONTH_FORM = {
+  month: "", // YYYY-MM, from an <input type="month">
+  basic: "",
+  hra: "",
+  otherAllowances: "",
+  pf: "",
+  professionalTax: "",
+  incomeTax: "",
+  otherDeductions: "",
+};
+
 const BLANK_ITR_FORM = {
   assessmentYear: "",
   grossTotalIncome: "",
@@ -68,6 +95,12 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [payslipImportErrors, setPayslipImportErrors] = useState<string[]>([]);
   const [payslipImportProgress, setPayslipImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
+  const [reconstructForm, setReconstructForm] = useState(BLANK_RECONSTRUCTED_FORM);
+  const [addingReconstructed, setAddingReconstructed] = useState(false);
+  const [savingReconstructed, setSavingReconstructed] = useState(false);
+  const [manualMonthForm, setManualMonthForm] = useState(BLANK_MANUAL_MONTH_FORM);
+  const [addingManualMonth, setAddingManualMonth] = useState(false);
+  const [savingManualMonth, setSavingManualMonth] = useState(false);
 
   const [itrPassword, setItrPassword] = useState("");
   const [importingItr, setImportingItr] = useState(false);
@@ -87,6 +120,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const fyGross = fyMonths.reduce((s, m) => s + m.grossEarnings, 0);
   const fyDeductions = fyMonths.reduce((s, m) => s + m.totalDeductions, 0);
   const fyNet = fyMonths.reduce((s, m) => s + m.netPay, 0);
+  const isReconstructedFy = fyMonths.length > 0 && fyMonths.every((m) => m.sourceFile === RECONSTRUCTED_SOURCE);
 
   const itrYears = (indiaTax?.itrYears ?? []).slice().sort((a, b) => b.assessmentYear.localeCompare(a.assessmentYear));
   const activeAy = selectedAy ?? itrYears[0]?.assessmentYear ?? null;
@@ -154,6 +188,104 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     } finally {
       setImportingPayslips(false);
       setPayslipImportProgress(null);
+    }
+  }
+
+  // For years where the real payslip PDFs no longer exist but an ITR was filed -- one annual
+  // figure standing in for the missing months, clearly labeled so it's never mistaken for a
+  // real payslip. Financial year "YYYY-YY" -> dated Apr 1 of the starting year so it sorts and
+  // groups into the right FY bucket alongside real months.
+  function openAddReconstructed() {
+    setReconstructForm(BLANK_RECONSTRUCTED_FORM);
+    setAddingReconstructed(true);
+  }
+  async function saveReconstructedForm() {
+    const fy = reconstructForm.financialYear.trim();
+    if (!/^\d{4}-\d{2}$/.test(fy)) return;
+    setSavingReconstructed(true);
+    try {
+      const startYear = fy.slice(0, 4);
+      const gross = Number(reconstructForm.grossEarnings) || 0;
+      const tax = Number(reconstructForm.incomeTax) || 0;
+      const employer = reconstructForm.employer.trim();
+      // A FY split across two employers (job change mid-year) needs two entries, not one --
+      // April 1 alone would collide (same date = same merge key, second save overwrites the
+      // first). Walk forward a day at a time within April until an unused date turns up.
+      let day = 1;
+      const usedDates = new Set(months.map((m) => m.date));
+      while (usedDates.has(`${startYear}-04-${String(day).padStart(2, "0")}`)) day++;
+      const row: IndiaPayslipMonth = {
+        label: employer ? `FY ${fy} — ${employer} (reconstructed)` : `FY ${fy} (reconstructed from ITR)`,
+        date: `${startYear}-04-${String(day).padStart(2, "0")}`,
+        basic: 0,
+        hra: 0,
+        conveyance: 0,
+        otherAllowances: gross,
+        grossEarnings: gross,
+        pf: 0,
+        professionalTax: 0,
+        incomeTax: tax,
+        otherDeductions: 0,
+        totalDeductions: tax,
+        netPay: gross - tax,
+        sourceFile: RECONSTRUCTED_SOURCE,
+      };
+      const next = mergeIndiaPayslipMonths(months, [row]);
+      await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+      setSelectedFy(fy);
+      setAddingReconstructed(false);
+    } finally {
+      setSavingReconstructed(false);
+    }
+  }
+  async function deleteReconstructedFy(fy: string) {
+    const next = months.filter((m) => fyOf(m.date) !== fy || m.sourceFile !== RECONSTRUCTED_SOURCE);
+    await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+    setSelectedFy(null);
+  }
+
+  function openAddManualMonth() {
+    setManualMonthForm(BLANK_MANUAL_MONTH_FORM);
+    setAddingManualMonth(true);
+  }
+  async function saveManualMonthForm() {
+    if (!/^\d{4}-\d{2}$/.test(manualMonthForm.month)) return;
+    setSavingManualMonth(true);
+    try {
+      const n = (s: string) => Number(s) || 0;
+      const [y, mm] = manualMonthForm.month.split("-");
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const basic = n(manualMonthForm.basic);
+      const hra = n(manualMonthForm.hra);
+      const otherAllowances = n(manualMonthForm.otherAllowances);
+      const pf = n(manualMonthForm.pf);
+      const professionalTax = n(manualMonthForm.professionalTax);
+      const incomeTax = n(manualMonthForm.incomeTax);
+      const otherDeductions = n(manualMonthForm.otherDeductions);
+      const grossEarnings = basic + hra + otherAllowances;
+      const totalDeductions = pf + professionalTax + incomeTax + otherDeductions;
+      const row: IndiaPayslipMonth = {
+        label: `${monthNames[Number(mm) - 1]} ${y}`,
+        date: `${y}-${mm}-01`,
+        basic,
+        hra,
+        conveyance: 0,
+        otherAllowances,
+        grossEarnings,
+        pf,
+        professionalTax,
+        incomeTax,
+        otherDeductions,
+        totalDeductions,
+        netPay: grossEarnings - totalDeductions,
+        sourceFile: TRANSCRIBED_SOURCE_PREFIX,
+      };
+      const next = mergeIndiaPayslipMonths(months, [row]);
+      await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+      setSelectedFy(fyOf(row.date));
+      setAddingManualMonth(false);
+    } finally {
+      setSavingManualMonth(false);
     }
   }
 
@@ -323,11 +455,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             >
               {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
             </button>
+            <button className="equity-seed-btn" onClick={openAddReconstructed}>
+              ✏️ Add Reconstructed Year
+            </button>
+            <button className="equity-seed-btn" onClick={openAddManualMonth}>
+              📝 Add Real Month (Manual)
+            </button>
           </div>
           <p className="equity-seed-note">
             Select one or more TCS-style payslip PDFs — decrypted locally in your browser with the password above,
             never uploaded anywhere. Reads Basic, HRA, PF, Professional Tax, Income Tax, Net Pay, and the
             &quot;Projected Annual Tax Information&quot; box (80C, 80D, Total Tax Payable, Tax Deducted, Balance Tax).
+            For years with no surviving payslip PDF, use &quot;Add Reconstructed Year&quot; to enter one annual
+            figure (from an ITR, say) instead — clearly labeled as reconstructed, not a real payslip.
           </p>
         </div>
       ) : (
@@ -343,6 +483,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                 {fy}
               </button>
             ))}
+            {isReconstructedFy && (
+              <button onClick={() => activeFy && deleteReconstructedFy(activeFy)} title="Delete this reconstructed entry">
+                🗑 Delete Reconstructed
+              </button>
+            )}
             <input
               ref={payslipFileInputRef}
               type="file"
@@ -351,13 +496,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               style={{ display: "none" }}
               onChange={handlePayslipImport}
             />
+            <button onClick={openAddReconstructed} style={{ marginLeft: "auto" }}>
+              ✏️ Add Reconstructed Year
+            </button>
+            <button onClick={openAddManualMonth}>
+              📝 Add Real Month (Manual)
+            </button>
             <input
               type="password"
               placeholder="Payslip PDF password"
               value={payslipPassword}
               onChange={(e) => setPayslipPassword(e.target.value)}
               className="india-tax-input"
-              style={{ maxWidth: 180, marginLeft: "auto" }}
+              style={{ maxWidth: 180 }}
             />
             <button
               onClick={() => payslipFileInputRef.current?.click()}
@@ -577,6 +728,118 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <button onClick={() => setEditingItrId(null)}>Cancel</button>
             <button onClick={saveItrForm} disabled={savingItr || !itrForm.assessmentYear.trim()}>
               {savingItr ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {addingReconstructed && (
+        <Modal title="Add Reconstructed Year" onClose={() => setAddingReconstructed(false)}>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
+            For a year with no surviving payslip PDF — enter one annual gross and tax figure (e.g. from that
+            year&apos;s ITR or ledger). Saved as an entry clearly labeled &quot;reconstructed&quot;, not a real
+            payslip. If a financial year had more than one employer, add one entry per employer — they won&apos;t
+            overwrite each other.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+            <label style={{ fontSize: 12 }}>
+              Financial Year (e.g. 2007-08)
+              <input
+                value={reconstructForm.financialYear}
+                onChange={(e) => setReconstructForm({ ...reconstructForm, financialYear: e.target.value })}
+                className="india-tax-input"
+                style={{ display: "block", width: "100%" }}
+              />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Employer (optional)
+              <input
+                value={reconstructForm.employer}
+                onChange={(e) => setReconstructForm({ ...reconstructForm, employer: e.target.value })}
+                className="india-tax-input"
+                style={{ display: "block", width: "100%" }}
+              />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Gross Annual Income
+              <input
+                type="number"
+                value={reconstructForm.grossEarnings}
+                onChange={(e) => setReconstructForm({ ...reconstructForm, grossEarnings: e.target.value })}
+                className="india-tax-input"
+                style={{ display: "block", width: "100%" }}
+              />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Income Tax Paid
+              <input
+                type="number"
+                value={reconstructForm.incomeTax}
+                onChange={(e) => setReconstructForm({ ...reconstructForm, incomeTax: e.target.value })}
+                className="india-tax-input"
+                style={{ display: "block", width: "100%" }}
+              />
+            </label>
+          </div>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+            <button onClick={() => setAddingReconstructed(false)}>Cancel</button>
+            <button onClick={saveReconstructedForm} disabled={savingReconstructed || !/^\d{4}-\d{2}$/.test(reconstructForm.financialYear.trim())}>
+              {savingReconstructed ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {addingManualMonth && (
+        <Modal title="Add Real Month (Manual)" onClose={() => setAddingManualMonth(false)}>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
+            For a real payslip that only exists as a scanned image (no text layer to auto-read) — enter the figures
+            by hand, same fields as an auto-imported month.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+            <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
+              Month
+              <input
+                type="month"
+                value={manualMonthForm.month}
+                onChange={(e) => setManualMonthForm({ ...manualMonthForm, month: e.target.value })}
+                className="india-tax-input"
+                style={{ display: "block", width: "100%" }}
+              />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Basic Salary
+              <input type="number" value={manualMonthForm.basic} onChange={(e) => setManualMonthForm({ ...manualMonthForm, basic: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              HRA
+              <input type="number" value={manualMonthForm.hra} onChange={(e) => setManualMonthForm({ ...manualMonthForm, hra: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Other Allowances
+              <input type="number" value={manualMonthForm.otherAllowances} onChange={(e) => setManualMonthForm({ ...manualMonthForm, otherAllowances: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              PF
+              <input type="number" value={manualMonthForm.pf} onChange={(e) => setManualMonthForm({ ...manualMonthForm, pf: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Professional Tax
+              <input type="number" value={manualMonthForm.professionalTax} onChange={(e) => setManualMonthForm({ ...manualMonthForm, professionalTax: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Income Tax (TDS)
+              <input type="number" value={manualMonthForm.incomeTax} onChange={(e) => setManualMonthForm({ ...manualMonthForm, incomeTax: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Other Deductions
+              <input type="number" value={manualMonthForm.otherDeductions} onChange={(e) => setManualMonthForm({ ...manualMonthForm, otherDeductions: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+          </div>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+            <button onClick={() => setAddingManualMonth(false)}>Cancel</button>
+            <button onClick={saveManualMonthForm} disabled={savingManualMonth || !/^\d{4}-\d{2}$/.test(manualMonthForm.month)}>
+              {savingManualMonth ? "Saving…" : "Save"}
             </button>
           </div>
         </Modal>
