@@ -8,6 +8,9 @@ import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, ty
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
 import { matchDeductionLedgers, deductionTotal, findHsaContributions } from "@/lib/tax-deductions";
 import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-engine";
+import { estimateNjStateTax, computeNjPropertyTaxDeduction } from "@/lib/tax-nj-engine";
+import { estimateAzStateTax, computeAzItemizedDeduction } from "@/lib/tax-az-engine";
+import { resolveStateResidency } from "@/lib/tax-state-residency";
 import { fmtDate } from "@/lib/format-date";
 
 interface TaxReportProps {
@@ -473,7 +476,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     0,
     taxableWages + gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction - hsaDeduction
   );
-  const federalItemized = computeItemizedDeduction(preliminaryAgi, {
+  const federalItemized = computeItemizedDeduction(taxEstimateYear, preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
     stateIncomeTaxPaid: deductionTotal(deductionMatches, "stateIncomeTax"),
@@ -496,24 +499,38 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     itemizedDeduction: federalItemized.total,
   });
 
-  // California state tax — the user is a full-year CA resident. Uses federal AGI as a proxy
-  // for CA AGI (adding back the HSA deduction, since CA doesn't conform to federal HSA
-  // treatment), and CA's own itemized rules (no SALT cap, but state income tax paid isn't
-  // deductible against itself).
-  const caAgi = taxEstimate.agi + taxEstimate.aboveLineDeduction;
-  const caItemized = computeCaItemizedDeduction(caAgi, {
+  // State tax — dispatches to whichever state the user actually lived/worked in for this tax
+  // year (lib/tax-state-residency.ts). AZ conforms to federal HSA treatment (no addback needed);
+  // CA and NJ don't, so the HSA deduction is added back to approximate state AGI for those two.
+  const stateResidency = resolveStateResidency(taxEstimateYear);
+  const stateAgi = stateResidency.code === "AZ" ? taxEstimate.agi : taxEstimate.agi + taxEstimate.aboveLineDeduction;
+  const stateItemizedInputs = {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
     mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
     charitable: deductionTotal(deductionMatches, "charitable"),
-  });
-  const caTaxEstimate = estimateCaStateTax({
-    taxYear: taxEstimateYear,
-    filingStatus,
-    agi: caAgi,
-    itemizedDeduction: caItemized,
-    stateWithheld: totalStateWH,
-  });
+  };
+  const stateItemized =
+    stateResidency.code === "NJ"
+      ? computeNjPropertyTaxDeduction(stateItemizedInputs.propertyTax)
+      : stateResidency.code === "AZ"
+        ? computeAzItemizedDeduction(stateAgi, stateItemizedInputs)
+        : computeCaItemizedDeduction(stateAgi, stateItemizedInputs);
+  const stateTaxEstimate =
+    stateResidency.code === "NJ"
+      ? estimateNjStateTax({
+          taxYear: taxEstimateYear, filingStatus, agi: stateAgi,
+          propertyTax: stateItemizedInputs.propertyTax, stateWithheld: totalStateWH,
+        })
+      : stateResidency.code === "AZ"
+        ? estimateAzStateTax({
+            taxYear: taxEstimateYear, filingStatus, agi: stateAgi,
+            itemizedDeduction: stateItemized, stateWithheld: totalStateWH,
+          })
+        : estimateCaStateTax({
+            taxYear: taxEstimateYear, filingStatus, agi: stateAgi,
+            itemizedDeduction: stateItemized, stateWithheld: totalStateWH,
+          });
 
   const summaryCards: { label: string; value: number; sub: string; onClick?: () => void; icon: IconKind; color: string }[] = [
     { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Gross Salary", row: gross }), icon: "cash", color: "#1e40af" },
@@ -1003,10 +1020,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           not modeled, watch for it changing at materially higher income). NIIT&apos;s net investment income only
           includes realized capital gains — interest/dividends aren&apos;t tracked, so it&apos;s understated if you
           have meaningful amounts of either. ESPP disqualifying-disposition ordinary income isn&apos;t modeled
-          (treated as capital gain). CA: uses federal AGI as a proxy for CA AGI, adding the HSA deduction back since
-          California doesn&apos;t conform to federal HSA treatment; no other CA-specific addback/subtraction items
+          (treated as capital gain). {stateResidency.code}: uses federal AGI as a proxy for {stateResidency.code} AGI
+          {stateResidency.code !== "AZ" && <> , adding the HSA deduction back since {stateResidency.name} doesn&apos;t
+          conform to federal HSA treatment</>}; no other {stateResidency.code}-specific addback/subtraction items
           modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit (can&apos;t be checked
-          from ledger data alone). Based on {taxEstimate.rules.ruleVersion} / {caTaxEstimate.rules.ruleVersion}.
+          from ledger data alone). State of residence for {yr.year} is assumed to be {stateResidency.name}. Based on
+          {" "}{taxEstimate.rules.ruleVersion} / {stateTaxEstimate.rules.ruleVersion}.
         </p>
       </details>
       <div className="equity-summary-row">
@@ -1074,16 +1093,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       )}
 
       <div className="equity-section-head">
-        <h4>California State Tax — {yr.year}</h4>
+        <h4>{stateResidency.name} State Tax — {yr.year}</h4>
       </div>
       <div className="equity-summary-row">
         {[
-          { label: "CA Taxable Income", value: caTaxEstimate.taxableIncome, sub: caTaxEstimate.usedItemized ? "itemized (beats CA standard)" : "CA standard deduction", icon: "cash" as IconKind, color: "#0891b2" },
-          { label: "Estimated CA Tax", value: caTaxEstimate.estimatedTax, sub: caTaxEstimate.mentalHealthTax > 0 ? `incl. ${fmt(caTaxEstimate.mentalHealthTax)} Mental Health Services Tax` : "brackets only", icon: "receipt" as IconKind, color: "#dc2626" },
-          { label: "CA Withheld", value: caTaxEstimate.stateWithheld, sub: "from payroll (State W/H)", icon: "shield" as IconKind, color: "#16a34a" },
-          caTaxEstimate.refund > 0
-            ? { label: "Estimated CA Refund", value: caTaxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
-            : { label: "Estimated CA Balance Due", value: caTaxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
+          { label: `${stateResidency.code} Taxable Income`, value: stateTaxEstimate.taxableIncome, sub: stateTaxEstimate.usedItemized ? `itemized (beats ${stateResidency.code} standard)` : `${stateResidency.code} standard deduction`, icon: "cash" as IconKind, color: "#0891b2" },
+          { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, sub: stateTaxEstimate.mentalHealthTax > 0 ? `incl. ${fmt(stateTaxEstimate.mentalHealthTax)} Mental Health Services Tax` : "brackets only", icon: "receipt" as IconKind, color: "#dc2626" },
+          { label: `${stateResidency.code} Withheld`, value: stateTaxEstimate.stateWithheld, sub: "from payroll (State W/H)", icon: "shield" as IconKind, color: "#16a34a" },
+          stateTaxEstimate.refund > 0
+            ? { label: `Estimated ${stateResidency.code} Refund`, value: stateTaxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
+            : { label: `Estimated ${stateResidency.code} Balance Due`, value: stateTaxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
@@ -1260,9 +1279,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             {taxEstimate.usedItemized ? " itemizing wins, used above." : " standard deduction wins, used above."}
           </p>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
-            California itemized total {fmt(caItemized)} (no SALT cap, but state income tax paid doesn&apos;t count
-            against the CA return) vs. CA standard deduction {fmt(caTaxEstimate.rules.standardDeduction)} —
-            {caTaxEstimate.usedItemized ? " itemizing wins for CA." : " CA standard deduction wins."}
+            {stateResidency.code === "NJ" ? (
+              <>NJ deduction: {fmt(stateTaxEstimate.rules.standardDeduction)} personal exemption + {fmt(stateItemized)} property
+              tax (capped at $15,000) — NJ doesn&apos;t have a standard-vs-itemized choice; both apply together, unlike the
+              federal/CA/AZ returns above.</>
+            ) : stateResidency.code === "AZ" ? (
+              <>Arizona itemized total {fmt(stateItemized)} (SALT-capped at $10,000) vs. AZ standard deduction {fmt(stateTaxEstimate.rules.standardDeduction)} —
+              {stateTaxEstimate.usedItemized ? " itemizing wins for AZ." : " AZ standard deduction wins."}</>
+            ) : (
+              <>California itemized total {fmt(stateItemized)} (no SALT cap, but state income tax paid doesn&apos;t count
+              against the CA return) vs. CA standard deduction {fmt(stateTaxEstimate.rules.standardDeduction)} —
+              {stateTaxEstimate.usedItemized ? " itemizing wins for CA." : " CA standard deduction wins."}</>
+            )}
           </p>
           {hsaContributions.length > 0 && (
             <>
@@ -1283,8 +1311,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               </table>
               <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
                 Total {fmt(hsaContributionTotal)}, capped at the {hsaCoverage} IRS limit — {fmt(hsaDeduction)} actually deducted from
-                federal AGI. Not deductible on your CA return (California doesn&apos;t conform to federal HSA treatment), so it&apos;s
-                added back for the CA calculation above.
+                federal AGI. {stateResidency.code === "AZ"
+                  ? <>{stateResidency.name} conforms to federal HSA treatment, so no addback is needed for the AZ calculation above.</>
+                  : <>Not deductible on your {stateResidency.code} return ({stateResidency.name} doesn&apos;t conform to federal HSA treatment),
+                  so it&apos;s added back for the {stateResidency.code} calculation above.</>}
               </p>
             </>
           )}

@@ -160,21 +160,31 @@ export interface ItemizedResult {
   total: number;
 }
 
-const SALT_CAP_BASE = 40_000; // 2025+ under the One Big Beautiful Bill Act; was $10,000 pre-2025
+const SALT_CAP_BASE = 40_000; // 2025+ under the One Big Beautiful Bill Act; was $10,000 2018-2024
 const SALT_PHASEOUT_START_MAGI = 500_000;
 const SALT_PHASEOUT_RATE = 0.30;
 const SALT_CAP_FLOOR = 10_000;
 const MEDICAL_AGI_FLOOR_PCT = 0.075;
 const CHARITABLE_AGI_CAP_PCT = 0.60;
 
+/** SALT (state/local tax) cap by year: uncapped pre-TCJA (through 2017), a flat $10,000
+ * 2018-2024, and the OBBBA's $40,000 cap (phased down for high earners) from 2025 on. */
+function saltCapForYear(taxYear: string, agi: number, saltPaid: number): number {
+  const year = parseInt(taxYear, 10);
+  if (!Number.isFinite(year) || year < 2018) return saltPaid; // no cap -- deductible in full
+  if (year < 2025) return SALT_CAP_FLOOR;
+  return Math.max(SALT_CAP_FLOOR, SALT_CAP_BASE - Math.max(0, agi - SALT_PHASEOUT_START_MAGI) * SALT_PHASEOUT_RATE);
+}
+
 /** Federal itemized deduction total, computed against the AGI-dependent floors/caps that
- * actually apply: medical only above 7.5% of AGI, SALT (property + state income tax) capped
- * and phased down for high earners, charitable capped at 60% of AGI. Mortgage interest isn't
- * capped here (the $750k acquisition-debt limit isn't checkable from ledger data alone). */
-export function computeItemizedDeduction(agi: number, inputs: ItemizedInputs): ItemizedResult {
+ * actually apply for the given tax year: medical only above 7.5% of AGI, SALT (property +
+ * state income tax) capped per `saltCapForYear`, charitable capped at 60% of AGI. Mortgage
+ * interest isn't capped here (the $750k acquisition-debt limit isn't checkable from ledger
+ * data alone). */
+export function computeItemizedDeduction(taxYear: string, agi: number, inputs: ItemizedInputs): ItemizedResult {
   const medicalDeductible = Math.max(0, inputs.medicalExpenses - agi * MEDICAL_AGI_FLOOR_PCT);
   const saltPaid = inputs.propertyTax + inputs.stateIncomeTaxPaid;
-  const saltCap = Math.max(SALT_CAP_FLOOR, SALT_CAP_BASE - Math.max(0, agi - SALT_PHASEOUT_START_MAGI) * SALT_PHASEOUT_RATE);
+  const saltCap = saltCapForYear(taxYear, agi, saltPaid);
   const saltDeductible = Math.min(saltPaid, saltCap);
   const mortgageInterestDeductible = Math.max(0, inputs.mortgageInterest);
   const charitableDeductible = Math.min(Math.max(0, inputs.charitable), agi * CHARITABLE_AGI_CAP_PCT);
@@ -192,8 +202,18 @@ export function computeItemizedDeduction(agi: number, inputs: ItemizedInputs): I
 export type HsaCoverage = "self-only" | "family";
 
 // IRS annual HSA contribution limits (Rev. Proc.) — 2025 figures validated against a real
-// Form 8889 (family limit matched exactly); 2026 figures per Rev. Proc. 2025-19.
+// Form 8889 (family limit matched exactly); 2026 figures per Rev. Proc. 2025-19; 2016-2024
+// figures are the published historical Rev. Proc. limits for each year.
 const HSA_LIMITS: Record<string, Record<HsaCoverage, number>> = {
+  "2016": { "self-only": 3_350, family: 6_750 },
+  "2017": { "self-only": 3_400, family: 6_750 },
+  "2018": { "self-only": 3_450, family: 6_900 },
+  "2019": { "self-only": 3_500, family: 7_000 },
+  "2020": { "self-only": 3_550, family: 7_100 },
+  "2021": { "self-only": 3_600, family: 7_200 },
+  "2022": { "self-only": 3_650, family: 7_300 },
+  "2023": { "self-only": 3_850, family: 7_750 },
+  "2024": { "self-only": 4_150, family: 8_300 },
   "2025": { "self-only": 4_300, family: 8_550 },
   "2026": { "self-only": 4_400, family: 8_750 },
 };
