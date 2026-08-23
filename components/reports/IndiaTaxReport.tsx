@@ -37,6 +37,45 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
+// Bulk-import CSV column order -- fixed, so a pasted block can be parsed positionally without
+// needing quoted-field handling. Only assessmentYear is required; anything past it defaults to
+// 0 (or blank for the last two). Notes is last and simply swallows everything remaining on the
+// line, so it's the one field allowed to contain commas.
+const ITR_CSV_COLUMNS = [
+  "assessmentYear", "grossTotalIncome", "deductionsChapterVIA", "totalIncome", "taxPayable",
+  "advanceTax", "tds", "tcs", "selfAssessmentTax", "refundOrDemand", "filingDate", "notes",
+] as const;
+
+function parseItrCsv(text: string): { rows: IndiaItrYear[]; errors: string[] } {
+  const rows: IndiaItrYear[] = [];
+  const errors: string[] = [];
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    const firstField = line.split(",")[0]?.trim().toLowerCase();
+    if (firstField === "assessmentyear" || firstField === "ay") continue; // header row
+    const parts = line.split(",");
+    const assessmentYear = (parts[0] ?? "").trim();
+    if (!assessmentYear) { errors.push(`Skipped a row with no Assessment Year: "${line.slice(0, 60)}"`); continue; }
+    const n = (s: string | undefined) => Number((s ?? "").replace(/[₹,\s]/g, "")) || 0;
+    rows.push({
+      id: uid(),
+      assessmentYear,
+      grossTotalIncome: n(parts[1]),
+      deductionsChapterVIA: n(parts[2]),
+      totalIncome: n(parts[3]),
+      taxPayable: n(parts[4]),
+      advanceTax: n(parts[5]),
+      tds: n(parts[6]),
+      tcs: n(parts[7]),
+      selfAssessmentTax: n(parts[8]),
+      refundOrDemand: n(parts[9]),
+      filingDate: parts[10]?.trim() || undefined,
+      notes: parts.slice(11).join(",").trim() || undefined,
+    });
+  }
+  return { rows, errors };
+}
+
 const BLANK_ITR_FORM = {
   assessmentYear: "",
   grossTotalIncome: "",
@@ -70,6 +109,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [editingItrId, setEditingItrId] = useState<string | null>(null);
   const [itrForm, setItrForm] = useState(BLANK_ITR_FORM);
   const [savingItr, setSavingItr] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const months = indiaTax?.payslips?.months ?? [];
   const fyList = Array.from(new Set(months.map((m) => fyOf(m.date)))).sort();
@@ -206,6 +249,32 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     const next = (indiaTax?.itrYears ?? []).filter((y) => y.id !== id);
     await onSave({ payslips: indiaTax?.payslips, itrYears: next });
     setSelectedAy(null);
+  }
+
+  async function handleBulkImport() {
+    const { rows, errors } = parseItrCsv(bulkText);
+    if (rows.length === 0) {
+      setBulkErrors(errors.length > 0 ? errors : ["No valid rows found — check the format and try again."]);
+      return;
+    }
+    setBulkSaving(true);
+    try {
+      // Upsert by Assessment Year: a pasted row replaces any existing entry for that same
+      // year (so re-pasting a corrected block is safe) rather than creating a duplicate.
+      const existing = indiaTax?.itrYears ?? [];
+      const byYear = new Map(existing.map((y) => [y.assessmentYear, y]));
+      for (const row of rows) byYear.set(row.assessmentYear, row);
+      const next = Array.from(byYear.values());
+      await onSave({ payslips: indiaTax?.payslips, itrYears: next });
+      setSelectedAy(rows[rows.length - 1].assessmentYear);
+      setBulkErrors(errors);
+      if (errors.length === 0) {
+        setBulkText("");
+        setShowBulkImport(false);
+      }
+    } finally {
+      setBulkSaving(false);
+    }
   }
 
   const fySummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = latestInFy
@@ -369,7 +438,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
 
       <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
         <h4>Annual Tax Return Archive (by Assessment Year)</h4>
-        <button onClick={openAddItr}>+ Add Year</button>
+        <span style={{ display: "flex", gap: "0.5rem" }}>
+          <button onClick={() => { setBulkText(""); setBulkErrors([]); setShowBulkImport(true); }}>⇊ Bulk Import</button>
+          <button onClick={openAddItr}>+ Add Year</button>
+        </span>
       </div>
       <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
         Entered by hand from filed ITRs — these older PDFs are flattened scans/renders with layouts that changed
@@ -419,6 +491,40 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             </p>
           )}
         </>
+      )}
+
+      {showBulkImport && (
+        <Modal title="Bulk Import Tax Years" onClose={() => setShowBulkImport(false)}>
+          <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
+            One row per Assessment Year, comma-separated, in this exact column order:
+          </p>
+          <p style={{ fontFamily: "monospace", fontSize: 11, background: "#f8fafc", padding: "0.5rem", borderRadius: 6, overflowX: "auto", whiteSpace: "nowrap" }}>
+            {ITR_CSV_COLUMNS.join(", ")}
+          </p>
+          <p className="equity-seed-note" style={{ margin: "0.25rem 0 0.5rem" }}>
+            Only Assessment Year is required (e.g. &quot;2018-19&quot;) — leave any other field blank for 0.
+            Filing Date should be YYYY-MM-DD. Notes is last and may contain commas. Pasting a row for a year
+            that&apos;s already recorded replaces it, so a corrected re-paste is safe.
+          </p>
+          <textarea
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            placeholder={"2008-09,248296,0,248296,12689,0,12689,0,0,0,2008-07-09,\n2018-19,1350000,150000,1200000,187500,40000,130000,500,20000,-2000,2018-07-15,"}
+            className="india-tax-input"
+            style={{ width: "100%", minHeight: 200, fontFamily: "monospace", fontSize: 12, marginTop: "0.25rem" }}
+          />
+          {bulkErrors.length > 0 && (
+            <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>
+              {bulkErrors.join("; ")}
+            </p>
+          )}
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+            <button onClick={() => setShowBulkImport(false)}>Cancel</button>
+            <button onClick={handleBulkImport} disabled={bulkSaving || !bulkText.trim()}>
+              {bulkSaving ? "Importing…" : "Import All"}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {editingItrId && (
