@@ -647,11 +647,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       </div>
 
       {k401ByYear.length > 0 && (
-        <>
-          <div className="equity-section-head">
-            <h4>401(k) Contributions by Year</h4>
-          </div>
-          <table className="equity-table equity-drilldown-table">
+        <details style={{ margin: "0 0 0.75rem" }}>
+          <summary style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
+            401(k) Contributions by Year — lifetime {fmt(k401LifetimeSelf)} self + {fmt(k401LifetimeEmployer)} employer ={" "}
+            {fmt(k401LifetimeSelf + k401LifetimeEmployer)} (click to expand)
+          </summary>
+          <table className="equity-table equity-drilldown-table" style={{ marginTop: "0.5rem" }}>
             <thead>
               <tr>
                 <th>Year</th>
@@ -679,7 +680,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               </tr>
             </tfoot>
           </table>
-        </>
+        </details>
       )}
 
       <div className="equity-section-head">
