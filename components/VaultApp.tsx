@@ -48,6 +48,7 @@ import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
 import { TaxReport } from "@/components/reports/TaxReport";
+import { IndiaTaxReport } from "@/components/reports/IndiaTaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
 import { StatIcon } from "@/components/Icon";
 
@@ -2151,14 +2152,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Trading
               </button>
             )}
-            {book !== "india" && (
-              <button
-                className={report === "tax" ? "selected" : ""}
-                onClick={() => setReport("tax")}
-              >
-                Tax
-              </button>
-            )}
+            <button
+              className={report === "tax" ? "selected" : ""}
+              onClick={() => setReport("tax")}
+            >
+              Tax
+            </button>
             <button
               className={report === "recon" ? "selected" : ""}
               onClick={() => setReport("recon")}
@@ -2428,7 +2427,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "trading" && (
             <TradingReport fmt={fmt} />
           )}
-          {report === "tax" && data && (
+          {report === "tax" && data && book === "india" && (
+            <IndiaTaxReport
+              indiaTax={data.indiaTax}
+              onSave={async (indiaTax) => {
+                await save({ ...data, indiaTax }, "reports");
+              }}
+              fmt={fmt}
+              uiTheme={uiTheme}
+            />
+          )}
+          {report === "tax" && data && book !== "india" && (
             <TaxReport
               payroll={data.payroll}
               transactions={data.transactions}

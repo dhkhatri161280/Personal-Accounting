@@ -139,6 +139,67 @@ export type PayrollData = {
   sourceFileName: string;
 };
 
+// One TCS-style payslip (or similar Indian payroll slip), parsed from a password-protected
+// PDF. "Projected Annual ..." fields are cumulative/YTD figures as printed on that specific
+// month's slip (not derived) -- the employer recomputes them each month as investments and
+// income change, so the *latest* month of a financial year has the most complete figures.
+export type IndiaPayslipMonth = {
+  label: string;   // e.g. "Apr 2014"
+  date: string;    // YYYY-MM-01, for sorting/grouping by financial year
+  basic: number;
+  hra: number;
+  conveyance: number;
+  otherAllowances: number; // remaining Earnings lines lumped together
+  grossEarnings: number;   // "Total Earnings (Current + Arrears)"
+  pf: number;
+  professionalTax: number;
+  incomeTax: number;
+  otherDeductions: number; // remaining Deductions lines lumped together
+  totalDeductions: number;
+  netPay: number;
+  annualIncome?: number;       // "Annual Income" (projected, cumulative)
+  netTaxIncome?: number;       // "Net Tax Income r/o"
+  section80C?: number;
+  section80D?: number;
+  hsgLoanInterest?: number;
+  chapterVIARelief?: number;
+  totalTaxPayable?: number;
+  taxDeductedTillDate?: number;
+  balanceTax?: number;
+  sourceFile: string;
+  generatedAt?: string; // ISO timestamp the slip was generated -- used to pick the newer one
+                        // when two files cover the same month (e.g. a reissued/corrected slip)
+};
+
+export type IndiaPayslipData = {
+  months: IndiaPayslipMonth[];
+  importedAt: string;
+};
+
+// One row per Assessment Year, entered by hand from a filed ITR -- these older PDFs are
+// flattened/rendered (no fillable form fields) with layouts that changed across years, so
+// they can't be reliably auto-parsed the way the payslips or the US payroll Excel can.
+export type IndiaItrYear = {
+  id: string;
+  assessmentYear: string; // e.g. "2008-09"
+  grossTotalIncome: number;
+  deductionsChapterVIA: number;
+  totalIncome: number;
+  taxPayable: number;
+  advanceTax: number;
+  tds: number;
+  tcs: number;
+  selfAssessmentTax: number;
+  refundOrDemand: number; // positive = refund, negative = demand payable
+  filingDate?: string;
+  notes?: string;
+};
+
+export type IndiaTaxData = {
+  payslips?: IndiaPayslipData;
+  itrYears: IndiaItrYear[];
+};
+
 export type TallyLedgerSnapshot = {
   asOf: string;
   balances: { name: string; parent?: string; closingBalance: number }[];
@@ -157,6 +218,7 @@ export type Ledger = {
   fiscalYearStartMonth?: number;
   equity?: EquityData;
   payroll?: PayrollData;
+  indiaTax?: IndiaTaxData;
   tallyLedgerSnapshot?: TallyLedgerSnapshot;
 };
 
