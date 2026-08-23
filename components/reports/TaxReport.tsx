@@ -4,9 +4,9 @@ import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrol
 import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear } from "@/lib/payroll-match";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { classifyRsuSales, classifyEsppSales, summarizeCapitalGains } from "@/lib/tax-classify";
-import { estimateUsFederalTax, computeItemizedDeduction } from "@/lib/tax-usa-engine";
+import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
-import { matchDeductionLedgers, deductionTotal } from "@/lib/tax-deductions";
+import { matchDeductionLedgers, deductionTotal, findHsaContributions } from "@/lib/tax-deductions";
 import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-engine";
 import { fmtDate } from "@/lib/format-date";
 
@@ -209,6 +209,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [startingManualYear, setStartingManualYear] = useState(false);
   const [manualYearInput, setManualYearInput] = useState(() => String(new Date().getFullYear()));
   const [filingStatus, setFilingStatus] = useState<UsFilingStatus>("mfj");
+  const [hsaCoverage, setHsaCoverage] = useState<HsaCoverage>("family");
   const [showGainEventsModal, setShowGainEventsModal] = useState(false);
   const [showDeductionsModal, setShowDeductionsModal] = useState(false);
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
@@ -444,9 +445,17 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // property tax, state income tax paid, charitable). Shown in the UI so a miss is obvious
   // and fixable by renaming the ledger, rather than silently wrong.
   const deductionMatches = matchDeductionLedgers(accounts, transactions, yr.year);
+
+  // Personal (non-payroll) HSA contributions — an above-the-line federal deduction (Form
+  // 8889), capped at the IRS annual limit for the selected coverage tier. California doesn't
+  // conform: it's added back for the CA AGI proxy below, not carried through.
+  const hsaContributions = findHsaContributions(transactions, yr.year);
+  const hsaContributionTotal = hsaContributions.reduce((s, h) => s + h.amount, 0);
+  const hsaDeduction = computeHsaDeduction(taxEstimateYear, hsaCoverage, hsaContributionTotal);
+
   const preliminaryAgi = Math.max(
     0,
-    taxableWages + gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction
+    taxableWages + gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction - hsaDeduction
   );
   const federalItemized = computeItemizedDeduction(preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
@@ -460,16 +469,23 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     filingStatus,
     wages: taxableWages,
     federalWithheld: totalFederal,
+    // Medicare wages aren't reduced by a 401(k) deferral (still FICA-taxable), unlike the
+    // federal-income-tax wages above -- use gross pay, not taxableWages.
+    medicareWages: totalGross,
+    medicareWithheld: totalMedicare,
     shortTermGainTaxable: gainTotals.shortTermGainTaxable,
     longTermGainTaxable: gainTotals.longTermGainTaxable,
     capitalLossDeduction: gainTotals.ordinaryLossDeduction,
+    aboveLineDeduction: hsaDeduction,
     itemizedDeduction: federalItemized.total,
   });
 
   // California state tax — the user is a full-year CA resident. Uses federal AGI as a proxy
-  // for CA AGI, and CA's own itemized rules (no SALT cap, but state income tax paid isn't
+  // for CA AGI (adding back the HSA deduction, since CA doesn't conform to federal HSA
+  // treatment), and CA's own itemized rules (no SALT cap, but state income tax paid isn't
   // deductible against itself).
-  const caItemized = computeCaItemizedDeduction(taxEstimate.agi, {
+  const caAgi = taxEstimate.agi + taxEstimate.aboveLineDeduction;
+  const caItemized = computeCaItemizedDeduction(caAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
     mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
@@ -478,7 +494,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const caTaxEstimate = estimateCaStateTax({
     taxYear: taxEstimateYear,
     filingStatus,
-    agi: taxEstimate.agi,
+    agi: caAgi,
     itemizedDeduction: caItemized,
     stateWithheld: totalStateWH,
   });
@@ -903,33 +919,54 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
 
       <div className="equity-section-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
         <h4>Estimated Tax Liability — {yr.year} (Federal)</h4>
-        <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem" }}>
-          Filing status
-          <select value={filingStatus} onChange={(e) => setFilingStatus(e.target.value as UsFilingStatus)}>
-            <option value="mfj">Married filing jointly</option>
-            <option value="single">Single</option>
-          </select>
-        </label>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            Filing status
+            <select value={filingStatus} onChange={(e) => setFilingStatus(e.target.value as UsFilingStatus)}>
+              <option value="mfj">Married filing jointly</option>
+              <option value="single">Single</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            HSA coverage
+            <select value={hsaCoverage} onChange={(e) => setHsaCoverage(e.target.value as HsaCoverage)}>
+              <option value="family">Family</option>
+              <option value="self-only">Self-only</option>
+            </select>
+          </label>
+        </div>
       </div>
       <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
         Estimate only — not tax advice. Wages = gross pay less your 401(k) employee contribution (assumed
         traditional/pretax — Roth 401(k) contributions are post-tax and wouldn&apos;t reduce this; not distinguished
-        here). No other pretax deductions (e.g. health premiums) are subtracted since the app doesn&apos;t separately
-        track them. Federal: no AMT or NIIT; ESPP disqualifying-disposition ordinary income isn&apos;t modeled (treated
-        as capital gain). CA: uses federal AGI as a proxy for CA AGI; no CA-specific addback/subtraction items
+        here) and any personal HSA contributions found (transactions narrated "HSA", capped at the IRS annual limit
+        for the coverage tier selected above). No other pretax deductions (e.g. health premiums) are subtracted
+        since the app doesn&apos;t separately track them. Federal: includes Additional Medicare Tax and NIIT (both
+        validated against a real return), but not AMT (didn&apos;t apply in that same return despite a large SALT
+        addback — not modeled, watch for it changing at materially higher income). NIIT&apos;s net investment income
+        only includes realized capital gains — interest/dividends aren&apos;t tracked, so it&apos;s understated if
+        you have meaningful amounts of either. ESPP disqualifying-disposition ordinary income isn&apos;t modeled
+        (treated as capital gain). CA: uses federal AGI as a proxy for CA AGI, adding the HSA deduction back since
+        California doesn&apos;t conform to federal HSA treatment; no other CA-specific addback/subtraction items
         modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit (can&apos;t be checked from
         ledger data alone). Based on {taxEstimate.rules.ruleVersion} / {caTaxEstimate.rules.ruleVersion}.
       </p>
       <div className="equity-summary-row">
         {[
-          { label: "AGI", value: taxEstimate.agi, sub: `wages less ${fmt(totalK401)} 401(k) + net capital gains`, icon: "wallet" as IconKind, color: "#1e40af" },
+          {
+            label: "AGI", value: taxEstimate.agi,
+            sub: hsaDeduction > 0
+              ? `wages less 401(k) & ${fmt(hsaDeduction)} HSA + net capital gains`
+              : `wages less ${fmt(totalK401)} 401(k) + net capital gains`,
+            icon: "wallet" as IconKind, color: "#1e40af",
+          },
           {
             label: "Deduction Used", value: taxEstimate.deductionUsed,
-            sub: deductionMatches.length > 0
+            sub: deductionMatches.length > 0 || hsaContributions.length > 0
               ? `${taxEstimate.usedItemized ? "itemized" : "standard"} — click for details →`
               : (taxEstimate.usedItemized ? "itemized (beats standard)" : "standard deduction"),
             icon: "cash" as IconKind, color: "#0891b2",
-            onClick: deductionMatches.length > 0 ? () => setShowDeductionsModal(true) : undefined,
+            onClick: deductionMatches.length > 0 || hsaContributions.length > 0 ? () => setShowDeductionsModal(true) : undefined,
           },
           {
             label: gainTotals.ordinaryLossDeduction > 0 ? "Capital Loss Deduction" : "Long-Term Capital Gain",
@@ -938,8 +975,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             icon: "trending-up" as IconKind, color: "#7c3aed",
             onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
           },
-          { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax, sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)}`, icon: "receipt" as IconKind, color: "#dc2626" },
-          { label: "Federal Withheld", value: taxEstimate.federalWithheld, sub: "from payroll", icon: "shield" as IconKind, color: "#16a34a" },
+          {
+            label: "Estimated Federal Tax", value: taxEstimate.estimatedTax,
+            sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)} + Medicare ${fmt(taxEstimate.additionalMedicareTax)} + NIIT ${fmt(taxEstimate.niit)}`,
+            icon: "receipt" as IconKind, color: "#dc2626",
+          },
+          {
+            label: "Federal Withheld", value: taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld,
+            sub: taxEstimate.additionalMedicareWithheld > 0
+              ? `${fmt(taxEstimate.federalWithheld)} income tax + ${fmt(taxEstimate.additionalMedicareWithheld)} Medicare`
+              : "from payroll",
+            icon: "shield" as IconKind, color: "#16a34a",
+          },
           taxEstimate.refund > 0
             ? { label: "Estimated Federal Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
             : { label: "Estimated Federal Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
@@ -1090,7 +1137,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             <tbody>
               {deductionMatches.map((m) => (
                 <tr key={m.key}>
-                  <td>{m.label}</td>
+                  <td>
+                    {m.label}
+                    {m.excludedCount ? (
+                      <span title="Excluded from this total: transactions whose narration mentions HSA/FSA — those aren't separately deductible as a medical expense (they get their own above-the-line deduction, not modeled here).">
+                        {" "}<em style={{ fontSize: 10, opacity: 0.6 }}>({m.excludedCount} HSA/FSA excluded)</em>
+                      </span>
+                    ) : null}
+                  </td>
                   <td>{m.ledgers.map((l) => l.name).join(", ")}</td>
                   <td className="right equity-amt">{fmt(m.total)}</td>
                 </tr>
@@ -1108,6 +1162,30 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             against the CA return) vs. CA standard deduction {fmt(caTaxEstimate.rules.standardDeduction)} —
             {caTaxEstimate.usedItemized ? " itemizing wins for CA." : " CA standard deduction wins."}
           </p>
+          {hsaContributions.length > 0 && (
+            <>
+              <h5 style={{ marginTop: "1.25rem", marginBottom: "0.5rem" }}>HSA Contributions (above-the-line, federal only)</h5>
+              <table className="equity-table">
+                <thead>
+                  <tr><th>Date</th><th>Narration</th><th className="right">Amount</th></tr>
+                </thead>
+                <tbody>
+                  {hsaContributions.map((h) => (
+                    <tr key={h.txGuid}>
+                      <td>{fmtDate(h.date)}</td>
+                      <td>{h.narration}</td>
+                      <td className="right equity-amt">{fmt(h.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+                Total {fmt(hsaContributionTotal)}, capped at the {hsaCoverage} IRS limit — {fmt(hsaDeduction)} actually deducted from
+                federal AGI. Not deductible on your CA return (California doesn&apos;t conform to federal HSA treatment), so it&apos;s
+                added back for the CA calculation above.
+              </p>
+            </>
+          )}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowDeductionsModal(false)}>Close</button>
           </div>

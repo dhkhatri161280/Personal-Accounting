@@ -16,6 +16,13 @@ export function applyBrackets(income: number, brackets: UsBracket[]): number {
   return tax;
 }
 
+// Additional Medicare Tax (Form 8959) and NIIT (Form 8960) share the same threshold table.
+const ADDITIONAL_MEDICARE_THRESHOLD: Record<UsFilingStatus, number> = { mfj: 250_000, single: 200_000 };
+const ADDITIONAL_MEDICARE_RATE = 0.009;
+const NIIT_THRESHOLD: Record<UsFilingStatus, number> = { mfj: 250_000, single: 200_000 };
+const NIIT_RATE = 0.038;
+const REGULAR_MEDICARE_RATE = 0.0145;
+
 export interface TaxEstimateInput {
   taxYear: string;
   filingStatus: UsFilingStatus;
@@ -23,6 +30,14 @@ export interface TaxEstimateInput {
    * as wages at vest/purchase time, not as capital gains). */
   wages: number;
   federalWithheld: number;
+  /** Box 5 Medicare wages — unlike `wages` above, NOT reduced by a traditional 401(k)
+   * deferral (401(k) contributions are still subject to Medicare/FICA tax). Used only for
+   * Additional Medicare Tax. Defaults to `wages` if omitted. */
+  medicareWages?: number;
+  /** Total Medicare tax withheld (W-2 Box 6) — combines the regular 1.45% and whatever
+   * Additional Medicare Tax the employer already withheld above the threshold, same as Form
+   * 8959 Part V. Used to credit Additional Medicare Tax already withheld; omit for 0. */
+  medicareWithheld?: number;
   /** Short-term capital gain that survived Schedule D-style netting (>= 0) — taxed as
    * ordinary income. */
   shortTermGainTaxable: number;
@@ -31,6 +46,11 @@ export interface TaxEstimateInput {
   /** Up to $3,000/year of a net overall capital LOSS, deductible against ordinary income
    * (from CapitalGainSummary.ordinaryLossDeduction). */
   capitalLossDeduction?: number;
+  /** Above-the-line deductions (Schedule 1 adjustments to income) — e.g. a personal HSA
+   * contribution (Form 8889). Reduces AGI directly, before the standard/itemized deduction
+   * is applied. Not the same as itemizedDeduction, which only reduces taxable income if it
+   * beats the standard deduction. */
+  aboveLineDeduction?: number;
   /** Itemized deduction total, if computed — the engine uses whichever of standard or
    * itemized is larger, same as real tax law. Omit to use the standard deduction only. */
   itemizedDeduction?: number;
@@ -47,8 +67,13 @@ export interface TaxEstimateResult {
   longTermGain: number;
   ltcgTax: number;
   capitalLossDeduction: number;
+  aboveLineDeduction: number;
+  additionalMedicareTax: number;
+  netInvestmentIncome: number;
+  niit: number;
   estimatedTax: number;
   federalWithheld: number;
+  additionalMedicareWithheld: number;
   balanceDue: number;
   refund: number;
 }
@@ -56,14 +81,17 @@ export interface TaxEstimateResult {
 /** Federal-only estimate: ordinary income (wages + short-term gains, which are taxed as
  * ordinary income, less any $3,000 capital-loss deduction) stacked with the larger of
  * standard or itemized deduction, plus long-term gains taxed separately under preferential
- * LTCG brackets. No AMT or NIIT. */
+ * LTCG brackets, plus Additional Medicare Tax and NIIT. No AMT (didn't apply in the reference
+ * return checked against this engine, despite a large SALT addback -- not modeled, watch for
+ * it changing at materially higher income or different deduction mix). */
 export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult {
   const rules = resolveUsTaxRules(input.taxYear, input.filingStatus);
   const shortTermGain = Math.max(0, input.shortTermGainTaxable);
   const longTermGain = Math.max(0, input.longTermGainTaxable);
   const capitalLossDeduction = Math.max(0, input.capitalLossDeduction ?? 0);
+  const aboveLineDeduction = Math.max(0, input.aboveLineDeduction ?? 0);
 
-  const ordinaryIncome = Math.max(0, input.wages + shortTermGain - capitalLossDeduction);
+  const ordinaryIncome = Math.max(0, input.wages + shortTermGain - capitalLossDeduction - aboveLineDeduction);
   const agi = ordinaryIncome + longTermGain;
   const itemized = Math.max(0, input.itemizedDeduction ?? 0);
   const usedItemized = itemized > rules.standardDeduction;
@@ -71,8 +99,25 @@ export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult
   const taxableOrdinary = Math.max(0, ordinaryIncome - deductionUsed);
   const ordinaryTax = applyBrackets(taxableOrdinary, rules.federalBrackets);
   const ltcgTax = applyBrackets(longTermGain, rules.longTermCapGainBrackets);
-  const estimatedTax = round2(ordinaryTax + ltcgTax);
-  const balance = round2(estimatedTax - input.federalWithheld);
+
+  const medicareWages = input.medicareWages ?? input.wages;
+  const additionalMedicareTax = round2(
+    Math.max(0, medicareWages - ADDITIONAL_MEDICARE_THRESHOLD[input.filingStatus]) * ADDITIONAL_MEDICARE_RATE
+  );
+  const medicareWithheld = input.medicareWithheld ?? 0;
+  const regularMedicareWithheld = medicareWages * REGULAR_MEDICARE_RATE;
+  const additionalMedicareWithheld = round2(Math.max(0, medicareWithheld - regularMedicareWithheld));
+
+  // Form 8960 line 5a treats ALL realized capital gains (short- and long-term alike) as
+  // investment income, unlike the federal bracket split above which taxes short-term gains
+  // as ordinary income. Interest/dividends aren't tracked by this app, so this understates
+  // net investment income for anyone with meaningful interest/dividend income.
+  const netInvestmentIncome = Math.max(0, shortTermGain + longTermGain);
+  const niit = round2(Math.min(netInvestmentIncome, Math.max(0, agi - NIIT_THRESHOLD[input.filingStatus])) * NIIT_RATE);
+
+  const estimatedTax = round2(ordinaryTax + ltcgTax + additionalMedicareTax + niit);
+  const totalCredits = input.federalWithheld + additionalMedicareWithheld;
+  const balance = round2(estimatedTax - totalCredits);
 
   return {
     rules,
@@ -85,8 +130,13 @@ export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult
     longTermGain: round2(longTermGain),
     ltcgTax: round2(ltcgTax),
     capitalLossDeduction: round2(capitalLossDeduction),
+    aboveLineDeduction: round2(aboveLineDeduction),
+    additionalMedicareTax,
+    netInvestmentIncome: round2(netInvestmentIncome),
+    niit,
     estimatedTax,
     federalWithheld: round2(input.federalWithheld),
+    additionalMedicareWithheld,
     balanceDue: balance > 0 ? balance : 0,
     refund: balance < 0 ? Math.abs(balance) : 0,
   };
@@ -137,6 +187,24 @@ export function computeItemizedDeduction(agi: number, inputs: ItemizedInputs): I
     charitableDeductible: round2(charitableDeductible),
     total: round2(medicalDeductible + saltDeductible + mortgageInterestDeductible + charitableDeductible),
   };
+}
+
+export type HsaCoverage = "self-only" | "family";
+
+// IRS annual HSA contribution limits (Rev. Proc.) — 2025 figures validated against a real
+// Form 8889 (family limit matched exactly); 2026 figures per Rev. Proc. 2025-19.
+const HSA_LIMITS: Record<string, Record<HsaCoverage, number>> = {
+  "2025": { "self-only": 4_300, family: 8_550 },
+  "2026": { "self-only": 4_400, family: 8_750 },
+};
+
+/** Federal above-the-line HSA deduction (Form 8889) — the personal (non-payroll) contribution
+ * amount, capped at the IRS annual limit for the coverage tier. California does NOT conform
+ * to federal HSA treatment: contributions aren't deductible on the CA return, so this must be
+ * added back when computing CA AGI, not carried through like a normal federal deduction. */
+export function computeHsaDeduction(taxYear: string, coverage: HsaCoverage, contributions: number): number {
+  const limits = HSA_LIMITS[taxYear] ?? HSA_LIMITS["2026"];
+  return round2(Math.min(Math.max(0, contributions), limits[coverage]));
 }
 
 export function round2(n: number): number {
