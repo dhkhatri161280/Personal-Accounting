@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import type { IndiaTaxData, IndiaPayslipMonth, IndiaItrYear } from "@/lib/vault-types";
 import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-india-payslip";
+import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
 
@@ -37,45 +38,6 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   );
 }
 
-// Bulk-import CSV column order -- fixed, so a pasted block can be parsed positionally without
-// needing quoted-field handling. Only assessmentYear is required; anything past it defaults to
-// 0 (or blank for the last two). Notes is last and simply swallows everything remaining on the
-// line, so it's the one field allowed to contain commas.
-const ITR_CSV_COLUMNS = [
-  "assessmentYear", "grossTotalIncome", "deductionsChapterVIA", "totalIncome", "taxPayable",
-  "advanceTax", "tds", "tcs", "selfAssessmentTax", "refundOrDemand", "filingDate", "notes",
-] as const;
-
-function parseItrCsv(text: string): { rows: IndiaItrYear[]; errors: string[] } {
-  const rows: IndiaItrYear[] = [];
-  const errors: string[] = [];
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  for (const line of lines) {
-    const firstField = line.split(",")[0]?.trim().toLowerCase();
-    if (firstField === "assessmentyear" || firstField === "ay") continue; // header row
-    const parts = line.split(",");
-    const assessmentYear = (parts[0] ?? "").trim();
-    if (!assessmentYear) { errors.push(`Skipped a row with no Assessment Year: "${line.slice(0, 60)}"`); continue; }
-    const n = (s: string | undefined) => Number((s ?? "").replace(/[₹,\s]/g, "")) || 0;
-    rows.push({
-      id: uid(),
-      assessmentYear,
-      grossTotalIncome: n(parts[1]),
-      deductionsChapterVIA: n(parts[2]),
-      totalIncome: n(parts[3]),
-      taxPayable: n(parts[4]),
-      advanceTax: n(parts[5]),
-      tds: n(parts[6]),
-      tcs: n(parts[7]),
-      selfAssessmentTax: n(parts[8]),
-      refundOrDemand: n(parts[9]),
-      filingDate: parts[10]?.trim() || undefined,
-      notes: parts.slice(11).join(",").trim() || undefined,
-    });
-  }
-  return { rows, errors };
-}
-
 const BLANK_ITR_FORM = {
   assessmentYear: "",
   grossTotalIncome: "",
@@ -99,20 +61,22 @@ interface IndiaTaxReportProps {
 }
 
 export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxReportProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [password, setPassword] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importErrors, setImportErrors] = useState<string[]>([]);
-  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
+  const payslipFileInputRef = useRef<HTMLInputElement>(null);
+  const itrFileInputRef = useRef<HTMLInputElement>(null);
+  const [payslipPassword, setPayslipPassword] = useState("");
+  const [importingPayslips, setImportingPayslips] = useState(false);
+  const [payslipImportErrors, setPayslipImportErrors] = useState<string[]>([]);
+  const [payslipImportProgress, setPayslipImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
+
+  const [itrPassword, setItrPassword] = useState("");
+  const [importingItr, setImportingItr] = useState(false);
+  const [itrImportErrors, setItrImportErrors] = useState<string[]>([]);
+  const [itrImportProgress, setItrImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedAy, setSelectedAy] = useState<string | null>(null);
   const [editingItrId, setEditingItrId] = useState<string | null>(null);
   const [itrForm, setItrForm] = useState(BLANK_ITR_FORM);
   const [savingItr, setSavingItr] = useState(false);
-  const [showBulkImport, setShowBulkImport] = useState(false);
-  const [bulkText, setBulkText] = useState("");
-  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
-  const [bulkSaving, setBulkSaving] = useState(false);
 
   const months = indiaTax?.payslips?.months ?? [];
   const fyList = Array.from(new Set(months.map((m) => fyOf(m.date)))).sort();
@@ -153,24 +117,24 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       ]
     : [];
 
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handlePayslipImport(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     e.target.value = "";
-    setImportErrors([]);
-    setImporting(true);
-    setImportProgress({ done: 0, total: files.length });
+    setPayslipImportErrors([]);
+    setImportingPayslips(true);
+    setPayslipImportProgress({ done: 0, total: files.length });
     try {
       const parsed: IndiaPayslipMonth[] = [];
       const errors: string[] = [];
       for (const file of files) {
         try {
           if (file.size === 0) throw new Error("empty file (0 bytes) — likely not downloaded locally yet; open it in the Drive app first, then retry");
-          parsed.push(await parseIndiaPayslipFile(file, password));
+          parsed.push(await parseIndiaPayslipFile(file, payslipPassword));
         } catch (err: any) {
           errors.push(`${file.name}: ${err?.message ?? "failed to parse"}`);
         }
-        setImportProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
+        setPayslipImportProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
       }
       if (parsed.length > 0) {
         const merged = mergeIndiaPayslipMonths(months, parsed);
@@ -184,12 +148,54 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           errors.unshift(`Saving to vault failed: ${err?.message ?? "unknown error"} — ${parsed.length} file(s) parsed OK but were NOT saved. Try again.`);
         }
       }
-      setImportErrors(errors);
+      setPayslipImportErrors(errors);
     } catch (err: any) {
-      setImportErrors([`Import failed unexpectedly: ${err?.message ?? "unknown error"}`]);
+      setPayslipImportErrors([`Import failed unexpectedly: ${err?.message ?? "unknown error"}`]);
     } finally {
-      setImporting(false);
-      setImportProgress(null);
+      setImportingPayslips(false);
+      setPayslipImportProgress(null);
+    }
+  }
+
+  async function handleItrImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    e.target.value = "";
+    setItrImportErrors([]);
+    setImportingItr(true);
+    setItrImportProgress({ done: 0, total: files.length });
+    try {
+      const parsed: IndiaItrYear[] = [];
+      const errors: string[] = [];
+      for (const file of files) {
+        try {
+          if (file.size === 0) throw new Error("empty file (0 bytes) — likely not downloaded locally yet; open it in the Drive app first, then retry");
+          const row = await parseIndiaItrFile(file, itrPassword);
+          parsed.push({ ...row, id: uid() });
+        } catch (err: any) {
+          errors.push(`${file.name}: ${err?.message ?? "failed to parse"}`);
+        }
+        setItrImportProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
+      }
+      if (parsed.length > 0) {
+        // Upsert by Assessment Year -- re-importing a corrected/replacement PDF for a year
+        // already on file safely replaces it instead of creating a duplicate.
+        const byYear = new Map((indiaTax?.itrYears ?? []).map((y) => [y.assessmentYear, y]));
+        for (const row of parsed) byYear.set(row.assessmentYear, row);
+        const next = Array.from(byYear.values());
+        try {
+          await onSave({ payslips: indiaTax?.payslips, itrYears: next });
+          setSelectedAy(parsed[parsed.length - 1].assessmentYear);
+        } catch (err: any) {
+          errors.unshift(`Saving to vault failed: ${err?.message ?? "unknown error"} — ${parsed.length} file(s) parsed OK but were NOT saved. Try again.`);
+        }
+      }
+      setItrImportErrors(errors);
+    } catch (err: any) {
+      setItrImportErrors([`Import failed unexpectedly: ${err?.message ?? "unknown error"}`]);
+    } finally {
+      setImportingItr(false);
+      setItrImportProgress(null);
     }
   }
 
@@ -251,32 +257,6 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     setSelectedAy(null);
   }
 
-  async function handleBulkImport() {
-    const { rows, errors } = parseItrCsv(bulkText);
-    if (rows.length === 0) {
-      setBulkErrors(errors.length > 0 ? errors : ["No valid rows found — check the format and try again."]);
-      return;
-    }
-    setBulkSaving(true);
-    try {
-      // Upsert by Assessment Year: a pasted row replaces any existing entry for that same
-      // year (so re-pasting a corrected block is safe) rather than creating a duplicate.
-      const existing = indiaTax?.itrYears ?? [];
-      const byYear = new Map(existing.map((y) => [y.assessmentYear, y]));
-      for (const row of rows) byYear.set(row.assessmentYear, row);
-      const next = Array.from(byYear.values());
-      await onSave({ payslips: indiaTax?.payslips, itrYears: next });
-      setSelectedAy(rows[rows.length - 1].assessmentYear);
-      setBulkErrors(errors);
-      if (errors.length === 0) {
-        setBulkText("");
-        setShowBulkImport(false);
-      }
-    } finally {
-      setBulkSaving(false);
-    }
-  }
-
   const fySummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = latestInFy
     ? [
         { label: "Gross Salary", value: fyGross, sub: `FY ${activeFy}, ${fyMonths.length} month(s)`, icon: "cash", color: "#1e40af" },
@@ -300,29 +280,29 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         <div className="equity-seed-banner">
           <p className="equity-empty">No India payslips imported yet.</p>
           <input
-            ref={fileInputRef}
+            ref={payslipFileInputRef}
             type="file"
             accept=".pdf"
             multiple
             style={{ display: "none" }}
-            onChange={handleImport}
+            onChange={handlePayslipImport}
           />
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
             <input
               type="password"
               placeholder="Payslip PDF password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={payslipPassword}
+              onChange={(e) => setPayslipPassword(e.target.value)}
               className="india-tax-input"
               style={{ maxWidth: 220 }}
             />
             <button
               className="equity-seed-btn"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={importing || !password.trim()}
-              title={!password.trim() ? "Enter the payslip PDF password first" : undefined}
+              onClick={() => payslipFileInputRef.current?.click()}
+              disabled={importingPayslips || !payslipPassword.trim()}
+              title={!payslipPassword.trim() ? "Enter the payslip PDF password first" : undefined}
             >
-              {importing ? `Importing… ${importProgress ? `${importProgress.done}/${importProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
+              {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
             </button>
           </div>
           <p className="equity-seed-note">
@@ -345,27 +325,27 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               </button>
             ))}
             <input
-              ref={fileInputRef}
+              ref={payslipFileInputRef}
               type="file"
               accept=".pdf"
               multiple
               style={{ display: "none" }}
-              onChange={handleImport}
+              onChange={handlePayslipImport}
             />
             <input
               type="password"
               placeholder="Payslip PDF password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={payslipPassword}
+              onChange={(e) => setPayslipPassword(e.target.value)}
               className="india-tax-input"
               style={{ maxWidth: 180, marginLeft: "auto" }}
             />
             <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={importing || !password.trim()}
-              title={!password.trim() ? "Enter the payslip PDF password first" : undefined}
+              onClick={() => payslipFileInputRef.current?.click()}
+              disabled={importingPayslips || !payslipPassword.trim()}
+              title={!payslipPassword.trim() ? "Enter the payslip PDF password first" : undefined}
             >
-              {importing ? `Importing… ${importProgress ? `${importProgress.done}/${importProgress.total}` : ""}` : "↻ Import more payslips"}
+              {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "↻ Import more payslips"}
             </button>
           </div>
 
@@ -430,29 +410,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         </>
       )}
 
-      {importErrors.length > 0 && (
+      {payslipImportErrors.length > 0 && (
         <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>
-          {importErrors.length} file(s) failed: {importErrors.join("; ")}
+          {payslipImportErrors.length} file(s) failed: {payslipImportErrors.join("; ")}
         </p>
       )}
 
       <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
         <h4>Annual Tax Return Archive (by Assessment Year)</h4>
-        <span style={{ display: "flex", gap: "0.5rem" }}>
-          <button onClick={() => { setBulkText(""); setBulkErrors([]); setShowBulkImport(true); }}>⇊ Bulk Import</button>
-          <button onClick={openAddItr}>+ Add Year</button>
-        </span>
       </div>
-      <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
-        Entered by hand from filed ITRs — these older PDFs are flattened scans/renders with layouts that changed
-        across years, so they can&apos;t be reliably auto-parsed the way payslips can.
-      </p>
 
-      {itrYears.length === 0 ? (
-        <p className="equity-empty">No tax years recorded yet — click &quot;+ Add Year&quot; to enter one.</p>
-      ) : (
-        <>
-          <div className="equity-grant-filter">
+      <div className="equity-grant-filter">
+        {itrYears.length > 0 && (
+          <>
             <span className="equity-grant-filter-label">AY:</span>
             {itrYears.map((y) => (
               <button
@@ -464,13 +434,50 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               </button>
             ))}
             {activeItrYear && (
-              <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
+              <span style={{ display: "flex", gap: "0.5rem" }}>
                 <button onClick={() => openEditItr(activeItrYear)}>Edit</button>
                 <button onClick={() => deleteItr(activeItrYear.id)}>Delete</button>
               </span>
             )}
-          </div>
+          </>
+        )}
+        <input
+          ref={itrFileInputRef}
+          type="file"
+          accept=".pdf"
+          multiple
+          style={{ display: "none" }}
+          onChange={handleItrImport}
+        />
+        <input
+          type="password"
+          placeholder="ITR PDF password (older years only)"
+          value={itrPassword}
+          onChange={(e) => setItrPassword(e.target.value)}
+          className="india-tax-input"
+          style={{ maxWidth: 220, marginLeft: "auto" }}
+        />
+        <button onClick={() => itrFileInputRef.current?.click()} disabled={importingItr}>
+          {importingItr ? `Importing… ${itrImportProgress ? `${itrImportProgress.done}/${itrImportProgress.total}` : ""}` : "📄 Import ITR PDFs"}
+        </button>
+        <button onClick={openAddItr}>+ Add Year</button>
+      </div>
+      <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
+        Select one or more ITR-V / Acknowledgement / Receipt PDFs — most recent downloads aren&apos;t
+        password-protected, older ones (pre-~2016) usually need PAN + DOB. Re-importing a file for a year
+        already on record replaces it. Use &quot;+ Add Year&quot; only for a year the auto-import can&apos;t read.
+      </p>
 
+      {itrImportErrors.length > 0 && (
+        <p className="equity-pdf-error" style={{ marginBottom: "0.5rem" }}>
+          {itrImportErrors.length} file(s) failed: {itrImportErrors.join("; ")}
+        </p>
+      )}
+
+      {itrYears.length === 0 ? (
+        <p className="equity-empty">No tax years recorded yet.</p>
+      ) : (
+        <>
           <div className="equity-summary-row">
             {itrSummaryCards.map((c) => (
               <div key={c.label} className="equity-summary-col">
@@ -491,40 +498,6 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             </p>
           )}
         </>
-      )}
-
-      {showBulkImport && (
-        <Modal title="Bulk Import Tax Years" onClose={() => setShowBulkImport(false)}>
-          <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
-            One row per Assessment Year, comma-separated, in this exact column order:
-          </p>
-          <p style={{ fontFamily: "monospace", fontSize: 11, background: "#f8fafc", padding: "0.5rem", borderRadius: 6, overflowX: "auto", whiteSpace: "nowrap" }}>
-            {ITR_CSV_COLUMNS.join(", ")}
-          </p>
-          <p className="equity-seed-note" style={{ margin: "0.25rem 0 0.5rem" }}>
-            Only Assessment Year is required (e.g. &quot;2018-19&quot;) — leave any other field blank for 0.
-            Filing Date should be YYYY-MM-DD. Notes is last and may contain commas. Pasting a row for a year
-            that&apos;s already recorded replaces it, so a corrected re-paste is safe.
-          </p>
-          <textarea
-            value={bulkText}
-            onChange={(e) => setBulkText(e.target.value)}
-            placeholder={"2008-09,248296,0,248296,12689,0,12689,0,0,0,2008-07-09,\n2018-19,1350000,150000,1200000,187500,40000,130000,500,20000,-2000,2018-07-15,"}
-            className="india-tax-input"
-            style={{ width: "100%", minHeight: 200, fontFamily: "monospace", fontSize: 12, marginTop: "0.25rem" }}
-          />
-          {bulkErrors.length > 0 && (
-            <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>
-              {bulkErrors.join("; ")}
-            </p>
-          )}
-          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-            <button onClick={() => setShowBulkImport(false)}>Cancel</button>
-            <button onClick={handleBulkImport} disabled={bulkSaving || !bulkText.trim()}>
-              {bulkSaving ? "Importing…" : "Import All"}
-            </button>
-          </div>
-        </Modal>
       )}
 
       {editingItrId && (
