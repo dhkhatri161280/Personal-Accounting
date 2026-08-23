@@ -214,6 +214,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               placeholder="Payslip PDF password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className="india-tax-input"
               style={{ maxWidth: 220 }}
             />
             <button
@@ -257,6 +258,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               placeholder="Payslip PDF password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className="india-tax-input"
               style={{ maxWidth: 180, marginLeft: "auto" }}
             />
             <button
@@ -382,51 +384,51 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
             <label style={{ fontSize: 12 }}>
               Assessment Year (e.g. 2018-19)
-              <input value={itrForm.assessmentYear} onChange={(e) => setItrForm({ ...itrForm, assessmentYear: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input value={itrForm.assessmentYear} onChange={(e) => setItrForm({ ...itrForm, assessmentYear: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Filing Date
-              <input type="date" value={itrForm.filingDate} onChange={(e) => setItrForm({ ...itrForm, filingDate: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="date" value={itrForm.filingDate} onChange={(e) => setItrForm({ ...itrForm, filingDate: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Gross Total Income
-              <input type="number" value={itrForm.grossTotalIncome} onChange={(e) => setItrForm({ ...itrForm, grossTotalIncome: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.grossTotalIncome} onChange={(e) => setItrForm({ ...itrForm, grossTotalIncome: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Deductions (Chapter VI-A)
-              <input type="number" value={itrForm.deductionsChapterVIA} onChange={(e) => setItrForm({ ...itrForm, deductionsChapterVIA: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.deductionsChapterVIA} onChange={(e) => setItrForm({ ...itrForm, deductionsChapterVIA: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Total Income
-              <input type="number" value={itrForm.totalIncome} onChange={(e) => setItrForm({ ...itrForm, totalIncome: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.totalIncome} onChange={(e) => setItrForm({ ...itrForm, totalIncome: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Tax Payable
-              <input type="number" value={itrForm.taxPayable} onChange={(e) => setItrForm({ ...itrForm, taxPayable: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.taxPayable} onChange={(e) => setItrForm({ ...itrForm, taxPayable: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Advance Tax
-              <input type="number" value={itrForm.advanceTax} onChange={(e) => setItrForm({ ...itrForm, advanceTax: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.advanceTax} onChange={(e) => setItrForm({ ...itrForm, advanceTax: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               TDS
-              <input type="number" value={itrForm.tds} onChange={(e) => setItrForm({ ...itrForm, tds: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.tds} onChange={(e) => setItrForm({ ...itrForm, tds: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               TCS
-              <input type="number" value={itrForm.tcs} onChange={(e) => setItrForm({ ...itrForm, tcs: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.tcs} onChange={(e) => setItrForm({ ...itrForm, tcs: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Self Assessment Tax
-              <input type="number" value={itrForm.selfAssessmentTax} onChange={(e) => setItrForm({ ...itrForm, selfAssessmentTax: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.selfAssessmentTax} onChange={(e) => setItrForm({ ...itrForm, selfAssessmentTax: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
               Refund (+) / Demand (-)
-              <input type="number" value={itrForm.refundOrDemand} onChange={(e) => setItrForm({ ...itrForm, refundOrDemand: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input type="number" value={itrForm.refundOrDemand} onChange={(e) => setItrForm({ ...itrForm, refundOrDemand: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
               Notes
-              <input value={itrForm.notes} onChange={(e) => setItrForm({ ...itrForm, notes: e.target.value })} style={{ display: "block", width: "100%" }} />
+              <input value={itrForm.notes} onChange={(e) => setItrForm({ ...itrForm, notes: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
           </div>
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>

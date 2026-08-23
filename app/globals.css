@@ -7895,3 +7895,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .ui-theme-toggle-button {
   border-radius: 999px;
 }
+
+/* Plain <input> elements (e.g. India Tax's password field and manual ITR entry form) have no
+   ambient border by default -- Tailwind's Preflight reset (@import "tailwindcss" at the top of
+   this file) zeroes border-width on every element globally, and unlike most other forms in this
+   app, these inputs aren't nested inside a container class (.master-form, .table-filters, etc.)
+   that happens to restore one. Without this, the input is fully functional but invisible --
+   just placeholder text floating with no box, easy to mistake for a disabled label. */
+.india-tax-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
