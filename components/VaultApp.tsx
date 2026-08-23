@@ -49,6 +49,7 @@ import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
 import { TaxReport } from "@/components/reports/TaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
+import { StatIcon } from "@/components/Icon";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
@@ -1660,6 +1661,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className="dashboard-balance-card cash-card"
               onClick={() => toggleDashboardDetail("cash")}
             >
+              {uiTheme === "refresh" && <StatIcon kind="cash" color="#1e40af" />}
               <div className="dashboard-card-main">
                 <span>Cash and bank closing</span>
                 <strong>{fmt(cashBank)}</strong>
@@ -1681,6 +1683,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className="dashboard-balance-card investment-card"
               onClick={() => toggleDashboardDetail("investments")}
             >
+              {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
               <div className="dashboard-card-main">
                 <span>Investments closing</span>
                 <strong>{fmt(investments)}</strong>
@@ -1702,6 +1705,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className="dashboard-balance-card capital-card"
               onClick={() => toggleDashboardDetail("capital")}
             >
+              {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
               <div className="dashboard-card-main">
                 <span>Capital closing</span>
                 <strong>{fmt(dashboardCapitalTotal)}</strong>
@@ -1723,6 +1727,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className="dashboard-balance-card salary-card"
               onClick={() => toggleDashboardDetail("salary")}
             >
+              {uiTheme === "refresh" && <StatIcon kind="wallet" color="#d97706" />}
               <div className="dashboard-card-main">
                 <span>{book === "india" ? "Total income" : "Salary income"}</span>
                 <strong>{fmt(book === "india" ? totalIncome : salaryIncome)}</strong>
@@ -1746,6 +1751,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 setDashboardDetail(dashboardDetail === "fixedAssets" ? null : "fixedAssets")
               }
             >
+              {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
               <div className="dashboard-card-main">
                 <span>Fixed assets closing</span>
                 <strong>
@@ -1839,6 +1845,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className="dashboard-balance-card"
               onClick={() => { setReport("equity"); setTab("reports"); }}
             >
+              {uiTheme === "refresh" && <StatIcon kind="stock" color="#dc2626" />}
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
                 <strong>{fmt(equityMktValue)}</strong>
