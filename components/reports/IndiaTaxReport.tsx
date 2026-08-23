@@ -98,6 +98,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [reconstructForm, setReconstructForm] = useState(BLANK_RECONSTRUCTED_FORM);
   const [addingReconstructed, setAddingReconstructed] = useState(false);
   const [savingReconstructed, setSavingReconstructed] = useState(false);
+  const [bulkReconstructText, setBulkReconstructText] = useState("");
+  const [bulkReconstructError, setBulkReconstructError] = useState("");
+  const [addingBulkReconstructed, setAddingBulkReconstructed] = useState(false);
+  const [savingBulkReconstructed, setSavingBulkReconstructed] = useState(false);
   const [manualMonthForm, setManualMonthForm] = useState(BLANK_MANUAL_MONTH_FORM);
   const [addingManualMonth, setAddingManualMonth] = useState(false);
   const [savingManualMonth, setSavingManualMonth] = useState(false);
@@ -199,37 +203,44 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     setReconstructForm(BLANK_RECONSTRUCTED_FORM);
     setAddingReconstructed(true);
   }
+  // A FY split across two employers (job change mid-year) needs two entries, not one -- April 1
+  // alone would collide (same date = same merge key, second save overwrites the first). Walk
+  // forward a day at a time within April until an unused date turns up. `usedDates` is mutated
+  // (dates added as they're claimed) so a batch of rows for the same FY don't collide with each
+  // other either, not just with what's already saved.
+  function buildReconstructedRow(fy: string, employer: string, gross: number, tax: number, usedDates: Set<string>): IndiaPayslipMonth {
+    const startYear = fy.slice(0, 4);
+    let day = 1;
+    while (usedDates.has(`${startYear}-04-${String(day).padStart(2, "0")}`)) day++;
+    const date = `${startYear}-04-${String(day).padStart(2, "0")}`;
+    usedDates.add(date);
+    return {
+      label: employer ? `FY ${fy} — ${employer} (reconstructed)` : `FY ${fy} (reconstructed from ITR)`,
+      date,
+      basic: 0,
+      hra: 0,
+      conveyance: 0,
+      otherAllowances: gross,
+      grossEarnings: gross,
+      pf: 0,
+      professionalTax: 0,
+      incomeTax: tax,
+      otherDeductions: 0,
+      totalDeductions: tax,
+      netPay: gross - tax,
+      sourceFile: RECONSTRUCTED_SOURCE,
+    };
+  }
   async function saveReconstructedForm() {
     const fy = reconstructForm.financialYear.trim();
     if (!/^\d{4}-\d{2}$/.test(fy)) return;
     setSavingReconstructed(true);
     try {
-      const startYear = fy.slice(0, 4);
       const gross = Number(reconstructForm.grossEarnings) || 0;
       const tax = Number(reconstructForm.incomeTax) || 0;
       const employer = reconstructForm.employer.trim();
-      // A FY split across two employers (job change mid-year) needs two entries, not one --
-      // April 1 alone would collide (same date = same merge key, second save overwrites the
-      // first). Walk forward a day at a time within April until an unused date turns up.
-      let day = 1;
       const usedDates = new Set(months.map((m) => m.date));
-      while (usedDates.has(`${startYear}-04-${String(day).padStart(2, "0")}`)) day++;
-      const row: IndiaPayslipMonth = {
-        label: employer ? `FY ${fy} — ${employer} (reconstructed)` : `FY ${fy} (reconstructed from ITR)`,
-        date: `${startYear}-04-${String(day).padStart(2, "0")}`,
-        basic: 0,
-        hra: 0,
-        conveyance: 0,
-        otherAllowances: gross,
-        grossEarnings: gross,
-        pf: 0,
-        professionalTax: 0,
-        incomeTax: tax,
-        otherDeductions: 0,
-        totalDeductions: tax,
-        netPay: gross - tax,
-        sourceFile: RECONSTRUCTED_SOURCE,
-      };
+      const row = buildReconstructedRow(fy, employer, gross, tax, usedDates);
       const next = mergeIndiaPayslipMonths(months, [row]);
       await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
       setSelectedFy(fy);
@@ -242,6 +253,47 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     const next = months.filter((m) => fyOf(m.date) !== fy || m.sourceFile !== RECONSTRUCTED_SOURCE);
     await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
     setSelectedFy(null);
+  }
+
+  function openBulkAddReconstructed() {
+    setBulkReconstructText("");
+    setBulkReconstructError("");
+    setAddingBulkReconstructed(true);
+  }
+  // One row per line: "FY, Employer, Gross[, Tax]" -- comma, tab, or pipe separated, employer
+  // and tax both optional. Parses everything first and bails with no save at all if any line is
+  // bad, rather than saving a partial batch silently.
+  function parseBulkReconstructLines(text: string): { rows: { fy: string; employer: string; gross: number; tax: number }[]; error: string } {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const rows: { fy: string; employer: string; gross: number; tax: number }[] = [];
+    for (const line of lines) {
+      const parts = line.split(/[,\t|]/).map((p) => p.trim());
+      const fy = parts[0] ?? "";
+      if (!/^\d{4}-\d{2}$/.test(fy)) return { rows: [], error: `Bad line (expected "FY, Employer, Gross[, Tax]"): "${line}"` };
+      const employer = parts[1] ?? "";
+      const gross = Number(parts[2]);
+      if (!Number.isFinite(gross)) return { rows: [], error: `Bad gross income (expected "FY, Employer, Gross[, Tax]"): "${line}"` };
+      const tax = parts[3] ? Number(parts[3]) : 0;
+      if (!Number.isFinite(tax)) return { rows: [], error: `Bad tax figure (expected "FY, Employer, Gross[, Tax]"): "${line}"` };
+      rows.push({ fy, employer, gross, tax });
+    }
+    return { rows, error: "" };
+  }
+  async function saveBulkReconstructed() {
+    const { rows, error } = parseBulkReconstructLines(bulkReconstructText);
+    if (error) { setBulkReconstructError(error); return; }
+    if (rows.length === 0) { setBulkReconstructError("Paste at least one row."); return; }
+    setSavingBulkReconstructed(true);
+    try {
+      const usedDates = new Set(months.map((m) => m.date));
+      const newRows = rows.map((r) => buildReconstructedRow(r.fy, r.employer, r.gross, r.tax, usedDates));
+      const next = mergeIndiaPayslipMonths(months, newRows);
+      await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+      setSelectedFy(rows[rows.length - 1].fy);
+      setAddingBulkReconstructed(false);
+    } finally {
+      setSavingBulkReconstructed(false);
+    }
   }
 
   function openAddManualMonth() {
@@ -458,6 +510,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <button className="equity-seed-btn" onClick={openAddReconstructed}>
               ✏️ Add Reconstructed Year
             </button>
+            <button className="equity-seed-btn" onClick={openBulkAddReconstructed}>
+              📋 Bulk Add Reconstructed Years
+            </button>
             <button className="equity-seed-btn" onClick={openAddManualMonth}>
               📝 Add Real Month (Manual)
             </button>
@@ -498,6 +553,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             />
             <button onClick={openAddReconstructed} style={{ marginLeft: "auto" }}>
               ✏️ Add Reconstructed Year
+            </button>
+            <button onClick={openBulkAddReconstructed}>
+              📋 Bulk Add Reconstructed Years
             </button>
             <button onClick={openAddManualMonth}>
               📝 Add Real Month (Manual)
@@ -785,6 +843,33 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <button onClick={() => setAddingReconstructed(false)}>Cancel</button>
             <button onClick={saveReconstructedForm} disabled={savingReconstructed || !/^\d{4}-\d{2}$/.test(reconstructForm.financialYear.trim())}>
               {savingReconstructed ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {addingBulkReconstructed && (
+        <Modal title="Bulk Add Reconstructed Years" onClose={() => setAddingBulkReconstructed(false)}>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
+            One row per line: <code>Financial Year, Employer, Gross Annual Income</code> (Employer optional, e.g. leave
+            it blank for a single-employer year — still keep the comma). Comma, tab, or pipe (|) separated. Two rows
+            with the same Financial Year but different employers both get kept, not overwritten.
+          </p>
+          <textarea
+            value={bulkReconstructText}
+            onChange={(e) => { setBulkReconstructText(e.target.value); setBulkReconstructError(""); }}
+            placeholder={"2005-06, Mafatlal, 60860\n2006-07, Mafatlal, 159136\n2007-08, Mafatlal, 104043\n2007-08, RCOM, 226848"}
+            rows={8}
+            className="india-tax-input"
+            style={{ display: "block", width: "100%", fontFamily: "monospace", fontSize: 12 }}
+          />
+          {bulkReconstructError && (
+            <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>{bulkReconstructError}</p>
+          )}
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+            <button onClick={() => setAddingBulkReconstructed(false)}>Cancel</button>
+            <button onClick={saveBulkReconstructed} disabled={savingBulkReconstructed || !bulkReconstructText.trim()}>
+              {savingBulkReconstructed ? "Saving…" : "Save All"}
             </button>
           </div>
         </Modal>
