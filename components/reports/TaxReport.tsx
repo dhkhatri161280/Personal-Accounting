@@ -335,6 +335,21 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const telRow = row(rows, "Telephone");
   const medicalRow = row(rows, "Medical");
 
+  // 401(k) lifetime contribution history — one row per imported year, self + employer match.
+  // Uses each year's cumulative total (not the annual column, which is blank for "401K Emplr"
+  // in the source sheet) so this also works for a year still in progress.
+  const k401ByYear = years
+    .slice()
+    .sort((a, b) => a.year.localeCompare(b.year))
+    .map((y) => ({
+      year: y.year,
+      self: row(y.rows, "401K")?.cumulative ?? 0,
+      employer: row(y.rows, "401K Emplr")?.cumulative ?? 0,
+    }))
+    .filter((r) => r.self > 0.005 || r.employer > 0.005);
+  const k401LifetimeSelf = k401ByYear.reduce((s, r) => s + r.self, 0);
+  const k401LifetimeEmployer = k401ByYear.reduce((s, r) => s + r.employer, 0);
+
   const allManualPeriods = yr.manualPeriods ?? [];
   // Two kinds share the same ManualPayrollPeriod record: a voucher-derived period (new pay
   // period the Excel doesn't cover) vs. a correction overlaid on an Excel-imported period
@@ -630,6 +645,42 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           ))}
         </div>
       </div>
+
+      {k401ByYear.length > 0 && (
+        <>
+          <div className="equity-section-head">
+            <h4>401(k) Contributions by Year</h4>
+          </div>
+          <table className="equity-table equity-drilldown-table">
+            <thead>
+              <tr>
+                <th>Year</th>
+                <th className="right">Your Contribution</th>
+                <th className="right">Employer Match</th>
+                <th className="right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {k401ByYear.map((r) => (
+                <tr key={r.year}>
+                  <td>{r.year}</td>
+                  <td className="right">{fmt(r.self)}</td>
+                  <td className="right">{fmt(r.employer)}</td>
+                  <td className="right">{fmt(r.self + r.employer)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Lifetime</td>
+                <td className="right">{fmt(k401LifetimeSelf)}</td>
+                <td className="right">{fmt(k401LifetimeEmployer)}</td>
+                <td className="right">{fmt(k401LifetimeSelf + k401LifetimeEmployer)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </>
+      )}
 
       <div className="equity-section-head">
         <h4>Pay Periods — {yr.year}</h4>
