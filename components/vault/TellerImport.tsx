@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
+import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -553,7 +554,7 @@ export function TellerImport({ data, onSave }: Props) {
                 />
 
                 <div className="plaid-tx-info">
-                  <span className="plaid-tx-date">{row.tx.date}</span>
+                  <span className="plaid-tx-date">{fmtDate(row.tx.date)}</span>
                   <span className="plaid-tx-name">{row.tx.name}</span>
                   <span className={`plaid-tx-amt ${row.tx.amount < 0 ? "credit" : "debit"}`}>
                     {row.tx.amount < 0 ? "+" : "−"}${Math.abs(row.tx.amount).toFixed(2)}

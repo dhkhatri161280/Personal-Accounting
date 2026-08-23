@@ -4,6 +4,7 @@ import { usePlaidLink, type PlaidLinkOnSuccess, type PlaidLinkOnSuccessMetadata 
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
 import { matchPayrollPeriod, rowValue } from "@/lib/payroll-match";
+import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1656,7 +1657,7 @@ export function PlaidImport({ data, onSave }: Props) {
 
                 {/* Transaction info */}
                 <div className="plaid-tx-info">
-                  <span className="plaid-tx-date">{row.plaidTx.date}</span>
+                  <span className="plaid-tx-date">{fmtDate(row.plaidTx.date)}</span>
                   <span className="plaid-tx-name">{row.plaidTx.name}</span>
                   <span className={`plaid-tx-amt ${row.plaidTx.amount < 0 ? "credit" : "debit"}`}>
                     {row.plaidTx.amount < 0 ? "+" : "−"}${Math.abs(row.plaidTx.amount).toFixed(2)}
@@ -1867,7 +1868,7 @@ export function PlaidImport({ data, onSave }: Props) {
                       title={row.alreadyImported ? "Already saved" : "Skip"}
                     />
                     <div className="plaid-tx-info">
-                      <span className="plaid-tx-date">{row.plaidTx.date}</span>
+                      <span className="plaid-tx-date">{fmtDate(row.plaidTx.date)}</span>
                       <span className="plaid-tx-name">
                         <span className="plaid-pending-badge-sm">PND</span>
                         {row.plaidTx.name}
@@ -2084,7 +2085,7 @@ export function PlaidImport({ data, onSave }: Props) {
                         <div key={v.guid} className="plaid-queue-row plaid-row-exists">
                           <span />
                           <div className="plaid-tx-info">
-                            <span className="plaid-tx-date">{v.date}</span>
+                            <span className="plaid-tx-date">{fmtDate(v.date)}</span>
                             <span className="plaid-tx-name">
                               <span className="plaid-pending-badge-sm">MNL</span>{v.narration}
                             </span>
@@ -2356,7 +2357,7 @@ export function PlaidImport({ data, onSave }: Props) {
                                           .sort((a, b) => b.date.localeCompare(a.date))
                                           .map((u, j) => (
                                             <div key={j} className="plaid-recon-detail-item di-missing">
-                                              <span className="di-date">{u.date}</span>
+                                              <span className="di-date">{fmtDate(u.date)}</span>
                                               <span className="di-name">{u.name}</span>
                                               <span className={`di-amt ${u.amount < 0 ? "credit" : "debit"}`}>
                                                 {u.amount < 0 ? "+" : "−"}${Math.abs(u.amount).toFixed(2)}
@@ -2387,7 +2388,7 @@ export function PlaidImport({ data, onSave }: Props) {
                                       ? <div className="plaid-recon-detail-empty">All Plaid transactions from this fetch are already in vault ✓</div>
                                       : notInVault.map((row, j) => (
                                         <div key={j} className="plaid-recon-detail-item di-missing">
-                                          <span className="di-date">{row.plaidTx.date}</span>
+                                          <span className="di-date">{fmtDate(row.plaidTx.date)}</span>
                                           <span className="di-name">{row.plaidTx.name}</span>
                                           <span className={`di-amt ${row.plaidTx.amount < 0 ? "credit" : "debit"}`}>
                                             {row.plaidTx.amount < 0 ? "+" : "−"}${Math.abs(row.plaidTx.amount).toFixed(2)}
@@ -2410,7 +2411,7 @@ export function PlaidImport({ data, onSave }: Props) {
                                       ? <div className="plaid-recon-detail-empty">All vault entries (last 90 days) matched to Plaid transactions ✓</div>
                                       : onlyInVault.map((ve, j) => (
                                         <div key={j} className="plaid-recon-detail-item di-vault">
-                                          <span className="di-date">{ve.date}</span>
+                                          <span className="di-date">{fmtDate(ve.date)}</span>
                                           <span className="di-name">{ve.narration}</span>
                                           <span className={`di-amt ${ve.amount < 0 ? "debit" : "credit"}`}>
                                             {ve.amount < 0 ? "Dr" : "Cr"} ${Math.abs(ve.amount).toFixed(2)}
@@ -2525,7 +2526,7 @@ export function PlaidImport({ data, onSave }: Props) {
                 {dupeGroups.map((g, gi) => (
                   <div key={gi} className="plaid-dupe-group">
                     <div className="plaid-dupe-header">
-                      <span className="plaid-dupe-date">{g.date}</span>
+                      <span className="plaid-dupe-date">{fmtDate(g.date)}</span>
                       <span className="plaid-dupe-amt">${g.amount.toFixed(2)}</span>
                       <span className="plaid-dupe-accounts">
                         Dr: <strong>{g.drAcct?.name ?? "—"}</strong>

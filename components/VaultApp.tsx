@@ -38,6 +38,7 @@ import {
   voucherSideLedgerNames,
 } from "@/lib/vault-accounting";
 import { getSyncState, type SyncState } from "@/lib/sync-utils";
+import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { UnlockScreen } from "@/components/vault/UnlockScreen";
@@ -1949,7 +1950,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                           : "—";
                         return (
                           <tr key={t.guid} className={isNew ? "anomaly-row-new" : "anomaly-row"}>
-                            <td className="anomaly-date">{t.date}</td>
+                            <td className="anomaly-date">{fmtDate(t.date)}</td>
                             <td className="anomaly-created">{createdLabel}</td>
                             <td><span className="pill">{t.type}</span></td>
                             <td className="anomaly-num">{t.number || "—"}</td>
@@ -2232,7 +2233,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                         const amt = dr ? Math.abs(dr.amount) : 0;
                         return (
                           <tr key={t.guid} className="trash-row">
-                            <td className="trash-date">{t.date}</td>
+                            <td className="trash-date">{fmtDate(t.date)}</td>
                             <td><span className="pill">{t.type}</span></td>
                             <td className="trash-num">{t.number || "—"}</td>
                             <td className="trash-narr">{t.narration || "—"}</td>

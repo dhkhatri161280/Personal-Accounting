@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import type { ParsedGrant, ParsedVest } from "@/lib/parse-grant-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
+import { fmtDate } from "@/lib/format-date";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -28,11 +29,6 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
   );
 }
 
-// ISO YYYY-MM-DD → DD-MM-YYYY (matches the rest of the app)
-function fmtDate(iso: string) {
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
-}
 
 // ── Pre-populated seed from Vesting Schedule.xlsx ────────────────────────
 const NVDA_SEED = {
@@ -633,7 +629,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
                         const sp = v.salePrice ?? v.vestPrice;
                         return (
                           <tr key={`${g.id}-${v.id}`}>
-                            <td className="equity-neutral" style={{ fontSize: 11 }}>{g.ticker} {g.grantDate}</td>
+                            <td className="equity-neutral" style={{ fontSize: 11 }}>{g.ticker} {fmtDate(g.grantDate)}</td>
                             <td>{new Date(v.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
                             {summaryFilter === "vested" && (
                               <>
@@ -873,7 +869,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
                   const priceNum = Number(vestDayPrice) || 0;
                   return (
                     <tr key={vest.id}>
-                      <td>{grant.ticker} granted {grant.grantDate}</td>
+                      <td>{grant.ticker} granted {fmtDate(grant.grantDate)}</td>
                       <td className="right">{vest.shares.toLocaleString()}</td>
                       <td className="right">
                         <input

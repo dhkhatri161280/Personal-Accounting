@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
 import type { WatchlistEntry } from "@/lib/watchlist-default";
+import { fmtDate } from "@/lib/format-date";
 
 interface Trade {
   company: string;
@@ -72,10 +73,6 @@ function timeAgo(iso: string): string {
 function daysBetween(d1: string, d2: string) {
   return Math.round((new Date(d2).getTime() - new Date(d1).getTime()) / 86400000);
 }
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
 export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
   const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">("open");
   const [closedSort, setClosedSort]   = useState<"date" | "gl" | "pct">("date");

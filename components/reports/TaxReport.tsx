@@ -8,6 +8,7 @@ import { estimateUsFederalTax, computeItemizedDeduction } from "@/lib/tax-usa-en
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
 import { matchDeductionLedgers, deductionTotal } from "@/lib/tax-deductions";
 import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-engine";
+import { fmtDate } from "@/lib/format-date";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -92,7 +93,7 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
         {items.map(({ grant, vest }) => (
           <tr key={vest.id}>
             <td>{new Date(vest.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
-            <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {grant.grantDate}</td>
+            <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {fmtDate(grant.grantDate)}</td>
             <td className="right">{vest.shares.toLocaleString()}</td>
             <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
             <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
