@@ -198,6 +198,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [startingManualYear, setStartingManualYear] = useState(false);
   const [manualYearInput, setManualYearInput] = useState(() => String(new Date().getFullYear()));
   const [filingStatus, setFilingStatus] = useState<UsFilingStatus>("mfj");
+  const [showGainEventsModal, setShowGainEventsModal] = useState(false);
+  const [showDeductionsModal, setShowDeductionsModal] = useState(false);
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
@@ -897,8 +899,20 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       <div className="equity-summary-row">
         {[
           { label: "AGI", value: taxEstimate.agi, sub: "wages + net capital gains", icon: "wallet" as IconKind, color: "#1e40af" },
-          { label: "Deduction Used", value: taxEstimate.deductionUsed, sub: taxEstimate.usedItemized ? "itemized (beats standard)" : "standard deduction", icon: "cash" as IconKind, color: "#0891b2" },
-          { label: "Long-Term Capital Gain", value: taxEstimate.longTermGain, sub: `${gainEvents.length} sale(s) matched`, icon: "trending-up" as IconKind, color: "#7c3aed" },
+          {
+            label: "Deduction Used", value: taxEstimate.deductionUsed,
+            sub: deductionMatches.length > 0
+              ? `${taxEstimate.usedItemized ? "itemized" : "standard"} — click for details →`
+              : (taxEstimate.usedItemized ? "itemized (beats standard)" : "standard deduction"),
+            icon: "cash" as IconKind, color: "#0891b2",
+            onClick: deductionMatches.length > 0 ? () => setShowDeductionsModal(true) : undefined,
+          },
+          {
+            label: "Long-Term Capital Gain", value: taxEstimate.longTermGain,
+            sub: gainEvents.length > 0 ? `${gainEvents.length} sale(s) — click for details →` : "no sales matched",
+            icon: "trending-up" as IconKind, color: "#7c3aed",
+            onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+          },
           { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax, sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)}`, icon: "receipt" as IconKind, color: "#dc2626" },
           { label: "Federal Withheld", value: taxEstimate.federalWithheld, sub: "from payroll", icon: "shield" as IconKind, color: "#16a34a" },
           taxEstimate.refund > 0
@@ -906,7 +920,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             : { label: "Estimated Federal Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
-            <div className="equity-summary-card">
+            <div
+              className="equity-summary-card"
+              style={c.onClick ? { cursor: "pointer" } : undefined}
+              onClick={c.onClick}
+            >
               {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
@@ -917,58 +935,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           </div>
         ))}
       </div>
-      {gainEvents.length > 0 && (
-        <table className="equity-table" style={{ marginTop: "1rem" }}>
-          <thead>
-            <tr><th>Sale</th><th className="right">Shares</th><th className="right">Cost Basis</th><th className="right">Proceeds</th><th className="right">Gain/(Loss)</th><th>Term</th></tr>
-          </thead>
-          <tbody>
-            {gainEvents.map((g) => (
-              <tr key={g.id}>
-                <td>{g.label}</td>
-                <td className="right">{g.shares.toLocaleString()}</td>
-                <td className="right">{fmt(g.costBasis)}</td>
-                <td className="right">{fmt(g.proceeds)}</td>
-                <td className="right equity-amt" style={{ color: g.gain >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(g.gain)}</td>
-                <td>{g.term === "long" ? "Long-term" : "Short-term"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <div className="equity-section-head">
-        <h4>Itemized Deductions — {yr.year}</h4>
-      </div>
-      {deductionMatches.length === 0 ? (
-        <p style={{ fontSize: 12, opacity: 0.7 }}>
-          No ledgers matched (looking for names containing "medical", "mortgage interest", "property tax",
-          "state tax", or "donation"/"charity") — using the standard deduction. Rename a ledger to match if you
-          track one of these separately.
+      {deductionMatches.length === 0 && (
+        <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+          No deduction ledgers matched (looking for names containing "medical", "mortgage interest"/"interest on
+          home loan", "property tax", "state tax", or "donation"/"charity") — using the standard deduction. Rename
+          a ledger to match if you track one of these separately.
         </p>
-      ) : (
-        <>
-          <table className="equity-table" style={{ marginTop: "0.5rem" }}>
-            <thead>
-              <tr><th>Category</th><th>Matched Ledger(s)</th><th className="right">Amount ({yr.year})</th></tr>
-            </thead>
-            <tbody>
-              {deductionMatches.map((m) => (
-                <tr key={m.key}>
-                  <td>{m.label}</td>
-                  <td>{m.ledgers.map((l) => l.name).join(", ")}</td>
-                  <td className="right equity-amt">{fmt(m.total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
-            Federal itemized total {fmt(federalItemized.total)} (medical above 7.5% AGI floor: {fmt(federalItemized.medicalDeductible)};
-            SALT capped at {fmt(federalItemized.saltCap)}: {fmt(federalItemized.saltDeductible)}; mortgage interest {fmt(federalItemized.mortgageInterestDeductible)};
-            charitable {fmt(federalItemized.charitableDeductible)}) vs. standard deduction {fmt(taxEstimate.rules.standardDeduction)} —
-            {taxEstimate.usedItemized ? " itemizing wins, used above." : " standard deduction wins, used above."}
-          </p>
-        </>
       )}
 
       <div className="equity-section-head">
@@ -1038,6 +1010,68 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           <EsppTable items={yearEspp} fmt={fmt} />
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowEsppModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {showGainEventsModal && (
+        <Modal title={`RSU & ESPP Sales — ${yr.year}`} onClose={() => setShowGainEventsModal(false)} wide>
+          <table className="equity-table">
+            <thead>
+              <tr><th>Sale</th><th className="right">Shares</th><th className="right">Cost Basis</th><th className="right">Proceeds</th><th className="right">Gain/(Loss)</th><th>Term</th></tr>
+            </thead>
+            <tbody>
+              {gainEvents.map((g) => (
+                <tr key={g.id}>
+                  <td>{g.label}</td>
+                  <td className="right">{g.shares.toLocaleString()}</td>
+                  <td className="right">{fmt(g.costBasis)}</td>
+                  <td className="right">{fmt(g.proceeds)}</td>
+                  <td className="right equity-amt" style={{ color: g.gain >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(g.gain)}</td>
+                  <td>{g.term === "long" ? "Long-term" : "Short-term"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
+            Only lots with an entered sale price count as a realized sale — see Reports → Equity to add one.
+            Net long-term gain {fmt(gainTotals.longTermGain)}, net short-term gain {fmt(gainTotals.shortTermGain)} (short-term is taxed as ordinary income, folded into AGI above).
+          </p>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setShowGainEventsModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {showDeductionsModal && (
+        <Modal title={`Itemized Deductions — ${yr.year}`} onClose={() => setShowDeductionsModal(false)} wide>
+          <table className="equity-table">
+            <thead>
+              <tr><th>Category</th><th>Matched Ledger(s)</th><th className="right">Amount</th></tr>
+            </thead>
+            <tbody>
+              {deductionMatches.map((m) => (
+                <tr key={m.key}>
+                  <td>{m.label}</td>
+                  <td>{m.ledgers.map((l) => l.name).join(", ")}</td>
+                  <td className="right equity-amt">{fmt(m.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
+            Federal itemized total {fmt(federalItemized.total)} (medical above 7.5% AGI floor: {fmt(federalItemized.medicalDeductible)};
+            SALT capped at {fmt(federalItemized.saltCap)}: {fmt(federalItemized.saltDeductible)}; mortgage interest {fmt(federalItemized.mortgageInterestDeductible)};
+            charitable {fmt(federalItemized.charitableDeductible)}) vs. standard deduction {fmt(taxEstimate.rules.standardDeduction)} —
+            {taxEstimate.usedItemized ? " itemizing wins, used above." : " standard deduction wins, used above."}
+          </p>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+            California itemized total {fmt(caItemized)} (no SALT cap, but state income tax paid doesn&apos;t count
+            against the CA return) vs. CA standard deduction {fmt(caTaxEstimate.rules.standardDeduction)} —
+            {caTaxEstimate.usedItemized ? " itemizing wins for CA." : " CA standard deduction wins."}
+          </p>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setShowDeductionsModal(false)}>Close</button>
           </div>
         </Modal>
       )}
