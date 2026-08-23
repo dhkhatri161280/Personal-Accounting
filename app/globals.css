@@ -7563,10 +7563,19 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .equity-section-head h4 { font-size: 16px !important; font-weight: 700 !important; color: #0f172a; }
 .ui-refresh .equity-header { margin-bottom: 20px !important; }
 
-/* Data panels / tables — flat elevation, real header treatment, breathing room, hover row */
+/* Data panels / tables — flat elevation, real header treatment, breathing room, hover row.
+   Scoped to `.data-panel table` (not just `.equity-table`) since every Reports sub-tab
+   (Trial Balance, Recon, Trash, Trading, etc.) renders its own table inside the same shared
+   `.data-panel` wrapper -- this cascades the same polish to all of them for free instead of
+   requiring a per-screen copy of the same rules. */
 .ui-refresh .data-panel { border-radius: var(--ref-radius); }
-.ui-refresh .equity-table { border-radius: var(--ref-radius); overflow: hidden; border: 1px solid var(--ref-border); border-spacing: 0; }
-.ui-refresh .equity-table th {
+.ui-refresh .data-panel table {
+  border-radius: var(--ref-radius);
+  overflow: hidden;
+  border: 1px solid var(--ref-border);
+  border-spacing: 0;
+}
+.ui-refresh .data-panel table th {
   background: #f8fafc;
   font-weight: 700 !important;
   font-size: 10.5px !important;
@@ -7575,9 +7584,9 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   color: #64748b !important;
   padding: 12px 14px !important;
 }
-.ui-refresh .equity-table td { padding: 11px 14px !important; font-size: 13px; }
-.ui-refresh .equity-table tbody tr:hover { background: #f8fafc; }
-.ui-refresh .equity-table tfoot th { background: #eff6ff; padding: 12px 14px !important; }
+.ui-refresh .data-panel table td { padding: 11px 14px !important; font-size: 13px; }
+.ui-refresh .data-panel table tbody tr:hover { background: #f8fafc; }
+.ui-refresh .data-panel table tfoot th { background: #eff6ff; padding: 12px 14px !important; }
 
 /* Year/report pill filters — bigger touch target, real active state */
 .ui-refresh .equity-grant-filter-chip { padding: 6px 14px !important; font-size: 12px !important; font-weight: 600; }
@@ -7596,6 +7605,31 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .dashboard-balance-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
 .ui-refresh .dashboard-inline-detail { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow); }
+
+/* Income & Expenditure / grouped report sections — same dense collapsible-line structure
+   kept as-is, just a readability bump (the classic 9-10px sizing was tuned for density over
+   legibility) and rounded corners consistent with the rest of the refreshed panels. */
+.ui-refresh .group-heading { padding: 12px 18px !important; font-size: 11px !important; }
+.ui-refresh .report-line { font-size: 12px !important; padding-top: 10px !important; padding-bottom: 10px !important; }
+.ui-refresh .report-grand {
+  padding: 15px 18px !important;
+  font-size: 12.5px !important;
+  border-radius: 0 0 var(--ref-radius) var(--ref-radius);
+}
+
+/* Balance Sheet — same collapsible section/row structure, rounded card treatment + a
+   readability bump on the smallest (9px) row text. */
+.ui-refresh .bs-col {
+  border-radius: var(--ref-radius) !important;
+  box-shadow: var(--ref-shadow);
+  border-color: var(--ref-border) !important;
+}
+.ui-refresh .bs-col-head { border-radius: var(--ref-radius) var(--ref-radius) 0 0; font-size: 12px !important; }
+.ui-refresh .bs-sec-head > strong { font-size: 11px !important; }
+.ui-refresh .bs-amt { font-size: 11px !important; }
+.ui-refresh .bs-row { font-size: 10.5px !important; }
+.ui-refresh .bs-total { border-radius: 0 0 var(--ref-radius) var(--ref-radius); font-size: 12.5px !important; }
+.ui-refresh .balance-check { border-radius: var(--ref-radius) !important; }
 
 /* Buttons — slightly larger radius, matching the friend's shape.borderRadius: 12 (dialed
    back a touch for our denser UI) */
