@@ -311,45 +311,62 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     setAddingBulkMonths(true);
   }
   const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  function buildLedgerMonthRow(ym: string, employer: string, gross: number, usedDates: Set<string>): IndiaPayslipMonth {
-    const [y, m] = ym.split("-");
+  interface LedgerMonthRowInput {
+    ym: string; employer: string; basic: number; hra: number; other: number; pf: number; professionalTax: number; incomeTax: number; note: string;
+  }
+  function buildLedgerMonthRow(r: LedgerMonthRowInput, usedDates: Set<string>): IndiaPayslipMonth {
+    const [y, m] = r.ym.split("-");
     let date = `${y}-${m}-01`;
     let day = 1;
     while (usedDates.has(date)) { day++; date = `${y}-${m}-${String(day).padStart(2, "0")}`; }
     usedDates.add(date);
+    const grossEarnings = r.basic + r.hra + r.other;
+    const totalDeductions = r.pf + r.professionalTax + r.incomeTax;
+    const labelSuffix = r.note ? ` — ${r.note}` : "";
     return {
-      label: employer ? `${MONTH_NAMES[Number(m) - 1]} ${y} — ${employer} (from ledger)` : `${MONTH_NAMES[Number(m) - 1]} ${y} (from ledger)`,
+      label: r.employer ? `${MONTH_NAMES[Number(m) - 1]} ${y} — ${r.employer} (from ledger)${labelSuffix}` : `${MONTH_NAMES[Number(m) - 1]} ${y} (from ledger)${labelSuffix}`,
       date,
-      basic: 0,
-      hra: 0,
+      basic: r.basic,
+      hra: r.hra,
       conveyance: 0,
-      otherAllowances: gross,
-      grossEarnings: gross,
-      pf: 0,
-      professionalTax: 0,
-      incomeTax: 0,
+      otherAllowances: r.other,
+      grossEarnings,
+      pf: r.pf,
+      professionalTax: r.professionalTax,
+      incomeTax: r.incomeTax,
       otherDeductions: 0,
-      totalDeductions: 0,
-      netPay: gross,
+      totalDeductions,
+      netPay: grossEarnings - totalDeductions,
       sourceFile: LEDGER_MONTH_SOURCE,
     };
   }
-  // One row per line: "YYYY-MM, Employer, Gross" -- comma, tab, or pipe separated, employer
-  // optional. Same bail-on-any-bad-line behavior as the FY bulk-add, so a typo can't silently
-  // save a partial batch.
-  function parseBulkMonthsLines(text: string): { rows: { ym: string; employer: string; gross: number }[]; error: string } {
+  // One row per line: "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax[, Note]" --
+  // comma, tab, or pipe separated. Basic/HRA/PF/ProfTax/IncomeTax default to 0 if blank (a lump
+  // total with no known breakdown just goes entirely in Other). Same bail-on-any-bad-line
+  // behavior as the FY bulk-add, so a typo can't silently save a partial batch.
+  function parseBulkMonthsLines(text: string): { rows: LedgerMonthRowInput[]; error: string } {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-    const rows: { ym: string; employer: string; gross: number }[] = [];
+    const rows: LedgerMonthRowInput[] = [];
     for (const line of lines) {
       const parts = line.split(/[,\t|]/).map((p) => p.trim());
       const ym = parts[0] ?? "";
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return { rows: [], error: `Bad month (expected "YYYY-MM, Employer, Gross"): "${line}"` };
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return { rows: [], error: `Bad month (expected "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax"): "${line}"` };
       const employer = parts[1] ?? "";
-      const gross = Number(parts[2]);
-      if (!Number.isFinite(gross)) return { rows: [], error: `Bad gross income (expected "YYYY-MM, Employer, Gross"): "${line}"` };
-      rows.push({ ym, employer, gross });
+      const nums = parts.slice(2, 8).map((p) => (p ? Number(p) : 0));
+      if (nums.some((n) => !Number.isFinite(n))) return { rows: [], error: `Bad number (expected "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax"): "${line}"` };
+      const [basic, hra, other, pf, professionalTax, incomeTax] = nums;
+      const note = parts[8] ?? "";
+      rows.push({ ym, employer, basic, hra, other, pf, professionalTax, incomeTax, note });
     }
     return { rows, error: "" };
+  }
+  // Real month-level data always supersedes a coarser annual "reconstructed" estimate for the
+  // same financial year -- if both exist at once, the FY's totals silently double count (the
+  // annual figure was ALREADY the sum of what the real months now also represent). Whenever
+  // real months are added, drop any reconstructed-year entries for the FYs those months fall
+  // into automatically, rather than relying on remembering to delete the old one first.
+  function dropReconstructedFor(monthsArr: IndiaPayslipMonth[], touchedFys: Set<string>): IndiaPayslipMonth[] {
+    return monthsArr.filter((m) => !(m.sourceFile === RECONSTRUCTED_SOURCE && touchedFys.has(fyOf(m.date))));
   }
   async function saveBulkMonths() {
     const { rows, error } = parseBulkMonthsLines(bulkMonthsText);
@@ -358,8 +375,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     setSavingBulkMonths(true);
     try {
       const usedDates = new Set(months.map((m) => m.date));
-      const newRows = rows.map((r) => buildLedgerMonthRow(r.ym, r.employer, r.gross, usedDates));
-      const next = mergeIndiaPayslipMonths(months, newRows);
+      const newRows = rows.map((r) => buildLedgerMonthRow(r, usedDates));
+      const touchedFys = new Set(newRows.map((r) => fyOf(r.date)));
+      const base = dropReconstructedFor(months, touchedFys);
+      const next = mergeIndiaPayslipMonths(base, newRows);
       await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
       setSelectedFy(fyOf(newRows[newRows.length - 1].date));
       setAddingBulkMonths(false);
@@ -404,7 +423,8 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         netPay: grossEarnings - totalDeductions,
         sourceFile: TRANSCRIBED_SOURCE_PREFIX,
       };
-      const next = mergeIndiaPayslipMonths(months, [row]);
+      const base = dropReconstructedFor(months, new Set([fyOf(row.date)]));
+      const next = mergeIndiaPayslipMonths(base, [row]);
       await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
       setSelectedFy(fyOf(row.date));
       setAddingManualMonth(false);
@@ -956,16 +976,16 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       {addingBulkMonths && (
         <Modal title="Bulk Add Months (from ledger)" onClose={() => setAddingBulkMonths(false)}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
-            One row per line: <code>YYYY-MM, Employer, Gross</code> (calendar month, Employer optional). Real monthly
-            figures — e.g. a Tally ledger&apos;s salary-account total for that month — not an annual estimate. If you
-            already added a &quot;Reconstructed Year&quot; annual entry for a year you&apos;re about to add monthly
-            data for, delete that annual entry first (via the FY&apos;s &quot;🗑 Delete Reconstructed&quot; button)
-            to avoid double-counting.
+            One row per line: <code>YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax</code> (any of
+            Basic/HRA/PF/ProfTax/IncomeTax can be left blank for 0 — a lump total with no known breakdown just goes
+            in Other). Real monthly figures, not an annual estimate — if a &quot;Reconstructed Year&quot; annual
+            entry already exists for a year these months fall into, it&apos;s replaced automatically, not
+            double-counted.
           </p>
           <textarea
             value={bulkMonthsText}
             onChange={(e) => { setBulkMonthsText(e.target.value); setBulkMonthsError(""); }}
-            placeholder={"2005-06, Mafatlal, 3188\n2005-07, Mafatlal, 9612\n2005-10, Mafatlal, 9612"}
+            placeholder={"2005-06, Mafatlal, , , 3188, , , \n2005-07, Mafatlal, , , 9612, , , \n2013-08, BECL, 38418, 15367, 18928, 4610, 200, "}
             rows={10}
             className="india-tax-input"
             style={{ display: "block", width: "100%", fontFamily: "monospace", fontSize: 12 }}
