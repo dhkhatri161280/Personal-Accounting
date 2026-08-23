@@ -12,17 +12,40 @@ import type { IndiaItrYear } from "./vault-types";
 // (not a fixed character count) -- layoutText already reconstructs one row per field, so
 // reading further would risk bleeding into the next field's own index+value pair.
 function lineItem(text: string, labelPattern: string): number | undefined {
-  const re = new RegExp(labelPattern, "i");
-  const m = re.exec(text);
-  if (!m) return undefined;
-  const lineEnd = text.indexOf("\n", m.index);
-  const after = text.slice(m.index + m[0].length, lineEnd === -1 ? undefined : lineEnd);
-  const tokens = [...after.matchAll(/\d[\d,]*([a-eA-E]?)/g)];
-  const values = tokens.filter((t) => !t[1]).map((t) => t[0]);
-  if (values.length === 0) return undefined;
-  const raw = values.length >= 2 ? values[1] : values[0];
-  const n = parseFloat(raw.replace(/,/g, ""));
-  return Number.isFinite(n) ? n : undefined;
+  const re = new RegExp(labelPattern, "gi");
+  // A label can legitimately appear more than once -- e.g. "Gross Total Income" shows up
+  // both as a bare section heading ("Part B Gross Total Income", nothing after it on that
+  // row) and again on the real data row further down ("B4 Gross Total Income (...) 432072").
+  // Try every occurrence in order and use the first one that actually yields a value, rather
+  // than committing to whichever comes first in reading order.
+  for (const m of text.matchAll(re)) {
+    const lineStart = text.lastIndexOf("\n", m.index) + 1;
+    const lineEnd = text.indexOf("\n", m.index);
+    const before = text.slice(lineStart, m.index);
+    let after = text.slice(m.index + m[0].length, lineEnd === -1 ? undefined : lineEnd);
+    // Some legacy rows spell the formula out inline right after the label -- e.g.
+    // "Refund (15d-14) if 15d is greater than 14 17" -- where both the parenthetical and the
+    // conditional clause are packed with small digits (cross-references to OTHER line items,
+    // not this row's own value) that would otherwise be mistaken for the real value. Strip
+    // both before scanning for numbers; a row like this genuinely has no printed value when
+    // its condition doesn't apply, which correctly falls through to "not found" below.
+    after = after.replace(/^(\s*\([^)]*\))+/, "").replace(/\bif\s+\S+\s+is\s+(greater|less)\s+than\s+\S+/i, "");
+    const tokens = [...after.matchAll(/\d[\d,]*([a-zA-Z]?)/g)];
+    const values = tokens.filter((t) => !t[1]).map((t) => t[0]);
+    if (values.length === 0) continue;
+    // Some rows repeat their own leading item-number again at the very end of the line with
+    // no real value in between (a "17 Refund ... 17" row when that year's refund was blank,
+    // not actually zero-with-a-typo) -- if the only candidate left exactly matches this row's
+    // own leading index, it's that repeat, not a value; move on to the next occurrence.
+    if (values.length === 1) {
+      const leadingIndex = before.match(/(\d+[a-zA-Z]?)\s*$/)?.[1];
+      if (leadingIndex && leadingIndex === values[0]) continue;
+    }
+    const raw = values.length >= 2 ? values[1] : values[0];
+    const n = parseFloat(raw.replace(/,/g, ""));
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
 }
 
 /** Reconstructs the page's visual layout from each text item's (x, y) position rather than
@@ -59,12 +82,22 @@ function layoutText(items: { str: string; x: number; y: number; transform: numbe
   return rows.map((row) => row.sort((a, b) => a.x - b.x).map((r) => r.str).join(" ")).join("\n");
 }
 
-/** Parses one ITR-V / ITR Acknowledgement PDF's positionally-reconstructed text. Handles the
- * three layout eras seen across AY 2008-09 through AY 2026-27: the oldest ("FORM ITR-V",
- * spaced-out assessment year digits like "2 0 0 8 - 0 9"), the mid-era ("INDIAN INCOME TAX
- * RETURN ACKNOWLEDGEMENT", "Gross total income"), and the newest receipt format (no separate
- * Gross Total Income / Deductions lines -- just "Total Income"). Field labels vary in case
- * and punctuation year to year, so every match is case-insensitive. */
+/** Form 26AS (the tax-credit statement, not a return) -- has nothing worth extracting here and
+ * shouldn't be treated as an error when it turns up in a batch of ITR PDFs. */
+export function isForm26AS(text: string): boolean {
+  return /Form\s*26\s*AS|Annual\s*Tax\s*Statement/i.test(text);
+}
+
+/** Parses one ITR-V / Acknowledgement / Receipt / full ITR Form PDF's positionally-
+ * reconstructed text. Handles every layout era seen across AY 2008-09 through AY 2026-27: the
+ * oldest ITR-V ("FORM ITR-V", spaced-out assessment year digits like "2 0 0 8 - 0 9"), the
+ * mid-era Acknowledgement ("INDIAN INCOME TAX RETURN ACKNOWLEDGEMENT", "Gross total income"),
+ * the newest Receipt (no separate Gross Total Income / Deductions -- just "Total Income"), the
+ * older full ITR Form ("Gross Total Income (1+2+3)"/"(1+2c)", a "Taxes Paid" section on a
+ * later page using the same wording as the Acknowledgement), and the newer SAHAJ full ITR
+ * Form (multi-page "Part B/C/D", "Taxable Total Income", "Tax after Rebate", "Total TDS
+ * Claimed" etc.). Field labels vary in case, punctuation, and section numbering year to year,
+ * so every match is case-insensitive and most fields try more than one phrasing. */
 export function parseIndiaItrText(text: string): Omit<IndiaItrYear, "id"> | null {
   const ayMatch =
     text.match(/Assessment\s*Year[\s\S]{0,40}?(\d\s*\d\s*\d\s*\d)\s*-\s*(\d\s*\d)/i) ??
@@ -78,17 +111,43 @@ export function parseIndiaItrText(text: string): Omit<IndiaItrYear, "id"> | null
   // Deductions lines entirely and prints only "Total Income" -- whichever of the two this
   // document actually has covers for the other being absent.
   const grossTotalIncomeRaw = lineItem(text, "Gross\\s*[Tt]otal\\s*[Ii]ncome");
-  const deductionsChapterVIA = lineItem(text, "Deductions\\s*under\\s*Chapter[\\s-]*VI[\\s-]*A");
-  const totalIncomeRaw = lineItem(text, "(?<!Gross\\s{0,3})Total\\s*Income\\b(?!\\s*and)");
+  const deductionsChapterVIA =
+    lineItem(text, "Deductions\\s*under\\s*Chapter[\\s-]*VI[\\s-]*A") ??
+    lineItem(text, "C1\\s*Total\\s*Deductions") ??
+    lineItem(text, "Deductions\\s*\\(Total\\s*of") ??
+    lineItem(text, "Deductions\\s*:?\\s*Suggested\\s*Value");
+  const totalIncomeRaw =
+    lineItem(text, "(?<!Gross\\s{0,3})Total\\s*Income\\b(?!\\s*and)") ??
+    lineItem(text, "Taxable\\s*Total\\s*Income");
   const grossTotalIncome = grossTotalIncomeRaw ?? totalIncomeRaw;
   const totalIncome = totalIncomeRaw ?? grossTotalIncomeRaw;
-  const taxPayable = lineItem(text, "Net\\s*[Tt]ax\\s*[Pp]ayable") ?? 0;
-  const advanceTax = lineItem(text, "a\\s*Advance\\s*Tax") ?? lineItem(text, "Advance\\s*Tax") ?? 0;
-  const tds = lineItem(text, "b\\s*TDS") ?? lineItem(text, "\\bTDS\\b") ?? 0;
-  const tcs = lineItem(text, "c\\s*TCS") ?? lineItem(text, "\\bTCS\\b") ?? 0;
+  const taxPayable =
+    lineItem(text, "Net\\s*[Tt]ax\\s*[Pp]ayable") ??
+    lineItem(text, "Tax\\s*after\\s*Rebate") ??
+    lineItem(text, "Balance\\s*Tax\\s*Payable") ??
+    0;
+  const advanceTax =
+    lineItem(text, "a\\s*Advance\\s*Tax") ??
+    lineItem(text, "Advance\\s*Tax") ??
+    lineItem(text, "Total\\s*Advance\\s*Tax\\s*Paid") ??
+    0;
+  const tds =
+    lineItem(text, "b\\s*TDS") ??
+    lineItem(text, "\\bTDS\\b") ??
+    lineItem(text, "Total\\s*TDS\\s*Claimed") ??
+    0;
+  const tcs =
+    lineItem(text, "c\\s*TCS") ??
+    lineItem(text, "\\bTCS\\b") ??
+    lineItem(text, "Total\\s*TCS\\s*Collected") ??
+    0;
   const selfAssessmentTax = lineItem(text, "Self\\s*Assessment\\s*Tax") ?? 0;
-  const refund = lineItem(text, "Refund\\s*\\(7e-6\\)") ?? lineItem(text, "\\bRefund\\b");
-  const balanceDue = lineItem(text, "Tax\\s*Payable\\s*\\(6-7[ed]\\)");
+  const refund =
+    lineItem(text, "Refund\\s*\\(7e-6\\)") ??
+    lineItem(text, "\\bRefund\\b");
+  const balanceDue =
+    lineItem(text, "Tax\\s*Payable\\s*\\(6-7[ed]\\)") ??
+    lineItem(text, "Amount\\s*payable\\s*\\(D10");
   const refundOrDemand = refund && refund > 0 ? refund : balanceDue ? -balanceDue : 0;
 
   const dateMatch =
@@ -120,11 +179,18 @@ export function parseIndiaItrText(text: string): Omit<IndiaItrYear, "id"> | null
   };
 }
 
-/** Opens (decrypting if needed) and extracts an ITR-V/Acknowledgement PDF in the browser.
- * Older filings (pre-~2016) are password-protected (PAN + DOB); newer portal downloads
- * generally aren't -- tries with no password first, and only asks for one if the PDF actually
- * needs it, so a mixed batch of old and new files works in one import. */
-export async function parseIndiaItrFile(file: File, password: string): Promise<Omit<IndiaItrYear, "id">> {
+/** Opens (decrypting if needed) and extracts an ITR PDF in the browser -- an ITR-V,
+ * Acknowledgement, Receipt, or full ITR Form. Older filings (pre-~2016) are password-protected
+ * (PAN + DOB); newer portal downloads generally aren't -- tries with no password first, and
+ * only asks for one if the PDF actually needs it, so a mixed batch of old and new files works
+ * in one import. Returns null (not an error) for a Form 26AS PDF that ends up in the batch --
+ * it's a tax-credit statement, not a return, and has nothing to extract. */
+export async function parseIndiaItrFile(file: File, password: string): Promise<Omit<IndiaItrYear, "id"> | null> {
+  // Filename check first, before attempting to open at all -- a 26AS PDF often uses a
+  // different password than the ITR filings in the same batch (usually DOB alone), so
+  // content-based detection can't help if it never successfully decrypts in the first place.
+  if (/26\s*AS/i.test(file.name)) return null;
+
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
@@ -145,7 +211,9 @@ export async function parseIndiaItrFile(file: File, password: string): Promise<O
     text += layoutText(items) + "\n";
   }
 
+  if (isForm26AS(text)) return null;
+
   const parsed = parseIndiaItrText(text);
-  if (!parsed) throw new Error(`Could not find an Assessment Year in ${file.name} — is this an ITR-V/Acknowledgement PDF?`);
+  if (!parsed) throw new Error(`Could not find an Assessment Year in ${file.name} — is this an ITR-V/Acknowledgement/Form PDF?`);
   return parsed;
 }
