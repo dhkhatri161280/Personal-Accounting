@@ -587,6 +587,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
                 <em>{dailyHeldShares.toLocaleString()} sh × today&apos;s move</em>
               </div>
             </div>
+            <p className="equity-card-count"><strong>{dailyHeldShares.toLocaleString()}</strong> sh held</p>
           </div>
         </div>
 
