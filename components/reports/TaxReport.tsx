@@ -1129,12 +1129,23 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           </p>
           {voucherModalTx.narration && <p style={{ margin: "0 0 0.75rem", fontSize: 13 }}>{voucherModalTx.narration}</p>}
           <table className="equity-table" style={{ width: "100%" }}>
-            <thead><tr><th>Account</th><th className="right">Amount</th></tr></thead>
+            <thead><tr><th>Account</th><th className="right">Debit</th><th className="right">Credit</th></tr></thead>
             <tbody>
               {voucherModalTx.entries.map((e, i) => (
-                <tr key={i}><td>{e.accountName}</td><td className="right equity-amt">{fmt(Math.abs(e.amount))}</td></tr>
+                <tr key={i}>
+                  <td>{e.accountName}</td>
+                  <td className="right equity-amt">{e.amount < 0 ? fmt(Math.abs(e.amount)) : ""}</td>
+                  <td className="right equity-amt">{e.amount > 0 ? fmt(e.amount) : ""}</td>
+                </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <th>Total</th>
+                <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0))}</th>
+                <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0))}</th>
+              </tr>
+            </tfoot>
           </table>
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
             <button onClick={() => setVoucherModalTx(null)}>Close</button>
