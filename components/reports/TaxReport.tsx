@@ -936,21 +936,26 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           </label>
         </div>
       </div>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
-        Estimate only — not tax advice. Wages = gross pay less your 401(k) employee contribution (assumed
-        traditional/pretax — Roth 401(k) contributions are post-tax and wouldn&apos;t reduce this; not distinguished
-        here) and any personal HSA contributions found (transactions narrated "HSA", capped at the IRS annual limit
-        for the coverage tier selected above). No other pretax deductions (e.g. health premiums) are subtracted
-        since the app doesn&apos;t separately track them. Federal: includes Additional Medicare Tax and NIIT (both
-        validated against a real return), but not AMT (didn&apos;t apply in that same return despite a large SALT
-        addback — not modeled, watch for it changing at materially higher income). NIIT&apos;s net investment income
-        only includes realized capital gains — interest/dividends aren&apos;t tracked, so it&apos;s understated if
-        you have meaningful amounts of either. ESPP disqualifying-disposition ordinary income isn&apos;t modeled
-        (treated as capital gain). CA: uses federal AGI as a proxy for CA AGI, adding the HSA deduction back since
-        California doesn&apos;t conform to federal HSA treatment; no other CA-specific addback/subtraction items
-        modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit (can&apos;t be checked from
-        ledger data alone). Based on {taxEstimate.rules.ruleVersion} / {caTaxEstimate.rules.ruleVersion}.
-      </p>
+      <details style={{ margin: "0 0 0.75rem" }}>
+        <summary style={{ fontSize: 12, opacity: 0.7, cursor: "pointer", listStyle: "none" }}>
+          ℹ️ Estimate only — not tax advice. Click for assumptions &amp; limitations →
+        </summary>
+        <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0 0" }}>
+          Wages = gross pay less your 401(k) employee contribution (assumed traditional/pretax — Roth 401(k)
+          contributions are post-tax and wouldn&apos;t reduce this; not distinguished here) and any personal HSA
+          contributions found (transactions narrated "HSA", capped at the IRS annual limit for the coverage tier
+          selected above). No other pretax deductions (e.g. health premiums) are subtracted since the app
+          doesn&apos;t separately track them. Federal: includes Additional Medicare Tax and NIIT (both validated
+          against a real return), but not AMT (didn&apos;t apply in that same return despite a large SALT addback —
+          not modeled, watch for it changing at materially higher income). NIIT&apos;s net investment income only
+          includes realized capital gains — interest/dividends aren&apos;t tracked, so it&apos;s understated if you
+          have meaningful amounts of either. ESPP disqualifying-disposition ordinary income isn&apos;t modeled
+          (treated as capital gain). CA: uses federal AGI as a proxy for CA AGI, adding the HSA deduction back since
+          California doesn&apos;t conform to federal HSA treatment; no other CA-specific addback/subtraction items
+          modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit (can&apos;t be checked
+          from ledger data alone). Based on {taxEstimate.rules.ruleVersion} / {caTaxEstimate.rules.ruleVersion}.
+        </p>
+      </details>
       <div className="equity-summary-row">
         {[
           {
