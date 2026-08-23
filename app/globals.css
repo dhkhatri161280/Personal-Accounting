@@ -7661,6 +7661,145 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .wl-card { border-radius: var(--ref-radius) !important; box-shadow: var(--ref-shadow); }
 .ui-refresh .tr-insight { border-radius: var(--ref-radius) !important; }
 
+/* Ledgers / Trial Balance / Daybook — shared filter bar and sortable column headers used
+   across several table screens. Readability bump only (8px labels/sort text was tuned for
+   density); no structural change since `.table-filters` already wraps safely (plain
+   flex, no flex:1 cards). */
+.ui-refresh .table-filters {
+  border-radius: var(--ref-radius) !important;
+  box-shadow: var(--ref-shadow);
+  border-color: var(--ref-border) !important;
+}
+.ui-refresh .table-filters label { font-size: 9px !important; }
+.ui-refresh .table-filters input { border-radius: 7px !important; font-size: 12.5px; }
+.ui-refresh .sortable > button { font-size: 9px !important; letter-spacing: 0.05em; }
+
+/* Masters — tabs, toolbar, status pills, and the shared modal form (reused for ledger edit,
+   group edit, settings, and the inline-ledger-modal in New Voucher). No card-row or
+   wide-table risk here (the account/group tables are plain, not card grids); this is a
+   straightforward token pass: rounded corners, accent color instead of navy, larger pill
+   text. */
+.ui-refresh .master-tabs button.selected { background: var(--ref-blue) !important; }
+.ui-refresh .master-toolbar input {
+  border-radius: var(--ref-radius) !important;
+  font-size: 12.5px;
+}
+.ui-refresh .master-modal { background: #0f172acc; }
+.ui-refresh .master-form {
+  border-radius: var(--ref-radius) !important;
+  border-color: var(--ref-border) !important;
+  box-shadow: 0 20px 55px #0f172a33;
+}
+.ui-refresh .master-form input,
+.ui-refresh .master-form select {
+  border-radius: 8px !important;
+}
+.ui-refresh .master-actions button { border-radius: 8px !important; font-size: 11.5px; }
+.ui-refresh .master-status { font-size: 10.5px; padding: 5px 10px !important; }
+
+/* Daybook — the transaction table already gets header/row styling for free from the generic
+   `.data-panel table` rule. Left `.table-scroll`/`.transaction-table` sizing untouched since
+   the dual top/bottom scrollbar sync is JS/ResizeObserver-driven (fragile to disturb); this
+   is just toolbar/filter-input polish, nothing that affects table width. */
+.ui-refresh .excel-toolbar button { border-radius: 7px !important; }
+.ui-refresh .column-filters input { border-radius: 6px !important; }
+.ui-refresh .column-sort:hover { background: #eff6ff; color: var(--ref-blue); }
+
+/* New Voucher — the ledger-line editor (.voucher-line-editor/-toolbar/-head/-row) has NO
+   base CSS anywhere in this file; it's relying on browser default block layout today (a
+   blank slate, not a bug to inherit). Built as a real grid here rather than reusing the
+   flex-wrap pattern that caused problems elsewhere in this rollout -- head and each row
+   share the same explicit column template so they stay aligned regardless of content width. */
+.ui-refresh .voucher-line-editor {
+  border: 1px solid var(--ref-border);
+  border-radius: var(--ref-radius);
+  padding: 14px;
+  background: #fff;
+}
+.ui-refresh .voucher-line-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+}
+.ui-refresh .voucher-line-toolbar button {
+  border-radius: 8px;
+  font-size: 12px;
+  padding: 7px 12px;
+  margin: 0;
+}
+.ui-refresh .voucher-line-head,
+.ui-refresh .voucher-line-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 150px 92px;
+  gap: 10px;
+  align-items: center;
+}
+.ui-refresh .voucher-line-head {
+  padding: 6px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.ui-refresh .voucher-line-row {
+  padding: 7px 4px;
+  border-top: 1px solid var(--ref-border);
+}
+.ui-refresh .voucher-line-row select,
+.ui-refresh .voucher-line-row input {
+  width: 100%;
+  min-width: 0;
+  border-radius: 7px;
+  margin: 0;
+}
+.ui-refresh .voucher-line-row button {
+  border-radius: 7px;
+  font-size: 11.5px;
+  padding: 6px 8px;
+  margin: 0;
+}
+.ui-refresh .voucher-balance-ok,
+.ui-refresh .voucher-balance-diff {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+.ui-refresh .voucher-balance-ok { background: #f0fdf4; color: #16a34a; }
+.ui-refresh .voucher-balance-diff { background: #fff5f5; color: #dc2626; }
+.ui-refresh .voucher-ledger-create {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.ui-refresh .voucher-ledger-create button {
+  border-radius: 8px;
+  font-size: 12px;
+}
+/* At narrow widths the fixed side/amount/remove columns (84+150+92px) leave the ledger
+   dropdown crushed to ~0 width -- verified via scratch test at 390px viewport (select
+   width hit 0, panel forced into horizontal scroll). Below 680px, stack each row into its
+   own 2-row mini-grid instead: side+remove share the top row, ledger and amount each get
+   the full row width. The column head is hidden since it no longer matches this layout. */
+@media (max-width: 680px) {
+  .ui-refresh .voucher-line-head { display: none; }
+  .ui-refresh .voucher-line-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "side remove" "ledger ledger" "amount amount";
+    row-gap: 6px;
+  }
+  .ui-refresh .voucher-line-row > select:first-child { grid-area: side; }
+  .ui-refresh .voucher-line-row > select:nth-child(2) { grid-area: ledger; }
+  .ui-refresh .voucher-line-row > input { grid-area: amount; }
+  .ui-refresh .voucher-line-row > button { grid-area: remove; }
+}
+
 /* Buttons — slightly larger radius, matching the friend's shape.borderRadius: 12 (dialed
    back a touch for our denser UI) */
 .ui-refresh button {
