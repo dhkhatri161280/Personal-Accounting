@@ -86,14 +86,17 @@ export type PayrollRow = {
                            // the year (chronological) in the Equity report.
 };
 
-// A pay period created from a posted Receipt voucher rather than the Excel import — either
-// because the books have moved past the last Excel export, or the user filled in real
-// paystub numbers by hand. Persisted (unlike the live-only "shadow period" preview) so
-// edits survive and don't get recomputed from a rough estimate on every render.
+// A pay period the user edited by hand — either created from a posted Receipt voucher
+// (txGuid set) for a period the Excel import doesn't cover, OR a correction overlaid on
+// top of an Excel-imported period (periodIndex set, txGuid absent) when the imported
+// numbers were wrong and the user has the real paystub. Persisted (unlike the live-only
+// "shadow period" preview) so edits survive and don't get recomputed on every render.
 export type ManualPayrollPeriod = {
   id: string;
   label: string;       // e.g. "Aug 16 Aug 31"
-  txGuid: string;       // the linked Receipt voucher
+  txGuid?: string;      // the linked Receipt voucher, when this period was created from one
+  periodIndex?: number; // index into an Excel-imported PayrollYear.periodLabels, when this is
+                         // a correction overlaid on an existing imported period
   base: number;
   telephone: number;
   medical: number;

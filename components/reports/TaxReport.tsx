@@ -120,6 +120,40 @@ function EsppTable({ items, fmt }: { items: EsppPurchase[]; fmt: (n: number) => 
   );
 }
 
+function EditFieldsForm({
+  form, onChange, onSave, onCancel, saving,
+}: {
+  form: typeof BLANK_MANUAL_FORM;
+  onChange: (next: typeof BLANK_MANUAL_FORM) => void;
+  onSave: () => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div style={{ padding: "0.5rem 0.25rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.6rem" }}>
+        {MANUAL_FIELDS.map((f) => (
+          <label key={f.key} style={{ fontSize: 12 }}>
+            {f.label}
+            <input
+              type="number"
+              step="0.01"
+              className="tax-manual-input"
+              value={form[f.key]}
+              onChange={(e) => onChange({ ...form, [f.key]: e.target.value })}
+              style={{ width: "100%", display: "block", marginTop: 2 }}
+            />
+          </label>
+        ))}
+      </div>
+      <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+        <button onClick={onSave} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+        <button onClick={onCancel} disabled={saving}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 const MANUAL_FIELDS: { key: keyof typeof BLANK_MANUAL_FORM; label: string }[] = [
   { key: "base", label: "Base" },
   { key: "telephone", label: "Telephone" },
@@ -152,7 +186,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const [showEsppModal, setShowEsppModal] = useState(false);
   const [periodEsppModal, setPeriodEsppModal] = useState<{ label: string; items: EsppPurchase[] } | null>(null);
   const [voucherModalTx, setVoucherModalTx] = useState<Tx | null>(null);
-  const [editingManualId, setEditingManualId] = useState<string | null>(null);
+  const [editingTarget, setEditingTarget] = useState<{ id: string | null; periodIndex?: number; label: string } | null>(null);
   const [manualForm, setManualForm] = useState(BLANK_MANUAL_FORM);
   const [savingManual, setSavingManual] = useState(false);
   const [startingManualYear, setStartingManualYear] = useState(false);
@@ -276,33 +310,62 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
   const k401 = row(rows, "401K");
   const k401Emplr = row(rows, "401K Emplr");
   const esppRow = row(rows, "ESPP");
+  const baseRow = row(rows, "Base");
+  const telRow = row(rows, "Telephone");
+  const medicalRow = row(rows, "Medical");
 
-  const manualPeriods = yr.manualPeriods ?? [];
-  const manualGross = manualPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
-  const manualFederal = manualPeriods.reduce((s, m) => s + m.federal, 0);
-  const manualSsn = manualPeriods.reduce((s, m) => s + m.ssn, 0);
-  const manualMedicare = manualPeriods.reduce((s, m) => s + m.medicare, 0);
-  const manualStateWH = manualPeriods.reduce((s, m) => s + m.stateWH, 0);
-  const manualStateSDI = manualPeriods.reduce((s, m) => s + m.stateSDI, 0);
-  const manualTax = manualPeriods.reduce((s, m) => s + m.totalTax, 0);
-  const manualNet = manualPeriods.reduce((s, m) => s + m.net, 0);
-  const manualK401 = manualPeriods.reduce((s, m) => s + m.k401, 0);
-  const manualK401Emplr = manualPeriods.reduce((s, m) => s + (m.k401Emplr ?? 0), 0);
-  const manualEspp = manualPeriods.reduce((s, m) => s + (m.espp ?? 0), 0);
+  const allManualPeriods = yr.manualPeriods ?? [];
+  // Two kinds share the same ManualPayrollPeriod record: a voucher-derived period (new pay
+  // period the Excel doesn't cover) vs. a correction overlaid on an Excel-imported period
+  // (periodIndex set) — the latter must NOT be added on top of the Excel row it corrects,
+  // or totals would double-count it.
+  const voucherPeriods = allManualPeriods.filter((m) => m.periodIndex === undefined);
+  const overrideByIndex = new Map(allManualPeriods.filter((m) => m.periodIndex !== undefined).map((m) => [m.periodIndex!, m]));
 
-  const totalGross = sumRow(gross) + manualGross;
-  const totalFederal = sumRow(federal) + manualFederal;
-  const totalSsn = sumRow(ssn) + manualSsn;
-  const totalMedicare = sumRow(medicare) + manualMedicare;
-  const totalStateWH = sumRow(stateWH) + manualStateWH;
-  const totalStateSDI = sumRow(stateSDI) + manualStateSDI;
-  const totalTaxAll = sumRow(totalTax) + manualTax;
-  const totalNet = sumRow(netSalary) + manualNet;
+  const manualGross = voucherPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
+  const manualFederal = voucherPeriods.reduce((s, m) => s + m.federal, 0);
+  const manualSsn = voucherPeriods.reduce((s, m) => s + m.ssn, 0);
+  const manualMedicare = voucherPeriods.reduce((s, m) => s + m.medicare, 0);
+  const manualStateWH = voucherPeriods.reduce((s, m) => s + m.stateWH, 0);
+  const manualStateSDI = voucherPeriods.reduce((s, m) => s + m.stateSDI, 0);
+  const manualTax = voucherPeriods.reduce((s, m) => s + m.totalTax, 0);
+  const manualNet = voucherPeriods.reduce((s, m) => s + m.net, 0);
+  const manualK401 = voucherPeriods.reduce((s, m) => s + m.k401, 0);
+  const manualK401Emplr = voucherPeriods.reduce((s, m) => s + (m.k401Emplr ?? 0), 0);
+  const manualEspp = voucherPeriods.reduce((s, m) => s + (m.espp ?? 0), 0);
+
+  // Sum a row across every Excel period, substituting an override's value wherever one
+  // exists for that period index, then add the (unaffected) Stocks-column total.
+  function overriddenTotal(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod): number {
+    let sum = 0;
+    for (let i = 0; i < yr.periodLabels.length; i++) {
+      const ov = overrideByIndex.get(i);
+      sum += ov ? (Number(ov[field]) || 0) : (baseRowForField?.values[i] ?? 0);
+    }
+    return sum + (baseRowForField?.stockValues?.reduce((s, v) => s + v, 0) ?? 0);
+  }
+  function overriddenGrossTotal(): number {
+    let sum = 0;
+    for (let i = 0; i < yr.periodLabels.length; i++) {
+      const ov = overrideByIndex.get(i);
+      sum += ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0);
+    }
+    return sum + (gross?.stockValues?.reduce((s, v) => s + v, 0) ?? 0);
+  }
+
+  const totalGross = overriddenGrossTotal() + manualGross;
+  const totalFederal = overriddenTotal(federal, "federal") + manualFederal;
+  const totalSsn = overriddenTotal(ssn, "ssn") + manualSsn;
+  const totalMedicare = overriddenTotal(medicare, "medicare") + manualMedicare;
+  const totalStateWH = overriddenTotal(stateWH, "stateWH") + manualStateWH;
+  const totalStateSDI = overriddenTotal(stateSDI, "stateSDI") + manualStateSDI;
+  const totalTaxAll = overriddenTotal(totalTax, "totalTax") + manualTax;
+  const totalNet = overriddenTotal(netSalary, "net") + manualNet;
   const totalAfterTax = sumRow(afterTax);
   const totalEffective = sumRow(effective);
-  const totalK401 = sumRow(k401) + manualK401;
-  const totalK401Emplr = sumRow(k401Emplr) + manualK401Emplr;
-  const totalEsppDeduction = sumRow(esppRow) + manualEspp;
+  const totalK401 = overriddenTotal(k401, "k401") + manualK401;
+  const totalK401Emplr = overriddenTotal(k401Emplr, "k401Emplr") + manualK401Emplr;
+  const totalEsppDeduction = overriddenTotal(esppRow, "espp") + manualEspp;
   const effectiveRate = totalGross > 0 ? (totalTaxAll / totalGross) * 100 : 0;
 
   // RSU vest records come from Reports > Equity (authoritative for date/shares/price) —
@@ -357,7 +420,11 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
     setVoucherModalTx(tx);
   }
 
-  async function saveManualEdit(m: ManualPayrollPeriod) {
+  // Handles both cases: editing an existing ManualPayrollPeriod (voucher-derived, or an
+  // already-created Excel correction) when editingTarget.id is set, or creating a brand
+  // new correction overlay for an Excel period when it's null.
+  async function saveEdit() {
+    if (!editingTarget) return;
     setSavingManual(true);
     try {
       const federalV = Number(manualForm.federal) || 0;
@@ -365,8 +432,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
       const medicareV = Number(manualForm.medicare) || 0;
       const stateWHV = Number(manualForm.stateWH) || 0;
       const stateSDIV = Number(manualForm.stateSDI) || 0;
-      const updated: ManualPayrollPeriod = {
-        ...m,
+      const fields = {
         base: Number(manualForm.base) || 0,
         telephone: Number(manualForm.telephone) || 0,
         medical: Number(manualForm.medical) || 0,
@@ -380,26 +446,42 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
         stateSDI: stateSDIV,
         totalTax: federalV + ssnV + medicareV + stateWHV + stateSDIV,
         net: Number(manualForm.net) || 0,
-        estimated: false,
+        estimated: false as const,
       };
-      const updatedYears = payroll!.years.map((y) =>
-        y.year !== yr.year ? y : { ...y, manualPeriods: (y.manualPeriods ?? []).map((x) => (x.id === m.id ? updated : x)) }
-      );
+      const updatedYears = payroll!.years.map((y) => {
+        if (y.year !== yr.year) return y;
+        const existing = y.manualPeriods ?? [];
+        if (editingTarget.id) {
+          return { ...y, manualPeriods: existing.map((x) => (x.id === editingTarget.id ? { ...x, ...fields } : x)) };
+        }
+        const newPeriod: ManualPayrollPeriod = { id: crypto.randomUUID(), label: editingTarget.label, periodIndex: editingTarget.periodIndex, ...fields };
+        return { ...y, manualPeriods: [...existing, newPeriod] };
+      });
       await onSave({ ...payroll!, years: updatedYears });
-      setEditingManualId(null);
+      setEditingTarget(null);
     } finally {
       setSavingManual(false);
     }
   }
 
-  function startManualEdit(m: ManualPayrollPeriod) {
+  function startEditExisting(m: ManualPayrollPeriod) {
     setManualForm({
       base: String(m.base), telephone: String(m.telephone), medical: String(m.medical),
       k401: String(m.k401), k401Emplr: String(m.k401Emplr ?? 0), espp: String(m.espp ?? 0),
       federal: String(m.federal), ssn: String(m.ssn), medicare: String(m.medicare),
       stateWH: String(m.stateWH), stateSDI: String(m.stateSDI), net: String(m.net),
     });
-    setEditingManualId(m.id);
+    setEditingTarget({ id: m.id, periodIndex: m.periodIndex, label: m.label });
+  }
+
+  function startEditExcel(i: number, label: string) {
+    setManualForm({
+      base: String(at(baseRow, i)), telephone: String(at(telRow, i)), medical: String(at(medicalRow, i)),
+      k401: String(at(k401, i)), k401Emplr: String(at(k401Emplr, i)), espp: String(at(esppRow, i)),
+      federal: String(at(federal, i)), ssn: String(at(ssn, i)), medicare: String(at(medicare, i)),
+      stateWH: String(at(stateWH, i)), stateSDI: String(at(stateSDI, i)), net: String(at(netSalary, i)),
+    });
+    setEditingTarget({ id: null, periodIndex: i, label });
   }
 
   return (
@@ -476,13 +558,23 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
         </thead>
         <tbody>
           {yr.periodLabels.map((label, i) => {
+            // Once a period has a correction overlaid on it, the allManualPeriods row below
+            // is the sole renderer for it (full edit history, no duplicate row).
+            if (overrideByIndex.has(i)) return null;
             const g = at(gross, i);
+            const fed = at(federal, i);
+            const ssnV = at(ssn, i);
+            const med = at(medicare, i);
+            const swh = at(stateWH, i);
+            const ssdi = at(stateSDI, i);
             const t = at(totalTax, i);
-            if (!g && !t && !at(federal, i)) return null; // skip empty future periods
+            const net = at(netSalary, i);
+            if (!g && !t && !fed) return null; // skip empty future periods
             const key = `excel-${i}`;
             const expanded = expandedKey === key;
+            const editing = editingTarget?.id === null && editingTarget?.periodIndex === i;
             const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label) : undefined;
-            const match = yr.matches?.find((m) => m.periodIndex === i);
+            const match = yr.matches?.find((mt) => mt.periodIndex === i);
             const expectedNet = at(netSalary, i);
             const variance = match ? match.depositAmount - expectedNet : 0;
             const varianceFlag = match && Math.abs(variance) > 1;
@@ -495,13 +587,13 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                 <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer" }}>
                   <td>{label || `Period ${i + 1}`}</td>
                   <td className="right">{fmt(g)}</td>
-                  <td className="right">{fmt(at(federal, i))}</td>
-                  <td className="right">{fmt(at(ssn, i))}</td>
-                  <td className="right">{fmt(at(medicare, i))}</td>
-                  <td className="right">{fmt(at(stateWH, i))}</td>
-                  <td className="right">{fmt(at(stateSDI, i))}</td>
+                  <td className="right">{fmt(fed)}</td>
+                  <td className="right">{fmt(ssnV)}</td>
+                  <td className="right">{fmt(med)}</td>
+                  <td className="right">{fmt(swh)}</td>
+                  <td className="right">{fmt(ssdi)}</td>
                   <td className="right">{fmt(t)}</td>
-                  <td className="right">{fmt(at(netSalary, i))}</td>
+                  <td className="right">{fmt(net)}</td>
                   <td>
                     {periodEspp.length > 0 ? (
                       <button
@@ -536,33 +628,41 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                 {expanded && (
                   <tr>
                     <td colSpan={11} style={{ background: "var(--panel-2, #f6f7f9)" }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", padding: "0.5rem 0.25rem" }}>
-                        {rows.map((r, ri) => (
-                          <div key={ri} style={{ minWidth: 140 }}>
-                            <div style={{ fontSize: 11, opacity: 0.7 }}>{r.label}</div>
-                            <strong className="equity-amt">{fmt(r.values[i] ?? 0)}</strong>
+                      {editing ? (
+                        <EditFieldsForm form={manualForm} onChange={setManualForm} onSave={saveEdit} onCancel={() => setEditingTarget(null)} saving={savingManual} />
+                      ) : (
+                        <div style={{ padding: "0.5rem 0.25rem" }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", marginBottom: "0.75rem" }}>
+                            {rows.map((r, ri) => (
+                              <div key={ri} style={{ minWidth: 140 }}>
+                                <div style={{ fontSize: 11, opacity: 0.7 }}>{r.label}</div>
+                                <strong className="equity-amt">{fmt(r.values[i] ?? 0)}</strong>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                          {!readOnly && <button onClick={() => startEditExcel(i, label)}>✎ Edit with real paystub numbers</button>}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
               </Fragment>
             );
           })}
-          {manualPeriods.map((m) => {
+          {allManualPeriods.map((m) => {
             const key = `manual-${m.id}`;
             const expanded = expandedKey === key;
-            const tx = transactions.find((t) => t.guid === m.txGuid);
-            const editing = editingManualId === m.id;
+            const isOverride = m.periodIndex !== undefined;
+            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label);
+            const editing = editingTarget?.id === m.id;
             const mRange = parsePeriodRange(m.label, yr.year);
             const mEspp = mRange ? yearEspp.filter((e) => e.purchaseDate >= mRange.start && e.purchaseDate <= mRange.end) : [];
             const mEsppShares = mEspp.reduce((s, e) => s + e.shares, 0);
             return (
               <Fragment key={key}>
-                <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer", background: "#fffbeb" }}>
-                  <td title="Posted in the vault but not yet in the imported Excel file">
-                    {m.label} <em style={{ fontSize: 10, opacity: 0.6 }}>{m.estimated ? "(from voucher, estimated)" : "(from voucher, edited)"}</em>
+                <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : "#fffbeb" }}>
+                  <td title={isOverride ? "Corrected from the Excel import" : "Posted in the vault but not yet in the imported Excel file"}>
+                    {m.label} <em style={{ fontSize: 10, opacity: 0.6 }}>{isOverride ? "(edited)" : m.estimated ? "(from voucher, estimated)" : "(from voucher, edited)"}</em>
                   </td>
                   <td className="right equity-amt">{fmt(m.base + m.telephone)}</td>
                   <td className="right equity-amt" style={m.estimated ? { opacity: 0.6, fontStyle: "italic" } : undefined}>{fmt(m.federal)}</td>
@@ -591,7 +691,7 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                         🔗 {tx.type} #{tx.number || "—"} · {new Date(tx.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                       </button>
                     ) : (
-                      <span style={{ opacity: 0.4 }}>Voucher removed</span>
+                      <span style={{ opacity: 0.4 }}>{m.txGuid ? "Voucher removed" : "—"}</span>
                     )}
                   </td>
                 </tr>
@@ -619,31 +719,11 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                             </p>
                           ) : null}
                           {!readOnly && (
-                            <button onClick={() => startManualEdit(m)}>✎ Edit with real paystub numbers</button>
+                            <button onClick={() => startEditExisting(m)}>✎ Edit with real paystub numbers</button>
                           )}
                         </div>
                       ) : (
-                        <div style={{ padding: "0.5rem 0.25rem" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.6rem" }}>
-                            {MANUAL_FIELDS.map((f) => (
-                              <label key={f.key} style={{ fontSize: 12 }}>
-                                {f.label}
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  className="tax-manual-input"
-                                  value={manualForm[f.key]}
-                                  onChange={(e) => setManualForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                                  style={{ width: "100%", display: "block", marginTop: 2 }}
-                                />
-                              </label>
-                            ))}
-                          </div>
-                          <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
-                            <button onClick={() => saveManualEdit(m)} disabled={savingManual}>{savingManual ? "Saving…" : "Save"}</button>
-                            <button onClick={() => setEditingManualId(null)} disabled={savingManual}>Cancel</button>
-                          </div>
-                        </div>
+                        <EditFieldsForm form={manualForm} onChange={setManualForm} onSave={saveEdit} onCancel={() => setEditingTarget(null)} saving={savingManual} />
                       )}
                     </td>
                   </tr>
@@ -709,17 +789,18 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
             <th className="right">{fmt(totalNet)}</th>
             <th>{(yearEspp.reduce((s, e) => s + e.shares, 0)).toLocaleString()} sh</th>
             <th>
-              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length + manualPeriods.length}
+              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length + voucherPeriods.length}
               {" / "}
-              {yr.periodLabels.filter((l) => l).length + manualPeriods.length} linked
+              {yr.periodLabels.filter((l) => l).length + voucherPeriods.length} linked
             </th>
           </tr>
         </tfoot>
       </table>
-      {manualPeriods.length > 0 && (
+      {allManualPeriods.length > 0 && (
         <p className="equity-seed-note" style={{ marginTop: "-0.5rem" }}>
-          {manualPeriods.length} pay period(s) auto-added from posted vouchers, highlighted above — expand a row to edit
-          its Federal/SSN/Medicare/State figures once you have the real paystub.
+          {voucherPeriods.length > 0 && `${voucherPeriods.length} pay period(s) auto-added from posted vouchers. `}
+          {overrideByIndex.size > 0 && `${overrideByIndex.size} period(s) corrected from the Excel import. `}
+          Rows highlighted above — expand any row (including regular Excel-imported ones) and click "✎ Edit" to enter real paystub numbers.
         </p>
       )}
 

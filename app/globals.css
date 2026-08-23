@@ -7496,20 +7496,25 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .equity-summary-stat--active { border-color: var(--ref-blue) !important; box-shadow: 0 0 0 2px #bfdbfe; }
 .ui-refresh .equity-summary-row { gap: 10px !important; }
 
-/* The Tax tab's "squeeze onto one row" fix (added when cards were tiny/compact) actively
-   fights the bigger type scale here — it was clipping dollar VALUES mid-digit, which must
-   never happen. .ui-refresh lives on the app shell wrapper, .tax-report on a nested div, so
-   this needs a descendant combinator (not a compound selector) to actually match. Under the
-   refresh theme, let cards wrap to as many rows as needed instead of cramming/truncating. */
+/* The Tax tab's "squeeze onto one row" fix (added when cards were tiny/compact) used
+   flex-wrap + flex-grow, which packs unpredictably: it left only 6 of 9 cards per row and
+   over-stretched each one, wasting space instead of fitting all 9 compactly. CSS Grid with
+   auto-fit + minmax is the correct tool here: pack as many >=160px columns as fit per row,
+   evenly, and only wrap to a second row if the window is genuinely too narrow for all 9 —
+   this also means all 9 sit on one row if there's a container-nested div of .tax-report so
+   this needs a descendant combinator (not a compound selector) to actually match. */
 .ui-refresh .tax-report .equity-summary-row {
-  flex-wrap: wrap;
-  overflow-x: visible;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
 }
 .ui-refresh .tax-report .equity-summary-col {
-  min-width: 190px;
+  min-width: 0;
+  width: 100%;
 }
 .ui-refresh .tax-report .equity-summary-card {
-  min-width: 190px;
+  min-width: 0;
+  width: 100%;
 }
 .ui-refresh .tax-report .equity-summary-card span,
 .ui-refresh .tax-report .equity-summary-card em {
