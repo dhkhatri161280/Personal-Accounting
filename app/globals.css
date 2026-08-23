@@ -7496,20 +7496,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .equity-summary-stat--active { border-color: var(--ref-blue) !important; box-shadow: 0 0 0 2px #bfdbfe; }
 .ui-refresh .equity-summary-row { gap: 10px !important; }
 
-/* The Tax tab's "squeeze onto one row" fix (added when cards were tiny/compact) used
-   flex-wrap + flex-grow, which packs unpredictably. CSS Grid with auto-fit + minmax packs
-   deterministically instead. The real constraint: .workspace caps content at 1430px (minus
-   36px padding) and .data-panel adds another 36px of padding -- ~1314px actually available,
-   NOT the ~1900px a bare test page without the app's sidebar/padding chrome suggested. 9
-   cards at 130px + 8x10px gaps = 1250px, comfortably inside 1314px. */
+/* At the real .workspace/.data-panel width (~1075-1314px usable, not the ~1900px a bare
+   test page without the app's sidebar/padding chrome suggested), 9 cards cannot all fit on
+   one line without either dropping the icon, cutting decimal precision off the dollar
+   amounts, or shrinking the font past legibility -- all worse than a clean, even wrap.
+   minmax(190px, 1fr) gives each card enough room to show icon + full-precision amount on
+   one line; auto-fit wraps to a tidy 5-and-4 (or similar) split instead of the previous
+   uneven 8-and-1 split, and instead of occluding text under the next card. */
 .ui-refresh .tax-report .equity-summary-row {
   display: grid !important;
-  /* Fallback only — TaxReport.tsx sets an inline grid-template-columns with the exact card
-     count (repeat(N, minmax(0,1fr))) so the row always renders as a single row and cards
-     shrink to fit instead of wrapping. auto-fit with a fixed px floor doesn't work here: at
-     real .workspace/.data-panel widths the floor no longer divides evenly into the card
-     count, so auto-fit drops a card to a second row instead of shrinking everyone. */
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 10px !important;
   flex-wrap: unset !important;
   overflow-x: visible !important;
@@ -7530,8 +7526,15 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   text-overflow: clip;
 }
 .ui-refresh .tax-report .equity-summary-card strong {
-  white-space: nowrap;
-  overflow: visible;
+  /* nowrap + overflow:visible looked fine in isolation, but at a too-narrow card width a
+     wide dollar amount overflows its own box and gets painted UNDER the next card's opaque
+     background (later DOM siblings paint on top) -- it LOOKS clipped even though nothing
+     is actually setting overflow:hidden. The 190px card floor above should make this a
+     non-issue in practice; overflow-wrap here is a defensive fallback only, for an unusually
+     large dollar figure, not the primary fix. */
+  white-space: normal;
+  overflow-wrap: break-word;
+  font-size: 17px !important;
 }
 
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
