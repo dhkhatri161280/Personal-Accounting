@@ -7508,7 +7508,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   text-transform: uppercase;
   color: #64748b !important;
 }
-.ui-refresh .equity-summary-card strong { font-size: 17px !important; font-weight: 800 !important; color: #0f172a; margin: 2px 0 !important; display: block; }
+.ui-refresh .equity-summary-card strong { font-size: 15px !important; font-weight: 800 !important; color: #0f172a; margin: 2px 0 !important; display: block; }
 .ui-refresh .equity-summary-card em { font-size: 10px !important; color: #94a3b8 !important; }
 .ui-refresh .equity-summary-stat--active { border-color: var(--ref-blue) !important; box-shadow: 0 0 0 2px #bfdbfe; }
 .ui-refresh .equity-summary-row { gap: 10px !important; }
@@ -7551,9 +7551,9 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
      is actually setting overflow:hidden. The 190px card floor above should make this a
      non-issue in practice; overflow-wrap here is a defensive fallback only, for an unusually
      large dollar figure, not the primary fix. */
-  white-space: normal;
-  overflow-wrap: break-word;
-  font-size: 17px !important;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  font-size: 15px !important;
 }
 
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
@@ -7637,7 +7637,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    watchlist grid (.wl-grid) already uses auto-fit/minmax and doesn't need this. */
 .ui-refresh .tr-summary-bar {
   display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 10px !important;
   flex-wrap: unset !important;
 }
@@ -7650,9 +7650,12 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .tr-summary-card span { white-space: normal; overflow: visible; }
 .ui-refresh .tr-summary-card strong {
-  font-size: 16px !important;
-  white-space: normal;
-  overflow-wrap: break-word;
+  /* One size down from the original 16px, and nowrap instead of wrap-as-fallback -- at the
+     190px card floor above, full-precision P&L figures fit on one line without needing to
+     wrap into the card growing taller. */
+  font-size: 14px !important;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .ui-refresh .tr-broker-chip { border-radius: 999px !important; box-shadow: var(--ref-shadow); }
 .ui-refresh .wl-card { border-radius: var(--ref-radius) !important; box-shadow: var(--ref-shadow); }
