@@ -66,6 +66,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
+  const [selectedAy, setSelectedAy] = useState<string | null>(null);
   const [editingItrId, setEditingItrId] = useState<string | null>(null);
   const [itrForm, setItrForm] = useState(BLANK_ITR_FORM);
   const [savingItr, setSavingItr] = useState(false);
@@ -81,6 +82,33 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const fyNet = fyMonths.reduce((s, m) => s + m.netPay, 0);
 
   const itrYears = (indiaTax?.itrYears ?? []).slice().sort((a, b) => b.assessmentYear.localeCompare(a.assessmentYear));
+  const activeAy = selectedAy ?? itrYears[0]?.assessmentYear ?? null;
+  const activeItrYear = itrYears.find((y) => y.assessmentYear === activeAy);
+  const itrTaxesPaid = activeItrYear
+    ? activeItrYear.advanceTax + activeItrYear.tds + activeItrYear.tcs + activeItrYear.selfAssessmentTax
+    : 0;
+  const itrEffectiveRate = activeItrYear && activeItrYear.grossTotalIncome > 0
+    ? (activeItrYear.taxPayable / activeItrYear.grossTotalIncome) * 100
+    : 0;
+
+  const itrSummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = activeItrYear
+    ? [
+        { label: "Gross Total Income", value: activeItrYear.grossTotalIncome, sub: `AY ${activeItrYear.assessmentYear}`, icon: "cash", color: "#1e40af" },
+        { label: "Ch VI-A Deductions", value: activeItrYear.deductionsChapterVIA, sub: "80C, 80D, etc.", icon: "shield", color: "#7c3aed" },
+        { label: "Total Income", value: activeItrYear.totalIncome, sub: "taxable income", icon: "receipt", color: "#0891b2" },
+        { label: "Tax Payable", value: activeItrYear.taxPayable, sub: `${itrEffectiveRate.toFixed(1)}% effective rate`, icon: "scale", color: "#dc2626" },
+        { label: "TDS", value: activeItrYear.tds, sub: "tax deducted at source", icon: "bank", color: "#d97706" },
+        { label: "Advance + Self-Assessment", value: activeItrYear.advanceTax + activeItrYear.selfAssessmentTax, sub: activeItrYear.tcs > 0 ? `+ ${fmt(activeItrYear.tcs)} TCS` : "paid directly", icon: "wallet", color: "#9333ea" },
+        { label: "Taxes Paid (Total)", value: itrTaxesPaid, sub: "TDS + advance + self-assessment + TCS", icon: "trending-up", color: "#16a34a" },
+        {
+          label: activeItrYear.refundOrDemand >= 0 ? "Refund" : "Demand Payable",
+          value: Math.abs(activeItrYear.refundOrDemand),
+          sub: activeItrYear.filingDate ? `filed ${fmtDate(activeItrYear.filingDate)}` : "filing date not recorded",
+          icon: "tag",
+          color: activeItrYear.refundOrDemand >= 0 ? "#16a34a" : "#dc2626",
+        },
+      ]
+    : [];
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -168,6 +196,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         ? [...existing, row]
         : existing.map((y) => (y.id === row.id ? row : y));
       await onSave({ payslips: indiaTax?.payslips, itrYears: next });
+      setSelectedAy(row.assessmentYear);
       setEditingItrId(null);
     } finally {
       setSavingItr(false);
@@ -176,6 +205,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   async function deleteItr(id: string) {
     const next = (indiaTax?.itrYears ?? []).filter((y) => y.id !== id);
     await onSave({ payslips: indiaTax?.payslips, itrYears: next });
+    setSelectedAy(null);
   }
 
   const fySummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = latestInFy
@@ -291,6 +321,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                 <th>Month</th>
                 <th className="right">Basic</th>
                 <th className="right">HRA</th>
+                <th className="right" title="Conveyance + all other allowances (Performance Pay, LTA, Personal Allowance, etc.), lumped together">Other Allowances</th>
                 <th className="right">Gross</th>
                 <th className="right">PF</th>
                 <th className="right">Prof. Tax</th>
@@ -304,6 +335,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                   <td>{m.label}</td>
                   <td className="right">{fmt(m.basic)}</td>
                   <td className="right">{fmt(m.hra)}</td>
+                  <td className="right">{fmt(m.conveyance + m.otherAllowances)}</td>
                   <td className="right">{fmt(m.grossEarnings)}</td>
                   <td className="right">{fmt(m.pf)}</td>
                   <td className="right">{fmt(m.professionalTax)}</td>
@@ -317,6 +349,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                 <td>Total</td>
                 <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.basic, 0))}</td>
                 <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.hra, 0))}</td>
+                <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.conveyance + m.otherAllowances, 0))}</td>
                 <td className="right">{fmt(fyGross)}</td>
                 <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.pf, 0))}</td>
                 <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.professionalTax, 0))}</td>
@@ -346,37 +379,46 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       {itrYears.length === 0 ? (
         <p className="equity-empty">No tax years recorded yet — click &quot;+ Add Year&quot; to enter one.</p>
       ) : (
-        <table className="equity-table equity-drilldown-table">
-          <thead>
-            <tr>
-              <th>AY</th>
-              <th className="right">Gross Total Income</th>
-              <th className="right">Ch VI-A Deductions</th>
-              <th className="right">Total Income</th>
-              <th className="right">Tax Payable</th>
-              <th className="right">Taxes Paid</th>
-              <th className="right">Refund / (Demand)</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          <div className="equity-grant-filter">
+            <span className="equity-grant-filter-label">AY:</span>
             {itrYears.map((y) => (
-              <tr key={y.id}>
-                <td>{y.assessmentYear}</td>
-                <td className="right">{fmt(y.grossTotalIncome)}</td>
-                <td className="right">{fmt(y.deductionsChapterVIA)}</td>
-                <td className="right">{fmt(y.totalIncome)}</td>
-                <td className="right">{fmt(y.taxPayable)}</td>
-                <td className="right">{fmt(y.advanceTax + y.tds + y.tcs + y.selfAssessmentTax)}</td>
-                <td className="right">{fmt(y.refundOrDemand)}</td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => openEditItr(y)}>Edit</button>{" "}
-                  <button onClick={() => deleteItr(y.id)}>Delete</button>
-                </td>
-              </tr>
+              <button
+                key={y.id}
+                className={`equity-grant-filter-chip${activeAy === y.assessmentYear ? " equity-grant-filter-chip--active" : ""}`}
+                onClick={() => setSelectedAy(y.assessmentYear)}
+              >
+                {y.assessmentYear}
+              </button>
             ))}
-          </tbody>
-        </table>
+            {activeItrYear && (
+              <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
+                <button onClick={() => openEditItr(activeItrYear)}>Edit</button>
+                <button onClick={() => deleteItr(activeItrYear.id)}>Delete</button>
+              </span>
+            )}
+          </div>
+
+          <div className="equity-summary-row">
+            {itrSummaryCards.map((c) => (
+              <div key={c.label} className="equity-summary-col">
+                <div className="equity-summary-card">
+                  {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+                  <div className="equity-summary-card-body">
+                    <span>{c.label}</span>
+                    <strong className="equity-amt">{fmt(c.value)}</strong>
+                    <em>{c.sub}</em>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {activeItrYear?.notes && (
+            <p className="equity-seed-note" style={{ margin: "0.5rem 0 0" }}>
+              Notes: {activeItrYear.notes}
+            </p>
+          )}
+        </>
       )}
 
       {editingItrId && (

@@ -12,6 +12,18 @@ function num(text: string, pattern: RegExp): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Earnings columns are laid out "Arrears (INR)  Current (INR)" -- most months only print the
+ * Current figure (one number after the label), but a month with an arrears adjustment prints
+ * BOTH (e.g. "Basic Salary   1,800.00   21,600.00"), and the actual salary for that month is
+ * always the SECOND (Current) number, not the first. Captures up to two numbers after the
+ * label and returns the last one found, so both cases land on the right value. */
+function numCurrent(text: string, label: string): number | undefined {
+  const m = text.match(new RegExp(`${label}\\s+([\\d,]+\\.\\d{2})(?:\\s+([\\d,]+\\.\\d{2}))?`));
+  if (!m) return undefined;
+  const n = parseFloat((m[2] ?? m[1]).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /** Parses one TCS-style payslip's extracted text. PDF text extraction keeps each label
  * immediately adjacent to its own value even though the on-page layout is two columns side
  * by side (label/value pairs stay intact in the linear text stream), so simple `label -> next
@@ -28,8 +40,8 @@ export function parseIndiaPayslipText(text: string, sourceFile: string): IndiaPa
   const label = `${header[1][0]}${header[1].slice(1).toLowerCase()} ${year}`;
   const date = `${year}-${mm}-01`;
 
-  const basic = num(text, /Basic Salary\s+([\d,]+\.\d{2})/) ?? 0;
-  const hra = num(text, /House Rent Allowance\s+([\d,]+\.\d{2})/) ?? 0;
+  const basic = numCurrent(text, "Basic Salary") ?? 0;
+  const hra = numCurrent(text, "House Rent Allowance") ?? 0;
   const conveyanceNonTax = num(text, /Conveyance Non Taxable\s+([\d,]+\.\d{2})/) ?? 0;
   const conveyanceTax = num(text, /(?<!Non\s)Conveyance Taxable\s+([\d,]+\.\d{2})/) ?? 0;
   const conveyance = conveyanceNonTax + conveyanceTax;
