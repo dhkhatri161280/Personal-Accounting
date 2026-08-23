@@ -54,6 +54,11 @@ const BLANK_RECONSTRUCTED_FORM = {
 // month, just tagged with a different source label so it's clear how the numbers got in.
 const TRANSCRIBED_SOURCE_PREFIX = "Manual entry — transcribed from scanned payslip";
 
+// A real per-month total pulled from the Tally ledger's "Salary Income" account -- not a real
+// payslip (no Basic/HRA/PF breakdown, just the one figure the ledger recorded), but real actual
+// monthly data rather than an annual estimate, so it gets its own source tag distinct from both.
+const LEDGER_MONTH_SOURCE = "Manual entry — monthly total from Tally ledger salary account";
+
 const BLANK_MANUAL_MONTH_FORM = {
   month: "", // YYYY-MM, from an <input type="month">
   basic: "",
@@ -102,6 +107,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [bulkReconstructError, setBulkReconstructError] = useState("");
   const [addingBulkReconstructed, setAddingBulkReconstructed] = useState(false);
   const [savingBulkReconstructed, setSavingBulkReconstructed] = useState(false);
+  const [bulkMonthsText, setBulkMonthsText] = useState("");
+  const [bulkMonthsError, setBulkMonthsError] = useState("");
+  const [addingBulkMonths, setAddingBulkMonths] = useState(false);
+  const [savingBulkMonths, setSavingBulkMonths] = useState(false);
   const [manualMonthForm, setManualMonthForm] = useState(BLANK_MANUAL_MONTH_FORM);
   const [addingManualMonth, setAddingManualMonth] = useState(false);
   const [savingManualMonth, setSavingManualMonth] = useState(false);
@@ -293,6 +302,69 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       setAddingBulkReconstructed(false);
     } finally {
       setSavingBulkReconstructed(false);
+    }
+  }
+
+  function openBulkAddMonths() {
+    setBulkMonthsText("");
+    setBulkMonthsError("");
+    setAddingBulkMonths(true);
+  }
+  const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function buildLedgerMonthRow(ym: string, employer: string, gross: number, usedDates: Set<string>): IndiaPayslipMonth {
+    const [y, m] = ym.split("-");
+    let date = `${y}-${m}-01`;
+    let day = 1;
+    while (usedDates.has(date)) { day++; date = `${y}-${m}-${String(day).padStart(2, "0")}`; }
+    usedDates.add(date);
+    return {
+      label: employer ? `${MONTH_NAMES[Number(m) - 1]} ${y} — ${employer} (from ledger)` : `${MONTH_NAMES[Number(m) - 1]} ${y} (from ledger)`,
+      date,
+      basic: 0,
+      hra: 0,
+      conveyance: 0,
+      otherAllowances: gross,
+      grossEarnings: gross,
+      pf: 0,
+      professionalTax: 0,
+      incomeTax: 0,
+      otherDeductions: 0,
+      totalDeductions: 0,
+      netPay: gross,
+      sourceFile: LEDGER_MONTH_SOURCE,
+    };
+  }
+  // One row per line: "YYYY-MM, Employer, Gross" -- comma, tab, or pipe separated, employer
+  // optional. Same bail-on-any-bad-line behavior as the FY bulk-add, so a typo can't silently
+  // save a partial batch.
+  function parseBulkMonthsLines(text: string): { rows: { ym: string; employer: string; gross: number }[]; error: string } {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const rows: { ym: string; employer: string; gross: number }[] = [];
+    for (const line of lines) {
+      const parts = line.split(/[,\t|]/).map((p) => p.trim());
+      const ym = parts[0] ?? "";
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return { rows: [], error: `Bad month (expected "YYYY-MM, Employer, Gross"): "${line}"` };
+      const employer = parts[1] ?? "";
+      const gross = Number(parts[2]);
+      if (!Number.isFinite(gross)) return { rows: [], error: `Bad gross income (expected "YYYY-MM, Employer, Gross"): "${line}"` };
+      rows.push({ ym, employer, gross });
+    }
+    return { rows, error: "" };
+  }
+  async function saveBulkMonths() {
+    const { rows, error } = parseBulkMonthsLines(bulkMonthsText);
+    if (error) { setBulkMonthsError(error); return; }
+    if (rows.length === 0) { setBulkMonthsError("Paste at least one row."); return; }
+    setSavingBulkMonths(true);
+    try {
+      const usedDates = new Set(months.map((m) => m.date));
+      const newRows = rows.map((r) => buildLedgerMonthRow(r.ym, r.employer, r.gross, usedDates));
+      const next = mergeIndiaPayslipMonths(months, newRows);
+      await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+      setSelectedFy(fyOf(newRows[newRows.length - 1].date));
+      setAddingBulkMonths(false);
+    } finally {
+      setSavingBulkMonths(false);
     }
   }
 
@@ -513,6 +585,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <button className="equity-seed-btn" onClick={openBulkAddReconstructed}>
               📋 Bulk Add Reconstructed Years
             </button>
+            <button className="equity-seed-btn" onClick={openBulkAddMonths}>
+              📆 Bulk Add Months (from ledger)
+            </button>
             <button className="equity-seed-btn" onClick={openAddManualMonth}>
               📝 Add Real Month (Manual)
             </button>
@@ -556,6 +631,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             </button>
             <button onClick={openBulkAddReconstructed}>
               📋 Bulk Add Reconstructed Years
+            </button>
+            <button onClick={openBulkAddMonths}>
+              📆 Bulk Add Months (from ledger)
             </button>
             <button onClick={openAddManualMonth}>
               📝 Add Real Month (Manual)
@@ -870,6 +948,35 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <button onClick={() => setAddingBulkReconstructed(false)}>Cancel</button>
             <button onClick={saveBulkReconstructed} disabled={savingBulkReconstructed || !bulkReconstructText.trim()}>
               {savingBulkReconstructed ? "Saving…" : "Save All"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {addingBulkMonths && (
+        <Modal title="Bulk Add Months (from ledger)" onClose={() => setAddingBulkMonths(false)}>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
+            One row per line: <code>YYYY-MM, Employer, Gross</code> (calendar month, Employer optional). Real monthly
+            figures — e.g. a Tally ledger&apos;s salary-account total for that month — not an annual estimate. If you
+            already added a &quot;Reconstructed Year&quot; annual entry for a year you&apos;re about to add monthly
+            data for, delete that annual entry first (via the FY&apos;s &quot;🗑 Delete Reconstructed&quot; button)
+            to avoid double-counting.
+          </p>
+          <textarea
+            value={bulkMonthsText}
+            onChange={(e) => { setBulkMonthsText(e.target.value); setBulkMonthsError(""); }}
+            placeholder={"2005-06, Mafatlal, 3188\n2005-07, Mafatlal, 9612\n2005-10, Mafatlal, 9612"}
+            rows={10}
+            className="india-tax-input"
+            style={{ display: "block", width: "100%", fontFamily: "monospace", fontSize: 12 }}
+          />
+          {bulkMonthsError && (
+            <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>{bulkMonthsError}</p>
+          )}
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+            <button onClick={() => setAddingBulkMonths(false)}>Cancel</button>
+            <button onClick={saveBulkMonths} disabled={savingBulkMonths || !bulkMonthsText.trim()}>
+              {savingBulkMonths ? "Saving…" : "Save All"}
             </button>
           </div>
         </Modal>
