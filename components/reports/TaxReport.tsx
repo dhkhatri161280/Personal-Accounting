@@ -443,9 +443,11 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
                 onClick={c.onClick}
               >
                 {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
-                <span>{c.label}</span>
-                <strong className="equity-amt">{fmt(c.value)}</strong>
-                <em>{c.sub}</em>
+                <div className="equity-summary-card-body">
+                  <span>{c.label}</span>
+                  <strong className="equity-amt">{fmt(c.value)}</strong>
+                  <em>{c.sub}</em>
+                </div>
               </div>
             </div>
           ))}

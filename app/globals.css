@@ -7454,44 +7454,47 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   --ref-cyan: #0891b2;
 }
 
-/* Icon-avatar swatch (components/Icon.tsx StatIcon) — sized to match the friend's
-   MUI Avatar (52px) rather than our earlier too-timid 34px pass. */
+/* Icon-avatar swatch (components/Icon.tsx StatIcon). Sits BESIDE the text (like the
+   friend's actual StatCard: icon + text in a horizontal row), not stacked above it —
+   stacking is what made the previous pass tall/bloated. */
 .ui-refresh .stat-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   flex-shrink: 0;
-  margin-bottom: 10px;
 }
-.ui-refresh .stat-icon svg { width: 24px; height: 24px; }
+.ui-refresh .stat-icon svg { width: 20px; height: 20px; }
 
-/* Tax / Equity / Trading summary cards -> flat-elevation cards with icon avatars.
-   First pass kept the original cramped 8.5-9px type scale, which is why it barely read
-   as different — bump label/value/subtitle to something closer to the friend's actual
-   MUI scale (body2 ~14px label, h5 ~24px/700 value, caption ~12px subtitle). */
+/* Tax / Equity / Trading summary cards -> flat-elevation cards, icon + text side by side.
+   Sized for density: this is a KPI strip, not a hero panel — noticeably bolder than the
+   original 8.5-9px classic scale, but not so large it eats the page. */
 .ui-refresh .equity-summary-card {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
   border-radius: var(--ref-radius) !important;
   border: 1px solid var(--ref-border) !important;
   box-shadow: var(--ref-shadow);
   background: #fff !important;
-  padding: 16px 18px !important;
+  padding: 11px 14px !important;
   transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
 }
 .ui-refresh .equity-summary-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
+.ui-refresh .equity-summary-card-body { min-width: 0; flex: 1; }
 .ui-refresh .equity-summary-card span {
-  font-size: 11px !important;
+  font-size: 10px !important;
   font-weight: 700 !important;
-  letter-spacing: 0.04em !important;
+  letter-spacing: 0.03em !important;
   text-transform: uppercase;
   color: #64748b !important;
 }
-.ui-refresh .equity-summary-card strong { font-size: 24px !important; font-weight: 800 !important; color: #0f172a; margin: 3px 0 !important; }
-.ui-refresh .equity-summary-card em { font-size: 11.5px !important; color: #94a3b8 !important; }
+.ui-refresh .equity-summary-card strong { font-size: 17px !important; font-weight: 800 !important; color: #0f172a; margin: 2px 0 !important; display: block; }
+.ui-refresh .equity-summary-card em { font-size: 10px !important; color: #94a3b8 !important; }
 .ui-refresh .equity-summary-stat--active { border-color: var(--ref-blue) !important; box-shadow: 0 0 0 2px #bfdbfe; }
-.ui-refresh .equity-summary-row { gap: 12px !important; }
+.ui-refresh .equity-summary-row { gap: 10px !important; }
 
 /* The Tax tab's "squeeze onto one row" fix (added when cards were tiny/compact) actively
    fights the bigger type scale here — it was clipping dollar VALUES mid-digit, which must
