@@ -7503,17 +7503,25 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    NOT the ~1900px a bare test page without the app's sidebar/padding chrome suggested. 9
    cards at 130px + 8x10px gaps = 1250px, comfortably inside 1314px. */
 .ui-refresh .tax-report .equity-summary-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
+  display: grid !important;
+  /* Fallback only — TaxReport.tsx sets an inline grid-template-columns with the exact card
+     count (repeat(N, minmax(0,1fr))) so the row always renders as a single row and cards
+     shrink to fit instead of wrapping. auto-fit with a fixed px floor doesn't work here: at
+     real .workspace/.data-panel widths the floor no longer divides evenly into the card
+     count, so auto-fit drops a card to a second row instead of shrinking everyone. */
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 10px !important;
+  flex-wrap: unset !important;
+  overflow-x: visible !important;
+  width: 100% !important;
 }
 .ui-refresh .tax-report .equity-summary-col {
-  min-width: 0;
-  width: 100%;
+  min-width: 0 !important;
+  width: 100% !important;
 }
 .ui-refresh .tax-report .equity-summary-card {
-  min-width: 0;
-  width: 100%;
+  min-width: 0 !important;
+  width: 100% !important;
 }
 .ui-refresh .tax-report .equity-summary-card span,
 .ui-refresh .tax-report .equity-summary-card em {

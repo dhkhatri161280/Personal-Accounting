@@ -516,7 +516,14 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
           ))}
         </div>
 
-        <div className="equity-summary-row">
+        <div
+          className="equity-summary-row"
+          style={
+            uiTheme === "refresh"
+              ? { gridTemplateColumns: `repeat(${summaryCards.length}, minmax(0, 1fr))` }
+              : undefined
+          }
+        >
           {summaryCards.map((c) => (
             <div key={c.label} className="equity-summary-col">
               <div
