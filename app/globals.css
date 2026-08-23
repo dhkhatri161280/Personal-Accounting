@@ -4150,52 +4150,69 @@ button.group-heading:hover {
     gap: 8px !important;
   }
   .header-actions button {
-    width: 38px !important;
-    height: 38px !important;
-    min-width: 38px !important;
-    border-radius: 12px !important;
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+    border-radius: 10px !important;
   }
   .header-actions button::before {
-    width: 20px;
-    height: 20px;
+    width: 17px;
+    height: 17px;
+  }
+  .header-actions .secure-icon {
+    width: 17px !important;
+    height: 17px !important;
   }
 }
 @media (max-width: 560px) {
   header {
-    padding-right: 160px !important;
+    padding-right: 145px !important;
   }
   .header-actions {
     top: 46px !important;
-    gap: 6px !important;
+    gap: 5px !important;
   }
   .header-actions button {
-    width: 35px !important;
-    height: 35px !important;
-    min-width: 35px !important;
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    border-radius: 9px !important;
   }
   .header-actions button::before {
-    width: 19px;
-    height: 19px;
+    width: 15px;
+    height: 15px;
+  }
+  .header-actions .secure-icon {
+    width: 15px !important;
+    height: 15px !important;
   }
 }
 @media (max-width: 430px) {
   header {
-    padding-right: 135px !important;
+    padding-right: 118px !important;
   }
   .header-actions {
     gap: 4px !important;
   }
   .header-actions button {
-    width: 30px !important;
-    height: 30px !important;
-    min-width: 30px !important;
-    border-radius: 8px !important;
+    width: 24px !important;
+    height: 24px !important;
+    min-width: 24px !important;
+    border-radius: 7px !important;
+  }
+  .header-actions button::before {
+    width: 13px;
+    height: 13px;
+  }
+  .header-actions .secure-icon {
+    width: 13px !important;
+    height: 13px !important;
   }
   .header-actions .sync-now-button > svg,
   .header-actions .privacy-toggle-button > svg,
   .header-actions .ui-theme-toggle-button > svg {
-    width: 16px !important;
-    height: 16px !important;
+    width: 13px !important;
+    height: 13px !important;
   }
 }
 /* DK compact secure header end */
