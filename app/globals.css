@@ -7652,8 +7652,13 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .data-panel table {
   border-radius: var(--ref-radius);
   overflow: hidden;
-  border: 1px solid var(--ref-border);
+  /* Deliberately darker than --ref-border (#e5e7eb, used elsewhere for cards) -- that shade
+     all but disappears against the page's pale background, especially on the right/bottom
+     edges with no adjacent white cell for contrast, which reads as an unclosed/cut-off table.
+     Scoped to tables only so cards elsewhere keep their original, already-fine border. */
+  border: 1px solid #cbd5e1;
   border-spacing: 0;
+  box-shadow: var(--ref-shadow);
 }
 .ui-refresh .data-panel table th {
   background: #f8fafc;
