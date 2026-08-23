@@ -23,10 +23,14 @@ export interface TaxEstimateInput {
    * as wages at vest/purchase time, not as capital gains). */
   wages: number;
   federalWithheld: number;
-  /** Net short-term capital gain (losses already netted against gains, floored at 0). */
-  shortTermGain: number;
-  /** Net long-term capital gain (losses already netted against gains, floored at 0). */
-  longTermGain: number;
+  /** Short-term capital gain that survived Schedule D-style netting (>= 0) — taxed as
+   * ordinary income. */
+  shortTermGainTaxable: number;
+  /** Long-term capital gain that survived netting (>= 0) — taxed at preferential LTCG rates. */
+  longTermGainTaxable: number;
+  /** Up to $3,000/year of a net overall capital LOSS, deductible against ordinary income
+   * (from CapitalGainSummary.ordinaryLossDeduction). */
+  capitalLossDeduction?: number;
   /** Itemized deduction total, if computed — the engine uses whichever of standard or
    * itemized is larger, same as real tax law. Omit to use the standard deduction only. */
   itemizedDeduction?: number;
@@ -42,6 +46,7 @@ export interface TaxEstimateResult {
   ordinaryTax: number;
   longTermGain: number;
   ltcgTax: number;
+  capitalLossDeduction: number;
   estimatedTax: number;
   federalWithheld: number;
   balanceDue: number;
@@ -49,14 +54,16 @@ export interface TaxEstimateResult {
 }
 
 /** Federal-only estimate: ordinary income (wages + short-term gains, which are taxed as
- * ordinary income) stacked with the larger of standard or itemized deduction, plus long-term
- * gains taxed separately under preferential LTCG brackets. No AMT or NIIT. */
+ * ordinary income, less any $3,000 capital-loss deduction) stacked with the larger of
+ * standard or itemized deduction, plus long-term gains taxed separately under preferential
+ * LTCG brackets. No AMT or NIIT. */
 export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult {
   const rules = resolveUsTaxRules(input.taxYear, input.filingStatus);
-  const shortTermGain = Math.max(0, input.shortTermGain);
-  const longTermGain = Math.max(0, input.longTermGain);
+  const shortTermGain = Math.max(0, input.shortTermGainTaxable);
+  const longTermGain = Math.max(0, input.longTermGainTaxable);
+  const capitalLossDeduction = Math.max(0, input.capitalLossDeduction ?? 0);
 
-  const ordinaryIncome = input.wages + shortTermGain;
+  const ordinaryIncome = Math.max(0, input.wages + shortTermGain - capitalLossDeduction);
   const agi = ordinaryIncome + longTermGain;
   const itemized = Math.max(0, input.itemizedDeduction ?? 0);
   const usedItemized = itemized > rules.standardDeduction;
@@ -77,6 +84,7 @@ export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult
     ordinaryTax: round2(ordinaryTax),
     longTermGain: round2(longTermGain),
     ltcgTax: round2(ltcgTax),
+    capitalLossDeduction: round2(capitalLossDeduction),
     estimatedTax,
     federalWithheld: round2(input.federalWithheld),
     balanceDue: balance > 0 ? balance : 0,

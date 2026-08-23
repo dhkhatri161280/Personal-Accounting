@@ -433,7 +433,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // property tax, state income tax paid, charitable). Shown in the UI so a miss is obvious
   // and fixable by renaming the ledger, rather than silently wrong.
   const deductionMatches = matchDeductionLedgers(accounts, transactions, yr.year);
-  const preliminaryAgi = taxableWages + gainTotals.shortTermGain + gainTotals.longTermGain;
+  const preliminaryAgi = Math.max(
+    0,
+    taxableWages + gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction
+  );
   const federalItemized = computeItemizedDeduction(preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
@@ -446,8 +449,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     filingStatus,
     wages: taxableWages,
     federalWithheld: totalFederal,
-    shortTermGain: gainTotals.shortTermGain,
-    longTermGain: gainTotals.longTermGain,
+    shortTermGainTaxable: gainTotals.shortTermGainTaxable,
+    longTermGainTaxable: gainTotals.longTermGainTaxable,
+    capitalLossDeduction: gainTotals.ordinaryLossDeduction,
     itemizedDeduction: federalItemized.total,
   });
 
@@ -917,7 +921,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             onClick: deductionMatches.length > 0 ? () => setShowDeductionsModal(true) : undefined,
           },
           {
-            label: "Long-Term Capital Gain", value: taxEstimate.longTermGain,
+            label: gainTotals.ordinaryLossDeduction > 0 ? "Capital Loss Deduction" : "Long-Term Capital Gain",
+            value: gainTotals.ordinaryLossDeduction > 0 ? gainTotals.ordinaryLossDeduction : taxEstimate.longTermGain,
             sub: gainEvents.length > 0 ? `${gainEvents.length} sale(s) — click for details →` : "no sales matched",
             icon: "trending-up" as IconKind, color: "#7c3aed",
             onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
@@ -1044,8 +1049,21 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           </table>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
             Only lots with an entered sale price count as a realized sale — see Reports → Equity to add one.
-            Net long-term gain {fmt(gainTotals.longTermGain)}, net short-term gain {fmt(gainTotals.shortTermGain)} (short-term is taxed as ordinary income, folded into AGI above).
+            Net short-term {fmt(gainTotals.netShortTerm)}, net long-term {fmt(gainTotals.netLongTerm)}
+            (raw totals before netting one against the other).
           </p>
+          {gainTotals.ordinaryLossDeduction > 0 ? (
+            <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+              Net overall capital loss of {fmt(gainTotals.netShortTerm + gainTotals.netLongTerm).replace("-", "")} — up to $3,000/year is
+              deductible against ordinary income; {fmt(gainTotals.ordinaryLossDeduction)} of that is applied above, reducing AGI.
+              {gainTotals.lossCarryforward > 0 && ` The remaining ${fmt(gainTotals.lossCarryforward)} isn't tracked as a carryforward to next year by this app — note it yourself.`}
+            </p>
+          ) : (
+            <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+              Taxed as {fmt(gainTotals.shortTermGainTaxable)} ordinary income + {fmt(gainTotals.longTermGainTaxable)} at preferential
+              LTCG rates (a loss in one category first offsets a gain in the other before any rate is applied).
+            </p>
+          )}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowGainEventsModal(false)}>Close</button>
           </div>

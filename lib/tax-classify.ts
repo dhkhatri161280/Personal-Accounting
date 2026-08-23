@@ -70,14 +70,58 @@ export function classifyEsppSales(purchases: EsppPurchase[], year: string, holdi
   return events;
 }
 
-export function summarizeCapitalGains(events: CapitalGainEvent[]): { shortTermGain: number; longTermGain: number } {
-  let shortTermNet = 0;
-  let longTermNet = 0;
+const ANNUAL_CAPITAL_LOSS_DEDUCTION_LIMIT = 3_000; // same for single and MFJ; $1,500 for MFS (not modeled)
+
+export interface CapitalGainSummary {
+  netShortTerm: number; // can be negative
+  netLongTerm: number; // can be negative
+  /** Amount taxed as ordinary income (short-term character survives netting). */
+  shortTermGainTaxable: number;
+  /** Amount taxed at preferential LTCG rates (long-term character survives netting). */
+  longTermGainTaxable: number;
+  /** Up to $3,000/year of a net overall capital LOSS, deductible against ordinary income. */
+  ordinaryLossDeduction: number;
+  /** Loss beyond the annual $3,000 cap — not tracked/carried to a future year by this app,
+   * shown for information only. */
+  lossCarryforward: number;
+}
+
+/** Schedule D-style netting: short-term and long-term are summed separately (each can be
+ * negative), then netted against EACH OTHER at the combined level -- a loss in one category
+ * offsets a gain in the other, dollar for dollar, before any tax rate is applied. Only after
+ * that combined net is negative does the $3,000/year ordinary-income loss deduction apply
+ * (previously this just floored each category's net loss at zero, silently discarding real,
+ * deductible losses instead of crediting them). */
+export function summarizeCapitalGains(events: CapitalGainEvent[]): CapitalGainSummary {
+  let netShortTerm = 0;
+  let netLongTerm = 0;
   for (const e of events) {
-    if (e.term === "short") shortTermNet += e.gain;
-    else longTermNet += e.gain;
+    if (e.term === "short") netShortTerm += e.gain;
+    else netLongTerm += e.gain;
   }
-  return { shortTermGain: Math.max(0, shortTermNet), longTermGain: Math.max(0, longTermNet) };
+  const totalNet = netShortTerm + netLongTerm;
+
+  if (totalNet <= 0) {
+    const netLoss = -totalNet;
+    const ordinaryLossDeduction = Math.min(ANNUAL_CAPITAL_LOSS_DEDUCTION_LIMIT, netLoss);
+    return {
+      netShortTerm, netLongTerm,
+      shortTermGainTaxable: 0, longTermGainTaxable: 0,
+      ordinaryLossDeduction,
+      lossCarryforward: Math.max(0, netLoss - ANNUAL_CAPITAL_LOSS_DEDUCTION_LIMIT),
+    };
+  }
+
+  // A gain overall: whichever category still has a positive balance after the other
+  // category's loss offsets it keeps its own tax character. min(netLongTerm, totalNet)
+  // handles all three cases correctly (both positive; ST gain + LT loss; LT gain + ST loss).
+  const longTermGainTaxable = Math.max(0, Math.min(netLongTerm, totalNet));
+  const shortTermGainTaxable = totalNet - longTermGainTaxable;
+  return {
+    netShortTerm, netLongTerm,
+    shortTermGainTaxable, longTermGainTaxable,
+    ordinaryLossDeduction: 0, lossCarryforward: 0,
+  };
 }
 
 function daysBetween(isoDate: string, asOf: Date): number {
