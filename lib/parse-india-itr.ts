@@ -30,6 +30,13 @@ function lineItem(text: string, labelPattern: string): number | undefined {
     // both before scanning for numbers; a row like this genuinely has no printed value when
     // its condition doesn't apply, which correctly falls through to "not found" below.
     after = after.replace(/^(\s*\([^)]*\))+/, "").replace(/\bif\s+\S+\s+is\s+(greater|less)\s+than\s+\S+/i, "");
+    // A coincidental prose mention of a label shouldn't count as a data row -- e.g. the SAHAJ
+    // form's own title says "...having total income upto Rs.50 lakh]", which contains the
+    // literal phrase "total income" right before an unrelated descriptive number. Reject a
+    // match if real prose (2+ words) sits between the label and the first digit; legitimate
+    // rows have at most a short connector ("=", ":", a stripped formula) in between.
+    const words = (after.match(/^[^\d]*/)?.[0].match(/[A-Za-z]{2,}/g) ?? []).length;
+    if (words >= 2) continue;
     const tokens = [...after.matchAll(/\d[\d,]*([a-zA-Z]?)/g)];
     const values = tokens.filter((t) => !t[1]).map((t) => t[0]);
     if (values.length === 0) continue;
@@ -114,7 +121,12 @@ export function parseIndiaItrText(text: string): Omit<IndiaItrYear, "id"> | null
   const deductionsChapterVIA =
     lineItem(text, "Deductions\\s*under\\s*Chapter[\\s-]*VI[\\s-]*A") ??
     lineItem(text, "C1\\s*Total\\s*Deductions") ??
-    lineItem(text, "Deductions\\s*\\(Total\\s*of") ??
+    // A lookahead, not a consuming match -- "Deductions (Total of C1 to C18) C19 166308" needs
+    // its own opening paren left intact in the post-label text so the generic parenthetical
+    // stripper above can remove the whole "(Total of ...)" formula as one unit. Consuming the
+    // paren as part of the label itself (as an earlier version of this pattern did) leaves the
+    // stripper nothing to grab, and its inner "C1"/"C18" references leak through as false values.
+    lineItem(text, "Deductions(?=\\s*\\(Total\\s*of)") ??
     lineItem(text, "Deductions\\s*:?\\s*Suggested\\s*Value");
   const totalIncomeRaw =
     lineItem(text, "(?<!Gross\\s{0,3})Total\\s*Income\\b(?!\\s*and)") ??
@@ -125,6 +137,10 @@ export function parseIndiaItrText(text: string): Omit<IndiaItrYear, "id"> | null
     lineItem(text, "Net\\s*[Tt]ax\\s*[Pp]ayable") ??
     lineItem(text, "Tax\\s*after\\s*Rebate") ??
     lineItem(text, "Balance\\s*Tax\\s*Payable") ??
+    // A third full-Form era (roughly AY 2014-15/2015-16) settles on neither of the above --
+    // its own final, cess-inclusive figure (matching the Acknowledgement's "Net Tax Payable")
+    // is this "Total Tax, Surcharge and/& Cess" line instead.
+    lineItem(text, "Total\\s*Tax,?\\s*Surcharge\\s*(?:and|&)\\s*Cess") ??
     0;
   const advanceTax =
     lineItem(text, "a\\s*Advance\\s*Tax") ??
@@ -147,7 +163,9 @@ export function parseIndiaItrText(text: string): Omit<IndiaItrYear, "id"> | null
     lineItem(text, "\\bRefund\\b");
   const balanceDue =
     lineItem(text, "Tax\\s*Payable\\s*\\(6-7[ed]\\)") ??
-    lineItem(text, "Amount\\s*payable\\s*\\(D10");
+    lineItem(text, "Amount\\s*payable"); // e.g. "Amount payable (D11 -D12)(if D11 > D12) 0" -- the
+    // generic parenthetical-stripping above handles "(D10 ...)" or "(D11 ...)" either way; the
+    // item numbers these formulas reference shift by year, so the label itself can't hardcode one
   const refundOrDemand = refund && refund > 0 ? refund : balanceDue ? -balanceDue : 0;
 
   const dateMatch =
