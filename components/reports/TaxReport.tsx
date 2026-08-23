@@ -1,16 +1,19 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
+import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase, Account } from "@/lib/vault-types";
 import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear } from "@/lib/payroll-match";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { classifyRsuSales, classifyEsppSales, summarizeCapitalGains } from "@/lib/tax-classify";
-import { estimateUsFederalTax } from "@/lib/tax-usa-engine";
+import { estimateUsFederalTax, computeItemizedDeduction } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
+import { matchDeductionLedgers, deductionTotal } from "@/lib/tax-deductions";
+import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-engine";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
   transactions: Tx[];
   equity: EquityData | undefined;
+  accounts: Account[];
   onSave: (payroll: PayrollData) => Promise<void>;
   onViewVoucher: (tx: Tx) => void; // only used for the explicit "Edit in Daybook" action inside the voucher popup
   fmt: (n: number) => string;
@@ -177,7 +180,7 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher, fmt, readOnly, uiTheme }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, fmt, readOnly, uiTheme }: TaxReportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
@@ -417,6 +420,19 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
     ...classifyEsppSales(equity?.esppPurchases ?? [], yr.year, 365),
   ];
   const gainTotals = summarizeCapitalGains(gainEvents);
+
+  // Itemized deductions — matched from expense-ledger names (medical, mortgage interest,
+  // property tax, state income tax paid, charitable). Shown in the UI so a miss is obvious
+  // and fixable by renaming the ledger, rather than silently wrong.
+  const deductionMatches = matchDeductionLedgers(accounts, transactions, yr.year);
+  const preliminaryAgi = totalGross + gainTotals.shortTermGain + gainTotals.longTermGain;
+  const federalItemized = computeItemizedDeduction(preliminaryAgi, {
+    medicalExpenses: deductionTotal(deductionMatches, "medical"),
+    propertyTax: deductionTotal(deductionMatches, "propertyTax"),
+    stateIncomeTaxPaid: deductionTotal(deductionMatches, "stateIncomeTax"),
+    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    charitable: deductionTotal(deductionMatches, "charitable"),
+  });
   const taxEstimate = estimateUsFederalTax({
     taxYear: taxEstimateYear,
     filingStatus,
@@ -424,6 +440,24 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
     federalWithheld: totalFederal,
     shortTermGain: gainTotals.shortTermGain,
     longTermGain: gainTotals.longTermGain,
+    itemizedDeduction: federalItemized.total,
+  });
+
+  // California state tax — the user is a full-year CA resident. Uses federal AGI as a proxy
+  // for CA AGI, and CA's own itemized rules (no SALT cap, but state income tax paid isn't
+  // deductible against itself).
+  const caItemized = computeCaItemizedDeduction(taxEstimate.agi, {
+    medicalExpenses: deductionTotal(deductionMatches, "medical"),
+    propertyTax: deductionTotal(deductionMatches, "propertyTax"),
+    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    charitable: deductionTotal(deductionMatches, "charitable"),
+  });
+  const caTaxEstimate = estimateCaStateTax({
+    taxYear: taxEstimateYear,
+    filingStatus,
+    agi: taxEstimate.agi,
+    itemizedDeduction: caItemized,
+    stateWithheld: totalStateWH,
   });
 
   const summaryCards: { label: string; value: number; sub: string; onClick?: () => void; icon: IconKind; color: string }[] = [
@@ -855,19 +889,21 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
         </label>
       </div>
       <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
-        Estimate only — federal only, not tax advice. No state tax, itemized deductions, AMT, or NIIT. ESPP
-        disqualifying-disposition ordinary income isn&apos;t modeled (treated as capital gain). Based on {taxEstimate.rules.ruleVersion}.
+        Estimate only — not tax advice. Federal: no AMT or NIIT; ESPP disqualifying-disposition ordinary income
+        isn&apos;t modeled (treated as capital gain). CA: uses federal AGI as a proxy for CA AGI; no CA-specific
+        addback/subtraction items modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit
+        (can&apos;t be checked from ledger data alone). Based on {taxEstimate.rules.ruleVersion} / {caTaxEstimate.rules.ruleVersion}.
       </p>
       <div className="equity-summary-row">
         {[
           { label: "AGI", value: taxEstimate.agi, sub: "wages + net capital gains", icon: "wallet" as IconKind, color: "#1e40af" },
-          { label: "Taxable Ordinary Income", value: taxEstimate.taxableOrdinary, sub: `after ${fmt(taxEstimate.rules.standardDeduction)} standard deduction`, icon: "cash" as IconKind, color: "#0891b2" },
+          { label: "Deduction Used", value: taxEstimate.deductionUsed, sub: taxEstimate.usedItemized ? "itemized (beats standard)" : "standard deduction", icon: "cash" as IconKind, color: "#0891b2" },
           { label: "Long-Term Capital Gain", value: taxEstimate.longTermGain, sub: `${gainEvents.length} sale(s) matched`, icon: "trending-up" as IconKind, color: "#7c3aed" },
           { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax, sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)}`, icon: "receipt" as IconKind, color: "#dc2626" },
           { label: "Federal Withheld", value: taxEstimate.federalWithheld, sub: "from payroll", icon: "shield" as IconKind, color: "#16a34a" },
           taxEstimate.refund > 0
-            ? { label: "Estimated Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
-            : { label: "Estimated Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
+            ? { label: "Estimated Federal Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
+            : { label: "Estimated Federal Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
@@ -900,6 +936,65 @@ export function TaxReport({ payroll, transactions, equity, onSave, onViewVoucher
           </tbody>
         </table>
       )}
+
+      <div className="equity-section-head">
+        <h4>Itemized Deductions — {yr.year}</h4>
+      </div>
+      {deductionMatches.length === 0 ? (
+        <p style={{ fontSize: 12, opacity: 0.7 }}>
+          No ledgers matched (looking for names containing "medical", "mortgage interest", "property tax",
+          "state tax", or "donation"/"charity") — using the standard deduction. Rename a ledger to match if you
+          track one of these separately.
+        </p>
+      ) : (
+        <>
+          <table className="equity-table" style={{ marginTop: "0.5rem" }}>
+            <thead>
+              <tr><th>Category</th><th>Matched Ledger(s)</th><th className="right">Amount ({yr.year})</th></tr>
+            </thead>
+            <tbody>
+              {deductionMatches.map((m) => (
+                <tr key={m.key}>
+                  <td>{m.label}</td>
+                  <td>{m.ledgers.map((l) => l.name).join(", ")}</td>
+                  <td className="right equity-amt">{fmt(m.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+            Federal itemized total {fmt(federalItemized.total)} (medical above 7.5% AGI floor: {fmt(federalItemized.medicalDeductible)};
+            SALT capped at {fmt(federalItemized.saltCap)}: {fmt(federalItemized.saltDeductible)}; mortgage interest {fmt(federalItemized.mortgageInterestDeductible)};
+            charitable {fmt(federalItemized.charitableDeductible)}) vs. standard deduction {fmt(taxEstimate.rules.standardDeduction)} —
+            {taxEstimate.usedItemized ? " itemizing wins, used above." : " standard deduction wins, used above."}
+          </p>
+        </>
+      )}
+
+      <div className="equity-section-head">
+        <h4>California State Tax — {yr.year}</h4>
+      </div>
+      <div className="equity-summary-row">
+        {[
+          { label: "CA Taxable Income", value: caTaxEstimate.taxableIncome, sub: caTaxEstimate.usedItemized ? "itemized (beats CA standard)" : "CA standard deduction", icon: "cash" as IconKind, color: "#0891b2" },
+          { label: "Estimated CA Tax", value: caTaxEstimate.estimatedTax, sub: caTaxEstimate.mentalHealthTax > 0 ? `incl. ${fmt(caTaxEstimate.mentalHealthTax)} Mental Health Services Tax` : "brackets only", icon: "receipt" as IconKind, color: "#dc2626" },
+          { label: "CA Withheld", value: caTaxEstimate.stateWithheld, sub: "from payroll (State W/H)", icon: "shield" as IconKind, color: "#16a34a" },
+          caTaxEstimate.refund > 0
+            ? { label: "Estimated CA Refund", value: caTaxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
+            : { label: "Estimated CA Balance Due", value: caTaxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
+        ].map((c) => (
+          <div key={c.label} className="equity-summary-col">
+            <div className="equity-summary-card">
+              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <div className="equity-summary-card-body">
+                <span>{c.label}</span>
+                <strong className="equity-amt">{fmt(c.value)}</strong>
+                <em>{c.sub}</em>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {showRsuModal && (
         <Modal title={`RSU Vesting — ${yr.year}`} onClose={() => setShowRsuModal(false)} wide>
