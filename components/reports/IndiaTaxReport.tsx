@@ -64,6 +64,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [password, setPassword] = useState("");
   const [importing, setImporting] = useState(false);
   const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
   const [editingItrId, setEditingItrId] = useState<string | null>(null);
   const [itrForm, setItrForm] = useState(BLANK_ITR_FORM);
@@ -87,27 +88,37 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     e.target.value = "";
     setImportErrors([]);
     setImporting(true);
+    setImportProgress({ done: 0, total: files.length });
     try {
       const parsed: IndiaPayslipMonth[] = [];
       const errors: string[] = [];
       for (const file of files) {
         try {
+          if (file.size === 0) throw new Error("empty file (0 bytes) — likely not downloaded locally yet; open it in the Drive app first, then retry");
           parsed.push(await parseIndiaPayslipFile(file, password));
         } catch (err: any) {
           errors.push(`${file.name}: ${err?.message ?? "failed to parse"}`);
         }
+        setImportProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
       }
       if (parsed.length > 0) {
         const merged = mergeIndiaPayslipMonths(months, parsed);
-        await onSave({
-          payslips: { months: merged, importedAt: new Date().toISOString() },
-          itrYears: indiaTax?.itrYears ?? [],
-        });
-        setSelectedFy(fyOf(merged[merged.length - 1].date));
+        try {
+          await onSave({
+            payslips: { months: merged, importedAt: new Date().toISOString() },
+            itrYears: indiaTax?.itrYears ?? [],
+          });
+          setSelectedFy(fyOf(merged[merged.length - 1].date));
+        } catch (err: any) {
+          errors.unshift(`Saving to vault failed: ${err?.message ?? "unknown error"} — ${parsed.length} file(s) parsed OK but were NOT saved. Try again.`);
+        }
       }
       setImportErrors(errors);
+    } catch (err: any) {
+      setImportErrors([`Import failed unexpectedly: ${err?.message ?? "unknown error"}`]);
     } finally {
       setImporting(false);
+      setImportProgress(null);
     }
   }
 
@@ -206,7 +217,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               style={{ maxWidth: 220 }}
             />
             <button className="equity-seed-btn" onClick={() => fileInputRef.current?.click()} disabled={importing}>
-              {importing ? "Importing…" : "📄 Import Payslip PDFs"}
+              {importing ? `Importing… ${importProgress ? `${importProgress.done}/${importProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
             </button>
           </div>
           <p className="equity-seed-note">
@@ -244,7 +255,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               style={{ maxWidth: 180, marginLeft: "auto" }}
             />
             <button onClick={() => fileInputRef.current?.click()} disabled={importing}>
-              {importing ? "Importing…" : "↻ Import more payslips"}
+              {importing ? `Importing… ${importProgress ? `${importProgress.done}/${importProgress.total}` : ""}` : "↻ Import more payslips"}
             </button>
           </div>
 
