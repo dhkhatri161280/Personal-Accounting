@@ -335,13 +335,13 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   }
   const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   interface LedgerMonthRowInput {
-    ym: string; employer: string; basic: number; hra: number; other: number; pf: number; professionalTax: number; incomeTax: number; note: string;
+    ym: string; employer: string; basic: number; hra: number; other: number; pf: number; professionalTax: number; incomeTax: number; otherDeductions: number; note: string;
   }
   function buildLedgerMonthRow(r: LedgerMonthRowInput): IndiaPayslipMonth {
     const [y, m] = r.ym.split("-");
     const date = `${y}-${m}-${String(dayForEmployer(r.employer)).padStart(2, "0")}`;
     const grossEarnings = r.basic + r.hra + r.other;
-    const totalDeductions = r.pf + r.professionalTax + r.incomeTax;
+    const totalDeductions = r.pf + r.professionalTax + r.incomeTax + r.otherDeductions;
     const labelSuffix = r.note ? ` — ${r.note}` : "";
     return {
       label: r.employer ? `${MONTH_NAMES[Number(m) - 1]} ${y} — ${r.employer} (from ledger)${labelSuffix}` : `${MONTH_NAMES[Number(m) - 1]} ${y} (from ledger)${labelSuffix}`,
@@ -354,29 +354,36 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       pf: r.pf,
       professionalTax: r.professionalTax,
       incomeTax: r.incomeTax,
-      otherDeductions: 0,
+      otherDeductions: r.otherDeductions,
       totalDeductions,
       netPay: grossEarnings - totalDeductions,
       sourceFile: LEDGER_MONTH_SOURCE,
     };
   }
-  // One row per line: "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax[, Note]" --
-  // comma, tab, or pipe separated. Basic/HRA/PF/ProfTax/IncomeTax default to 0 if blank (a lump
-  // total with no known breakdown just goes entirely in Other). Same bail-on-any-bad-line
-  // behavior as the FY bulk-add, so a typo can't silently save a partial batch.
+  // One row per line: "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax, OtherDeductions[, Note]"
+  // -- comma, tab, or pipe separated. Basic/HRA/PF/ProfTax/IncomeTax/OtherDeductions default to 0
+  // if blank (a lump total with no known breakdown just goes entirely in Other). OtherDeductions
+  // is for a specifically identified deduction that isn't PF/ProfTax/IncomeTax (e.g. an LIP/
+  // Superannuation contribution) -- same bail-on-any-bad-line behavior as the FY bulk-add, so a
+  // typo can't silently save a partial batch.
   function parseBulkMonthsLines(text: string): { rows: LedgerMonthRowInput[]; error: string } {
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
     const rows: LedgerMonthRowInput[] = [];
     for (const line of lines) {
       const parts = line.split(/[,\t|]/).map((p) => p.trim());
       const ym = parts[0] ?? "";
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return { rows: [], error: `Bad month (expected "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax"): "${line}"` };
+      const USAGE = `expected "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax, OtherDeductions"`;
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return { rows: [], error: `Bad month (${USAGE}): "${line}"` };
       const employer = parts[1] ?? "";
-      const nums = parts.slice(2, 8).map((p) => (p ? Number(p) : 0));
-      if (nums.some((n) => !Number.isFinite(n))) return { rows: [], error: `Bad number (expected "YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax"): "${line}"` };
-      const [basic, hra, other, pf, professionalTax, incomeTax] = nums;
-      const note = parts[8] ?? "";
-      rows.push({ ym, employer, basic, hra, other, pf, professionalTax, incomeTax, note });
+      // Read by explicit position (not array destructuring) so a line with fewer trailing
+      // commas than fields still defaults the missing ones to 0 instead of NaN.
+      const at = (i: number) => (parts[i] ? Number(parts[i]) : 0);
+      const [basic, hra, other, pf, professionalTax, incomeTax, otherDeductions] = [2, 3, 4, 5, 6, 7, 8].map(at);
+      if ([basic, hra, other, pf, professionalTax, incomeTax, otherDeductions].some((n) => !Number.isFinite(n))) {
+        return { rows: [], error: `Bad number (${USAGE}): "${line}"` };
+      }
+      const note = parts[9] ?? "";
+      rows.push({ ym, employer, basic, hra, other, pf, professionalTax, incomeTax, otherDeductions, note });
     }
     return { rows, error: "" };
   }
@@ -701,9 +708,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                     <th className="right">HRA</th>
                     <th className="right" title="Conveyance + all other allowances (Performance Pay, LTA, Personal Allowance, etc.), lumped together">Other Allowances</th>
                     <th className="right">Gross</th>
+                    <th className="right" title="Deducted first, before 80C-eligible items like PF">Prof. Tax</th>
                     <th className="right">PF</th>
-                    <th className="right">Prof. Tax</th>
                     <th className="right">Income Tax</th>
+                    <th className="right" title="A specifically identified deduction that isn't PF/Professional Tax/Income Tax — e.g. an LIP/Superannuation contribution">Other Ded.</th>
                     <th className="right">Net Pay</th>
                   </tr>
                 </thead>
@@ -715,9 +723,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                       <td className="right">{fmt(m.hra)}</td>
                       <td className="right">{fmt(m.conveyance + m.otherAllowances)}</td>
                       <td className="right">{fmt(m.grossEarnings)}</td>
-                      <td className="right">{fmt(m.pf)}</td>
                       <td className="right">{fmt(m.professionalTax)}</td>
+                      <td className="right">{fmt(m.pf)}</td>
                       <td className="right">{fmt(m.incomeTax)}</td>
+                      <td className="right">{fmt(m.otherDeductions)}</td>
                       <td className="right">{fmt(m.netPay)}</td>
                     </tr>
                   ))}
@@ -729,9 +738,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                     <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.hra, 0))}</td>
                     <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.conveyance + m.otherAllowances, 0))}</td>
                     <td className="right">{fmt(fyGross)}</td>
-                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.pf, 0))}</td>
                     <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.professionalTax, 0))}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.pf, 0))}</td>
                     <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.incomeTax, 0))}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.otherDeductions, 0))}</td>
                     <td className="right">{fmt(fyNet)}</td>
                   </tr>
                 </tfoot>
@@ -920,16 +930,17 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       {addingBulkMonths && (
         <Modal title="Bulk Add Months (from ledger)" onClose={() => setAddingBulkMonths(false)}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
-            One row per line: <code>YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax</code> (any of
-            Basic/HRA/PF/ProfTax/IncomeTax can be left blank for 0 — a lump total with no known breakdown just goes
-            in Other). Real monthly figures, not an annual estimate — if a &quot;Reconstructed Year&quot; annual
-            entry already exists for a year these months fall into, it&apos;s replaced automatically, not
-            double-counted.
+            One row per line: <code>YYYY-MM, Employer, Basic, HRA, Other, PF, ProfTax, IncomeTax, OtherDeductions</code> (any
+            can be left blank for 0 — a lump total with no known breakdown just goes in Other). OtherDeductions is for
+            a specifically identified deduction that isn&apos;t PF/ProfTax/IncomeTax (e.g. an LIP/Superannuation
+            contribution) — not a place to hide an unexplained gap. Real monthly figures, not an annual estimate — if
+            a &quot;Reconstructed Year&quot; annual entry already exists for a year these months fall into, it&apos;s
+            replaced automatically, not double-counted.
           </p>
           <textarea
             value={bulkMonthsText}
             onChange={(e) => { setBulkMonthsText(e.target.value); setBulkMonthsError(""); }}
-            placeholder={"2005-06, Mafatlal, , , 3188, , , \n2005-07, Mafatlal, , , 9612, , , \n2013-08, BECL, 38418, 15367, 18928, 4610, 200, "}
+            placeholder={"2005-07, Mafatlal, 11050, , , 1038, 60, , 128\n2005-08, Mafatlal, 12500, , , 1038, 70, , 128\n2013-08, BECL, 38418, 15367, 18928, 4610, 200, , "}
             rows={10}
             className="india-tax-input"
             style={{ display: "block", width: "100%", fontFamily: "monospace", fontSize: 12 }}
