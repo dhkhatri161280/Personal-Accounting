@@ -38,6 +38,58 @@ function fyOfAy(ay: string): string {
   return `${startYear - 1}-${String(startYear).slice(-2)}`;
 }
 
+export interface FySummaryRow {
+  fy: string;
+  ay: string;
+  gross: number;
+  deductions: number;
+  net: number;
+  grossTotalIncome: number;
+  chVIA: number;
+  taxableIncome: number;
+  taxPayable: number;
+  tds: number;
+  refund: number;
+}
+
+// Standalone recomputation for the "All Years" rollup table -- mirrors the same formulas the
+// single-year cards use (capped 80C/80D with a display-time fallback for years saved before
+// that logic existed, the GTI/house-property estimate when no ITR record exists yet) so the two
+// views never show different numbers for the same year.
+function summarizeFy(fy: string, allMonths: IndiaPayslipMonth[], allItrYears: IndiaItrYear[]): FySummaryRow {
+  const ay = ayOfFy(fy);
+  const fyMonths = allMonths.filter((m) => fyOf(m.date) === fy);
+  const gross = fyMonths.reduce((s, m) => s + m.grossEarnings, 0);
+  const deductions = fyMonths.reduce((s, m) => s + m.totalDeductions, 0);
+  const net = fyMonths.reduce((s, m) => s + m.netPay, 0);
+  const hraTotal = fyMonths.reduce((s, m) => s + m.hra, 0);
+  const profTaxTotal = fyMonths.reduce((s, m) => s + m.professionalTax, 0);
+  const itrYear = allItrYears.find((y) => y.assessmentYear === ay);
+
+  const items80C = itrYear?.section80CItems ?? [];
+  const raw80C = items80C.reduce((s, it) => s + it.amount, 0);
+  const raw80D = itrYear?.section80DMedical ?? 0;
+  const capped80C = Math.min(raw80C, section80CCap(ay));
+  const capped80D = Math.min(raw80D, SECTION_80D_CAP);
+  const hasItemized = items80C.length > 0 || raw80D > 0;
+  const chVIA = itrYear ? (hasItemized ? capped80C + capped80D : itrYear.deductionsChapterVIA) : 0;
+
+  const houseProperty = computeHouseProperty(ay, itrYear?.houseRentIncome ?? 0, itrYear?.homeLoanInterest ?? 0, itrYear?.homeLoanInterestCapOverride);
+  const estimatedSalaryIncome = Math.max(0, (itrYear?.grossSalaryOverride ?? gross) - (itrYear?.hraExemptOverride ?? hraTotal) - (itrYear?.professionalTaxOverride ?? profTaxTotal));
+  const estimatedGrossTotalIncome = estimatedSalaryIncome
+    + (itrYear?.capitalGains?.shortTerm ?? 0) + (itrYear?.capitalGains?.longTerm ?? 0)
+    + houseProperty.allowedAgainstOtherIncome;
+  const grossTotalIncome = itrYear?.grossTotalIncome ?? estimatedGrossTotalIncome;
+  const taxableIncome = itrYear
+    ? (hasItemized ? grossTotalIncome - chVIA : itrYear.totalIncome)
+    : Math.max(0, estimatedGrossTotalIncome - chVIA);
+  const taxPayable = itrYear?.taxPayable ?? 0;
+  const tds = itrYear?.tds ?? 0;
+  const refund = itrYear ? itrYear.advanceTax + itrYear.tds + itrYear.tcs + itrYear.selfAssessmentTax - itrYear.taxPayable : 0;
+
+  return { fy, ay, gross, deductions, net, grossTotalIncome, chVIA, taxableIncome, taxPayable, tds, refund };
+}
+
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div
@@ -125,6 +177,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [payslipImportErrors, setPayslipImportErrors] = useState<string[]>([]);
   const [payslipImportProgress, setPayslipImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"yearly" | "all">("yearly");
   const [reconstructForm, setReconstructForm] = useState(BLANK_RECONSTRUCTED_FORM);
   const [addingReconstructed, setAddingReconstructed] = useState(false);
   const [savingReconstructed, setSavingReconstructed] = useState(false);
@@ -978,8 +1031,18 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
 
   return (
     <div className="data-panel tax-report">
-      <div className="equity-section-head">
-        <h4>India Payroll &amp; Tax {activeFy && `— FY ${activeFy}`}</h4>
+      <div className="equity-section-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+        <h4>India Payroll &amp; Tax {viewMode === "yearly" && activeFy && `— FY ${activeFy}`}</h4>
+        {!noData && (
+          <div style={{ display: "flex", gap: 4 }}>
+            <button onClick={() => setViewMode("yearly")} style={viewMode === "yearly" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+              Yearly
+            </button>
+            <button onClick={() => setViewMode("all")} style={viewMode === "all" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+              All Years
+            </button>
+          </div>
+        )}
       </div>
 
       <input ref={payslipFileInputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={handlePayslipImport} />
@@ -1001,6 +1064,42 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
             <button className="equity-seed-btn" onClick={openAddItr}>+ Add ITR Year</button>
           </div>
         </div>
+      ) : viewMode === "all" ? (
+        <table className="equity-table equity-drilldown-table">
+          <thead>
+            <tr>
+              <th>FY (AY)</th>
+              <th className="right">Gross Salary</th>
+              <th className="right">Deductions</th>
+              <th className="right">Net Pay</th>
+              <th className="right">Gross Total Income</th>
+              <th className="right" title="Chapter VI-A Deductions, capped">Ch VI-A Ded.</th>
+              <th className="right">Taxable Income</th>
+              <th className="right">Tax Payable</th>
+              <th className="right">TDS</th>
+              <th className="right" title="Taxes Paid − Tax Payable; negative = demand payable">Refund</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fyList.map((fy) => {
+              const row = summarizeFy(fy, months, itrYears);
+              return (
+                <tr key={fy} onClick={() => { setSelectedFy(fy); setViewMode("yearly"); }} style={{ cursor: "pointer" }} title="Click to open this year">
+                  <td>{fy} ({row.ay})</td>
+                  <td className="right">{fmt(row.gross)}</td>
+                  <td className="right">{fmt(row.deductions)}</td>
+                  <td className="right">{fmt(row.net)}</td>
+                  <td className="right">{fmt(row.grossTotalIncome)}</td>
+                  <td className="right">{fmt(row.chVIA)}</td>
+                  <td className="right">{fmt(row.taxableIncome)}</td>
+                  <td className="right">{fmt(row.taxPayable)}</td>
+                  <td className="right">{fmt(row.tds)}</td>
+                  <td className="right" style={row.refund < 0 ? { color: "#dc2626" } : undefined}>{fmt(row.refund)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       ) : (
         <>
           <div className="equity-grant-filter">
