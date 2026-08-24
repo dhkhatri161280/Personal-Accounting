@@ -5,6 +5,7 @@ import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-indi
 import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
+import { estimateIndiaTax, hasIndiaTaxSlabsFor } from "@/lib/india-tax-slabs";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -92,7 +93,6 @@ const BLANK_ITR_FORM = {
   tds: "",
   tcs: "",
   selfAssessmentTax: "",
-  refundOrDemand: "",
   filingDate: "",
   notes: "",
 };
@@ -171,6 +171,16 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const itrEffectiveRate = activeItrYear && activeItrYear.grossTotalIncome > 0
     ? (activeItrYear.taxPayable / activeItrYear.grossTotalIncome) * 100
     : 0;
+  // Refund/Demand is pure arithmetic from figures already on this card row (taxes paid minus tax
+  // payable) -- no tax-law judgment involved, so it's always computed here rather than trusted
+  // as a separately-typed field that can silently drift out of sync with the other two.
+  const itrRefundOrDemand = activeItrYear ? itrTaxesPaid - activeItrYear.taxPayable : 0;
+  // Tax Payable itself IS a real filed/legal figure (kept as entered, not overwritten) -- but a
+  // slab-based estimate is still useful as a cross-check, and to pre-fill when adding a year by
+  // hand. Only offered for Assessment Years whose slabs are actually modeled.
+  const estimatedTaxPayable = activeItrYear && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
+    ? estimateIndiaTax(activeItrYear.assessmentYear, activeItrYear.totalIncome)
+    : null;
   const section80CTotal = (activeItrYear?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
   const section80DTotal = activeItrYear?.section80DMedical ?? 0;
   // Estimated Gross Total Income before the reconciliation form has ever been saved for this FY
@@ -189,16 +199,24 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           icon: "shield", color: "#7c3aed", onClick: open80cForm,
         },
         { label: "Total Income", value: activeItrYear.totalIncome, sub: "taxable income", icon: "receipt", color: "#0891b2" },
-        { label: "Tax Payable", value: activeItrYear.taxPayable, sub: `${itrEffectiveRate.toFixed(1)}% effective rate`, icon: "scale", color: "#dc2626" },
+        {
+          label: "Tax Payable", value: activeItrYear.taxPayable,
+          sub: estimatedTaxPayable == null
+            ? `${itrEffectiveRate.toFixed(1)}% effective rate`
+            : Math.abs(estimatedTaxPayable - activeItrYear.taxPayable) <= 10
+              ? `${itrEffectiveRate.toFixed(1)}% effective rate — matches slab estimate`
+              : `${itrEffectiveRate.toFixed(1)}% effective rate — slab estimate: ${fmt(estimatedTaxPayable)}`,
+          icon: "scale", color: "#dc2626",
+        },
         { label: "TDS", value: activeItrYear.tds, sub: "tax deducted at source", icon: "bank", color: "#d97706" },
         { label: "Advance + Self-Assessment", value: activeItrYear.advanceTax + activeItrYear.selfAssessmentTax, sub: activeItrYear.tcs > 0 ? `+ ${fmt(activeItrYear.tcs)} TCS` : "paid directly", icon: "wallet", color: "#9333ea" },
         { label: "Taxes Paid (Total)", value: itrTaxesPaid, sub: "TDS + advance + self-assessment + TCS", icon: "trending-up", color: "#16a34a" },
         {
-          label: activeItrYear.refundOrDemand >= 0 ? "Refund" : "Demand Payable",
-          value: Math.abs(activeItrYear.refundOrDemand),
-          sub: activeItrYear.filingDate ? `filed ${fmtDate(activeItrYear.filingDate)}` : "filing date not recorded",
+          label: itrRefundOrDemand >= 0 ? "Refund" : "Demand Payable",
+          value: Math.abs(itrRefundOrDemand),
+          sub: `Taxes Paid − Tax Payable${activeItrYear.filingDate ? ` — filed ${fmtDate(activeItrYear.filingDate)}` : ""}`,
           icon: "tag",
-          color: activeItrYear.refundOrDemand >= 0 ? "#16a34a" : "#dc2626",
+          color: itrRefundOrDemand >= 0 ? "#16a34a" : "#dc2626",
         },
       ]
     : [];
@@ -696,7 +714,6 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       tds: String(y.tds),
       tcs: String(y.tcs),
       selfAssessmentTax: String(y.selfAssessmentTax),
-      refundOrDemand: String(y.refundOrDemand),
       filingDate: y.filingDate ?? "",
       notes: y.notes ?? "",
     });
@@ -718,7 +735,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         tds: n(itrForm.tds),
         tcs: n(itrForm.tcs),
         selfAssessmentTax: n(itrForm.selfAssessmentTax),
-        refundOrDemand: n(itrForm.refundOrDemand),
+        // Pure arithmetic from the other fields on this same form -- never trust a separately
+        // typed value here, it can only drift out of sync with them.
+        refundOrDemand: n(itrForm.advanceTax) + n(itrForm.tds) + n(itrForm.tcs) + n(itrForm.selfAssessmentTax) - n(itrForm.taxPayable),
         filingDate: itrForm.filingDate || undefined,
         notes: itrForm.notes || undefined,
       };
@@ -990,6 +1009,17 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <label style={{ fontSize: 12 }}>
               Tax Payable
               <input type="number" value={itrForm.taxPayable} onChange={(e) => setItrForm({ ...itrForm, taxPayable: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+              {hasIndiaTaxSlabsFor(itrForm.assessmentYear.trim()) && (() => {
+                const est = estimateIndiaTax(itrForm.assessmentYear.trim(), Number(itrForm.totalIncome) || 0);
+                return est != null ? (
+                  <span style={{ display: "block", marginTop: 2, fontWeight: 400 }}>
+                    Slab estimate: {fmt(est)}{" "}
+                    <button type="button" onClick={() => setItrForm({ ...itrForm, taxPayable: String(est) })} style={{ fontSize: 11, padding: "1px 6px" }}>
+                      Use this
+                    </button>
+                  </span>
+                ) : null;
+              })()}
             </label>
             <label style={{ fontSize: 12 }}>
               Advance Tax
@@ -1007,10 +1037,16 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               Self Assessment Tax
               <input type="number" value={itrForm.selfAssessmentTax} onChange={(e) => setItrForm({ ...itrForm, selfAssessmentTax: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
-            <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
-              Refund (+) / Demand (-)
-              <input type="number" value={itrForm.refundOrDemand} onChange={(e) => setItrForm({ ...itrForm, refundOrDemand: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
-            </label>
+            <div style={{ fontSize: 12, gridColumn: "1 / -1" }}>
+              Refund (+) / Demand (-) — computed, not entered
+              <div className="india-tax-input" style={{ display: "block", width: "100%", background: "#f8fafc" }}>
+                {fmt(
+                  (Number(itrForm.advanceTax) || 0) + (Number(itrForm.tds) || 0) + (Number(itrForm.tcs) || 0) +
+                    (Number(itrForm.selfAssessmentTax) || 0) - (Number(itrForm.taxPayable) || 0)
+                )}
+                {" "}= Advance + TDS + TCS + Self-Assessment − Tax Payable
+              </div>
+            </div>
             <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
               Notes
               <input value={itrForm.notes} onChange={(e) => setItrForm({ ...itrForm, notes: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
