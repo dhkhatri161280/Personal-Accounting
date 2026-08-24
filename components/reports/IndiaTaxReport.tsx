@@ -185,12 +185,6 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   // taxation, so a year with capital gains on file gets no estimate at all rather than a
   // confidently wrong one that silently taxed the gain at the slab rate.
   const hasCapitalGains = !!(activeItrYear?.capitalGains && (activeItrYear.capitalGains.shortTerm !== 0 || activeItrYear.capitalGains.longTerm !== 0));
-  // Tax Payable itself IS a real filed/legal figure (kept as entered, not overwritten) -- but a
-  // slab-based estimate is still useful as a cross-check, and to pre-fill when adding a year by
-  // hand. Only offered for Assessment Years whose slabs are actually modeled.
-  const estimatedTaxPayable = activeItrYear && !hasCapitalGains && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
-    ? estimateIndiaTax(activeItrYear.assessmentYear, activeItrYear.totalIncome)
-    : null;
   // Raw = exactly what was invested/paid, even past the statutory cap (real information worth
   // keeping). Capped = what's actually claimable -- Section 80C's combined cap (LIC, NSC, PPF,
   // PF, ELSS, etc. all count against ONE limit) and 80D's cap, both year-aware.
@@ -220,6 +214,25 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const estimatedGti = Math.max(0,
     (activeItrYear?.grossSalaryOverride ?? fyGross) - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - (activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal)
   ) + (activeItrYear?.capitalGains?.shortTerm ?? 0) + (activeItrYear?.capitalGains?.longTerm ?? 0);
+  // The stored deductionsChapterVIA/totalIncome can be stale -- e.g. saved before the 80C/80D
+  // cap logic existed, or before a cap year threshold was crossed. Whenever an itemized
+  // breakdown is on file, trust that (already capped above) over the stored lump figures rather
+  // than requiring a re-save just to pick up the correct capped number.
+  const hasItemizedBreakdown = (activeItrYear?.section80CItems?.length ?? 0) > 0 || (activeItrYear?.section80DMedical ?? 0) > 0;
+  const displayDeductionsChapterVIA = activeItrYear
+    ? (hasItemizedBreakdown ? section80CTotal + section80DTotal : activeItrYear.deductionsChapterVIA)
+    : 0;
+  const displayTotalIncome = activeItrYear
+    ? (hasItemizedBreakdown ? activeItrYear.grossTotalIncome - displayDeductionsChapterVIA : activeItrYear.totalIncome)
+    : 0;
+  // Tax Payable itself IS a real filed/legal figure (kept as entered, not overwritten) -- but a
+  // slab-based estimate is still useful as a cross-check, and to pre-fill when adding a year by
+  // hand. Only offered for Assessment Years whose slabs are actually modeled. Runs against the
+  // (possibly recomputed) displayTotalIncome, not the raw stored figure, so it doesn't drift out
+  // of sync with a just-capped Ch VI-A Deductions figure.
+  const estimatedTaxPayable = activeItrYear && !hasCapitalGains && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
+    ? estimateIndiaTax(activeItrYear.assessmentYear, displayTotalIncome)
+    : null;
 
   const itrSummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string; onClick?: () => void }[] = activeItrYear
     ? [
@@ -229,10 +242,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           icon: "cash", color: "#1e40af", onClick: openGtiForm,
         },
         {
-          label: "Ch VI-A Deductions", value: activeItrYear.deductionsChapterVIA, sub: "80C, 80D, etc. — click to edit itemized detail →",
+          label: "Ch VI-A Deductions", value: displayDeductionsChapterVIA,
+          sub: section80OverCap ? "capped 80C/80D — click to edit itemized detail →" : "80C, 80D, etc. — click to edit itemized detail →",
           icon: "shield", color: "#7c3aed", onClick: open80cForm,
         },
-        { label: "Total Income", value: activeItrYear.totalIncome, sub: "taxable income", icon: "receipt", color: "#0891b2" },
+        { label: "Total Income", value: displayTotalIncome, sub: "taxable income", icon: "receipt", color: "#0891b2" },
         {
           label: "Tax Payable", value: activeItrYear.taxPayable,
           sub: hasCapitalGains
