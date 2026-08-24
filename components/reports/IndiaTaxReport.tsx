@@ -127,6 +127,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [addingManualMonth, setAddingManualMonth] = useState(false);
   const [savingManualMonth, setSavingManualMonth] = useState(false);
   const [editingManualMonth, setEditingManualMonth] = useState<IndiaPayslipMonth | null>(null);
+  const [addingSection80, setAddingSection80] = useState(false);
+  const [savingSection80, setSavingSection80] = useState(false);
+  const [section80Form, setSection80Form] = useState({ section80C: "", section80D: "" });
 
   const [itrPassword, setItrPassword] = useState("");
   const [importingItr, setImportingItr] = useState(false);
@@ -506,6 +509,32 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     }
   }
 
+  // 80C/80D relief isn't limited to what shows up on a payslip -- investments (ELSS, PPF, life
+  // insurance premium) or a medical policy premium paid directly, outside payroll, count too.
+  // Stored on the FY's latest payslip month (the same field a real payslip's own "Projected
+  // Annual Tax Information" box already populates), so years without a real payslip PDF still
+  // have somewhere to record it by hand.
+  function open80cForm() {
+    setSection80Form({
+      section80C: String(latestInFy?.section80C ?? ""),
+      section80D: String(latestInFy?.section80D ?? ""),
+    });
+    setAddingSection80(true);
+  }
+  async function save80cForm() {
+    if (!latestInFy) return;
+    setSavingSection80(true);
+    try {
+      const n = (s: string) => (s.trim() ? Number(s) : undefined);
+      const updated: IndiaPayslipMonth = { ...latestInFy, section80C: n(section80Form.section80C), section80D: n(section80Form.section80D) };
+      const next = months.map((m) => (m.date === latestInFy.date ? updated : m));
+      await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+      setAddingSection80(false);
+    } finally {
+      setSavingSection80(false);
+    }
+  }
+
   async function handleItrImport(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
@@ -624,13 +653,17 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     await onSave({ payslips: indiaTax?.payslips, itrYears: next });
   }
 
-  const fySummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = latestInFy
+  const fySummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string; onClick?: () => void }[] = latestInFy
     ? [
         { label: "Gross Salary", value: fyGross, sub: `FY ${activeFy}, ${fyMonths.length} month(s)`, icon: "cash", color: "#1e40af" },
         { label: "Total Deductions", value: fyDeductions, sub: "PF + tax + other", icon: "receipt", color: "#dc2626" },
         { label: "Net Pay", value: fyNet, sub: "actually received", icon: "wallet", color: "#16a34a" },
         { label: "Projected Annual Income", value: latestInFy.annualIncome ?? 0, sub: `as of ${latestInFy.label}`, icon: "trending-up", color: "#0891b2" },
-        { label: "80C + 80D", value: (latestInFy.section80C ?? 0) + (latestInFy.section80D ?? 0), sub: "Chapter VI-A investment relief", icon: "shield", color: "#7c3aed" },
+        {
+          label: "80C + 80D", value: (latestInFy.section80C ?? 0) + (latestInFy.section80D ?? 0),
+          sub: "investments/premiums outside payroll — click to edit →", icon: "shield", color: "#7c3aed",
+          onClick: open80cForm,
+        },
         { label: "Total Tax Payable", value: latestInFy.totalTaxPayable ?? 0, sub: "projected, per employer", icon: "scale", color: "#9333ea" },
         { label: "Tax Deducted", value: latestInFy.taxDeductedTillDate ?? 0, sub: `till ${latestInFy.label}`, icon: "bank", color: "#d97706" },
         { label: "Balance Tax", value: latestInFy.balanceTax ?? 0, sub: "remaining per employer projection", icon: "tag", color: "#dc2626" },
@@ -735,7 +768,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               <div className="equity-summary-row">
                 {fySummaryCards.map((c) => (
                   <div key={c.label} className="equity-summary-col">
-                    <div className="equity-summary-card">
+                    <div className="equity-summary-card" style={c.onClick ? { cursor: "pointer" } : undefined} onClick={c.onClick}>
                       {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
                       <div className="equity-summary-card-body">
                         <span>{c.label}</span>
@@ -1069,6 +1102,31 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <button onClick={() => { setAddingManualMonth(false); setEditingManualMonth(null); }}>Cancel</button>
             <button onClick={saveManualMonthForm} disabled={savingManualMonth || !/^\d{4}-\d{2}$/.test(manualMonthForm.month)}>
               {savingManualMonth ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {addingSection80 && (
+        <Modal title={`Section 80C / 80D — FY ${activeFy}`} onClose={() => setAddingSection80(false)}>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
+            Investments (ELSS, PPF, life insurance premium, etc.) or a medical policy premium paid directly, outside
+            payroll, still count toward these deductions — track the total claimed here so it shows up above.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+            <label style={{ fontSize: 12 }}>
+              Section 80C (investments)
+              <input type="number" value={section80Form.section80C} onChange={(e) => setSection80Form({ ...section80Form, section80C: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Section 80D (medical premium)
+              <input type="number" value={section80Form.section80D} onChange={(e) => setSection80Form({ ...section80Form, section80D: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+          </div>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+            <button onClick={() => setAddingSection80(false)}>Cancel</button>
+            <button onClick={save80cForm} disabled={savingSection80}>
+              {savingSection80 ? "Saving…" : "Save"}
             </button>
           </div>
         </Modal>
