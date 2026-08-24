@@ -2435,6 +2435,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               }}
               fmt={fmt}
               uiTheme={uiTheme}
+              transactions={data.transactions}
+              accounts={data.accounts}
             />
           )}
           {report === "tax" && data && book !== "india" && (

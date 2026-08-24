@@ -1,11 +1,19 @@
 "use client";
 import { useRef, useState } from "react";
-import type { IndiaTaxData, IndiaPayslipMonth, IndiaItrYear } from "@/lib/vault-types";
+import type { IndiaTaxData, IndiaPayslipMonth, IndiaItrYear, Tx, Account } from "@/lib/vault-types";
 import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-india-payslip";
 import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
 import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
+import { ledgerPeriodTotals } from "@/lib/ledger-period";
+
+// Real ledger account name (from the Tally-derived voucher ledgers) that carries the P&L
+// interest expense on a home loan -- distinct from "Interest On Housing Loan Payable" (a
+// liability-account balance movement, not the deductible expense) and "Interest on Pre
+// Construction" (pre-construction interest has its own 5-installment spread rule under Section
+// 24(b)'s proviso, not modeled here -- deliberately excluded rather than silently lumped in).
+const HOME_LOAN_INTEREST_LEDGER = "Interest on Housing Loan";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -101,9 +109,14 @@ interface IndiaTaxReportProps {
   onSave: (data: IndiaTaxData) => Promise<void>;
   fmt: (n: number) => string;
   uiTheme?: "classic" | "refresh";
+  // Real Tally-derived voucher ledgers -- used to pull the actual "Interest on Housing Loan"
+  // figure for a given FY into the Gross Total Income reconciliation, as a suggestion the user
+  // confirms rather than a silent auto-fill. Optional since not every caller has ledger data.
+  transactions?: Tx[];
+  accounts?: Account[];
 }
 
-export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxReportProps) {
+export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, accounts }: IndiaTaxReportProps) {
   const payslipFileInputRef = useRef<HTMLInputElement>(null);
   const itrFileInputRef = useRef<HTMLInputElement>(null);
   const [payslipPassword, setPayslipPassword] = useState("");
@@ -171,6 +184,13 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
 
   const activeAy = activeFy ? ayOfFy(activeFy) : (itrYears[0]?.assessmentYear ?? null);
   const activeItrYear = itrYears.find((y) => y.assessmentYear === activeAy);
+  // Real ledger-derived home loan interest for this FY, if voucher data was passed in -- shown
+  // as a "pull this in" suggestion in the GTI popup, never silently trusted, since a Tally ledger
+  // can carry unrelated adjustment entries or span a different period than expected.
+  const homeLoanLedgerTotals = activeFy && transactions && accounts
+    ? ledgerPeriodTotals(transactions, accounts, HOME_LOAN_INTEREST_LEDGER, `${activeFy.slice(0, 4)}-04-01`, `${Number(activeFy.slice(0, 4)) + 1}-03-31`)
+    : null;
+  const homeLoanLedgerAmount = homeLoanLedgerTotals ? Math.max(0, homeLoanLedgerTotals.debit - homeLoanLedgerTotals.credit) : null;
   const itrTaxesPaid = activeItrYear
     ? activeItrYear.advanceTax + activeItrYear.tds + activeItrYear.tcs + activeItrYear.selfAssessmentTax
     : 0;
@@ -1533,8 +1553,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             not your slab rate — the Tax Payable slab estimate is suppressed for a year with gains on file rather
             than silently mis-taxing them. Home Loan Interest (Section 24(b), self-occupied property) is capped at
             {" "}{activeAy ? fmt(section24bHomeLoanInterestCap(activeAy)) : "₹1,50,000"} — enter the actual amount
-            paid, the cap is applied automatically. Saving writes the result to this AY&apos;s ITR Gross Total
-            Income.
+            paid, the cap is applied automatically. If this FY&apos;s ledgers have an &quot;{HOME_LOAN_INTEREST_LEDGER}
+            &quot; account, its real figure for this period shows below the field as a one-click suggestion, not an
+            automatic fill. Saving writes the result to this AY&apos;s ITR Gross Total Income.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 6, fontSize: 13, alignItems: "center" }}>
             <label>Gross Salary</label>
@@ -1549,7 +1570,17 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <input type="number" value={gtiStcg} onChange={(e) => setGtiStcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <label>Long-Term Capital Gain (Loss)</label>
             <input type="number" value={gtiLtcg} onChange={(e) => setGtiLtcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
-            <label>Home Loan Interest (Section 24b) paid</label>
+            <label>
+              Home Loan Interest (Section 24b) paid
+              {homeLoanLedgerAmount != null && homeLoanLedgerAmount !== (Number(gtiHomeLoanInterest) || 0) && (
+                <span style={{ display: "block", fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+                  From ledger &quot;{HOME_LOAN_INTEREST_LEDGER}&quot;, FY {activeFy}: {fmt(homeLoanLedgerAmount)}{" "}
+                  <button type="button" onClick={() => setGtiHomeLoanInterest(String(homeLoanLedgerAmount))} style={{ fontSize: 11, padding: "1px 6px" }}>
+                    Use this
+                  </button>
+                </span>
+              )}
+            </label>
             <input type="number" value={gtiHomeLoanInterest} onChange={(e) => setGtiHomeLoanInterest(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             {activeAy && Number(gtiHomeLoanInterest) > section24bHomeLoanInterestCap(activeAy) && (
               <>
