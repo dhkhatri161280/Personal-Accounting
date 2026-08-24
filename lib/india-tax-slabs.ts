@@ -165,3 +165,16 @@ export function estimateIndiaTax(assessmentYear: string, taxableIncome: number):
 export function hasIndiaTaxSlabsFor(assessmentYear: string): boolean {
   return assessmentYear in SLABS;
 }
+
+/** Section 80C's combined cap (LIC, NSC, PPF, ELSS, PF, etc. all count against ONE limit, not
+ * one each) -- raised from Rs 1,00,000 to Rs 1,50,000 starting FY2014-15 (AY2015-16). */
+export function section80CCap(assessmentYear: string): number {
+  const startYear = Number(assessmentYear.slice(0, 4));
+  return Number.isFinite(startYear) && startYear >= 2015 ? 150000 : 100000;
+}
+
+/** Section 80D's real limit depends on age and whether the premium covers self/family vs
+ * parents (self & family: Rs 15,000 pre-AY2016-17, Rs 25,000 from AY2016-17, Rs 25,000/50,000
+ * more for parents depending on senior-citizen status) -- modeling every combination isn't
+ * practical here, so this is one flat umbrella cap across all years, per what was asked for. */
+export const SECTION_80D_CAP = 50000;

@@ -5,7 +5,7 @@ import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-indi
 import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
-import { estimateIndiaTax, hasIndiaTaxSlabsFor } from "@/lib/india-tax-slabs";
+import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP } from "@/lib/india-tax-slabs";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -191,15 +191,27 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const estimatedTaxPayable = activeItrYear && !hasCapitalGains && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
     ? estimateIndiaTax(activeItrYear.assessmentYear, activeItrYear.totalIncome)
     : null;
-  const section80CTotal = (activeItrYear?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
-  const section80DTotal = activeItrYear?.section80DMedical ?? 0;
+  // Raw = exactly what was invested/paid, even past the statutory cap (real information worth
+  // keeping). Capped = what's actually claimable -- Section 80C's combined cap (LIC, NSC, PPF,
+  // PF, ELSS, etc. all count against ONE limit) and 80D's cap, both year-aware.
+  const section80CTotalRaw = (activeItrYear?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
+  const section80DTotalRaw = activeItrYear?.section80DMedical ?? 0;
+  const section80CCapForAy = activeAy ? section80CCap(activeAy) : 100000;
+  const section80CTotal = Math.min(section80CTotalRaw, section80CCapForAy);
+  const section80DTotal = Math.min(section80DTotalRaw, SECTION_80D_CAP);
+  const section80OverCap = section80CTotalRaw > section80CCapForAy || section80DTotalRaw > SECTION_80D_CAP;
   // If the itemized 80C/80D table has never been touched for this year (e.g. deductionsChapterVIA
   // was set directly, from a real filed ITR entered before this itemized-table feature existed),
   // fall back to that lump figure for display rather than showing 0 while the ITR section right
   // below shows the real total -- saveItrForm reconciles this into real itemized data the next
-  // time the ITR form saves, so this fallback is purely cosmetic, never persisted.
-  const section80DisplayTotal = section80CTotal + section80DTotal !== 0
-    ? section80CTotal + section80DTotal
+  // time the ITR form saves, so this fallback is purely cosmetic, never persisted. The lump
+  // figure is trusted as-is here (already the claimable amount as filed), not re-capped.
+  //
+  // The payroll-row "80C + 80D" card shows the RAW total (what was actually invested/paid) --
+  // the 80C/80D caps are a Ch VI-A Deductions/tax-liability concept, so they only apply to the
+  // ITR section's own card and the figures that feed the tax math, not this one.
+  const section80RawDisplayTotal = section80CTotalRaw + section80DTotalRaw !== 0
+    ? section80CTotalRaw + section80DTotalRaw
     : (activeItrYear?.deductionsChapterVIA ?? 0);
   // Estimated Gross Total Income before the reconciliation form has ever been saved for this FY
   // -- same formula (Gross Salary - HRA exempt - Professional Tax + capital gains), defaulting
@@ -659,7 +671,13 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         .map((it) => ({ description: it.description.trim(), amount: Number(it.amount) || 0 }))
         .filter((it) => it.description || it.amount);
       const section80DMedical = Number(section80DForm) || 0;
-      const deductionsChapterVIA = items.reduce((s, it) => s + it.amount, 0) + section80DMedical;
+      // Items/80D are stored RAW (exactly what was invested/paid, even past the statutory cap --
+      // that's real information worth keeping) but the ITR's Deductions figure that actually
+      // drives Total Income must be the CAPPED, claimable amount, not the raw sum.
+      const raw80C = items.reduce((s, it) => s + it.amount, 0);
+      const capped80C = Math.min(raw80C, section80CCap(activeAy));
+      const capped80D = Math.min(section80DMedical, SECTION_80D_CAP);
+      const deductionsChapterVIA = capped80C + capped80D;
       const gti = activeItrYear?.grossTotalIncome ?? 0;
       await saveItrPatch({
         section80CItems: items,
@@ -803,13 +821,18 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       const existingRow = editingItrId !== "new" ? existing.find((y) => y.id === editingItrId) : undefined;
       const enteredDeductions = n(itrForm.deductionsChapterVIA);
       const existingSection80D = existingRow?.section80DMedical ?? 0;
-      const existingItemsSum = (existingRow?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
+      const existingItemsSumRaw = (existingRow?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
+      const ayForCap = itrForm.assessmentYear.trim();
+      // Compare against the CAPPED total (what's actually claimable, same figure deductionsChapterVIA
+      // stores), not the raw itemized sum -- otherwise a year already correctly capped would look
+      // "different" here on every save and get needlessly re-flattened into an adjustment line.
+      const existingCappedTotal = Math.min(existingItemsSumRaw, section80CCap(ayForCap)) + Math.min(existingSection80D, SECTION_80D_CAP);
       // Keep the itemized 80C table in sync with this lump field in BOTH directions -- if what's
-      // typed here doesn't match what the itemized breakdown currently sums to, the user just
-      // changed this field directly (or it predates the itemized-table feature entirely), so
+      // typed here doesn't match what the itemized breakdown currently sums to (capped), the user
+      // just changed this field directly (or it predates the itemized-table feature entirely), so
       // fold the difference into one reconciling line rather than let the "80C + 80D" card and
       // this field silently show two different numbers.
-      const section80CItems = enteredDeductions === existingItemsSum + existingSection80D
+      const section80CItems = enteredDeductions === existingCappedTotal
         ? existingRow?.section80CItems
         : (enteredDeductions - existingSection80D !== 0
             ? [{ description: "Adjustment (entered directly on ITR form)", amount: enteredDeductions - existingSection80D }]
@@ -869,8 +892,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           onClick: openGtiForm,
         },
         {
-          label: "80C + 80D", value: section80DisplayTotal,
-          sub: `AY ${activeAy} — from ITR itemized deductions, click to edit →`, icon: "shield", color: "#7c3aed",
+          label: "80C + 80D", value: section80RawDisplayTotal,
+          sub: section80OverCap
+            ? `AY ${activeAy} — total invested/paid (claimable capped in ITR below), click to edit →`
+            : `AY ${activeAy} — from ITR itemized deductions, click to edit →`,
+          icon: "shield", color: "#7c3aed",
           onClick: open80cForm,
         },
         {
@@ -1370,8 +1396,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
             Investments (LIC, NSC, PPF, ELSS, etc.) or a medical policy premium paid directly, outside payroll, still
             count toward these deductions — one row per 80C investment, exactly as they&apos;d be listed on the ITR,
-            plus one field for the 80D medical premium. Saving also updates this AY&apos;s ITR &quot;Deductions
-            (Chapter VI-A)&quot; and Total Income to match.
+            plus one field for the 80D medical premium. Enter as much as you actually invested/paid — Section 80C is
+            capped at {activeAy ? fmt(section80CCap(activeAy)) : "₹1,00,000"} (₹1,00,000 through AY2014-15, ₹1,50,000
+            from AY2015-16 onward) and 80D at {fmt(SECTION_80D_CAP)} combined, so anything past the cap is tracked
+            but doesn&apos;t count toward the deduction actually claimed. Saving updates this AY&apos;s ITR
+            &quot;Deductions (Chapter VI-A)&quot; and Total Income with the CAPPED, claimable total.
           </p>
           <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "0.5rem" }}>
             <thead>
@@ -1420,14 +1449,48 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           <button onClick={() => setSection80Items([...section80Items, { description: "", amount: "" }])} style={{ fontSize: 12 }}>
             + Add 80C row
           </button>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, opacity: 0.7, margin: "0.5rem 0" }}>
-            <span>80C total</span>
-            <strong>{fmt(section80Items.reduce((s, it) => s + (Number(it.amount) || 0), 0))}</strong>
-          </div>
+          {(() => {
+            const raw80C = section80Items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+            const cap80C = activeAy ? section80CCap(activeAy) : 100000;
+            const claimable80C = Math.min(raw80C, cap80C);
+            const raw80D = Number(section80DForm) || 0;
+            const claimable80D = Math.min(raw80D, SECTION_80D_CAP);
+            return (
+              <div style={{ fontSize: 12, margin: "0.5rem 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
+                  <span>80C total entered</span>
+                  <span>{fmt(raw80C)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span>80C claimable (capped at {fmt(cap80C)}{raw80C > cap80C ? ", AY " + activeAy : ""})</span>
+                  <strong style={raw80C > cap80C ? { color: "#dc2626" } : undefined}>{fmt(claimable80C)}</strong>
+                </div>
+              </div>
+            );
+          })()}
           <label style={{ fontSize: 12, display: "block", marginTop: "0.5rem" }}>
-            Section 80D (medical premium)
+            Section 80D (medical premium) entered
             <input type="number" value={section80DForm} onChange={(e) => setSection80DForm(e.target.value)} className="india-tax-input" style={{ display: "block", width: "100%" }} />
           </label>
+          {(() => {
+            const raw80D = Number(section80DForm) || 0;
+            const claimable80D = Math.min(raw80D, SECTION_80D_CAP);
+            const raw80C = section80Items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+            const cap80C = activeAy ? section80CCap(activeAy) : 100000;
+            const claimable80C = Math.min(raw80C, cap80C);
+            return (
+              <div style={{ fontSize: 12, marginTop: "0.25rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
+                  <span>80D claimable (capped at {fmt(SECTION_80D_CAP)})</span>
+                  <span style={raw80D > SECTION_80D_CAP ? { color: "#dc2626" } : undefined}>{fmt(claimable80D)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #e2e8f0", paddingTop: 4, marginTop: 4 }}>
+                  <span>Total claimable (Ch VI-A Deductions)</span>
+                  <strong>{fmt(claimable80C + claimable80D)}</strong>
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
             <button onClick={() => setAddingSection80(false)}>Cancel</button>
             <button onClick={save80cForm} disabled={savingSection80}>
