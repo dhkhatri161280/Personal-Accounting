@@ -213,16 +213,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     setAddingReconstructed(true);
   }
   // A FY split across two employers (job change mid-year) needs two entries, not one -- April 1
-  // alone would collide (same date = same merge key, second save overwrites the first). Walk
-  // forward a day at a time within April until an unused date turns up. `usedDates` is mutated
-  // (dates added as they're claimed) so a batch of rows for the same FY don't collide with each
-  // other either, not just with what's already saved.
-  function buildReconstructedRow(fy: string, employer: string, gross: number, tax: number, usedDates: Set<string>): IndiaPayslipMonth {
+  // alone would collide (same date = same merge key). Give each EMPLOYER a fixed day-of-month
+  // (deterministic, not "next free slot") so the same employer+period always maps to the same
+  // date no matter how many times it's pasted -- re-pasting the same row must overwrite it in
+  // place, not walk forward to a new day and create a duplicate alongside the original.
+  function dayForEmployer(employer: string): number {
+    if (!employer) return 1;
+    let hash = 0;
+    for (let i = 0; i < employer.length; i++) hash = (hash * 31 + employer.charCodeAt(i)) % 27;
+    return hash + 2; // 2-28, keeps day 1 reserved for the no-employer case
+  }
+  function buildReconstructedRow(fy: string, employer: string, gross: number, tax: number): IndiaPayslipMonth {
     const startYear = fy.slice(0, 4);
-    let day = 1;
-    while (usedDates.has(`${startYear}-04-${String(day).padStart(2, "0")}`)) day++;
-    const date = `${startYear}-04-${String(day).padStart(2, "0")}`;
-    usedDates.add(date);
+    const date = `${startYear}-04-${String(dayForEmployer(employer)).padStart(2, "0")}`;
     return {
       label: employer ? `FY ${fy} — ${employer} (reconstructed)` : `FY ${fy} (reconstructed from ITR)`,
       date,
@@ -248,8 +251,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       const gross = Number(reconstructForm.grossEarnings) || 0;
       const tax = Number(reconstructForm.incomeTax) || 0;
       const employer = reconstructForm.employer.trim();
-      const usedDates = new Set(months.map((m) => m.date));
-      const row = buildReconstructedRow(fy, employer, gross, tax, usedDates);
+      const row = buildReconstructedRow(fy, employer, gross, tax);
       const next = mergeIndiaPayslipMonths(months, [row]);
       await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
       setSelectedFy(fy);
@@ -260,6 +262,14 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   }
   async function deleteReconstructedFy(fy: string) {
     const next = months.filter((m) => fyOf(m.date) !== fy || m.sourceFile !== RECONSTRUCTED_SOURCE);
+    await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+    setSelectedFy(null);
+  }
+  // Recovery for the pre-fix duplicate-date bug: wipes every entry for a FY regardless of
+  // source (reconstructed, ledger-derived, or transcribed), so a corrupted year can be re-pasted
+  // clean from scratch instead of hand-deleting each duplicate row.
+  async function clearFy(fy: string) {
+    const next = months.filter((m) => fyOf(m.date) !== fy);
     await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
     setSelectedFy(null);
   }
@@ -294,8 +304,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     if (rows.length === 0) { setBulkReconstructError("Paste at least one row."); return; }
     setSavingBulkReconstructed(true);
     try {
-      const usedDates = new Set(months.map((m) => m.date));
-      const newRows = rows.map((r) => buildReconstructedRow(r.fy, r.employer, r.gross, r.tax, usedDates));
+      const newRows = rows.map((r) => buildReconstructedRow(r.fy, r.employer, r.gross, r.tax));
       const next = mergeIndiaPayslipMonths(months, newRows);
       await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
       setSelectedFy(rows[rows.length - 1].fy);
@@ -314,12 +323,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   interface LedgerMonthRowInput {
     ym: string; employer: string; basic: number; hra: number; other: number; pf: number; professionalTax: number; incomeTax: number; note: string;
   }
-  function buildLedgerMonthRow(r: LedgerMonthRowInput, usedDates: Set<string>): IndiaPayslipMonth {
+  function buildLedgerMonthRow(r: LedgerMonthRowInput): IndiaPayslipMonth {
     const [y, m] = r.ym.split("-");
-    let date = `${y}-${m}-01`;
-    let day = 1;
-    while (usedDates.has(date)) { day++; date = `${y}-${m}-${String(day).padStart(2, "0")}`; }
-    usedDates.add(date);
+    const date = `${y}-${m}-${String(dayForEmployer(r.employer)).padStart(2, "0")}`;
     const grossEarnings = r.basic + r.hra + r.other;
     const totalDeductions = r.pf + r.professionalTax + r.incomeTax;
     const labelSuffix = r.note ? ` — ${r.note}` : "";
@@ -374,8 +380,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     if (rows.length === 0) { setBulkMonthsError("Paste at least one row."); return; }
     setSavingBulkMonths(true);
     try {
-      const usedDates = new Set(months.map((m) => m.date));
-      const newRows = rows.map((r) => buildLedgerMonthRow(r, usedDates));
+      const newRows = rows.map((r) => buildLedgerMonthRow(r));
       const touchedFys = new Set(newRows.map((r) => fyOf(r.date)));
       const base = dropReconstructedFor(months, touchedFys);
       const next = mergeIndiaPayslipMonths(base, newRows);
@@ -636,6 +641,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             {isReconstructedFy && (
               <button onClick={() => activeFy && deleteReconstructedFy(activeFy)} title="Delete this reconstructed entry">
                 🗑 Delete Reconstructed
+              </button>
+            )}
+            {activeFy && fyMonths.length > 0 && (
+              <button onClick={() => activeFy && clearFy(activeFy)} title="Delete every entry for this FY, regardless of source — for recovering from duplicate/corrupted data">
+                🗑 Clear FY {activeFy}
               </button>
             )}
             <input
