@@ -215,11 +215,17 @@ export type IndiaItrYear = {
   // on the payroll table being perfectly clean first.
   grossSalaryOverride?: number;
   professionalTaxOverride?: number;
-  // Interest paid on a home loan for a self-occupied property, deductible under Section 24(b)
-  // against Gross Total Income (as a loss under "Income from House Property"). Stored RAW (the
-  // actual amount paid, even past the statutory cap) -- the cap is applied only when deriving
-  // Gross Total Income, same pattern as the 80C/80D items.
+  // Interest paid on a home loan, deductible under Section 24(b) against "Income from House
+  // Property". Stored RAW (the actual amount paid, even past any statutory cap) -- capping is
+  // applied only when deriving Gross Total Income, same pattern as the 80C/80D items. Whether
+  // it's capped at all depends on houseRentIncome (see below).
   homeLoanInterest?: number;
+  // Annual rent received on the property -- 0/undefined means self-occupied (no rental income),
+  // where the home loan interest deduction is capped (Section 24(b)). Any positive rent means
+  // the property is treated as let-out: a flat 30% standard deduction applies to the rent
+  // (Section 24(a)) and the loan interest deduction becomes UNCAPPED (the self-occupied cap
+  // doesn't apply to a let-out property at all).
+  houseRentIncome?: number;
 };
 
 export type IndiaTaxData = {

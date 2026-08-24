@@ -7,6 +7,7 @@ import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
 import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
 import { ledgerPeriodTotals } from "@/lib/ledger-period";
+import { computeHouseProperty } from "@/lib/india-house-property";
 
 // Real ledger account name (from the Tally-derived voucher ledgers) that carries the P&L
 // interest expense on a home loan -- distinct from "Interest On Housing Loan Payable" (a
@@ -151,6 +152,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [gtiStcg, setGtiStcg] = useState("");
   const [gtiLtcg, setGtiLtcg] = useState("");
   const [gtiHomeLoanInterest, setGtiHomeLoanInterest] = useState("");
+  const [gtiRentIncome, setGtiRentIncome] = useState("");
   const [deletingManualMonth, setDeletingManualMonth] = useState(false);
 
   const [itrPassword, setItrPassword] = useState("");
@@ -232,10 +234,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   // -- same formula (Gross Salary - HRA exempt - Professional Tax + capital gains), defaulting
   // HRA exempt to the full HRA paid, so the card has a sensible value from day one instead of
   // showing 0.
+  const estimatedHouseProperty = activeAy ? computeHouseProperty(activeAy, activeItrYear?.houseRentIncome ?? 0, activeItrYear?.homeLoanInterest ?? 0) : null;
   const estimatedGti = Math.max(0,
     (activeItrYear?.grossSalaryOverride ?? fyGross) - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - (activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal)
   ) + (activeItrYear?.capitalGains?.shortTerm ?? 0) + (activeItrYear?.capitalGains?.longTerm ?? 0)
-    - Math.min(activeItrYear?.homeLoanInterest ?? 0, activeAy ? section24bHomeLoanInterestCap(activeAy) : 150000);
+    + (estimatedHouseProperty?.allowedAgainstOtherIncome ?? 0);
   // The stored deductionsChapterVIA/totalIncome can be stale -- e.g. saved before the 80C/80D
   // cap logic existed, or before a cap year threshold was crossed. Whenever an itemized
   // breakdown is on file, trust that (already capped above) over the stored lump figures rather
@@ -739,6 +742,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
     setGtiStcg(activeItrYear?.capitalGains ? String(activeItrYear.capitalGains.shortTerm) : "");
     setGtiLtcg(activeItrYear?.capitalGains ? String(activeItrYear.capitalGains.longTerm) : "");
     setGtiHomeLoanInterest(activeItrYear?.homeLoanInterest ? String(activeItrYear.homeLoanInterest) : "");
+    setGtiRentIncome(activeItrYear?.houseRentIncome ? String(activeItrYear.houseRentIncome) : "");
     setReconcilingGti(true);
   }
   async function saveGtiForm() {
@@ -751,14 +755,16 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       const shortTerm = Number(gtiStcg) || 0;
       const longTerm = Number(gtiLtcg) || 0;
       const homeLoanInterest = Number(gtiHomeLoanInterest) || 0;
-      // Section 24(b) -- capped, same pattern as 80C/80D: the raw amount actually paid is kept
-      // on record, but only the capped amount reduces Gross Total Income.
-      const cappedHomeLoanInterest = Math.min(homeLoanInterest, section24bHomeLoanInterestCap(activeAy));
-      // Capital gains can be negative (a loss) -- unlike the salary side, Gross Total Income
-      // isn't floored at 0 here, since a genuine capital loss (or a large home loan interest
-      // deduction) should be able to bring it down.
+      const rentIncome = Number(gtiRentIncome) || 0;
+      // Income from House Property -- self-occupied (interest capped) vs let-out (30% standard
+      // deduction on rent, interest UNCAPPED), plus the year-aware loss set-off rule against
+      // other income heads. See lib/india-house-property.ts for the full breakdown.
+      const houseProperty = computeHouseProperty(activeAy, rentIncome, homeLoanInterest);
+      // Capital gains (and a house property loss) can be negative -- unlike the salary side,
+      // Gross Total Income isn't floored at 0 here, since a genuine loss should be able to bring
+      // it down.
       const salaryIncome = Math.max(0, grossSalary - hraExempt - profTax);
-      const grossTotalIncome = salaryIncome + shortTerm + longTerm - cappedHomeLoanInterest;
+      const grossTotalIncome = salaryIncome + shortTerm + longTerm + houseProperty.allowedAgainstOtherIncome;
       const deductionsChapterVIA = activeItrYear?.deductionsChapterVIA ?? 0;
       await saveItrPatch({
         grossSalaryOverride: grossSalary,
@@ -766,6 +772,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         professionalTaxOverride: profTax,
         capitalGains: shortTerm || longTerm ? { shortTerm, longTerm } : undefined,
         homeLoanInterest: homeLoanInterest || undefined,
+        houseRentIncome: rentIncome || undefined,
         grossTotalIncome,
         totalIncome: grossTotalIncome - deductionsChapterVIA,
       });
@@ -1547,15 +1554,18 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         <Modal title={`Gross Total Income — FY ${activeFy} → AY ${activeAy}`} onClose={() => setReconcilingGti(false)}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
             Gross Total Income (ITR) = Gross Salary − HRA exempt (Section 10(13A)) − Professional Tax + Capital
-            Gains − Home Loan Interest. Every figure below is editable — Gross Salary and Professional Tax default
-            to this FY&apos;s payslip totals but can be overridden if the payroll table is incomplete or doesn&apos;t
-            match what was actually filed. Capital gains (or a loss, entered negative) are taxed at special rates,
-            not your slab rate — the Tax Payable slab estimate is suppressed for a year with gains on file rather
-            than silently mis-taxing them. Home Loan Interest (Section 24(b), self-occupied property) is capped at
-            {" "}{activeAy ? fmt(section24bHomeLoanInterestCap(activeAy)) : "₹1,50,000"} — enter the actual amount
-            paid, the cap is applied automatically. If this FY&apos;s ledgers have an &quot;{HOME_LOAN_INTEREST_LEDGER}
-            &quot; account, its real figure for this period shows below the field as a one-click suggestion, not an
-            automatic fill. Saving writes the result to this AY&apos;s ITR Gross Total Income.
+            Gains + Income from House Property. Every figure below is editable — Gross Salary and Professional Tax
+            default to this FY&apos;s payslip totals but can be overridden if the payroll table is incomplete or
+            doesn&apos;t match what was actually filed. Capital gains (or a loss, entered negative) are taxed at
+            special rates, not your slab rate — the Tax Payable slab estimate is suppressed for a year with gains on
+            file rather than silently mis-taxing them. For house property: leave Rent Income at 0 for a
+            self-occupied property (home loan interest capped at {activeAy ? fmt(section24bHomeLoanInterestCap(activeAy)) : "₹1,50,000"}{" "}
+            under Section 24(b)); enter actual rent for a let-out property instead, which gets a flat 30% standard
+            deduction (Section 24(a)) and makes the interest deduction UNCAPPED. A resulting loss offsets other
+            income without limit through AY2017-18, capped at ₹2,00,000/year (with the rest carried forward) from
+            AY2018-19 onward. If this FY&apos;s ledgers have an &quot;{HOME_LOAN_INTEREST_LEDGER}&quot; account, its
+            real figure for this period shows as a one-click suggestion, not an automatic fill. Saving writes the
+            result to this AY&apos;s ITR Gross Total Income.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 6, fontSize: 13, alignItems: "center" }}>
             <label>Gross Salary</label>
@@ -1570,6 +1580,8 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
             <input type="number" value={gtiStcg} onChange={(e) => setGtiStcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <label>Long-Term Capital Gain (Loss)</label>
             <input type="number" value={gtiLtcg} onChange={(e) => setGtiLtcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
+            <label>Rent Income (0 = self-occupied)</label>
+            <input type="number" value={gtiRentIncome} onChange={(e) => setGtiRentIncome(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <label>
               Home Loan Interest (Section 24b) paid
               {homeLoanLedgerAmount != null && homeLoanLedgerAmount !== (Number(gtiHomeLoanInterest) || 0) && (
@@ -1582,18 +1594,39 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
               )}
             </label>
             <input type="number" value={gtiHomeLoanInterest} onChange={(e) => setGtiHomeLoanInterest(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
-            {activeAy && Number(gtiHomeLoanInterest) > section24bHomeLoanInterestCap(activeAy) && (
-              <>
-                <span style={{ opacity: 0.7 }}>Home Loan Interest claimable (capped at {fmt(section24bHomeLoanInterestCap(activeAy))})</span>
-                <span style={{ color: "#dc2626" }}>{fmt(section24bHomeLoanInterestCap(activeAy))}</span>
-              </>
-            )}
+            {activeAy && (() => {
+              const hp = computeHouseProperty(activeAy, Number(gtiRentIncome) || 0, Number(gtiHomeLoanInterest) || 0);
+              return (
+                <>
+                  {hp.isLetOut && (
+                    <>
+                      <span style={{ opacity: 0.7 }}>Standard deduction (30% of rent, Section 24(a))</span>
+                      <span>{fmt(hp.standardDeduction)}</span>
+                    </>
+                  )}
+                  <span style={hp.interestCapped ? { color: "#dc2626" } : { opacity: 0.7 }}>
+                    Home Loan Interest deductible{hp.isLetOut ? " (let-out — uncapped)" : ` (self-occupied — capped at ${fmt(section24bHomeLoanInterestCap(activeAy))})`}
+                  </span>
+                  <span style={hp.interestCapped ? { color: "#dc2626" } : undefined}>{fmt(hp.interestDeduction)}</span>
+                  <span style={{ opacity: 0.7 }}>Income from House Property</span>
+                  <strong style={hp.netIncome < 0 ? { color: "#dc2626" } : undefined}>{fmt(hp.netIncome)}</strong>
+                  {hp.lossCarriedForward > 0 && (
+                    <>
+                      <span style={{ opacity: 0.7, gridColumn: "1 / -1", fontSize: 11 }}>
+                        Loss set-off against other income capped at ₹2,00,000/year from AY2018-19 (Section 71(3A)) —
+                        {" "}{fmt(hp.lossCarriedForward)} would carry forward to future years (not tracked here).
+                      </span>
+                    </>
+                  )}
+                </>
+              );
+            })()}
             <span style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>Gross Total Income</span>
             <strong style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
               {fmt(
                 Math.max(0, (Number(gtiGrossSalary) || 0) - (Number(gtiHraExempt) || 0) - (Number(gtiProfTax) || 0))
                 + (Number(gtiStcg) || 0) + (Number(gtiLtcg) || 0)
-                - Math.min(Number(gtiHomeLoanInterest) || 0, activeAy ? section24bHomeLoanInterestCap(activeAy) : 150000)
+                + (activeAy ? computeHouseProperty(activeAy, Number(gtiRentIncome) || 0, Number(gtiHomeLoanInterest) || 0).allowedAgainstOtherIncome : 0)
               )}
             </strong>
           </div>
