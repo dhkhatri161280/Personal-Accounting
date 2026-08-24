@@ -226,6 +226,11 @@ export type IndiaItrYear = {
   // (Section 24(a)) and the loan interest deduction becomes UNCAPPED (the self-occupied cap
   // doesn't apply to a let-out property at all).
   houseRentIncome?: number;
+  // Overrides the general-case self-occupied Section 24(b) cap for this specific AY -- the
+  // Rs 2,00,000 figure only applies if the property's construction/acquisition completed within
+  // 5 years of the loan (among other conditions this app can't verify), so a real filed return
+  // can show a different figure (e.g. Rs 1,50,000) than the general rule would predict.
+  homeLoanInterestCapOverride?: number;
 };
 
 export type IndiaTaxData = {

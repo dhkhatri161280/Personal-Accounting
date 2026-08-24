@@ -12,7 +12,11 @@ export interface HousePropertyResult {
 
 /** "Income from House Property" under Indian income tax, year-aware:
  * - Self-occupied (no rent): home loan interest is deductible under Section 24(b) up to the
- *   statutory cap (Rs 1,50,000 through AY2014-15, Rs 2,00,000 from AY2015-16).
+ *   statutory cap (Rs 1,50,000 through AY2014-15, Rs 2,00,000 from AY2015-16) -- BUT the
+ *   Rs 2,00,000 figure only applies if construction/acquisition completed within 5 years of the
+ *   loan; if not (or the loan predates the enhanced-limit era's own conditions), the real
+ *   allowed figure on a filed return can differ. `capOverride` lets the caller correct the cap
+ *   to match what was actually filed rather than forcing the general-case assumption.
  * - Let-out (any rent received): a flat 30% standard deduction applies to the rent under
  *   Section 24(a), and the home loan interest deduction under 24(b) is UNCAPPED -- the
  *   self-occupied ceiling only applies when there's no rental income.
@@ -20,10 +24,10 @@ export interface HousePropertyResult {
  *   years through AY2017-18; from AY2018-19 onward (Finance Act 2017, Section 71(3A)) that
  *   set-off is capped at Rs 2,00,000/year, with any excess carried forward to later years
  *   (carry-forward isn't tracked here, just reported so it isn't silently dropped). */
-export function computeHouseProperty(assessmentYear: string, rentIncome: number, homeLoanInterestRaw: number): HousePropertyResult {
+export function computeHouseProperty(assessmentYear: string, rentIncome: number, homeLoanInterestRaw: number, capOverride?: number): HousePropertyResult {
   const isLetOut = rentIncome > 0;
   const standardDeduction = isLetOut ? Math.round(rentIncome * 0.3) : 0;
-  const cap = section24bHomeLoanInterestCap(assessmentYear);
+  const cap = capOverride ?? section24bHomeLoanInterestCap(assessmentYear);
   const interestDeduction = isLetOut ? homeLoanInterestRaw : Math.min(homeLoanInterestRaw, cap);
   const interestCapped = !isLetOut && homeLoanInterestRaw > cap;
   const netIncome = rentIncome - standardDeduction - interestDeduction;

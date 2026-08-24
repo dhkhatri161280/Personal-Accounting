@@ -153,6 +153,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [gtiLtcg, setGtiLtcg] = useState("");
   const [gtiHomeLoanInterest, setGtiHomeLoanInterest] = useState("");
   const [gtiRentIncome, setGtiRentIncome] = useState("");
+  const [gtiHomeLoanInterestCap, setGtiHomeLoanInterestCap] = useState("");
   const [deletingManualMonth, setDeletingManualMonth] = useState(false);
 
   const [itrPassword, setItrPassword] = useState("");
@@ -234,7 +235,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   // -- same formula (Gross Salary - HRA exempt - Professional Tax + capital gains), defaulting
   // HRA exempt to the full HRA paid, so the card has a sensible value from day one instead of
   // showing 0.
-  const estimatedHouseProperty = activeAy ? computeHouseProperty(activeAy, activeItrYear?.houseRentIncome ?? 0, activeItrYear?.homeLoanInterest ?? 0) : null;
+  const estimatedHouseProperty = activeAy
+    ? computeHouseProperty(activeAy, activeItrYear?.houseRentIncome ?? 0, activeItrYear?.homeLoanInterest ?? 0, activeItrYear?.homeLoanInterestCapOverride)
+    : null;
   const estimatedGti = Math.max(0,
     (activeItrYear?.grossSalaryOverride ?? fyGross) - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - (activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal)
   ) + (activeItrYear?.capitalGains?.shortTerm ?? 0) + (activeItrYear?.capitalGains?.longTerm ?? 0)
@@ -743,6 +746,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
     setGtiLtcg(activeItrYear?.capitalGains ? String(activeItrYear.capitalGains.longTerm) : "");
     setGtiHomeLoanInterest(activeItrYear?.homeLoanInterest ? String(activeItrYear.homeLoanInterest) : "");
     setGtiRentIncome(activeItrYear?.houseRentIncome ? String(activeItrYear.houseRentIncome) : "");
+    setGtiHomeLoanInterestCap(String(activeItrYear?.homeLoanInterestCapOverride ?? section24bHomeLoanInterestCap(activeAy ?? "")));
     setReconcilingGti(true);
   }
   async function saveGtiForm() {
@@ -756,10 +760,15 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       const longTerm = Number(gtiLtcg) || 0;
       const homeLoanInterest = Number(gtiHomeLoanInterest) || 0;
       const rentIncome = Number(gtiRentIncome) || 0;
+      const defaultCap = section24bHomeLoanInterestCap(activeAy);
+      const homeLoanInterestCap = Number(gtiHomeLoanInterestCap) || defaultCap;
       // Income from House Property -- self-occupied (interest capped) vs let-out (30% standard
       // deduction on rent, interest UNCAPPED), plus the year-aware loss set-off rule against
-      // other income heads. See lib/india-house-property.ts for the full breakdown.
-      const houseProperty = computeHouseProperty(activeAy, rentIncome, homeLoanInterest);
+      // other income heads. See lib/india-house-property.ts for the full breakdown. The cap
+      // itself is overridable -- the general Rs 2,00,000 rule only applies when the property's
+      // construction/acquisition met the 5-year condition, which a real filed return can differ
+      // on for reasons this app can't verify.
+      const houseProperty = computeHouseProperty(activeAy, rentIncome, homeLoanInterest, homeLoanInterestCap);
       // Capital gains (and a house property loss) can be negative -- unlike the salary side,
       // Gross Total Income isn't floored at 0 here, since a genuine loss should be able to bring
       // it down.
@@ -773,6 +782,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         capitalGains: shortTerm || longTerm ? { shortTerm, longTerm } : undefined,
         homeLoanInterest: homeLoanInterest || undefined,
         houseRentIncome: rentIncome || undefined,
+        homeLoanInterestCapOverride: homeLoanInterestCap !== defaultCap ? homeLoanInterestCap : undefined,
         grossTotalIncome,
         totalIncome: grossTotalIncome - deductionsChapterVIA,
       });
@@ -1594,8 +1604,21 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
               )}
             </label>
             <input type="number" value={gtiHomeLoanInterest} onChange={(e) => setGtiHomeLoanInterest(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
+            {activeAy && !(Number(gtiRentIncome) > 0) && (
+              <>
+                <label>
+                  Self-occupied interest cap for AY {activeAy}
+                  <span style={{ display: "block", fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+                    General rule: {fmt(section24bHomeLoanInterestCap(activeAy))}. Correct this if your actually filed
+                    return allowed a different amount (e.g. the 5-year construction condition wasn&apos;t met).
+                  </span>
+                </label>
+                <input type="number" value={gtiHomeLoanInterestCap} onChange={(e) => setGtiHomeLoanInterestCap(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} />
+              </>
+            )}
             {activeAy && (() => {
-              const hp = computeHouseProperty(activeAy, Number(gtiRentIncome) || 0, Number(gtiHomeLoanInterest) || 0);
+              const cap = Number(gtiHomeLoanInterestCap) || section24bHomeLoanInterestCap(activeAy);
+              const hp = computeHouseProperty(activeAy, Number(gtiRentIncome) || 0, Number(gtiHomeLoanInterest) || 0, cap);
               return (
                 <>
                   {hp.isLetOut && (
@@ -1605,7 +1628,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                     </>
                   )}
                   <span style={hp.interestCapped ? { color: "#dc2626" } : { opacity: 0.7 }}>
-                    Home Loan Interest deductible{hp.isLetOut ? " (let-out — uncapped)" : ` (self-occupied — capped at ${fmt(section24bHomeLoanInterestCap(activeAy))})`}
+                    Home Loan Interest deductible{hp.isLetOut ? " (let-out — uncapped)" : ` (self-occupied — capped at ${fmt(cap)})`}
                   </span>
                   <span style={hp.interestCapped ? { color: "#dc2626" } : undefined}>{fmt(hp.interestDeduction)}</span>
                   <span style={{ opacity: 0.7 }}>Income from House Property</span>
@@ -1626,7 +1649,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
               {fmt(
                 Math.max(0, (Number(gtiGrossSalary) || 0) - (Number(gtiHraExempt) || 0) - (Number(gtiProfTax) || 0))
                 + (Number(gtiStcg) || 0) + (Number(gtiLtcg) || 0)
-                + (activeAy ? computeHouseProperty(activeAy, Number(gtiRentIncome) || 0, Number(gtiHomeLoanInterest) || 0).allowedAgainstOtherIncome : 0)
+                + (activeAy ? computeHouseProperty(activeAy, Number(gtiRentIncome) || 0, Number(gtiHomeLoanInterest) || 0, Number(gtiHomeLoanInterestCap) || section24bHomeLoanInterestCap(activeAy)).allowedAgainstOtherIncome : 0)
               )}
             </strong>
           </div>
