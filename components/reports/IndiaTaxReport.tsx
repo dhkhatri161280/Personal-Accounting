@@ -530,15 +530,15 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       const sourceFile = editingManualMonth?.sourceFile ?? TRANSCRIBED_SOURCE_PREFIX;
       const targetMonths = Array.from(new Set([manualMonthForm.month, ...copyMonths]));
       const newRows = targetMonths.map((ym) => buildManualMonthRow(ym, manualMonthForm, sourceFile));
-      // Editing or copying into a month always fully replaces whatever's already on file for
-      // that calendar month -- ALL existing rows in each target YYYY-MM, not just an exact date
-      // match on the row being edited. mergeIndiaPayslipMonths below only overwrites a row whose
-      // date matches EXACTLY, so if a target month's existing row was keyed to a different date
-      // (e.g. hashed from a different employer string, or a blank one from a mis-parsed label),
-      // leaving it in `base` would let the merge add a sibling row instead of overwriting it --
-      // the duplicate-on-copy bug.
+      // Editing or copying into a month replaces whatever's already on file for that SAME
+      // employer in that calendar month -- not an exact-date match on the row being edited (a
+      // mis-parsed/blank employer would land on a different hashed date than the original and
+      // survive as a duplicate), but also not every row in the month regardless of employer
+      // (that would delete a genuinely different employer's real row for a month with a
+      // mid-month job change). Scoping the replacement to month + employer gets both right.
       const targetMonthSet = new Set(targetMonths);
-      const base = months.filter((m) => !targetMonthSet.has(m.date.slice(0, 7)));
+      const targetEmployer = manualMonthForm.employer.trim();
+      const base = months.filter((m) => !(targetMonthSet.has(m.date.slice(0, 7)) && employerFromLabel(m.label) === targetEmployer));
       const touchedFys = new Set(newRows.map((r) => fyOf(r.date)));
       const afterDrop = dropReconstructedFor(base, touchedFys);
       const next = mergeIndiaPayslipMonths(afterDrop, newRows);
