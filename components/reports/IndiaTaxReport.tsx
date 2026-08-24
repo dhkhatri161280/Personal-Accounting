@@ -71,6 +71,7 @@ const LEDGER_MONTH_SOURCE = "Manual entry — monthly total from Tally ledger sa
 
 const BLANK_MANUAL_MONTH_FORM = {
   month: "", // YYYY-MM, from an <input type="month">
+  employer: "",
   basic: "",
   hra: "",
   otherAllowances: "",
@@ -78,6 +79,7 @@ const BLANK_MANUAL_MONTH_FORM = {
   professionalTax: "",
   incomeTax: "",
   otherDeductions: "",
+  copyToMonths: "", // comma-separated YYYY-MM list -- same values also saved to each of these
 };
 
 const BLANK_ITR_FORM = {
@@ -124,6 +126,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [manualMonthForm, setManualMonthForm] = useState(BLANK_MANUAL_MONTH_FORM);
   const [addingManualMonth, setAddingManualMonth] = useState(false);
   const [savingManualMonth, setSavingManualMonth] = useState(false);
+  const [editingManualMonth, setEditingManualMonth] = useState<IndiaPayslipMonth | null>(null);
 
   const [itrPassword, setItrPassword] = useState("");
   const [importingItr, setImportingItr] = useState(false);
@@ -413,47 +416,91 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     }
   }
 
+  // Pulls the employer back out of a generated label ("Aug 2005 — Mafatlal (from ledger)") so
+  // editing a row can re-save under the same employer without the user retyping it -- best
+  // effort only, since older/real-import labels don't always carry an employer segment.
+  function employerFromLabel(label: string): string {
+    const m = label.match(/—\s*([^(]+?)\s*\(/);
+    return m ? m[1].trim() : "";
+  }
   function openAddManualMonth() {
     setManualMonthForm(BLANK_MANUAL_MONTH_FORM);
+    setEditingManualMonth(null);
     setAddingManualMonth(true);
+  }
+  function openEditManualMonth(m: IndiaPayslipMonth) {
+    setManualMonthForm({
+      month: m.date.slice(0, 7),
+      employer: employerFromLabel(m.label),
+      basic: String(m.basic),
+      hra: String(m.hra),
+      otherAllowances: String(m.otherAllowances),
+      pf: String(m.pf),
+      professionalTax: String(m.professionalTax),
+      incomeTax: String(m.incomeTax),
+      otherDeductions: String(m.otherDeductions),
+      copyToMonths: "",
+    });
+    setEditingManualMonth(m);
+    setAddingManualMonth(true);
+  }
+  function buildManualMonthRow(ym: string, form: typeof BLANK_MANUAL_MONTH_FORM, sourceFile: string): IndiaPayslipMonth {
+    const n = (s: string) => Number(s) || 0;
+    const [y, mm] = ym.split("-");
+    const employer = form.employer.trim();
+    const basic = n(form.basic);
+    const hra = n(form.hra);
+    const otherAllowances = n(form.otherAllowances);
+    const pf = n(form.pf);
+    const professionalTax = n(form.professionalTax);
+    const incomeTax = n(form.incomeTax);
+    const otherDeductions = n(form.otherDeductions);
+    const grossEarnings = basic + hra + otherAllowances;
+    const totalDeductions = pf + professionalTax + incomeTax + otherDeductions;
+    return {
+      label: employer ? `${MONTH_NAMES[Number(mm) - 1]} ${y} — ${employer}` : `${MONTH_NAMES[Number(mm) - 1]} ${y}`,
+      date: `${y}-${mm}-${String(dayForEmployer(employer)).padStart(2, "0")}`,
+      basic,
+      hra,
+      conveyance: 0,
+      otherAllowances,
+      grossEarnings,
+      pf,
+      professionalTax,
+      incomeTax,
+      otherDeductions,
+      totalDeductions,
+      netPay: grossEarnings - totalDeductions,
+      sourceFile,
+    };
   }
   async function saveManualMonthForm() {
     if (!/^\d{4}-\d{2}$/.test(manualMonthForm.month)) return;
+    const copyMonths = manualMonthForm.copyToMonths
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const badCopyMonth = copyMonths.find((ym) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(ym));
+    if (badCopyMonth) { alert(`Bad month in "Also apply to": "${badCopyMonth}" (expected YYYY-MM)`); return; }
     setSavingManualMonth(true);
     try {
-      const n = (s: string) => Number(s) || 0;
-      const [y, mm] = manualMonthForm.month.split("-");
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const basic = n(manualMonthForm.basic);
-      const hra = n(manualMonthForm.hra);
-      const otherAllowances = n(manualMonthForm.otherAllowances);
-      const pf = n(manualMonthForm.pf);
-      const professionalTax = n(manualMonthForm.professionalTax);
-      const incomeTax = n(manualMonthForm.incomeTax);
-      const otherDeductions = n(manualMonthForm.otherDeductions);
-      const grossEarnings = basic + hra + otherAllowances;
-      const totalDeductions = pf + professionalTax + incomeTax + otherDeductions;
-      const row: IndiaPayslipMonth = {
-        label: `${monthNames[Number(mm) - 1]} ${y}`,
-        date: `${y}-${mm}-01`,
-        basic,
-        hra,
-        conveyance: 0,
-        otherAllowances,
-        grossEarnings,
-        pf,
-        professionalTax,
-        incomeTax,
-        otherDeductions,
-        totalDeductions,
-        netPay: grossEarnings - totalDeductions,
-        sourceFile: TRANSCRIBED_SOURCE_PREFIX,
-      };
-      const base = dropReconstructedFor(months, new Set([fyOf(row.date)]));
-      const next = mergeIndiaPayslipMonths(base, [row]);
+      const sourceFile = editingManualMonth?.sourceFile ?? TRANSCRIBED_SOURCE_PREFIX;
+      const targetMonths = Array.from(new Set([manualMonthForm.month, ...copyMonths]));
+      const newRows = targetMonths.map((ym) => buildManualMonthRow(ym, manualMonthForm, sourceFile));
+      // If editing changed the month/employer enough to land on a different date than the
+      // original row, drop the original explicitly -- otherwise it'd survive alongside the
+      // freshly-dated one instead of being replaced.
+      const newDates = new Set(newRows.map((r) => r.date));
+      const base = editingManualMonth && !newDates.has(editingManualMonth.date)
+        ? months.filter((m) => m.date !== editingManualMonth.date)
+        : months;
+      const touchedFys = new Set(newRows.map((r) => fyOf(r.date)));
+      const afterDrop = dropReconstructedFor(base, touchedFys);
+      const next = mergeIndiaPayslipMonths(afterDrop, newRows);
       await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
-      setSelectedFy(fyOf(row.date));
+      setSelectedFy(fyOf(newRows[0].date));
       setAddingManualMonth(false);
+      setEditingManualMonth(null);
     } finally {
       setSavingManualMonth(false);
     }
@@ -710,14 +757,14 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                     <th className="right">Gross</th>
                     <th className="right" title="Deducted first, before 80C-eligible items like PF">Prof. Tax</th>
                     <th className="right">PF</th>
-                    <th className="right">Income Tax</th>
                     <th className="right" title="A specifically identified deduction that isn't PF/Professional Tax/Income Tax — e.g. an LIP/Superannuation contribution">Other Ded.</th>
+                    <th className="right">Income Tax</th>
                     <th className="right">Net Pay</th>
                   </tr>
                 </thead>
                 <tbody>
                   {fyMonths.map((m) => (
-                    <tr key={m.date}>
+                    <tr key={m.date} onClick={() => openEditManualMonth(m)} style={{ cursor: "pointer" }} title="Click to edit this month">
                       <td>{m.label}</td>
                       <td className="right">{fmt(m.basic)}</td>
                       <td className="right">{fmt(m.hra)}</td>
@@ -725,8 +772,8 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                       <td className="right">{fmt(m.grossEarnings)}</td>
                       <td className="right">{fmt(m.professionalTax)}</td>
                       <td className="right">{fmt(m.pf)}</td>
-                      <td className="right">{fmt(m.incomeTax)}</td>
                       <td className="right">{fmt(m.otherDeductions)}</td>
+                      <td className="right">{fmt(m.incomeTax)}</td>
                       <td className="right">{fmt(m.netPay)}</td>
                     </tr>
                   ))}
@@ -740,8 +787,8 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                     <td className="right">{fmt(fyGross)}</td>
                     <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.professionalTax, 0))}</td>
                     <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.pf, 0))}</td>
-                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.incomeTax, 0))}</td>
                     <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.otherDeductions, 0))}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.incomeTax, 0))}</td>
                     <td className="right">{fmt(fyNet)}</td>
                   </tr>
                 </tfoot>
@@ -958,13 +1005,14 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       )}
 
       {addingManualMonth && (
-        <Modal title="Add Real Month (Manual)" onClose={() => setAddingManualMonth(false)}>
+        <Modal title={editingManualMonth ? `Edit ${editingManualMonth.label}` : "Add / Edit Month (Manual)"} onClose={() => { setAddingManualMonth(false); setEditingManualMonth(null); }}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
-            For a real payslip that only exists as a scanned image (no text layer to auto-read) — enter the figures
-            by hand, same fields as an auto-imported month.
+            Enter or correct one month by hand — for a real payslip that&apos;s only a scanned image (no text layer
+            to auto-read), or any figure you need to fix directly. Use &quot;Also apply to&quot; below to copy these
+            exact same values to other months in one save, instead of retyping them each time.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
-            <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
+            <label style={{ fontSize: 12 }}>
               Month
               <input
                 type="month"
@@ -973,6 +1021,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
                 className="india-tax-input"
                 style={{ display: "block", width: "100%" }}
               />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              Employer (optional)
+              <input value={manualMonthForm.employer} onChange={(e) => setManualMonthForm({ ...manualMonthForm, employer: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Basic Salary
@@ -987,12 +1039,12 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               <input type="number" value={manualMonthForm.otherAllowances} onChange={(e) => setManualMonthForm({ ...manualMonthForm, otherAllowances: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
-              PF
-              <input type="number" value={manualMonthForm.pf} onChange={(e) => setManualMonthForm({ ...manualMonthForm, pf: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
-            </label>
-            <label style={{ fontSize: 12 }}>
               Professional Tax
               <input type="number" value={manualMonthForm.professionalTax} onChange={(e) => setManualMonthForm({ ...manualMonthForm, professionalTax: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              PF
+              <input type="number" value={manualMonthForm.pf} onChange={(e) => setManualMonthForm({ ...manualMonthForm, pf: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
             <label style={{ fontSize: 12 }}>
               Income Tax (TDS)
@@ -1002,9 +1054,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               Other Deductions
               <input type="number" value={manualMonthForm.otherDeductions} onChange={(e) => setManualMonthForm({ ...manualMonthForm, otherDeductions: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
+            <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
+              Also apply to these months (comma-separated YYYY-MM, optional)
+              <input
+                value={manualMonthForm.copyToMonths}
+                onChange={(e) => setManualMonthForm({ ...manualMonthForm, copyToMonths: e.target.value })}
+                placeholder="2005-09, 2005-10, 2005-11"
+                className="india-tax-input"
+                style={{ display: "block", width: "100%" }}
+              />
+            </label>
           </div>
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-            <button onClick={() => setAddingManualMonth(false)}>Cancel</button>
+            <button onClick={() => { setAddingManualMonth(false); setEditingManualMonth(null); }}>Cancel</button>
             <button onClick={saveManualMonthForm} disabled={savingManualMonth || !/^\d{4}-\d{2}$/.test(manualMonthForm.month)}>
               {savingManualMonth ? "Saving…" : "Save"}
             </button>
