@@ -11,11 +11,21 @@ function uid() {
 }
 
 // India's financial year runs Apr-Mar, one year "behind" the Assessment Year an ITR is filed
-// under (income earned in FY 2013-14 is assessed/filed as AY 2014-15) -- kept as two separate
-// concepts/sections in this UI rather than one shared year selector, to avoid mislabeling.
+// under (income earned in FY 2013-14 is assessed/filed as AY 2014-15).
 function fyOf(dateIso: string): string {
   const [y, m] = dateIso.split("-").map(Number);
   return m >= 4 ? `${y}-${String(y + 1).slice(-2)}` : `${y - 1}-${String(y).slice(-2)}`;
+}
+// One selector drives both sections: picking a Financial Year (payroll) derives the matching
+// Assessment Year (the ITR filed on that year's income) instead of keeping two independent
+// year pickers that can point at unrelated years.
+function ayOfFy(fy: string): string {
+  const startYear = Number(fy.slice(0, 4));
+  return `${startYear + 1}-${String(startYear + 2).slice(-2)}`;
+}
+function fyOfAy(ay: string): string {
+  const startYear = Number(ay.slice(0, 4));
+  return `${startYear - 1}-${String(startYear).slice(-2)}`;
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -119,13 +129,18 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [importingItr, setImportingItr] = useState(false);
   const [itrImportErrors, setItrImportErrors] = useState<string[]>([]);
   const [itrImportProgress, setItrImportProgress] = useState<{ done: number; total: number } | null>(null);
-  const [selectedAy, setSelectedAy] = useState<string | null>(null);
   const [editingItrId, setEditingItrId] = useState<string | null>(null);
   const [itrForm, setItrForm] = useState(BLANK_ITR_FORM);
   const [savingItr, setSavingItr] = useState(false);
 
   const months = indiaTax?.payslips?.months ?? [];
-  const fyList = Array.from(new Set(months.map((m) => fyOf(m.date)))).sort();
+  const itrYears = (indiaTax?.itrYears ?? []).slice().sort((a, b) => b.assessmentYear.localeCompare(a.assessmentYear));
+  // A year with only an ITR on file (no payslip data) must still be reachable from this one
+  // selector -- union both sources rather than driving the list off payslip months alone.
+  const fyList = Array.from(new Set([
+    ...months.map((m) => fyOf(m.date)),
+    ...itrYears.map((y) => fyOfAy(y.assessmentYear)),
+  ])).sort();
   const activeFy = selectedFy ?? fyList[fyList.length - 1] ?? null;
   const fyMonths = months.filter((m) => fyOf(m.date) === activeFy).sort((a, b) => a.date.localeCompare(b.date));
   const latestInFy = fyMonths[fyMonths.length - 1];
@@ -135,8 +150,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const fyNet = fyMonths.reduce((s, m) => s + m.netPay, 0);
   const isReconstructedFy = fyMonths.length > 0 && fyMonths.every((m) => m.sourceFile === RECONSTRUCTED_SOURCE);
 
-  const itrYears = (indiaTax?.itrYears ?? []).slice().sort((a, b) => b.assessmentYear.localeCompare(a.assessmentYear));
-  const activeAy = selectedAy ?? itrYears[0]?.assessmentYear ?? null;
+  const activeAy = activeFy ? ayOfFy(activeFy) : (itrYears[0]?.assessmentYear ?? null);
   const activeItrYear = itrYears.find((y) => y.assessmentYear === activeAy);
   const itrTaxesPaid = activeItrYear
     ? activeItrYear.advanceTax + activeItrYear.tds + activeItrYear.tcs + activeItrYear.selfAssessmentTax
@@ -485,7 +499,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         const next = Array.from(byYear.values());
         try {
           await onSave({ payslips: indiaTax?.payslips, itrYears: next });
-          setSelectedAy(parsed[parsed.length - 1].assessmentYear);
+          setSelectedFy(fyOfAy(parsed[parsed.length - 1].assessmentYear));
         } catch (err: any) {
           errors.unshift(`Saving to vault failed: ${err?.message ?? "unknown error"} — ${parsed.length} file(s) parsed OK but were NOT saved. Try again.`);
         }
@@ -545,7 +559,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         ? [...existing, row]
         : existing.map((y) => (y.id === row.id ? row : y));
       await onSave({ payslips: indiaTax?.payslips, itrYears: next });
-      setSelectedAy(row.assessmentYear);
+      setSelectedFy(fyOfAy(row.assessmentYear));
       setEditingItrId(null);
     } finally {
       setSavingItr(false);
@@ -554,7 +568,6 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   async function deleteItr(id: string) {
     const next = (indiaTax?.itrYears ?? []).filter((y) => y.id !== id);
     await onSave({ payslips: indiaTax?.payslips, itrYears: next });
-    setSelectedAy(null);
   }
 
   const fySummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = latestInFy
@@ -570,32 +583,22 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       ]
     : [];
 
+  const noData = months.length === 0 && itrYears.length === 0;
+
   return (
     <div className="data-panel tax-report">
       <div className="equity-section-head">
-        <h4>Periodic Salary — India Payslips</h4>
+        <h4>India Payroll &amp; Tax {activeFy && `— FY ${activeFy}`}</h4>
       </div>
 
-      {months.length === 0 ? (
+      <input ref={payslipFileInputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={handlePayslipImport} />
+      <input ref={itrFileInputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={handleItrImport} />
+
+      {noData ? (
         <div className="equity-seed-banner">
-          <p className="equity-empty">No India payslips imported yet.</p>
-          <input
-            ref={payslipFileInputRef}
-            type="file"
-            accept=".pdf"
-            multiple
-            style={{ display: "none" }}
-            onChange={handlePayslipImport}
-          />
+          <p className="equity-empty">No India payslips or tax returns yet.</p>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
-            <input
-              type="password"
-              placeholder="Payslip PDF password"
-              value={payslipPassword}
-              onChange={(e) => setPayslipPassword(e.target.value)}
-              className="india-tax-input"
-              style={{ maxWidth: 220 }}
-            />
+            <input type="password" placeholder="Payslip PDF password" value={payslipPassword} onChange={(e) => setPayslipPassword(e.target.value)} className="india-tax-input" style={{ maxWidth: 200 }} />
             <button
               className="equity-seed-btn"
               onClick={() => payslipFileInputRef.current?.click()}
@@ -604,236 +607,167 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             >
               {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
             </button>
-            <button className="equity-seed-btn" onClick={openAddReconstructed}>
-              ✏️ Add Reconstructed Year
-            </button>
-            <button className="equity-seed-btn" onClick={openBulkAddReconstructed}>
-              📋 Bulk Add Reconstructed Years
-            </button>
-            <button className="equity-seed-btn" onClick={openBulkAddMonths}>
-              📆 Bulk Add Months (from ledger)
-            </button>
-            <button className="equity-seed-btn" onClick={openAddManualMonth}>
-              📝 Add Real Month (Manual)
-            </button>
+            <button className="equity-seed-btn" onClick={openAddItr}>+ Add ITR Year</button>
           </div>
-          <p className="equity-seed-note">
-            Select one or more TCS-style payslip PDFs — decrypted locally in your browser with the password above,
-            never uploaded anywhere. Reads Basic, HRA, PF, Professional Tax, Income Tax, Net Pay, and the
-            &quot;Projected Annual Tax Information&quot; box (80C, 80D, Total Tax Payable, Tax Deducted, Balance Tax).
-            For years with no surviving payslip PDF, use &quot;Add Reconstructed Year&quot; to enter one annual
-            figure (from an ITR, say) instead — clearly labeled as reconstructed, not a real payslip.
-          </p>
         </div>
       ) : (
         <>
           <div className="equity-grant-filter">
-            <span className="equity-grant-filter-label">FY:</span>
-            {fyList.map((fy) => (
-              <button
-                key={fy}
-                className={`equity-grant-filter-chip${activeFy === fy ? " equity-grant-filter-chip--active" : ""}`}
-                onClick={() => setSelectedFy(fy)}
-              >
-                {fy}
-              </button>
-            ))}
-            {isReconstructedFy && (
-              <button onClick={() => activeFy && deleteReconstructedFy(activeFy)} title="Delete this reconstructed entry">
-                🗑 Delete Reconstructed
-              </button>
-            )}
-            {activeFy && fyMonths.length > 0 && (
-              <button onClick={() => activeFy && clearFy(activeFy)} title="Delete every entry for this FY, regardless of source — for recovering from duplicate/corrupted data">
-                🗑 Clear FY {activeFy}
-              </button>
-            )}
-            <input
-              ref={payslipFileInputRef}
-              type="file"
-              accept=".pdf"
-              multiple
-              style={{ display: "none" }}
-              onChange={handlePayslipImport}
-            />
-            <button onClick={openAddReconstructed} style={{ marginLeft: "auto" }}>
-              ✏️ Add Reconstructed Year
-            </button>
-            <button onClick={openBulkAddReconstructed}>
-              📋 Bulk Add Reconstructed Years
-            </button>
-            <button onClick={openBulkAddMonths}>
-              📆 Bulk Add Months (from ledger)
-            </button>
-            <button onClick={openAddManualMonth}>
-              📝 Add Real Month (Manual)
-            </button>
-            <input
-              type="password"
-              placeholder="Payslip PDF password"
-              value={payslipPassword}
-              onChange={(e) => setPayslipPassword(e.target.value)}
-              className="india-tax-input"
-              style={{ maxWidth: 180 }}
-            />
+            <span className="equity-grant-filter-label">Financial Year:</span>
+            <select value={activeFy ?? ""} onChange={(e) => setSelectedFy(e.target.value)} className="india-tax-input" style={{ fontWeight: 600 }}>
+              {fyList.map((fy) => (
+                <option key={fy} value={fy}>{fy} (AY {ayOfFy(fy)})</option>
+              ))}
+            </select>
+            <input type="password" placeholder="Payslip password" value={payslipPassword} onChange={(e) => setPayslipPassword(e.target.value)} className="india-tax-input" style={{ maxWidth: 150 }} />
             <button
               onClick={() => payslipFileInputRef.current?.click()}
               disabled={importingPayslips || !payslipPassword.trim()}
               title={!payslipPassword.trim() ? "Enter the payslip PDF password first" : undefined}
             >
-              {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "↻ Import more payslips"}
+              {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
             </button>
+            <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
+              {activeItrYear ? (
+                <>
+                  <button onClick={() => openEditItr(activeItrYear)}>Edit ITR</button>
+                  <button onClick={() => deleteItr(activeItrYear.id)}>Delete ITR</button>
+                </>
+              ) : (
+                <button onClick={openAddItr}>+ Add ITR for AY {activeAy}</button>
+              )}
+            </span>
           </div>
 
-          <div className="equity-summary-row">
-            {fySummaryCards.map((c) => (
-              <div key={c.label} className="equity-summary-col">
-                <div className="equity-summary-card">
-                  {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
-                  <div className="equity-summary-card-body">
-                    <span>{c.label}</span>
-                    <strong className="equity-amt">{fmt(c.value)}</strong>
-                    <em>{c.sub}</em>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <table className="equity-table equity-drilldown-table">
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th className="right">Basic</th>
-                <th className="right">HRA</th>
-                <th className="right" title="Conveyance + all other allowances (Performance Pay, LTA, Personal Allowance, etc.), lumped together">Other Allowances</th>
-                <th className="right">Gross</th>
-                <th className="right">PF</th>
-                <th className="right">Prof. Tax</th>
-                <th className="right">Income Tax</th>
-                <th className="right">Net Pay</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fyMonths.map((m) => (
-                <tr key={m.date}>
-                  <td>{m.label}</td>
-                  <td className="right">{fmt(m.basic)}</td>
-                  <td className="right">{fmt(m.hra)}</td>
-                  <td className="right">{fmt(m.conveyance + m.otherAllowances)}</td>
-                  <td className="right">{fmt(m.grossEarnings)}</td>
-                  <td className="right">{fmt(m.pf)}</td>
-                  <td className="right">{fmt(m.professionalTax)}</td>
-                  <td className="right">{fmt(m.incomeTax)}</td>
-                  <td className="right">{fmt(m.netPay)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>Total</td>
-                <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.basic, 0))}</td>
-                <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.hra, 0))}</td>
-                <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.conveyance + m.otherAllowances, 0))}</td>
-                <td className="right">{fmt(fyGross)}</td>
-                <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.pf, 0))}</td>
-                <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.professionalTax, 0))}</td>
-                <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.incomeTax, 0))}</td>
-                <td className="right">{fmt(fyNet)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </>
-      )}
-
-      {payslipImportErrors.length > 0 && (
-        <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>
-          {payslipImportErrors.length} file(s) failed: {payslipImportErrors.join("; ")}
-        </p>
-      )}
-
-      <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
-        <h4>Annual Tax Return Archive (by Assessment Year)</h4>
-      </div>
-
-      <div className="equity-grant-filter" style={{ flexWrap: "nowrap", overflowX: "auto" }}>
-        {itrYears.length > 0 && (
-          <>
-            <span className="equity-grant-filter-label" style={{ flexShrink: 0 }}>AY:</span>
-            <select
-              value={activeAy ?? ""}
-              onChange={(e) => setSelectedAy(e.target.value)}
-              className="india-tax-input"
-              style={{ flexShrink: 0, fontWeight: 600 }}
-            >
-              {itrYears.map((y) => (
-                <option key={y.id} value={y.assessmentYear}>{y.assessmentYear}</option>
-              ))}
-            </select>
-            {activeItrYear && (
-              <span style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
-                <button onClick={() => openEditItr(activeItrYear)}>Edit</button>
-                <button onClick={() => deleteItr(activeItrYear.id)}>Delete</button>
-              </span>
-            )}
-          </>
-        )}
-        <input
-          ref={itrFileInputRef}
-          type="file"
-          accept=".pdf"
-          multiple
-          style={{ display: "none" }}
-          onChange={handleItrImport}
-        />
-        <input
-          type="password"
-          placeholder="ITR password"
-          title="ITR PDF password (older years only)"
-          value={itrPassword}
-          onChange={(e) => setItrPassword(e.target.value)}
-          className="india-tax-input"
-          style={{ width: 110, flexShrink: 0, marginLeft: "auto" }}
-        />
-        <button onClick={() => itrFileInputRef.current?.click()} disabled={importingItr} style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
-          {importingItr ? `Importing… ${itrImportProgress ? `${itrImportProgress.done}/${itrImportProgress.total}` : ""}` : "📄 Import ITR PDFs"}
-        </button>
-        <button onClick={openAddItr} style={{ flexShrink: 0, whiteSpace: "nowrap" }}>+ Add Year</button>
-      </div>
-      <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
-        Select one or more ITR-V / Acknowledgement / Receipt PDFs — most recent downloads aren&apos;t
-        password-protected, older ones (pre-~2016) usually need PAN + DOB. Re-importing a file for a year
-        already on record replaces it. Use &quot;+ Add Year&quot; only for a year the auto-import can&apos;t read.
-      </p>
-
-      {itrImportErrors.length > 0 && (
-        <p className="equity-pdf-error" style={{ marginBottom: "0.5rem" }}>
-          {itrImportErrors.length} file(s) failed: {itrImportErrors.join("; ")}
-        </p>
-      )}
-
-      {itrYears.length === 0 ? (
-        <p className="equity-empty">No tax years recorded yet.</p>
-      ) : (
-        <>
-          <div className="equity-summary-row">
-            {itrSummaryCards.map((c) => (
-              <div key={c.label} className="equity-summary-col">
-                <div className="equity-summary-card">
-                  {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
-                  <div className="equity-summary-card-body">
-                    <span>{c.label}</span>
-                    <strong className="equity-amt">{fmt(c.value)}</strong>
-                    <em>{c.sub}</em>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          {activeItrYear?.notes && (
+          <details style={{ margin: "0 0 0.75rem" }}>
+            <summary style={{ fontSize: 12, opacity: 0.7, cursor: "pointer", listStyle: "none" }}>
+              ⚙️ Data entry tools (bulk-add, reconstruction, PDF re-import) →
+            </summary>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+              <button onClick={openAddReconstructed}>✏️ Add Reconstructed Year</button>
+              <button onClick={openBulkAddReconstructed}>📋 Bulk Add Reconstructed Years</button>
+              <button onClick={openBulkAddMonths}>📆 Bulk Add Months (from ledger)</button>
+              <button onClick={openAddManualMonth}>📝 Add Real Month (Manual)</button>
+              {isReconstructedFy && (
+                <button onClick={() => activeFy && deleteReconstructedFy(activeFy)} title="Delete this reconstructed entry">
+                  🗑 Delete Reconstructed
+                </button>
+              )}
+              {activeFy && fyMonths.length > 0 && (
+                <button onClick={() => activeFy && clearFy(activeFy)} title="Delete every entry for this FY, regardless of source — for recovering from duplicate/corrupted data">
+                  🗑 Clear FY {activeFy}
+                </button>
+              )}
+              <input type="password" placeholder="ITR password" title="ITR PDF password (older years only)" value={itrPassword} onChange={(e) => setItrPassword(e.target.value)} className="india-tax-input" style={{ width: 110 }} />
+              <button onClick={() => itrFileInputRef.current?.click()} disabled={importingItr}>
+                {importingItr ? `Importing… ${itrImportProgress ? `${itrImportProgress.done}/${itrImportProgress.total}` : ""}` : "📄 Import ITR PDFs"}
+              </button>
+            </div>
             <p className="equity-seed-note" style={{ margin: "0.5rem 0 0" }}>
-              Notes: {activeItrYear.notes}
+              Bulk tools read Basic, HRA, PF, Professional Tax, Income Tax, Net Pay from real payslips or reconstruct
+              from a ledger/ITR total. ITR PDFs: most recent downloads aren&apos;t password-protected, older ones
+              (pre-~2016) usually need PAN + DOB. Re-importing a file for a year already on record replaces it.
             </p>
+          </details>
+
+          {(payslipImportErrors.length > 0 || itrImportErrors.length > 0) && (
+            <p className="equity-pdf-error" style={{ marginBottom: "0.5rem" }}>
+              {[...payslipImportErrors, ...itrImportErrors].join("; ")}
+            </p>
+          )}
+
+          {fyMonths.length > 0 ? (
+            <>
+              <div className="equity-summary-row">
+                {fySummaryCards.map((c) => (
+                  <div key={c.label} className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+                      <div className="equity-summary-card-body">
+                        <span>{c.label}</span>
+                        <strong className="equity-amt">{fmt(c.value)}</strong>
+                        <em>{c.sub}</em>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <table className="equity-table equity-drilldown-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th className="right">Basic</th>
+                    <th className="right">HRA</th>
+                    <th className="right" title="Conveyance + all other allowances (Performance Pay, LTA, Personal Allowance, etc.), lumped together">Other Allowances</th>
+                    <th className="right">Gross</th>
+                    <th className="right">PF</th>
+                    <th className="right">Prof. Tax</th>
+                    <th className="right">Income Tax</th>
+                    <th className="right">Net Pay</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fyMonths.map((m) => (
+                    <tr key={m.date}>
+                      <td>{m.label}</td>
+                      <td className="right">{fmt(m.basic)}</td>
+                      <td className="right">{fmt(m.hra)}</td>
+                      <td className="right">{fmt(m.conveyance + m.otherAllowances)}</td>
+                      <td className="right">{fmt(m.grossEarnings)}</td>
+                      <td className="right">{fmt(m.pf)}</td>
+                      <td className="right">{fmt(m.professionalTax)}</td>
+                      <td className="right">{fmt(m.incomeTax)}</td>
+                      <td className="right">{fmt(m.netPay)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>Total</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.basic, 0))}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.hra, 0))}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.conveyance + m.otherAllowances, 0))}</td>
+                    <td className="right">{fmt(fyGross)}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.pf, 0))}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.professionalTax, 0))}</td>
+                    <td className="right">{fmt(fyMonths.reduce((s, m) => s + m.incomeTax, 0))}</td>
+                    <td className="right">{fmt(fyNet)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </>
+          ) : (
+            <p className="equity-empty">No payslip data for FY {activeFy}.</p>
+          )}
+
+          <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
+            <h4>Income Tax Return — AY {activeAy}</h4>
+          </div>
+          {activeItrYear ? (
+            <>
+              <div className="equity-summary-row">
+                {itrSummaryCards.map((c) => (
+                  <div key={c.label} className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+                      <div className="equity-summary-card-body">
+                        <span>{c.label}</span>
+                        <strong className="equity-amt">{fmt(c.value)}</strong>
+                        <em>{c.sub}</em>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {activeItrYear.notes && (
+                <p className="equity-seed-note" style={{ margin: "0.5rem 0 0" }}>
+                  Notes: {activeItrYear.notes}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="equity-empty">No ITR on file for AY {activeAy}.</p>
           )}
         </>
       )}
