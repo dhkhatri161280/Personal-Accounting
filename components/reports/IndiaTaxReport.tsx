@@ -87,7 +87,6 @@ const BLANK_ITR_FORM = {
   assessmentYear: "",
   grossTotalIncome: "",
   deductionsChapterVIA: "",
-  totalIncome: "",
   taxPayable: "",
   advanceTax: "",
   tds: "",
@@ -166,6 +165,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const fyHraTotal = fyMonths.reduce((s, m) => s + m.hra, 0);
   const fyProfTaxTotal = fyMonths.reduce((s, m) => s + m.professionalTax, 0);
   const fyIncomeTaxTotal = fyMonths.reduce((s, m) => s + m.incomeTax, 0);
+  const fyPfTotal = fyMonths.reduce((s, m) => s + m.pf, 0);
   const isReconstructedFy = fyMonths.length > 0 && fyMonths.every((m) => m.sourceFile === RECONSTRUCTED_SOURCE);
 
   const activeAy = activeFy ? ayOfFy(activeFy) : (itrYears[0]?.assessmentYear ?? null);
@@ -193,6 +193,14 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     : null;
   const section80CTotal = (activeItrYear?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
   const section80DTotal = activeItrYear?.section80DMedical ?? 0;
+  // If the itemized 80C/80D table has never been touched for this year (e.g. deductionsChapterVIA
+  // was set directly, from a real filed ITR entered before this itemized-table feature existed),
+  // fall back to that lump figure for display rather than showing 0 while the ITR section right
+  // below shows the real total -- saveItrForm reconciles this into real itemized data the next
+  // time the ITR form saves, so this fallback is purely cosmetic, never persisted.
+  const section80DisplayTotal = section80CTotal + section80DTotal !== 0
+    ? section80CTotal + section80DTotal
+    : (activeItrYear?.deductionsChapterVIA ?? 0);
   // Estimated Gross Total Income before the reconciliation form has ever been saved for this FY
   // -- same formula (Gross Salary - HRA exempt - Professional Tax + capital gains), defaulting
   // HRA exempt to the full HRA paid, so the card has a sensible value from day one instead of
@@ -617,7 +625,29 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   // its own claimed line item (not one lump guess) -- matching how the ITR itself is filed.
   function open80cForm() {
     const items = activeItrYear?.section80CItems ?? [];
-    setSection80Items(items.length > 0 ? items.map((it) => ({ description: it.description, amount: String(it.amount) })) : [{ description: "", amount: "" }]);
+    const PF_LABEL = "Provident Fund (PF)";
+    let rows: { description: string; amount: string }[];
+    if (items.length > 0) {
+      // Real itemized data already on file -- respected as-is. Can't safely tell whether an
+      // existing lump-style line already has PF baked into it, so no auto-injection here (that
+      // would risk double-counting); the fresh-year case below is where PF gets pre-filled.
+      rows = items.map((it) => ({ description: it.description, amount: String(it.amount) }));
+    } else {
+      const lumpTotal = Math.max(0, (activeItrYear?.deductionsChapterVIA ?? 0) - (activeItrYear?.section80DMedical ?? 0));
+      rows = [];
+      if (lumpTotal > 0) {
+        // Predates the itemized-table feature -- PF is part of that lump, not additional on top
+        // of it, so break it out instead of seeding both and inflating the total.
+        const remainder = Math.max(0, lumpTotal - fyPfTotal);
+        if (fyPfTotal > 0) rows.push({ description: PF_LABEL, amount: String(fyPfTotal) });
+        if (remainder > 0) rows.push({ description: "From ITR (remaining, not yet itemized)", amount: String(remainder) });
+      } else if (fyPfTotal > 0) {
+        // A brand-new year with no lump figure at all -- PF is a default 80C deduction straight
+        // from this FY's payroll PF column, pre-filled here (still editable) instead of blank.
+        rows.push({ description: PF_LABEL, amount: String(fyPfTotal) });
+      }
+    }
+    setSection80Items(rows.length > 0 ? rows : [{ description: "", amount: "" }]);
     setSection80DForm(activeItrYear?.section80DMedical != null ? String(activeItrYear.section80DMedical) : "");
     setAddingSection80(true);
   }
@@ -754,7 +784,6 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       assessmentYear: y.assessmentYear,
       grossTotalIncome: String(y.grossTotalIncome),
       deductionsChapterVIA: String(y.deductionsChapterVIA),
-      totalIncome: String(y.totalIncome),
       taxPayable: String(y.taxPayable),
       advanceTax: String(y.advanceTax),
       tds: String(y.tds),
@@ -770,12 +799,34 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     setSavingItr(true);
     try {
       const n = (s: string) => Number(s) || 0;
+      const existing = indiaTax?.itrYears ?? [];
+      const existingRow = editingItrId !== "new" ? existing.find((y) => y.id === editingItrId) : undefined;
+      const enteredDeductions = n(itrForm.deductionsChapterVIA);
+      const existingSection80D = existingRow?.section80DMedical ?? 0;
+      const existingItemsSum = (existingRow?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
+      // Keep the itemized 80C table in sync with this lump field in BOTH directions -- if what's
+      // typed here doesn't match what the itemized breakdown currently sums to, the user just
+      // changed this field directly (or it predates the itemized-table feature entirely), so
+      // fold the difference into one reconciling line rather than let the "80C + 80D" card and
+      // this field silently show two different numbers.
+      const section80CItems = enteredDeductions === existingItemsSum + existingSection80D
+        ? existingRow?.section80CItems
+        : (enteredDeductions - existingSection80D !== 0
+            ? [{ description: "Adjustment (entered directly on ITR form)", amount: enteredDeductions - existingSection80D }]
+            : []);
       const row: IndiaItrYear = {
+        // Preserve everything the itemized-80C/GTI-reconciliation/capital-gains tools have
+        // saved onto this row -- this form only ever touches the fields below, so it must never
+        // silently drop the rest.
+        ...existingRow,
         id: editingItrId === "new" ? uid() : editingItrId!,
         assessmentYear: itrForm.assessmentYear.trim(),
         grossTotalIncome: n(itrForm.grossTotalIncome),
-        deductionsChapterVIA: n(itrForm.deductionsChapterVIA),
-        totalIncome: n(itrForm.totalIncome),
+        deductionsChapterVIA: enteredDeductions,
+        // Pure arithmetic (Gross Total Income - Ch VI-A Deductions) -- same reasoning as
+        // Refund/Demand below: a separately-typed value here can only drift out of sync
+        // whenever either of those two fields changes.
+        totalIncome: n(itrForm.grossTotalIncome) - enteredDeductions,
         taxPayable: n(itrForm.taxPayable),
         advanceTax: n(itrForm.advanceTax),
         tds: n(itrForm.tds),
@@ -786,8 +837,8 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         refundOrDemand: n(itrForm.advanceTax) + n(itrForm.tds) + n(itrForm.tcs) + n(itrForm.selfAssessmentTax) - n(itrForm.taxPayable),
         filingDate: itrForm.filingDate || undefined,
         notes: itrForm.notes || undefined,
+        section80CItems,
       };
-      const existing = indiaTax?.itrYears ?? [];
       const next = editingItrId === "new"
         ? [...existing, row]
         : existing.map((y) => (y.id === row.id ? row : y));
@@ -818,7 +869,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
           onClick: openGtiForm,
         },
         {
-          label: "80C + 80D", value: section80CTotal + section80DTotal,
+          label: "80C + 80D", value: section80DisplayTotal,
           sub: `AY ${activeAy} — from ITR itemized deductions, click to edit →`, icon: "shield", color: "#7c3aed",
           onClick: open80cForm,
         },
@@ -1048,15 +1099,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               Deductions (Chapter VI-A)
               <input type="number" value={itrForm.deductionsChapterVIA} onChange={(e) => setItrForm({ ...itrForm, deductionsChapterVIA: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
             </label>
-            <label style={{ fontSize: 12 }}>
-              Total Income
-              <input type="number" value={itrForm.totalIncome} onChange={(e) => setItrForm({ ...itrForm, totalIncome: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
-            </label>
+            <div style={{ fontSize: 12 }}>
+              Total Income — computed, not entered
+              <div className="india-tax-input" style={{ display: "block", width: "100%", background: "#f8fafc" }}>
+                {fmt((Number(itrForm.grossTotalIncome) || 0) - (Number(itrForm.deductionsChapterVIA) || 0))}
+                {" "}= Gross Total Income − Deductions
+              </div>
+            </div>
             <label style={{ fontSize: 12 }}>
               Tax Payable
               <input type="number" value={itrForm.taxPayable} onChange={(e) => setItrForm({ ...itrForm, taxPayable: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
               {hasIndiaTaxSlabsFor(itrForm.assessmentYear.trim()) && (() => {
-                const est = estimateIndiaTax(itrForm.assessmentYear.trim(), Number(itrForm.totalIncome) || 0);
+                const formTotalIncome = (Number(itrForm.grossTotalIncome) || 0) - (Number(itrForm.deductionsChapterVIA) || 0);
+                const est = estimateIndiaTax(itrForm.assessmentYear.trim(), formTotalIncome);
                 return est != null ? (
                   <span style={{ display: "block", marginTop: 2, fontWeight: 400 }}>
                     Slab estimate: {fmt(est)}{" "}
