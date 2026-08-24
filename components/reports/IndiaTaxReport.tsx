@@ -133,7 +133,12 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [section80DForm, setSection80DForm] = useState("");
   const [reconcilingGti, setReconcilingGti] = useState(false);
   const [savingGti, setSavingGti] = useState(false);
+  const [gtiGrossSalary, setGtiGrossSalary] = useState("");
   const [gtiHraExempt, setGtiHraExempt] = useState("");
+  const [gtiProfTax, setGtiProfTax] = useState("");
+  const [gtiStcg, setGtiStcg] = useState("");
+  const [gtiLtcg, setGtiLtcg] = useState("");
+  const [deletingManualMonth, setDeletingManualMonth] = useState(false);
 
   const [itrPassword, setItrPassword] = useState("");
   const [importingItr, setImportingItr] = useState(false);
@@ -175,23 +180,32 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   // payable) -- no tax-law judgment involved, so it's always computed here rather than trusted
   // as a separately-typed field that can silently drift out of sync with the other two.
   const itrRefundOrDemand = activeItrYear ? itrTaxesPaid - activeItrYear.taxPayable : 0;
+  // Capital gains are taxed at special flat rates (STCG under 111A, LTCG under 112/112A), not
+  // the individual's slab rate -- the slab estimator below only models ordinary/salary-rate
+  // taxation, so a year with capital gains on file gets no estimate at all rather than a
+  // confidently wrong one that silently taxed the gain at the slab rate.
+  const hasCapitalGains = !!(activeItrYear?.capitalGains && (activeItrYear.capitalGains.shortTerm !== 0 || activeItrYear.capitalGains.longTerm !== 0));
   // Tax Payable itself IS a real filed/legal figure (kept as entered, not overwritten) -- but a
   // slab-based estimate is still useful as a cross-check, and to pre-fill when adding a year by
   // hand. Only offered for Assessment Years whose slabs are actually modeled.
-  const estimatedTaxPayable = activeItrYear && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
+  const estimatedTaxPayable = activeItrYear && !hasCapitalGains && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
     ? estimateIndiaTax(activeItrYear.assessmentYear, activeItrYear.totalIncome)
     : null;
   const section80CTotal = (activeItrYear?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
   const section80DTotal = activeItrYear?.section80DMedical ?? 0;
   // Estimated Gross Total Income before the reconciliation form has ever been saved for this FY
-  // -- same formula (Gross Salary - HRA exempt - Professional Tax), defaulting HRA exempt to the
-  // full HRA paid, so the card has a sensible value from day one instead of showing 0.
-  const estimatedGti = Math.max(0, fyGross - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - fyProfTaxTotal);
+  // -- same formula (Gross Salary - HRA exempt - Professional Tax + capital gains), defaulting
+  // HRA exempt to the full HRA paid, so the card has a sensible value from day one instead of
+  // showing 0.
+  const estimatedGti = Math.max(0,
+    (activeItrYear?.grossSalaryOverride ?? fyGross) - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - (activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal)
+  ) + (activeItrYear?.capitalGains?.shortTerm ?? 0) + (activeItrYear?.capitalGains?.longTerm ?? 0);
 
   const itrSummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string; onClick?: () => void }[] = activeItrYear
     ? [
         {
-          label: "Gross Total Income", value: activeItrYear.grossTotalIncome, sub: `AY ${activeItrYear.assessmentYear} — Gross − HRA exempt − Prof. Tax, click to recompute →`,
+          label: "Gross Total Income", value: activeItrYear.grossTotalIncome,
+          sub: `AY ${activeItrYear.assessmentYear} — Gross − HRA exempt − Prof. Tax${hasCapitalGains ? " + capital gains" : ""}, click to recompute →`,
           icon: "cash", color: "#1e40af", onClick: openGtiForm,
         },
         {
@@ -201,11 +215,13 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         { label: "Total Income", value: activeItrYear.totalIncome, sub: "taxable income", icon: "receipt", color: "#0891b2" },
         {
           label: "Tax Payable", value: activeItrYear.taxPayable,
-          sub: estimatedTaxPayable == null
-            ? `${itrEffectiveRate.toFixed(1)}% effective rate`
-            : Math.abs(estimatedTaxPayable - activeItrYear.taxPayable) <= 10
-              ? `${itrEffectiveRate.toFixed(1)}% effective rate — matches slab estimate`
-              : `${itrEffectiveRate.toFixed(1)}% effective rate — slab estimate: ${fmt(estimatedTaxPayable)}`,
+          sub: hasCapitalGains
+            ? `${itrEffectiveRate.toFixed(1)}% effective rate — no slab estimate (capital gains taxed at special rates)`
+            : estimatedTaxPayable == null
+              ? `${itrEffectiveRate.toFixed(1)}% effective rate`
+              : Math.abs(estimatedTaxPayable - activeItrYear.taxPayable) <= 10
+                ? `${itrEffectiveRate.toFixed(1)}% effective rate — matches slab estimate`
+                : `${itrEffectiveRate.toFixed(1)}% effective rate — slab estimate: ${fmt(estimatedTaxPayable)}`,
           icon: "scale", color: "#dc2626",
         },
         { label: "TDS", value: activeItrYear.tds, sub: "tax deducted at source", icon: "bank", color: "#d97706" },
@@ -469,6 +485,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   function openAddManualMonth() {
     setManualMonthForm(BLANK_MANUAL_MONTH_FORM);
     setEditingManualMonth(null);
+    setDeletingManualMonth(false);
     setAddingManualMonth(true);
   }
   function openEditManualMonth(m: IndiaPayslipMonth) {
@@ -485,6 +502,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       copyToMonths: "",
     });
     setEditingManualMonth(m);
+    setDeletingManualMonth(false);
     setAddingManualMonth(true);
   }
   function buildManualMonthRow(ym: string, form: typeof BLANK_MANUAL_MONTH_FORM, sourceFile: string): IndiaPayslipMonth {
@@ -546,6 +564,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       setSelectedFy(fyOf(newRows[0].date));
       setAddingManualMonth(false);
       setEditingManualMonth(null);
+    } finally {
+      setSavingManualMonth(false);
+    }
+  }
+  async function deleteManualMonth() {
+    if (!editingManualMonth) return;
+    setSavingManualMonth(true);
+    try {
+      const next = months.filter((m) => m.date !== editingManualMonth.date);
+      await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+      setAddingManualMonth(false);
+      setEditingManualMonth(null);
+      setDeletingManualMonth(false);
     } finally {
       setSavingManualMonth(false);
     }
@@ -613,22 +644,37 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   }
 
   // Payroll's Gross Salary isn't the ITR's Gross Total Income -- HRA that qualifies as exempt
-  // and Professional Tax both come off first. Pre-fills HRA exempt with the full HRA paid (the
-  // common case for lower-rent years) but stays editable since the real Section 10(13A)
-  // exemption can be less than that.
+  // and Professional Tax both come off first. Every figure here is editable and overridable
+  // (not just HRA exempt) -- the auto-summed payroll totals are only a starting point, since the
+  // payroll table can be incomplete or mid-correction and the reconciliation shouldn't be
+  // blocked on it being perfectly clean first.
   function openGtiForm() {
+    setGtiGrossSalary(String(activeItrYear?.grossSalaryOverride ?? fyGross));
     setGtiHraExempt(String(activeItrYear?.hraExemptOverride ?? fyHraTotal));
+    setGtiProfTax(String(activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal));
+    setGtiStcg(activeItrYear?.capitalGains ? String(activeItrYear.capitalGains.shortTerm) : "");
+    setGtiLtcg(activeItrYear?.capitalGains ? String(activeItrYear.capitalGains.longTerm) : "");
     setReconcilingGti(true);
   }
   async function saveGtiForm() {
     if (!activeAy) return;
     setSavingGti(true);
     try {
+      const grossSalary = Number(gtiGrossSalary) || 0;
       const hraExempt = Number(gtiHraExempt) || 0;
-      const grossTotalIncome = Math.max(0, fyGross - hraExempt - fyProfTaxTotal);
+      const profTax = Number(gtiProfTax) || 0;
+      const shortTerm = Number(gtiStcg) || 0;
+      const longTerm = Number(gtiLtcg) || 0;
+      // Capital gains can be negative (a loss) -- unlike the salary side, Gross Total Income
+      // isn't floored at 0 here, since a genuine capital loss should be able to bring it down.
+      const salaryIncome = Math.max(0, grossSalary - hraExempt - profTax);
+      const grossTotalIncome = salaryIncome + shortTerm + longTerm;
       const deductionsChapterVIA = activeItrYear?.deductionsChapterVIA ?? 0;
       await saveItrPatch({
+        grossSalaryOverride: grossSalary,
         hraExemptOverride: hraExempt,
+        professionalTaxOverride: profTax,
+        capitalGains: shortTerm || longTerm ? { shortTerm, longTerm } : undefined,
         grossTotalIncome,
         totalIncome: grossTotalIncome - deductionsChapterVIA,
       });
@@ -1236,11 +1282,30 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               />
             </label>
           </div>
-          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-            <button onClick={() => { setAddingManualMonth(false); setEditingManualMonth(null); }}>Cancel</button>
-            <button onClick={saveManualMonthForm} disabled={savingManualMonth || !/^\d{4}-\d{2}$/.test(manualMonthForm.month)}>
-              {savingManualMonth ? "Saving…" : "Save"}
-            </button>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+            <div>
+              {editingManualMonth && (
+                deletingManualMonth ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: 12 }}>
+                    Delete this month for good?
+                    <button onClick={deleteManualMonth} disabled={savingManualMonth} style={{ color: "#dc2626" }}>
+                      {savingManualMonth ? "Deleting…" : "Yes, delete"}
+                    </button>
+                    <button onClick={() => setDeletingManualMonth(false)}>Cancel</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setDeletingManualMonth(true)} title="Delete this month's row entirely">
+                    🗑 Delete this month
+                  </button>
+                )
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button onClick={() => { setAddingManualMonth(false); setEditingManualMonth(null); setDeletingManualMonth(false); }}>Cancel</button>
+              <button onClick={saveManualMonthForm} disabled={savingManualMonth || !/^\d{4}-\d{2}$/.test(manualMonthForm.month)}>
+                {savingManualMonth ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </Modal>
       )}
@@ -1320,23 +1385,29 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       {reconcilingGti && (
         <Modal title={`Gross Total Income — FY ${activeFy} → AY ${activeAy}`} onClose={() => setReconcilingGti(false)}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
-            Gross Total Income (ITR) = Gross Salary − HRA exempt (Section 10(13A)) − Professional Tax. Gross Salary
-            and Professional Tax come straight from this FY&apos;s payslip totals below; HRA exempt defaults to the
-            full HRA paid but is editable if the real exemption (least of HRA received / rent paid − 10% of basic /
-            50-40% of basic) is lower. Saving writes the result to this AY&apos;s ITR Gross Total Income.
+            Gross Total Income (ITR) = Gross Salary − HRA exempt (Section 10(13A)) − Professional Tax + Capital
+            Gains. Every figure below is editable — Gross Salary and Professional Tax default to this FY&apos;s
+            payslip totals but can be overridden if the payroll table is incomplete or doesn&apos;t match what was
+            actually filed. Capital gains (or a loss, entered negative) are taxed at special rates, not your slab
+            rate — the Tax Payable slab estimate is suppressed for a year with gains on file rather than silently
+            mis-taxing them. Saving writes the result to this AY&apos;s ITR Gross Total Income.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 6, fontSize: 13, alignItems: "center" }}>
-            <span>Gross Salary (FY {activeFy})</span>
-            <strong>{fmt(fyGross)}</strong>
-            <span>HRA paid (for reference)</span>
+            <label>Gross Salary</label>
+            <input type="number" value={gtiGrossSalary} onChange={(e) => setGtiGrossSalary(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} />
+            <span>HRA paid, FY {activeFy} (for reference)</span>
             <strong>{fmt(fyHraTotal)}</strong>
             <label>HRA exempt</label>
             <input type="number" value={gtiHraExempt} onChange={(e) => setGtiHraExempt(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} />
-            <span>Professional Tax</span>
-            <strong>{fmt(fyProfTaxTotal)}</strong>
+            <label>Professional Tax</label>
+            <input type="number" value={gtiProfTax} onChange={(e) => setGtiProfTax(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} />
+            <label>Short-Term Capital Gain (Loss)</label>
+            <input type="number" value={gtiStcg} onChange={(e) => setGtiStcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
+            <label>Long-Term Capital Gain (Loss)</label>
+            <input type="number" value={gtiLtcg} onChange={(e) => setGtiLtcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <span style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>Gross Total Income</span>
             <strong style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
-              {fmt(Math.max(0, fyGross - (Number(gtiHraExempt) || 0) - fyProfTaxTotal))}
+              {fmt(Math.max(0, (Number(gtiGrossSalary) || 0) - (Number(gtiHraExempt) || 0) - (Number(gtiProfTax) || 0)) + (Number(gtiStcg) || 0) + (Number(gtiLtcg) || 0))}
             </strong>
           </div>
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>

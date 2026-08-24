@@ -203,6 +203,18 @@ export type IndiaItrYear = {
   // real exemption (least of HRA received / rent paid - 10% of basic / 50%-40% of basic) can be
   // less than that.
   hraExemptOverride?: number;
+  // Short/long-term capital gain (or loss, entered negative) rolled into Gross Total Income
+  // alongside salary income. Taxed at special flat rates (STCG under 111A, LTCG under 112/112A),
+  // not the individual's slab rate -- kept separate from salary income so the slab-based Tax
+  // Payable estimate can tell when it isn't applicable, rather than silently taxing gains at the
+  // wrong rate.
+  capitalGains?: { shortTerm: number; longTerm: number };
+  // Gross Salary and Professional Tax normally come straight from summing this FY's payslip
+  // rows, but both are editable overrides -- the payroll data can be incomplete, mid-correction,
+  // or simply not match the figure actually filed, and the reconciliation shouldn't be blocked
+  // on the payroll table being perfectly clean first.
+  grossSalaryOverride?: number;
+  professionalTaxOverride?: number;
 };
 
 export type IndiaTaxData = {
