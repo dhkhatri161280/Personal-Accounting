@@ -438,11 +438,14 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     }
   }
 
-  // Pulls the employer back out of a generated label ("Aug 2005 — Mafatlal (from ledger)") so
-  // editing a row can re-save under the same employer without the user retyping it -- best
-  // effort only, since older/real-import labels don't always carry an employer segment.
+  // Pulls the employer back out of a generated label so editing a row can re-save under the
+  // same employer without the user retyping it -- handles both "Aug 2005 — Mafatlal (from
+  // ledger)" (parenthetical suffix) and "Apr 2007 — Mafatlal" (bare, from this same manual-month
+  // tool) forms. Getting this wrong silently drops the employer to blank on edit, which then
+  // hashes to a different date than the original row and creates a duplicate instead of an
+  // overwrite -- so this one regex is load-bearing for the whole click-to-edit feature.
   function employerFromLabel(label: string): string {
-    const m = label.match(/—\s*([^(]+?)\s*\(/);
+    const m = label.match(/—\s*([^(]+?)\s*(?:\(.*\))?\s*$/);
     return m ? m[1].trim() : "";
   }
   function openAddManualMonth() {
@@ -509,13 +512,15 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       const sourceFile = editingManualMonth?.sourceFile ?? TRANSCRIBED_SOURCE_PREFIX;
       const targetMonths = Array.from(new Set([manualMonthForm.month, ...copyMonths]));
       const newRows = targetMonths.map((ym) => buildManualMonthRow(ym, manualMonthForm, sourceFile));
-      // If editing changed the month/employer enough to land on a different date than the
-      // original row, drop the original explicitly -- otherwise it'd survive alongside the
-      // freshly-dated one instead of being replaced.
-      const newDates = new Set(newRows.map((r) => r.date));
-      const base = editingManualMonth && !newDates.has(editingManualMonth.date)
-        ? months.filter((m) => m.date !== editingManualMonth.date)
-        : months;
+      // Editing or copying into a month always fully replaces whatever's already on file for
+      // that calendar month -- ALL existing rows in each target YYYY-MM, not just an exact date
+      // match on the row being edited. mergeIndiaPayslipMonths below only overwrites a row whose
+      // date matches EXACTLY, so if a target month's existing row was keyed to a different date
+      // (e.g. hashed from a different employer string, or a blank one from a mis-parsed label),
+      // leaving it in `base` would let the merge add a sibling row instead of overwriting it --
+      // the duplicate-on-copy bug.
+      const targetMonthSet = new Set(targetMonths);
+      const base = months.filter((m) => !targetMonthSet.has(m.date.slice(0, 7)));
       const touchedFys = new Set(newRows.map((r) => fyOf(r.date)));
       const afterDrop = dropReconstructedFor(base, touchedFys);
       const next = mergeIndiaPayslipMonths(afterDrop, newRows);
