@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { IndiaTaxData, IndiaPayslipMonth, IndiaItrYear, Tx, Account } from "@/lib/vault-types";
 import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-india-payslip";
 import { parseIndiaItrFile } from "@/lib/parse-india-itr";
@@ -41,14 +41,20 @@ function fyOfAy(ay: string): string {
 export interface FySummaryRow {
   fy: string;
   ay: string;
+  // Payroll-row fields
   gross: number;
   deductions: number;
   net: number;
+  section80Raw: number; // total invested/paid, uncapped -- matches the payroll "80C + 80D" card
+  taxDeductedPayroll: number; // sum of this FY's Income Tax column
+  // ITR-row fields
   grossTotalIncome: number;
-  chVIA: number;
+  chVIA: number; // capped, claimable
   taxableIncome: number;
   taxPayable: number;
   tds: number;
+  advanceSelfAssessment: number;
+  taxesPaidTotal: number;
   refund: number;
 }
 
@@ -64,6 +70,7 @@ function summarizeFy(fy: string, allMonths: IndiaPayslipMonth[], allItrYears: In
   const net = fyMonths.reduce((s, m) => s + m.netPay, 0);
   const hraTotal = fyMonths.reduce((s, m) => s + m.hra, 0);
   const profTaxTotal = fyMonths.reduce((s, m) => s + m.professionalTax, 0);
+  const taxDeductedPayroll = fyMonths.reduce((s, m) => s + m.incomeTax, 0);
   const itrYear = allItrYears.find((y) => y.assessmentYear === ay);
 
   const items80C = itrYear?.section80CItems ?? [];
@@ -73,21 +80,27 @@ function summarizeFy(fy: string, allMonths: IndiaPayslipMonth[], allItrYears: In
   const capped80D = Math.min(raw80D, SECTION_80D_CAP);
   const hasItemized = items80C.length > 0 || raw80D > 0;
   const chVIA = itrYear ? (hasItemized ? capped80C + capped80D : itrYear.deductionsChapterVIA) : 0;
+  const section80Raw = raw80C + raw80D !== 0 ? raw80C + raw80D : (itrYear?.deductionsChapterVIA ?? 0);
 
   const houseProperty = computeHouseProperty(ay, itrYear?.houseRentIncome ?? 0, itrYear?.homeLoanInterest ?? 0, itrYear?.homeLoanInterestCapOverride);
   const estimatedSalaryIncome = Math.max(0, (itrYear?.grossSalaryOverride ?? gross) - (itrYear?.hraExemptOverride ?? hraTotal) - (itrYear?.professionalTaxOverride ?? profTaxTotal));
   const estimatedGrossTotalIncome = estimatedSalaryIncome
     + (itrYear?.capitalGains?.shortTerm ?? 0) + (itrYear?.capitalGains?.longTerm ?? 0)
-    + houseProperty.allowedAgainstOtherIncome;
+    + houseProperty.allowedAgainstOtherIncome + (itrYear?.otherSourcesIncome ?? 0);
   const grossTotalIncome = itrYear?.grossTotalIncome ?? estimatedGrossTotalIncome;
   const taxableIncome = itrYear
     ? (hasItemized ? grossTotalIncome - chVIA : itrYear.totalIncome)
     : Math.max(0, estimatedGrossTotalIncome - chVIA);
   const taxPayable = itrYear?.taxPayable ?? 0;
   const tds = itrYear?.tds ?? 0;
-  const refund = itrYear ? itrYear.advanceTax + itrYear.tds + itrYear.tcs + itrYear.selfAssessmentTax - itrYear.taxPayable : 0;
+  const advanceSelfAssessment = itrYear ? itrYear.advanceTax + itrYear.selfAssessmentTax : 0;
+  const taxesPaidTotal = itrYear ? itrYear.advanceTax + itrYear.tds + itrYear.tcs + itrYear.selfAssessmentTax : 0;
+  const refund = taxesPaidTotal - taxPayable;
 
-  return { fy, ay, gross, deductions, net, grossTotalIncome, chVIA, taxableIncome, taxPayable, tds, refund };
+  return {
+    fy, ay, gross, deductions, net, section80Raw, taxDeductedPayroll,
+    grossTotalIncome, chVIA, taxableIncome, taxPayable, tds, advanceSelfAssessment, taxesPaidTotal, refund,
+  };
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -178,6 +191,13 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [payslipImportProgress, setPayslipImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"yearly" | "all">("yearly");
+  const [allYearsTab, setAllYearsTab] = useState<"payroll" | "tax">("payroll");
+  // Clicking a specific field in the "All Years" table opens that field's own popup for the
+  // right year -- but openGtiForm()/open80cForm() read the currently-selected FY's derived state
+  // (fyGross, activeItrYear, etc.), which only updates on the NEXT render after setSelectedFy.
+  // Stash which popup to open once that state catches up, rather than opening it immediately
+  // against the still-stale FY.
+  const [pendingYearAction, setPendingYearAction] = useState<{ fy: string; action: "gti" | "80c" } | null>(null);
   const [reconstructForm, setReconstructForm] = useState(BLANK_RECONSTRUCTED_FORM);
   const [addingReconstructed, setAddingReconstructed] = useState(false);
   const [savingReconstructed, setSavingReconstructed] = useState(false);
@@ -207,6 +227,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [gtiHomeLoanInterest, setGtiHomeLoanInterest] = useState("");
   const [gtiRentIncome, setGtiRentIncome] = useState("");
   const [gtiHomeLoanInterestCap, setGtiHomeLoanInterestCap] = useState("");
+  const [gtiOtherSourcesIncome, setGtiOtherSourcesIncome] = useState("");
   const [deletingManualMonth, setDeletingManualMonth] = useState(false);
 
   const [itrPassword, setItrPassword] = useState("");
@@ -228,6 +249,14 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const activeFy = selectedFy ?? fyList[fyList.length - 1] ?? null;
   const fyMonths = months.filter((m) => fyOf(m.date) === activeFy).sort((a, b) => a.date.localeCompare(b.date));
   const latestInFy = fyMonths[fyMonths.length - 1];
+
+  useEffect(() => {
+    if (!pendingYearAction || activeFy !== pendingYearAction.fy) return;
+    if (pendingYearAction.action === "gti") openGtiForm();
+    else open80cForm();
+    setPendingYearAction(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFy, pendingYearAction]);
 
   const fyGross = fyMonths.reduce((s, m) => s + m.grossEarnings, 0);
   const fyDeductions = fyMonths.reduce((s, m) => s + m.totalDeductions, 0);
@@ -294,7 +323,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const estimatedGti = Math.max(0,
     (activeItrYear?.grossSalaryOverride ?? fyGross) - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - (activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal)
   ) + (activeItrYear?.capitalGains?.shortTerm ?? 0) + (activeItrYear?.capitalGains?.longTerm ?? 0)
-    + (estimatedHouseProperty?.allowedAgainstOtherIncome ?? 0);
+    + (estimatedHouseProperty?.allowedAgainstOtherIncome ?? 0) + (activeItrYear?.otherSourcesIncome ?? 0);
   // The stored deductionsChapterVIA/totalIncome can be stale -- e.g. saved before the 80C/80D
   // cap logic existed, or before a cap year threshold was crossed. Whenever an itemized
   // breakdown is on file, trust that (already capped above) over the stored lump figures rather
@@ -800,6 +829,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
     setGtiHomeLoanInterest(activeItrYear?.homeLoanInterest ? String(activeItrYear.homeLoanInterest) : "");
     setGtiRentIncome(activeItrYear?.houseRentIncome ? String(activeItrYear.houseRentIncome) : "");
     setGtiHomeLoanInterestCap(String(activeItrYear?.homeLoanInterestCapOverride ?? section24bHomeLoanInterestCap(activeAy ?? "")));
+    setGtiOtherSourcesIncome(activeItrYear?.otherSourcesIncome ? String(activeItrYear.otherSourcesIncome) : "");
     setReconcilingGti(true);
   }
   async function saveGtiForm() {
@@ -813,6 +843,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       const longTerm = Number(gtiLtcg) || 0;
       const homeLoanInterest = Number(gtiHomeLoanInterest) || 0;
       const rentIncome = Number(gtiRentIncome) || 0;
+      const otherSourcesIncome = Number(gtiOtherSourcesIncome) || 0;
       const defaultCap = section24bHomeLoanInterestCap(activeAy);
       const homeLoanInterestCap = Number(gtiHomeLoanInterestCap) || defaultCap;
       // Income from House Property -- self-occupied (interest capped) vs let-out (30% standard
@@ -824,9 +855,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       const houseProperty = computeHouseProperty(activeAy, rentIncome, homeLoanInterest, homeLoanInterestCap);
       // Capital gains (and a house property loss) can be negative -- unlike the salary side,
       // Gross Total Income isn't floored at 0 here, since a genuine loss should be able to bring
-      // it down.
+      // it down. Income from Other Sources (Section 56 -- bank/FD interest, dividends, etc.) is
+      // added in full, no standard deduction or cap.
       const salaryIncome = Math.max(0, grossSalary - hraExempt - profTax);
-      const grossTotalIncome = salaryIncome + shortTerm + longTerm + houseProperty.allowedAgainstOtherIncome;
+      const grossTotalIncome = salaryIncome + shortTerm + longTerm + houseProperty.allowedAgainstOtherIncome + otherSourcesIncome;
       const deductionsChapterVIA = activeItrYear?.deductionsChapterVIA ?? 0;
       await saveItrPatch({
         grossSalaryOverride: grossSalary,
@@ -836,6 +868,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         homeLoanInterest: homeLoanInterest || undefined,
         houseRentIncome: rentIncome || undefined,
         homeLoanInterestCapOverride: homeLoanInterestCap !== defaultCap ? homeLoanInterestCap : undefined,
+        otherSourcesIncome: otherSourcesIncome || undefined,
         grossTotalIncome,
         totalIncome: grossTotalIncome - deductionsChapterVIA,
       });
@@ -924,6 +957,29 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       notes: y.notes ?? "",
     });
     setEditingItrId(y.id);
+  }
+  // Lets a specific field in the "All Years" table (Tax Payable, TDS, Refund, etc.) open the
+  // full Edit ITR form for its own year directly -- openEditItr/openAddItr don't depend on
+  // whichever FY happens to be currently selected, so no navigation or deferred-open dance
+  // needed here, unlike the GTI/80C popups below.
+  function openItrForFy(fy: string) {
+    const ay = ayOfFy(fy);
+    const existing = itrYears.find((y) => y.assessmentYear === ay);
+    if (existing) { openEditItr(existing); return; }
+    setItrForm({ ...BLANK_ITR_FORM, assessmentYear: ay });
+    setEditingItrId("new");
+  }
+  // The GTI/80C popups read state derived from the currently-selected FY, so opening them for a
+  // different row's year means changing that selection first and waiting for the next render
+  // (handled by the pendingYearAction effect above) -- but this can stay in "All Years" view the
+  // whole time, no need to also switch to the Yearly tab.
+  function jumpToFyAndOpenGti(fy: string) {
+    setPendingYearAction({ fy, action: "gti" });
+    setSelectedFy(fy);
+  }
+  function jumpToFyAndOpen80c(fy: string) {
+    setPendingYearAction({ fy, action: "80c" });
+    setSelectedFy(fy);
   }
   async function saveItrForm() {
     if (!itrForm.assessmentYear.trim()) return;
@@ -1065,41 +1121,114 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
           </div>
         </div>
       ) : viewMode === "all" ? (
-        <table className="equity-table equity-drilldown-table">
-          <thead>
-            <tr>
-              <th>FY (AY)</th>
-              <th className="right">Gross Salary</th>
-              <th className="right">Deductions</th>
-              <th className="right">Net Pay</th>
-              <th className="right">Gross Total Income</th>
-              <th className="right" title="Chapter VI-A Deductions, capped">Ch VI-A Ded.</th>
-              <th className="right">Taxable Income</th>
-              <th className="right">Tax Payable</th>
-              <th className="right">TDS</th>
-              <th className="right" title="Taxes Paid − Tax Payable; negative = demand payable">Refund</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fyList.map((fy) => {
-              const row = summarizeFy(fy, months, itrYears);
-              return (
-                <tr key={fy} onClick={() => { setSelectedFy(fy); setViewMode("yearly"); }} style={{ cursor: "pointer" }} title="Click to open this year">
-                  <td>{fy} ({row.ay})</td>
-                  <td className="right">{fmt(row.gross)}</td>
-                  <td className="right">{fmt(row.deductions)}</td>
-                  <td className="right">{fmt(row.net)}</td>
-                  <td className="right">{fmt(row.grossTotalIncome)}</td>
-                  <td className="right">{fmt(row.chVIA)}</td>
-                  <td className="right">{fmt(row.taxableIncome)}</td>
-                  <td className="right">{fmt(row.taxPayable)}</td>
-                  <td className="right">{fmt(row.tds)}</td>
-                  <td className="right" style={row.refund < 0 ? { color: "#dc2626" } : undefined}>{fmt(row.refund)}</td>
+        <>
+          <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem" }}>
+            <button onClick={() => setAllYearsTab("payroll")} style={allYearsTab === "payroll" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+              Payroll
+            </button>
+            <button onClick={() => setAllYearsTab("tax")} style={allYearsTab === "tax" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+              Tax
+            </button>
+          </div>
+          <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
+            Click a row to open that year. Click Gross Total Income, Ch VI-A/80C+80D, or any tax figure directly to
+            edit just that detail.
+          </p>
+          {allYearsTab === "payroll" ? (
+            <table className="equity-table equity-drilldown-table">
+              <thead>
+                <tr>
+                  <th>FY (AY)</th>
+                  <th className="right">Gross Salary</th>
+                  <th className="right">Total Deductions</th>
+                  <th className="right">Net Pay</th>
+                  <th className="right">Gross Total Income</th>
+                  <th className="right" title="Total invested/paid, uncapped">80C + 80D</th>
+                  <th className="right">Taxable Income</th>
+                  <th className="right" title="Sum of this FY's Income Tax column">Tax Deducted</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {fyList.map((fy) => {
+                  const row = summarizeFy(fy, months, itrYears);
+                  return (
+                    <tr key={fy} onClick={() => { setSelectedFy(fy); setViewMode("yearly"); }} style={{ cursor: "pointer" }} title="Click to open this year">
+                      <td>{fy} ({row.ay})</td>
+                      <td className="right">{fmt(row.gross)}</td>
+                      <td className="right">{fmt(row.deductions)}</td>
+                      <td className="right">{fmt(row.net)}</td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); jumpToFyAndOpenGti(fy); }} title="Click to edit Gross Total Income">
+                        {fmt(row.grossTotalIncome)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); jumpToFyAndOpen80c(fy); }} title="Click to edit 80C/80D">
+                        {fmt(row.section80Raw)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openItrForFy(fy); }} title="Click to edit ITR details">
+                        {fmt(row.taxableIncome)}
+                      </td>
+                      <td className="right">{fmt(row.taxDeductedPayroll)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <table className="equity-table equity-drilldown-table">
+              <thead>
+                <tr>
+                  <th>FY (AY)</th>
+                  <th className="right">Gross Total Income</th>
+                  <th className="right" title="Chapter VI-A Deductions, capped">Ch VI-A Ded.</th>
+                  <th className="right">Total Income</th>
+                  <th className="right">Tax Payable</th>
+                  <th className="right">TDS</th>
+                  <th className="right" title="Advance Tax + Self-Assessment Tax">Advance + Self-Assess.</th>
+                  <th className="right" title="TDS + Advance + Self-Assessment + TCS">Taxes Paid (Total)</th>
+                  <th className="right" title="Taxes Paid − Tax Payable; negative = demand payable">Refund</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fyList.map((fy) => {
+                  const row = summarizeFy(fy, months, itrYears);
+                  return (
+                    <tr key={fy} onClick={() => { setSelectedFy(fy); setViewMode("yearly"); }} style={{ cursor: "pointer" }} title="Click to open this year">
+                      <td>{fy} ({row.ay})</td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); jumpToFyAndOpenGti(fy); }} title="Click to edit Gross Total Income">
+                        {fmt(row.grossTotalIncome)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); jumpToFyAndOpen80c(fy); }} title="Click to edit 80C/80D">
+                        {fmt(row.chVIA)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openItrForFy(fy); }} title="Click to edit ITR details">
+                        {fmt(row.taxableIncome)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openItrForFy(fy); }} title="Click to edit ITR details">
+                        {fmt(row.taxPayable)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openItrForFy(fy); }} title="Click to edit ITR details">
+                        {fmt(row.tds)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openItrForFy(fy); }} title="Click to edit ITR details">
+                        {fmt(row.advanceSelfAssessment)}
+                      </td>
+                      <td className="right" style={{ cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openItrForFy(fy); }} title="Click to edit ITR details">
+                        {fmt(row.taxesPaidTotal)}
+                      </td>
+                      <td
+                        className="right"
+                        style={{ cursor: "pointer", ...(row.refund < 0 ? { color: "#dc2626" } : undefined) }}
+                        onClick={(e) => { e.stopPropagation(); openItrForFy(fy); }}
+                        title="Click to edit ITR details"
+                      >
+                        {fmt(row.refund)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </>
       ) : (
         <>
           <div className="equity-grant-filter">
@@ -1663,8 +1792,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         <Modal title={`Gross Total Income — FY ${activeFy} → AY ${activeAy}`} onClose={() => setReconcilingGti(false)}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
             Gross Total Income (ITR) = Gross Salary − HRA exempt (Section 10(13A)) − Professional Tax + Capital
-            Gains + Income from House Property. Every figure below is editable — Gross Salary and Professional Tax
-            default to this FY&apos;s payslip totals but can be overridden if the payroll table is incomplete or
+            Gains + Income from House Property + Income from Other Sources. Every figure below is editable — Gross
+            Salary and Professional Tax default to this FY&apos;s payslip totals but can be overridden if the payroll
+            table is incomplete or
             doesn&apos;t match what was actually filed. Capital gains (or a loss, entered negative) are taxed at
             special rates, not your slab rate — the Tax Payable slab estimate is suppressed for a year with gains on
             file rather than silently mis-taxing them. For house property: leave Rent Income at 0 for a
@@ -1743,12 +1873,15 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                 </>
               );
             })()}
+            <label>Income from Other Sources (interest, dividends, etc.)</label>
+            <input type="number" value={gtiOtherSourcesIncome} onChange={(e) => setGtiOtherSourcesIncome(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <span style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>Gross Total Income</span>
             <strong style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
               {fmt(
                 Math.max(0, (Number(gtiGrossSalary) || 0) - (Number(gtiHraExempt) || 0) - (Number(gtiProfTax) || 0))
                 + (Number(gtiStcg) || 0) + (Number(gtiLtcg) || 0)
                 + (activeAy ? computeHouseProperty(activeAy, Number(gtiRentIncome) || 0, Number(gtiHomeLoanInterest) || 0, Number(gtiHomeLoanInterestCap) || section24bHomeLoanInterestCap(activeAy)).allowedAgainstOtherIncome : 0)
+                + (Number(gtiOtherSourcesIncome) || 0)
               )}
             </strong>
           </div>

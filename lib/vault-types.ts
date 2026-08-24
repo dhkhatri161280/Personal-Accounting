@@ -231,6 +231,9 @@ export type IndiaItrYear = {
   // 5 years of the loan (among other conditions this app can't verify), so a real filed return
   // can show a different figure (e.g. Rs 1,50,000) than the general rule would predict.
   homeLoanInterestCapOverride?: number;
+  // Income from Other Sources (Section 56) -- bank/FD interest, dividends, etc. Added to Gross
+  // Total Income in full, no standard deduction or cap (unlike house property/80C).
+  otherSourcesIncome?: number;
 };
 
 export type IndiaTaxData = {
