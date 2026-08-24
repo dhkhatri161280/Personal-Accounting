@@ -5,7 +5,7 @@ import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-indi
 import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
-import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP } from "@/lib/india-tax-slabs";
+import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -137,6 +137,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [gtiProfTax, setGtiProfTax] = useState("");
   const [gtiStcg, setGtiStcg] = useState("");
   const [gtiLtcg, setGtiLtcg] = useState("");
+  const [gtiHomeLoanInterest, setGtiHomeLoanInterest] = useState("");
   const [deletingManualMonth, setDeletingManualMonth] = useState(false);
 
   const [itrPassword, setItrPassword] = useState("");
@@ -213,7 +214,8 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   // showing 0.
   const estimatedGti = Math.max(0,
     (activeItrYear?.grossSalaryOverride ?? fyGross) - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - (activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal)
-  ) + (activeItrYear?.capitalGains?.shortTerm ?? 0) + (activeItrYear?.capitalGains?.longTerm ?? 0);
+  ) + (activeItrYear?.capitalGains?.shortTerm ?? 0) + (activeItrYear?.capitalGains?.longTerm ?? 0)
+    - Math.min(activeItrYear?.homeLoanInterest ?? 0, activeAy ? section24bHomeLoanInterestCap(activeAy) : 150000);
   // The stored deductionsChapterVIA/totalIncome can be stale -- e.g. saved before the 80C/80D
   // cap logic existed, or before a cap year threshold was crossed. Whenever an itemized
   // breakdown is on file, trust that (already capped above) over the stored lump figures rather
@@ -716,6 +718,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     setGtiProfTax(String(activeItrYear?.professionalTaxOverride ?? fyProfTaxTotal));
     setGtiStcg(activeItrYear?.capitalGains ? String(activeItrYear.capitalGains.shortTerm) : "");
     setGtiLtcg(activeItrYear?.capitalGains ? String(activeItrYear.capitalGains.longTerm) : "");
+    setGtiHomeLoanInterest(activeItrYear?.homeLoanInterest ? String(activeItrYear.homeLoanInterest) : "");
     setReconcilingGti(true);
   }
   async function saveGtiForm() {
@@ -727,16 +730,22 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       const profTax = Number(gtiProfTax) || 0;
       const shortTerm = Number(gtiStcg) || 0;
       const longTerm = Number(gtiLtcg) || 0;
+      const homeLoanInterest = Number(gtiHomeLoanInterest) || 0;
+      // Section 24(b) -- capped, same pattern as 80C/80D: the raw amount actually paid is kept
+      // on record, but only the capped amount reduces Gross Total Income.
+      const cappedHomeLoanInterest = Math.min(homeLoanInterest, section24bHomeLoanInterestCap(activeAy));
       // Capital gains can be negative (a loss) -- unlike the salary side, Gross Total Income
-      // isn't floored at 0 here, since a genuine capital loss should be able to bring it down.
+      // isn't floored at 0 here, since a genuine capital loss (or a large home loan interest
+      // deduction) should be able to bring it down.
       const salaryIncome = Math.max(0, grossSalary - hraExempt - profTax);
-      const grossTotalIncome = salaryIncome + shortTerm + longTerm;
+      const grossTotalIncome = salaryIncome + shortTerm + longTerm - cappedHomeLoanInterest;
       const deductionsChapterVIA = activeItrYear?.deductionsChapterVIA ?? 0;
       await saveItrPatch({
         grossSalaryOverride: grossSalary,
         hraExemptOverride: hraExempt,
         professionalTaxOverride: profTax,
         capitalGains: shortTerm || longTerm ? { shortTerm, longTerm } : undefined,
+        homeLoanInterest: homeLoanInterest || undefined,
         grossTotalIncome,
         totalIncome: grossTotalIncome - deductionsChapterVIA,
       });
@@ -1518,11 +1527,14 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         <Modal title={`Gross Total Income — FY ${activeFy} → AY ${activeAy}`} onClose={() => setReconcilingGti(false)}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
             Gross Total Income (ITR) = Gross Salary − HRA exempt (Section 10(13A)) − Professional Tax + Capital
-            Gains. Every figure below is editable — Gross Salary and Professional Tax default to this FY&apos;s
-            payslip totals but can be overridden if the payroll table is incomplete or doesn&apos;t match what was
-            actually filed. Capital gains (or a loss, entered negative) are taxed at special rates, not your slab
-            rate — the Tax Payable slab estimate is suppressed for a year with gains on file rather than silently
-            mis-taxing them. Saving writes the result to this AY&apos;s ITR Gross Total Income.
+            Gains − Home Loan Interest. Every figure below is editable — Gross Salary and Professional Tax default
+            to this FY&apos;s payslip totals but can be overridden if the payroll table is incomplete or doesn&apos;t
+            match what was actually filed. Capital gains (or a loss, entered negative) are taxed at special rates,
+            not your slab rate — the Tax Payable slab estimate is suppressed for a year with gains on file rather
+            than silently mis-taxing them. Home Loan Interest (Section 24(b), self-occupied property) is capped at
+            {" "}{activeAy ? fmt(section24bHomeLoanInterestCap(activeAy)) : "₹1,50,000"} — enter the actual amount
+            paid, the cap is applied automatically. Saving writes the result to this AY&apos;s ITR Gross Total
+            Income.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 6, fontSize: 13, alignItems: "center" }}>
             <label>Gross Salary</label>
@@ -1537,9 +1549,21 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
             <input type="number" value={gtiStcg} onChange={(e) => setGtiStcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <label>Long-Term Capital Gain (Loss)</label>
             <input type="number" value={gtiLtcg} onChange={(e) => setGtiLtcg(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
+            <label>Home Loan Interest (Section 24b) paid</label>
+            <input type="number" value={gtiHomeLoanInterest} onChange={(e) => setGtiHomeLoanInterest(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
+            {activeAy && Number(gtiHomeLoanInterest) > section24bHomeLoanInterestCap(activeAy) && (
+              <>
+                <span style={{ opacity: 0.7 }}>Home Loan Interest claimable (capped at {fmt(section24bHomeLoanInterestCap(activeAy))})</span>
+                <span style={{ color: "#dc2626" }}>{fmt(section24bHomeLoanInterestCap(activeAy))}</span>
+              </>
+            )}
             <span style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>Gross Total Income</span>
             <strong style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
-              {fmt(Math.max(0, (Number(gtiGrossSalary) || 0) - (Number(gtiHraExempt) || 0) - (Number(gtiProfTax) || 0)) + (Number(gtiStcg) || 0) + (Number(gtiLtcg) || 0))}
+              {fmt(
+                Math.max(0, (Number(gtiGrossSalary) || 0) - (Number(gtiHraExempt) || 0) - (Number(gtiProfTax) || 0))
+                + (Number(gtiStcg) || 0) + (Number(gtiLtcg) || 0)
+                - Math.min(Number(gtiHomeLoanInterest) || 0, activeAy ? section24bHomeLoanInterestCap(activeAy) : 150000)
+              )}
             </strong>
           </div>
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>

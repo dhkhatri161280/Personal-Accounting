@@ -178,3 +178,12 @@ export function section80CCap(assessmentYear: string): number {
  * more for parents depending on senior-citizen status) -- modeling every combination isn't
  * practical here, so this is one flat umbrella cap across all years, per what was asked for. */
 export const SECTION_80D_CAP = 50000;
+
+/** Section 24(b)'s self-occupied home loan interest deduction cap -- Rs 1,50,000 through
+ * AY2014-15, raised to Rs 2,00,000 from AY2015-16 (FY2014-15) onward via Finance Act 2014.
+ * Assumes a self-occupied property (the common case); a let-out property has no cap at all,
+ * which isn't modeled here. */
+export function section24bHomeLoanInterestCap(assessmentYear: string): number {
+  const startYear = Number(assessmentYear.slice(0, 4));
+  return Number.isFinite(startYear) && startYear >= 2015 ? 200000 : 150000;
+}

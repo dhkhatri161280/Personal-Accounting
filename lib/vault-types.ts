@@ -215,6 +215,11 @@ export type IndiaItrYear = {
   // on the payroll table being perfectly clean first.
   grossSalaryOverride?: number;
   professionalTaxOverride?: number;
+  // Interest paid on a home loan for a self-occupied property, deductible under Section 24(b)
+  // against Gross Total Income (as a loss under "Income from House Property"). Stored RAW (the
+  // actual amount paid, even past the statutory cap) -- the cap is applied only when deriving
+  // Gross Total Income, same pattern as the 80C/80D items.
+  homeLoanInterest?: number;
 };
 
 export type IndiaTaxData = {
