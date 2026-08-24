@@ -193,6 +193,16 @@ export type IndiaItrYear = {
   refundOrDemand: number; // positive = refund, negative = demand payable
   filingDate?: string;
   notes?: string;
+  // Itemized Chapter VI-A detail -- investments/premiums paid outside payroll (LIC, NSC, PPF,
+  // ELSS, etc. under 80C; a medical policy premium under 80D). Their sum drives
+  // deductionsChapterVIA rather than that field being entered as one lump guess.
+  section80CItems?: { description: string; amount: number }[];
+  section80DMedical?: number;
+  // The HRA amount treated as exempt when deriving grossTotalIncome from payroll (Gross Salary
+  // - HRA exempt - Professional Tax). Defaults to the full HRA paid but is editable since the
+  // real exemption (least of HRA received / rent paid - 10% of basic / 50%-40% of basic) can be
+  // less than that.
+  hraExemptOverride?: number;
 };
 
 export type IndiaTaxData = {

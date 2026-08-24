@@ -129,7 +129,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const [editingManualMonth, setEditingManualMonth] = useState<IndiaPayslipMonth | null>(null);
   const [addingSection80, setAddingSection80] = useState(false);
   const [savingSection80, setSavingSection80] = useState(false);
-  const [section80Form, setSection80Form] = useState({ section80C: "", section80D: "" });
+  const [section80Items, setSection80Items] = useState<{ description: string; amount: string }[]>([]);
+  const [section80DForm, setSection80DForm] = useState("");
+  const [reconcilingGti, setReconcilingGti] = useState(false);
+  const [savingGti, setSavingGti] = useState(false);
+  const [gtiHraExempt, setGtiHraExempt] = useState("");
 
   const [itrPassword, setItrPassword] = useState("");
   const [importingItr, setImportingItr] = useState(false);
@@ -154,6 +158,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const fyGross = fyMonths.reduce((s, m) => s + m.grossEarnings, 0);
   const fyDeductions = fyMonths.reduce((s, m) => s + m.totalDeductions, 0);
   const fyNet = fyMonths.reduce((s, m) => s + m.netPay, 0);
+  const fyHraTotal = fyMonths.reduce((s, m) => s + m.hra, 0);
+  const fyProfTaxTotal = fyMonths.reduce((s, m) => s + m.professionalTax, 0);
+  const fyIncomeTaxTotal = fyMonths.reduce((s, m) => s + m.incomeTax, 0);
   const isReconstructedFy = fyMonths.length > 0 && fyMonths.every((m) => m.sourceFile === RECONSTRUCTED_SOURCE);
 
   const activeAy = activeFy ? ayOfFy(activeFy) : (itrYears[0]?.assessmentYear ?? null);
@@ -164,6 +171,12 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   const itrEffectiveRate = activeItrYear && activeItrYear.grossTotalIncome > 0
     ? (activeItrYear.taxPayable / activeItrYear.grossTotalIncome) * 100
     : 0;
+  const section80CTotal = (activeItrYear?.section80CItems ?? []).reduce((s, it) => s + it.amount, 0);
+  const section80DTotal = activeItrYear?.section80DMedical ?? 0;
+  // Estimated Gross Total Income before the reconciliation form has ever been saved for this FY
+  // -- same formula (Gross Salary - HRA exempt - Professional Tax), defaulting HRA exempt to the
+  // full HRA paid, so the card has a sensible value from day one instead of showing 0.
+  const estimatedGti = Math.max(0, fyGross - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - fyProfTaxTotal);
 
   const itrSummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = activeItrYear
     ? [
@@ -509,29 +522,90 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
     }
   }
 
-  // 80C/80D relief isn't limited to what shows up on a payslip -- investments (ELSS, PPF, life
-  // insurance premium) or a medical policy premium paid directly, outside payroll, count too.
-  // Stored on the FY's latest payslip month (the same field a real payslip's own "Projected
-  // Annual Tax Information" box already populates), so years without a real payslip PDF still
-  // have somewhere to record it by hand.
+  // Both the itemized 80C/80D table and the Gross Total Income reconciliation write onto the
+  // ITR record for the FY's Assessment Year -- that's the one place these figures are actually
+  // filed, so it's the right single source of truth (rather than smuggling them onto a payslip
+  // month, which only ever happened because no ITR row necessarily existed yet). Creates the AY's
+  // ITR record on first save if one isn't on file yet, instead of requiring "+ Add ITR" first.
+  function upsertActiveItrYear(patch: Partial<IndiaItrYear>): IndiaItrYear {
+    const base: IndiaItrYear = activeItrYear ?? {
+      id: uid(),
+      assessmentYear: activeAy!,
+      grossTotalIncome: 0,
+      deductionsChapterVIA: 0,
+      totalIncome: 0,
+      taxPayable: 0,
+      advanceTax: 0,
+      tds: 0,
+      tcs: 0,
+      selfAssessmentTax: 0,
+      refundOrDemand: 0,
+    };
+    return { ...base, ...patch };
+  }
+  async function saveItrPatch(patch: Partial<IndiaItrYear>) {
+    const updated = upsertActiveItrYear(patch);
+    const existing = indiaTax?.itrYears ?? [];
+    const next = existing.some((y) => y.id === updated.id)
+      ? existing.map((y) => (y.id === updated.id ? updated : y))
+      : [...existing, updated];
+    await onSave({ payslips: indiaTax?.payslips, itrYears: next });
+  }
+
+  // 80C/80D relief isn't limited to what shows up on a payslip -- investments (LIC, NSC, PPF,
+  // ELSS, etc.) or a medical policy premium paid directly, outside payroll, count too, each as
+  // its own claimed line item (not one lump guess) -- matching how the ITR itself is filed.
   function open80cForm() {
-    setSection80Form({
-      section80C: String(latestInFy?.section80C ?? ""),
-      section80D: String(latestInFy?.section80D ?? ""),
-    });
+    const items = activeItrYear?.section80CItems ?? [];
+    setSection80Items(items.length > 0 ? items.map((it) => ({ description: it.description, amount: String(it.amount) })) : [{ description: "", amount: "" }]);
+    setSection80DForm(activeItrYear?.section80DMedical != null ? String(activeItrYear.section80DMedical) : "");
     setAddingSection80(true);
   }
   async function save80cForm() {
-    if (!latestInFy) return;
+    if (!activeAy) return;
     setSavingSection80(true);
     try {
-      const n = (s: string) => (s.trim() ? Number(s) : undefined);
-      const updated: IndiaPayslipMonth = { ...latestInFy, section80C: n(section80Form.section80C), section80D: n(section80Form.section80D) };
-      const next = months.map((m) => (m.date === latestInFy.date ? updated : m));
-      await onSave({ payslips: { months: next, importedAt: new Date().toISOString() }, itrYears: indiaTax?.itrYears ?? [] });
+      const items = section80Items
+        .map((it) => ({ description: it.description.trim(), amount: Number(it.amount) || 0 }))
+        .filter((it) => it.description || it.amount);
+      const section80DMedical = Number(section80DForm) || 0;
+      const deductionsChapterVIA = items.reduce((s, it) => s + it.amount, 0) + section80DMedical;
+      const gti = activeItrYear?.grossTotalIncome ?? 0;
+      await saveItrPatch({
+        section80CItems: items,
+        section80DMedical,
+        deductionsChapterVIA,
+        totalIncome: gti > 0 ? gti - deductionsChapterVIA : (activeItrYear?.totalIncome ?? 0),
+      });
       setAddingSection80(false);
     } finally {
       setSavingSection80(false);
+    }
+  }
+
+  // Payroll's Gross Salary isn't the ITR's Gross Total Income -- HRA that qualifies as exempt
+  // and Professional Tax both come off first. Pre-fills HRA exempt with the full HRA paid (the
+  // common case for lower-rent years) but stays editable since the real Section 10(13A)
+  // exemption can be less than that.
+  function openGtiForm() {
+    setGtiHraExempt(String(activeItrYear?.hraExemptOverride ?? fyHraTotal));
+    setReconcilingGti(true);
+  }
+  async function saveGtiForm() {
+    if (!activeAy) return;
+    setSavingGti(true);
+    try {
+      const hraExempt = Number(gtiHraExempt) || 0;
+      const grossTotalIncome = Math.max(0, fyGross - hraExempt - fyProfTaxTotal);
+      const deductionsChapterVIA = activeItrYear?.deductionsChapterVIA ?? 0;
+      await saveItrPatch({
+        hraExemptOverride: hraExempt,
+        grossTotalIncome,
+        totalIncome: grossTotalIncome - deductionsChapterVIA,
+      });
+      setReconcilingGti(false);
+    } finally {
+      setSavingGti(false);
     }
   }
 
@@ -658,15 +732,32 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
         { label: "Gross Salary", value: fyGross, sub: `FY ${activeFy}, ${fyMonths.length} month(s)`, icon: "cash", color: "#1e40af" },
         { label: "Total Deductions", value: fyDeductions, sub: "PF + tax + other", icon: "receipt", color: "#dc2626" },
         { label: "Net Pay", value: fyNet, sub: "actually received", icon: "wallet", color: "#16a34a" },
-        { label: "Projected Annual Income", value: latestInFy.annualIncome ?? 0, sub: `as of ${latestInFy.label}`, icon: "trending-up", color: "#0891b2" },
         {
-          label: "80C + 80D", value: (latestInFy.section80C ?? 0) + (latestInFy.section80D ?? 0),
-          sub: "investments/premiums outside payroll — click to edit →", icon: "shield", color: "#7c3aed",
+          label: "Gross Total Income (ITR)",
+          value: activeItrYear?.grossTotalIncome ?? estimatedGti,
+          sub: activeItrYear?.grossTotalIncome
+            ? `Gross − HRA exempt − Prof. Tax — click to recompute →`
+            : `estimated: Gross − HRA exempt − Prof. Tax — click to confirm & save →`,
+          icon: "trending-up", color: "#0891b2",
+          onClick: openGtiForm,
+        },
+        {
+          label: "80C + 80D", value: section80CTotal + section80DTotal,
+          sub: `AY ${activeAy} — from ITR itemized deductions, click to edit →`, icon: "shield", color: "#7c3aed",
           onClick: open80cForm,
         },
-        { label: "Total Tax Payable", value: latestInFy.totalTaxPayable ?? 0, sub: "projected, per employer", icon: "scale", color: "#9333ea" },
-        { label: "Tax Deducted", value: latestInFy.taxDeductedTillDate ?? 0, sub: `till ${latestInFy.label}`, icon: "bank", color: "#d97706" },
-        { label: "Balance Tax", value: latestInFy.balanceTax ?? 0, sub: "remaining per employer projection", icon: "tag", color: "#dc2626" },
+        {
+          label: "Taxable Income",
+          value: activeItrYear?.totalIncome ?? Math.max(0, estimatedGti - (activeItrYear?.deductionsChapterVIA ?? section80CTotal + section80DTotal)),
+          sub: `AY ${activeAy} — Gross Total Income − Ch VI-A deductions`, icon: "scale", color: "#9333ea",
+        },
+        {
+          label: "Tax Deducted", value: fyIncomeTaxTotal,
+          sub: activeItrYear && activeItrYear.tds !== fyIncomeTaxTotal
+            ? `sum of this FY's Income Tax column (ITR TDS on file: ${fmt(activeItrYear.tds)})`
+            : "sum of this FY's Income Tax column",
+          icon: "bank", color: "#d97706",
+        },
       ]
     : [];
 
@@ -1108,25 +1199,103 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
       )}
 
       {addingSection80 && (
-        <Modal title={`Section 80C / 80D — FY ${activeFy}`} onClose={() => setAddingSection80(false)}>
+        <Modal title={`Section 80C / 80D — AY ${activeAy}`} onClose={() => setAddingSection80(false)}>
           <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
-            Investments (ELSS, PPF, life insurance premium, etc.) or a medical policy premium paid directly, outside
-            payroll, still count toward these deductions — track the total claimed here so it shows up above.
+            Investments (LIC, NSC, PPF, ELSS, etc.) or a medical policy premium paid directly, outside payroll, still
+            count toward these deductions — one row per 80C investment, exactly as they&apos;d be listed on the ITR,
+            plus one field for the 80D medical premium. Saving also updates this AY&apos;s ITR &quot;Deductions
+            (Chapter VI-A)&quot; and Total Income to match.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
-            <label style={{ fontSize: 12 }}>
-              Section 80C (investments)
-              <input type="number" value={section80Form.section80C} onChange={(e) => setSection80Form({ ...section80Form, section80C: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
-            </label>
-            <label style={{ fontSize: 12 }}>
-              Section 80D (medical premium)
-              <input type="number" value={section80Form.section80D} onChange={(e) => setSection80Form({ ...section80Form, section80D: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
-            </label>
+          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "0.5rem" }}>
+            <thead>
+              <tr style={{ fontSize: 11, opacity: 0.7, textAlign: "left" }}>
+                <th style={{ paddingBottom: 4 }}>80C Description (LIC, NSC, PPF, ELSS…)</th>
+                <th style={{ paddingBottom: 4, width: 130 }}>Amount</th>
+                <th style={{ width: 28 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {section80Items.map((item, i) => (
+                <tr key={i}>
+                  <td style={{ paddingRight: 6, paddingBottom: 4 }}>
+                    <input
+                      value={item.description}
+                      onChange={(e) => setSection80Items(section80Items.map((it, j) => (j === i ? { ...it, description: e.target.value } : it)))}
+                      className="india-tax-input"
+                      style={{ display: "block", width: "100%" }}
+                      placeholder="e.g. LIC"
+                    />
+                  </td>
+                  <td style={{ paddingRight: 6, paddingBottom: 4 }}>
+                    <input
+                      type="number"
+                      value={item.amount}
+                      onChange={(e) => setSection80Items(section80Items.map((it, j) => (j === i ? { ...it, amount: e.target.value } : it)))}
+                      className="india-tax-input"
+                      style={{ display: "block", width: "100%" }}
+                      placeholder="e.g. 1000"
+                    />
+                  </td>
+                  <td style={{ paddingBottom: 4 }}>
+                    <button
+                      onClick={() => setSection80Items(section80Items.filter((_, j) => j !== i))}
+                      disabled={section80Items.length === 1}
+                      title="Remove row"
+                      aria-label="Remove row"
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button onClick={() => setSection80Items([...section80Items, { description: "", amount: "" }])} style={{ fontSize: 12 }}>
+            + Add 80C row
+          </button>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, opacity: 0.7, margin: "0.5rem 0" }}>
+            <span>80C total</span>
+            <strong>{fmt(section80Items.reduce((s, it) => s + (Number(it.amount) || 0), 0))}</strong>
           </div>
+          <label style={{ fontSize: 12, display: "block", marginTop: "0.5rem" }}>
+            Section 80D (medical premium)
+            <input type="number" value={section80DForm} onChange={(e) => setSection80DForm(e.target.value)} className="india-tax-input" style={{ display: "block", width: "100%" }} />
+          </label>
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
             <button onClick={() => setAddingSection80(false)}>Cancel</button>
             <button onClick={save80cForm} disabled={savingSection80}>
               {savingSection80 ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {reconcilingGti && (
+        <Modal title={`Gross Total Income — FY ${activeFy} → AY ${activeAy}`} onClose={() => setReconcilingGti(false)}>
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
+            Gross Total Income (ITR) = Gross Salary − HRA exempt (Section 10(13A)) − Professional Tax. Gross Salary
+            and Professional Tax come straight from this FY&apos;s payslip totals below; HRA exempt defaults to the
+            full HRA paid but is editable if the real exemption (least of HRA received / rent paid − 10% of basic /
+            50-40% of basic) is lower. Saving writes the result to this AY&apos;s ITR Gross Total Income.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 6, fontSize: 13, alignItems: "center" }}>
+            <span>Gross Salary (FY {activeFy})</span>
+            <strong>{fmt(fyGross)}</strong>
+            <span>HRA paid (for reference)</span>
+            <strong>{fmt(fyHraTotal)}</strong>
+            <label>HRA exempt</label>
+            <input type="number" value={gtiHraExempt} onChange={(e) => setGtiHraExempt(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} />
+            <span>Professional Tax</span>
+            <strong>{fmt(fyProfTaxTotal)}</strong>
+            <span style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>Gross Total Income</span>
+            <strong style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
+              {fmt(Math.max(0, fyGross - (Number(gtiHraExempt) || 0) - fyProfTaxTotal))}
+            </strong>
+          </div>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+            <button onClick={() => setReconcilingGti(false)}>Cancel</button>
+            <button onClick={saveGtiForm} disabled={savingGti}>
+              {savingGti ? "Saving…" : "Save to ITR"}
             </button>
           </div>
         </Modal>
