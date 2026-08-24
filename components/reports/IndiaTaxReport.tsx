@@ -178,10 +178,16 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
   // full HRA paid, so the card has a sensible value from day one instead of showing 0.
   const estimatedGti = Math.max(0, fyGross - (activeItrYear?.hraExemptOverride ?? fyHraTotal) - fyProfTaxTotal);
 
-  const itrSummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string }[] = activeItrYear
+  const itrSummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string; onClick?: () => void }[] = activeItrYear
     ? [
-        { label: "Gross Total Income", value: activeItrYear.grossTotalIncome, sub: `AY ${activeItrYear.assessmentYear}`, icon: "cash", color: "#1e40af" },
-        { label: "Ch VI-A Deductions", value: activeItrYear.deductionsChapterVIA, sub: "80C, 80D, etc.", icon: "shield", color: "#7c3aed" },
+        {
+          label: "Gross Total Income", value: activeItrYear.grossTotalIncome, sub: `AY ${activeItrYear.assessmentYear} — Gross − HRA exempt − Prof. Tax, click to recompute →`,
+          icon: "cash", color: "#1e40af", onClick: openGtiForm,
+        },
+        {
+          label: "Ch VI-A Deductions", value: activeItrYear.deductionsChapterVIA, sub: "80C, 80D, etc. — click to edit itemized detail →",
+          icon: "shield", color: "#7c3aed", onClick: open80cForm,
+        },
         { label: "Total Income", value: activeItrYear.totalIncome, sub: "taxable income", icon: "receipt", color: "#0891b2" },
         { label: "Tax Payable", value: activeItrYear.taxPayable, sub: `${itrEffectiveRate.toFixed(1)}% effective rate`, icon: "scale", color: "#dc2626" },
         { label: "TDS", value: activeItrYear.tds, sub: "tax deducted at source", icon: "bank", color: "#d97706" },
@@ -930,7 +936,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme }: IndiaTaxRepor
               <div className="equity-summary-row">
                 {itrSummaryCards.map((c) => (
                   <div key={c.label} className="equity-summary-col">
-                    <div className="equity-summary-card">
+                    <div className="equity-summary-card" style={c.onClick ? { cursor: "pointer" } : undefined} onClick={c.onClick}>
                       {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
                       <div className="equity-summary-card-body">
                         <span>{c.label}</span>
