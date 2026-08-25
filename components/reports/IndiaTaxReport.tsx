@@ -193,7 +193,8 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"yearly" | "all">("yearly");
   const [exportingReconciliation, setExportingReconciliation] = useState(false);
-  const [allYearsTab, setAllYearsTab] = useState<"payroll" | "tax">("payroll");
+  const [exportingAllYearsReconciliation, setExportingAllYearsReconciliation] = useState(false);
+  const [allYearsTab, setAllYearsTab] = useState<"payroll" | "tax" | "detail">("payroll");
   // Clicking a specific field in the "All Years" table opens that field's own popup for the
   // right year -- but openGtiForm()/open80cForm() read the currently-selected FY's derived state
   // (fyGross, activeItrYear, etc.), which only updates on the NEXT render after setSelectedFy.
@@ -1086,30 +1087,36 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
     : [];
 
   // Working paper for reconciling the Payroll tab against the real Salary ledger, one row per
-  // calendar month of the active FY -- the app's own numbers are what get corrected afterward,
+  // real payroll entry of a given FY -- the app's own numbers are what get corrected afterward,
   // not the ledger, so this only ever downloads a comparison, never writes anything back.
+  function reconciliationSheetFor(fy: string) {
+    const fyMonthsForFy = months.filter((m) => fyOf(m.date) === fy);
+    const rows = buildPayrollLedgerReconciliation(fy, fyMonthsForFy, transactions ?? [], accounts ?? []);
+    const header = [
+      "Month", "Employer", "Ledger Window Checked",
+      "Basic", "HRA", "Other Allowances", "PF", "Prof. Tax", "Other Ded.", "Income Tax",
+      "Payroll Gross", "Payroll Net", "Salary Ledger (Gross)", "Variance (Ledger − Payroll Gross)", "Match?",
+    ];
+    const data = rows.map((r) => [
+      r.label, r.employer, r.ledgerWindowLabel,
+      r.basic, r.hra, r.otherAllowances, r.pf, r.professionalTax, r.otherDeductions, r.incomeTax,
+      r.payrollGross, r.payrollNet, r.ledgerAmount, r.variance, Math.abs(r.variance) < 1 ? "Yes" : "No",
+    ]);
+    const totalsRow = [
+      "Total", "", "",
+      ...(["basic", "hra", "otherAllowances", "pf", "professionalTax", "otherDeductions", "incomeTax", "payrollGross", "payrollNet", "ledgerAmount", "variance"] as const)
+        .map((key) => rows.reduce((s, r) => s + r[key], 0)),
+      "",
+    ];
+    return { rowCount: rows.length, header, data, totalsRow };
+  }
+
   async function exportPayrollReconciliation() {
     if (!activeFy) return;
     setExportingReconciliation(true);
     try {
-      const rows = buildPayrollLedgerReconciliation(activeFy, fyMonths, transactions ?? [], accounts ?? []);
       const XLSX = await import("xlsx");
-      const header = [
-        "Month", "Employer", "Ledger Window Checked",
-        "Basic", "HRA", "Other Allowances", "PF", "Prof. Tax", "Other Ded.", "Income Tax",
-        "Payroll Gross", "Payroll Net", "Salary Ledger (Gross)", "Variance (Ledger − Payroll Gross)", "Match?",
-      ];
-      const data = rows.map((r) => [
-        r.label, r.employer, r.ledgerWindowLabel,
-        r.basic, r.hra, r.otherAllowances, r.pf, r.professionalTax, r.otherDeductions, r.incomeTax,
-        r.payrollGross, r.payrollNet, r.ledgerAmount, r.variance, Math.abs(r.variance) < 1 ? "Yes" : "No",
-      ]);
-      const totalsRow = [
-        "Total", "", "",
-        ...(["basic", "hra", "otherAllowances", "pf", "professionalTax", "otherDeductions", "incomeTax", "payrollGross", "payrollNet", "ledgerAmount", "variance"] as const)
-          .map((key) => rows.reduce((s, r) => s + r[key], 0)),
-        "",
-      ];
+      const { header, data, totalsRow } = reconciliationSheetFor(activeFy);
       const ws = XLSX.utils.aoa_to_sheet([header, ...data, totalsRow]);
       ws["!cols"] = header.map((h) => ({ wch: Math.max(10, h.length) }));
       const wb = XLSX.utils.book_new();
@@ -1117,6 +1124,29 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       XLSX.writeFile(wb, `India Payroll vs Ledger — FY ${activeFy}.xlsx`);
     } finally {
       setExportingReconciliation(false);
+    }
+  }
+
+  // Same working paper as above, but every FY that has payroll data in one workbook (one sheet
+  // per FY) -- so a full reconciliation pass doesn't mean re-exporting one year at a time.
+  async function exportAllYearsPayrollReconciliation() {
+    if (fyList.length === 0) return;
+    setExportingAllYearsReconciliation(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      for (const fy of fyList) {
+        const { rowCount, header, data, totalsRow } = reconciliationSheetFor(fy);
+        if (rowCount === 0) continue; // nothing to reconcile for a year with no payroll entries
+        const ws = XLSX.utils.aoa_to_sheet([header, ...data, totalsRow]);
+        ws["!cols"] = header.map((h) => ({ wch: Math.max(10, h.length) }));
+        // Excel sheet names cap at 31 chars and can't contain [ ] : * ? / \ -- "FY 20XX-YY" is
+        // always well under the limit and free of those characters, so no truncation needed.
+        XLSX.utils.book_append_sheet(wb, ws, `FY ${fy}`);
+      }
+      XLSX.writeFile(wb, "India Payroll vs Ledger — All Years.xlsx");
+    } finally {
+      setExportingAllYearsReconciliation(false);
     }
   }
 
@@ -1159,17 +1189,30 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         </div>
       ) : viewMode === "all" ? (
         <>
-          <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem" }}>
+          <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem", alignItems: "center" }}>
             <button className="india-tax-toolbar-btn" onClick={() => setAllYearsTab("payroll")} style={allYearsTab === "payroll" ? { fontWeight: 700 } : { opacity: 0.6 }}>
               Payroll
             </button>
             <button className="india-tax-toolbar-btn" onClick={() => setAllYearsTab("tax")} style={allYearsTab === "tax" ? { fontWeight: 700 } : { opacity: 0.6 }}>
               Tax
             </button>
+            <button className="india-tax-toolbar-btn" onClick={() => setAllYearsTab("detail")} style={allYearsTab === "detail" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+              Monthly Detail
+            </button>
+            <button
+              className="india-tax-toolbar-btn"
+              onClick={exportAllYearsPayrollReconciliation}
+              disabled={exportingAllYearsReconciliation}
+              title="Download one Excel with a Payroll vs Ledger reconciliation sheet for every year that has payroll data"
+              style={{ marginLeft: "auto" }}
+            >
+              {exportingAllYearsReconciliation ? "Exporting…" : "📊 Export All Years vs Ledger"}
+            </button>
           </div>
           <p className="equity-seed-note" style={{ margin: "0 0 0.5rem" }}>
-            Click a row to open that year. Click Gross Total Income, Ch VI-A/80C+80D, or any tax figure directly to
-            edit just that detail.
+            {allYearsTab === "detail"
+              ? "Every payslip month across every FY, same as the Yearly table — click a row to edit that month directly."
+              : "Click a row to open that year. Click Gross Total Income, Ch VI-A/80C+80D, or any tax figure directly to edit just that detail."}
           </p>
           {allYearsTab === "payroll" ? (
             <table className="equity-table equity-drilldown-table">
@@ -1209,7 +1252,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                 })}
               </tbody>
             </table>
-          ) : (
+          ) : allYearsTab === "tax" ? (
             <table className="equity-table equity-drilldown-table">
               <thead>
                 <tr>
@@ -1263,6 +1306,57 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                   );
                 })}
               </tbody>
+            </table>
+          ) : (
+            // "Monthly Detail" -- every real payslip month across every FY, same columns and
+            // click-to-edit behavior as the single-year Yearly table, just not scoped to one FY.
+            <table className="equity-table equity-drilldown-table">
+              <thead>
+                <tr>
+                  <th>FY</th>
+                  <th>Month</th>
+                  <th className="right">Basic</th>
+                  <th className="right">HRA</th>
+                  <th className="right" title="Conveyance + all other allowances (Performance Pay, LTA, Personal Allowance, etc.), lumped together">Other Allowances</th>
+                  <th className="right">Gross</th>
+                  <th className="right" title="Deducted first, before 80C-eligible items like PF">Prof. Tax</th>
+                  <th className="right">PF</th>
+                  <th className="right" title="A specifically identified deduction that isn't PF/Professional Tax/Income Tax — e.g. an LIP/Superannuation contribution">Other Ded.</th>
+                  <th className="right">Income Tax</th>
+                  <th className="right">Net Pay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.slice().sort((a, b) => a.date.localeCompare(b.date)).map((m) => (
+                  <tr key={m.date} onClick={() => openEditManualMonth(m)} style={{ cursor: "pointer" }} title="Click to edit this month">
+                    <td>{fyOf(m.date)}</td>
+                    <td>{m.label}</td>
+                    <td className="right">{fmt(m.basic)}</td>
+                    <td className="right">{fmt(m.hra)}</td>
+                    <td className="right">{fmt(m.conveyance + m.otherAllowances)}</td>
+                    <td className="right">{fmt(m.grossEarnings)}</td>
+                    <td className="right">{fmt(m.professionalTax)}</td>
+                    <td className="right">{fmt(m.pf)}</td>
+                    <td className="right">{fmt(m.otherDeductions)}</td>
+                    <td className="right">{fmt(m.incomeTax)}</td>
+                    <td className="right">{fmt(m.netPay)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={2}>Total</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.basic, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.hra, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.conveyance + m.otherAllowances, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.grossEarnings, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.professionalTax, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.pf, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.otherDeductions, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.incomeTax, 0))}</td>
+                  <td className="right">{fmt(months.reduce((s, m) => s + m.netPay, 0))}</td>
+                </tr>
+              </tfoot>
             </table>
           )}
         </>
