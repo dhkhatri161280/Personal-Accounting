@@ -1128,10 +1128,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         <h4>India Payroll &amp; Tax {viewMode === "yearly" && activeFy && `— FY ${activeFy}`}</h4>
         {!noData && (
           <div style={{ display: "flex", gap: 4 }}>
-            <button onClick={() => setViewMode("yearly")} style={viewMode === "yearly" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+            <button className="india-tax-toolbar-btn" onClick={() => setViewMode("yearly")} style={viewMode === "yearly" ? { fontWeight: 700 } : { opacity: 0.6 }}>
               Yearly
             </button>
-            <button onClick={() => setViewMode("all")} style={viewMode === "all" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+            <button className="india-tax-toolbar-btn" onClick={() => setViewMode("all")} style={viewMode === "all" ? { fontWeight: 700 } : { opacity: 0.6 }}>
               All Years
             </button>
           </div>
@@ -1160,10 +1160,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       ) : viewMode === "all" ? (
         <>
           <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem" }}>
-            <button onClick={() => setAllYearsTab("payroll")} style={allYearsTab === "payroll" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+            <button className="india-tax-toolbar-btn" onClick={() => setAllYearsTab("payroll")} style={allYearsTab === "payroll" ? { fontWeight: 700 } : { opacity: 0.6 }}>
               Payroll
             </button>
-            <button onClick={() => setAllYearsTab("tax")} style={allYearsTab === "tax" ? { fontWeight: 700 } : { opacity: 0.6 }}>
+            <button className="india-tax-toolbar-btn" onClick={() => setAllYearsTab("tax")} style={allYearsTab === "tax" ? { fontWeight: 700 } : { opacity: 0.6 }}>
               Tax
             </button>
           </div>
@@ -1275,25 +1275,31 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                 <option key={fy} value={fy}>{fy} (AY {ayOfFy(fy)})</option>
               ))}
             </select>
-            <input type="password" placeholder="Payslip password" value={payslipPassword} onChange={(e) => setPayslipPassword(e.target.value)} className="india-tax-input" style={{ maxWidth: 150 }} />
+            <input type="password" placeholder="Payslip password" value={payslipPassword} onChange={(e) => setPayslipPassword(e.target.value)} className="india-tax-input" style={{ maxWidth: 130 }} />
             <button
+              className="india-tax-toolbar-btn"
               onClick={() => payslipFileInputRef.current?.click()}
               disabled={importingPayslips || !payslipPassword.trim()}
               title={!payslipPassword.trim() ? "Enter the payslip PDF password first" : undefined}
             >
-              {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
+              {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "📄 Import Payslips"}
             </button>
-            <button onClick={exportPayrollReconciliation} disabled={!activeFy || exportingReconciliation} title="Download an Excel comparing this FY's Payroll tab figures against the real Salary ledger, month by month">
-              {exportingReconciliation ? "Exporting…" : "📊 Export Payroll vs Ledger"}
+            <button
+              className="india-tax-toolbar-btn"
+              onClick={exportPayrollReconciliation}
+              disabled={!activeFy || exportingReconciliation}
+              title="Download an Excel comparing this FY's Payroll tab figures against the real Salary ledger, month by month"
+            >
+              {exportingReconciliation ? "Exporting…" : "📊 Payroll vs Ledger"}
             </button>
-            <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
+            <span style={{ marginLeft: "auto", display: "flex", gap: "0.35rem" }}>
               {activeItrYear ? (
                 <>
-                  <button onClick={() => openEditItr(activeItrYear)}>Edit ITR</button>
-                  <button onClick={() => deleteItr(activeItrYear.id)}>Delete ITR</button>
+                  <button className="india-tax-toolbar-btn" onClick={() => openEditItr(activeItrYear)}>Edit ITR</button>
+                  <button className="india-tax-toolbar-btn" onClick={() => deleteItr(activeItrYear.id)}>Delete ITR</button>
                 </>
               ) : (
-                <button onClick={openAddItr}>+ Add ITR for AY {activeAy}</button>
+                <button className="india-tax-toolbar-btn" onClick={openAddItr} title={`Add ITR for AY ${activeAy}`}>+ Add ITR</button>
               )}
             </span>
           </div>

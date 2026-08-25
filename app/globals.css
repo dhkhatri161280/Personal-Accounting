@@ -7908,3 +7908,14 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   padding: 4px 8px;
   font-size: 12px;
 }
+
+/* The FY toolbar row (Import Payslips / Export Payroll vs Ledger / Edit ITR / Delete ITR)
+   otherwise inherits the site-wide `button` rule's 10px/14px padding -- fine for a lone action
+   button, but four of them plus the FY dropdown and password field in one row eats a lot of
+   vertical/horizontal space for what's just a row of shortcuts. Sized to match .india-tax-input
+   next to it instead. */
+.india-tax-toolbar-btn {
+  padding: 4px 10px !important;
+  font-size: 11px !important;
+  margin-left: 0 !important;
+}
