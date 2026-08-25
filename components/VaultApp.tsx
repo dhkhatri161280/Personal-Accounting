@@ -116,6 +116,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [customStart, setCustomStart] = useState("2026-04"),
     [customEnd, setCustomEnd] = useState("2026-06"),
     [query, setQuery] = useState(""),
+    [showAllVouchers, setShowAllVouchers] = useState(false),
     [tableFilter, setTableFilter] = useState(""),
     [minAmount, setMinAmount] = useState(""),
     [sortKey, setSortKey] = useState("name"),
@@ -874,9 +875,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return voucherNumRank(a.number) - voucherNumRank(b.number);
     });
   const DAY_BOOK_CAP = 750;
-  // filteredAll is oldest-first (Tally order) — cap keeps the most recent entries.
-  const filtered = filteredAll.slice(-DAY_BOOK_CAP);
+  // filteredAll is oldest-first (Tally order) — cap keeps the most recent entries by default
+  // (large tables render slowly), but showAllVouchers lets the user opt into the full list.
   const dayBookCapped = filteredAll.length > DAY_BOOK_CAP;
+  const filtered = showAllVouchers || !dayBookCapped ? filteredAll : filteredAll.slice(-DAY_BOOK_CAP);
 
   const selectedRow = rows.find((a) => a.id === selected),
     selectedTx = selected
@@ -1991,8 +1993,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onChange={(e) => setQuery(e.target.value)}
           />
           {dayBookCapped && (
-            <div style={{ padding: "6px 12px", background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", fontSize: "0.8rem", color: "#713f12", marginBottom: "8px" }}>
-              Showing {DAY_BOOK_CAP} of {filteredAll.length} vouchers — use the search box to find older entries.
+            <div style={{ padding: "6px 12px", background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", fontSize: "0.8rem", color: "#713f12", marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>
+                {showAllVouchers
+                  ? `Showing all ${filteredAll.length} vouchers — large lists can render slowly.`
+                  : `Showing ${DAY_BOOK_CAP} of ${filteredAll.length} vouchers — use the search box, or show all.`}
+              </span>
+              <button onClick={() => setShowAllVouchers((v) => !v)} style={{ padding: "3px 10px", fontSize: "0.75rem", margin: 0 }}>
+                {showAllVouchers ? "Show recent only" : `Show all ${filteredAll.length}`}
+              </button>
             </div>
           )}
           <TransactionTable
