@@ -1127,22 +1127,46 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
     }
   }
 
-  // Same working paper as above, but every FY that has payroll data in one workbook (one sheet
-  // per FY) -- so a full reconciliation pass doesn't mean re-exporting one year at a time.
+  // Same working paper as above, but every FY that has payroll data in one workbook -- one sheet
+  // per FY (so a full reconciliation pass doesn't mean re-exporting one year at a time), PLUS a
+  // combined "All Years" sheet with every month from every year in one continuous list (an FY
+  // column added since rows now span years) for scanning/filtering across the whole history at
+  // once rather than flipping between per-year tabs.
   async function exportAllYearsPayrollReconciliation() {
     if (fyList.length === 0) return;
     setExportingAllYearsReconciliation(true);
     try {
       const XLSX = await import("xlsx");
+
+      // Gather every year's rows first so the combined sheet can be built (and inserted first,
+      // so it's what opens by default) before any of the per-year sheets.
+      const perYear = fyList
+        .map((fy) => ({ fy, ...reconciliationSheetFor(fy) }))
+        .filter((y) => y.rowCount > 0); // skip years with no payroll entries -- nothing to reconcile
+      if (perYear.length === 0) return;
+
       const wb = XLSX.utils.book_new();
-      for (const fy of fyList) {
-        const { rowCount, header, data, totalsRow } = reconciliationSheetFor(fy);
-        if (rowCount === 0) continue; // nothing to reconcile for a year with no payroll entries
-        const ws = XLSX.utils.aoa_to_sheet([header, ...data, totalsRow]);
-        ws["!cols"] = header.map((h) => ({ wch: Math.max(10, h.length) }));
+
+      const combinedHeader = ["FY", ...perYear[0].header];
+      const combinedData = perYear.flatMap((y) => y.data.map((row) => [y.fy, ...row]));
+      // Each year's own totalsRow already sums its 11 numeric columns (Basic..Variance, at
+      // indices 3-13) -- summing those across years is simpler and less error-prone than
+      // re-deriving the totals from combinedData's flattened rows.
+      const combinedTotalsRow = [
+        "Total", "", "", "",
+        ...Array.from({ length: 11 }, (_, i) => perYear.reduce((s, y) => s + (Number(y.totalsRow[3 + i]) || 0), 0)),
+        "",
+      ];
+      const combinedWs = XLSX.utils.aoa_to_sheet([combinedHeader, ...combinedData, combinedTotalsRow]);
+      combinedWs["!cols"] = combinedHeader.map((h) => ({ wch: Math.max(10, h.length) }));
+      XLSX.utils.book_append_sheet(wb, combinedWs, "All Years");
+
+      for (const y of perYear) {
+        const ws = XLSX.utils.aoa_to_sheet([y.header, ...y.data, y.totalsRow]);
+        ws["!cols"] = y.header.map((h) => ({ wch: Math.max(10, h.length) }));
         // Excel sheet names cap at 31 chars and can't contain [ ] : * ? / \ -- "FY 20XX-YY" is
         // always well under the limit and free of those characters, so no truncation needed.
-        XLSX.utils.book_append_sheet(wb, ws, `FY ${fy}`);
+        XLSX.utils.book_append_sheet(wb, ws, `FY ${y.fy}`);
       }
       XLSX.writeFile(wb, "India Payroll vs Ledger — All Years.xlsx");
     } finally {
