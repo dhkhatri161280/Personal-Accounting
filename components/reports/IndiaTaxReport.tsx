@@ -1095,17 +1095,17 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       const rows = buildPayrollLedgerReconciliation(activeFy, fyMonths, transactions ?? [], accounts ?? []);
       const XLSX = await import("xlsx");
       const header = [
-        "Month", "Employer(s) in Payroll",
+        "Month", "Employer", "Ledger Window Checked",
         "Basic", "HRA", "Other Allowances", "PF", "Prof. Tax", "Other Ded.", "Income Tax",
         "Payroll Gross", "Payroll Net", "Salary Ledger (Gross)", "Variance (Ledger − Payroll Gross)", "Match?",
       ];
       const data = rows.map((r) => [
-        r.label, r.employers,
+        r.label, r.employer, r.ledgerWindowLabel,
         r.basic, r.hra, r.otherAllowances, r.pf, r.professionalTax, r.otherDeductions, r.incomeTax,
         r.payrollGross, r.payrollNet, r.ledgerAmount, r.variance, Math.abs(r.variance) < 1 ? "Yes" : "No",
       ]);
       const totalsRow = [
-        "Total", "",
+        "Total", "", "",
         ...(["basic", "hra", "otherAllowances", "pf", "professionalTax", "otherDeductions", "incomeTax", "payrollGross", "payrollNet", "ledgerAmount", "variance"] as const)
           .map((key) => rows.reduce((s, r) => s + r[key], 0)),
         "",
@@ -1288,7 +1288,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
               className="india-tax-toolbar-btn"
               onClick={exportPayrollReconciliation}
               disabled={!activeFy || exportingReconciliation}
-              title="Download an Excel comparing this FY's Payroll tab figures against the real Salary ledger, month by month"
+              title="Download an Excel comparing this FY's Payroll tab figures against the real Salary ledger. TCS is checked same-month; every other employer is checked in the first 10 days of the following month, matching when they actually pay."
             >
               {exportingReconciliation ? "Exporting…" : "📊 Payroll vs Ledger"}
             </button>
