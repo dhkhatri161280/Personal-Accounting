@@ -8,6 +8,7 @@ import { fmtDate } from "@/lib/format-date";
 import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
 import { ledgerPeriodTotals } from "@/lib/ledger-period";
 import { computeHouseProperty } from "@/lib/india-house-property";
+import { buildPayrollLedgerReconciliation } from "@/lib/india-payroll-reconcile";
 
 // Real ledger account name (from the Tally-derived voucher ledgers) that carries the P&L
 // interest expense on a home loan -- distinct from "Interest On Housing Loan Payable" (a
@@ -191,6 +192,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [payslipImportProgress, setPayslipImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"yearly" | "all">("yearly");
+  const [exportingReconciliation, setExportingReconciliation] = useState(false);
   const [allYearsTab, setAllYearsTab] = useState<"payroll" | "tax">("payroll");
   // Clicking a specific field in the "All Years" table opens that field's own popup for the
   // right year -- but openGtiForm()/open80cForm() read the currently-selected FY's derived state
@@ -1083,6 +1085,41 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
       ]
     : [];
 
+  // Working paper for reconciling the Payroll tab against the real Salary ledger, one row per
+  // calendar month of the active FY -- the app's own numbers are what get corrected afterward,
+  // not the ledger, so this only ever downloads a comparison, never writes anything back.
+  async function exportPayrollReconciliation() {
+    if (!activeFy) return;
+    setExportingReconciliation(true);
+    try {
+      const rows = buildPayrollLedgerReconciliation(activeFy, fyMonths, transactions ?? [], accounts ?? []);
+      const XLSX = await import("xlsx");
+      const header = [
+        "Month", "Employer(s) in Payroll",
+        "Basic", "HRA", "Other Allowances", "PF", "Prof. Tax", "Other Ded.", "Income Tax",
+        "Payroll Gross", "Payroll Net", "Salary Ledger (Gross)", "Variance (Ledger − Payroll Gross)", "Match?",
+      ];
+      const data = rows.map((r) => [
+        r.label, r.employers,
+        r.basic, r.hra, r.otherAllowances, r.pf, r.professionalTax, r.otherDeductions, r.incomeTax,
+        r.payrollGross, r.payrollNet, r.ledgerAmount, r.variance, Math.abs(r.variance) < 1 ? "Yes" : "No",
+      ]);
+      const totalsRow = [
+        "Total", "",
+        ...(["basic", "hra", "otherAllowances", "pf", "professionalTax", "otherDeductions", "incomeTax", "payrollGross", "payrollNet", "ledgerAmount", "variance"] as const)
+          .map((key) => rows.reduce((s, r) => s + r[key], 0)),
+        "",
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([header, ...data, totalsRow]);
+      ws["!cols"] = header.map((h) => ({ wch: Math.max(10, h.length) }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, `FY ${activeFy}`);
+      XLSX.writeFile(wb, `India Payroll vs Ledger — FY ${activeFy}.xlsx`);
+    } finally {
+      setExportingReconciliation(false);
+    }
+  }
+
   const noData = months.length === 0 && itrYears.length === 0;
 
   return (
@@ -1245,6 +1282,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
               title={!payslipPassword.trim() ? "Enter the payslip PDF password first" : undefined}
             >
               {importingPayslips ? `Importing… ${payslipImportProgress ? `${payslipImportProgress.done}/${payslipImportProgress.total}` : ""}` : "📄 Import Payslip PDFs"}
+            </button>
+            <button onClick={exportPayrollReconciliation} disabled={!activeFy || exportingReconciliation} title="Download an Excel comparing this FY's Payroll tab figures against the real Salary ledger, month by month">
+              {exportingReconciliation ? "Exporting…" : "📊 Export Payroll vs Ledger"}
             </button>
             <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
               {activeItrYear ? (
