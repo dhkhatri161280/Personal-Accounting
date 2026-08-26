@@ -1041,7 +1041,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", color: "#2563eb" }}
               onClick={() => setShowTaxPlanningModal(true)}
             >
-              💡 Tax Planning{taxPlanningTotalSavings > 0 ? ` (up to ${fmt(taxPlanningTotalSavings)})` : ""}
+              💡 Tax Planning{taxPlanningTotalSavings > 0 && <span className="tp-trigger-amt"> (up to {fmt(taxPlanningTotalSavings)})</span>}
             </label>
           )}
         </div>
@@ -1622,7 +1622,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 <details key={cat} className="tp-cat">
                   <summary className="tp-cat-label tp-cat-label--collapsible">
                     {cat} — {items.length} batch{items.length !== 1 ? "es" : ""} not yet long-term
-                    {total > 0 && <> · up to {fmt(total)} total if each is held to its own anniversary</>}
+                    {total > 0 && <span className="tp-trigger-amt"> · up to {fmt(total)} total if each is held to its own anniversary</span>}
                   </summary>
                   <div style={{ marginTop: "0.6rem" }}>{cards}</div>
                 </details>
