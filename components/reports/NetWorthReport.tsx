@@ -171,7 +171,7 @@ export function NetWorthReport({
               .map(([cat, v]) => (
                 <div key={cat} className="bs-row">
                   <span>{cat}</span>
-                  <span>{fmt(v)}</span>
+                  <span style={{ color: "#16a34a" }}>{fmt(v)}</span>
                 </div>
               ))}
           </div>
@@ -187,7 +187,7 @@ export function NetWorthReport({
                 .map(([cat, v]) => (
                   <div key={cat} className="bs-row">
                     <span>{cat}</span>
-                    <span>{fmt(v)}</span>
+                    <span style={{ color: "#dc2626" }}>{fmt(v)}</span>
                   </div>
                 ))
             )}

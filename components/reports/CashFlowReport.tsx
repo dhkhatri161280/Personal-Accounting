@@ -55,12 +55,13 @@ export function CashFlowReport({
     kind: "inflow" | "outflow"
   ) => {
     const sectionOpen = expanded.has(key);
+    const color = kind === "inflow" ? "#16a34a" : "#dc2626";
     return (
       <section className="report-group cash-flow-side">
         <button className="group-heading cash-flow-main-heading" onClick={() => toggle(key)}>
           <span className="bs-arr">{sectionOpen ? "-" : "+"}</span>
           <strong>{title}</strong>
-          <span>{fmt(total)}</span>
+          <span style={{ color }}>{fmt(total)}</span>
         </button>
         {sectionOpen &&
           items.map((g) => {
@@ -78,7 +79,7 @@ export function CashFlowReport({
                     <b className="bs-arr">{groupOpen ? "-" : "+"}</b>
                     {g.group}
                   </span>
-                  <strong>{fmt(totalValue)}</strong>
+                  <strong style={{ color }}>{fmt(totalValue)}</strong>
                 </button>
                 {groupOpen &&
                   lines.map((l) => (
@@ -88,7 +89,7 @@ export function CashFlowReport({
                       onClick={() => onLedger(g.group, l.name)}
                     >
                       <span>{l.name}</span>
-                      <strong>{fmt(l.amount)}</strong>
+                      <strong style={{ color }}>{fmt(l.amount)}</strong>
                     </button>
                   ))}
               </section>
@@ -97,7 +98,7 @@ export function CashFlowReport({
         {sectionOpen && (
           <div className="report-grand">
             <span>Total {title}</span>
-            <strong>{fmt(total)}</strong>
+            <strong style={{ color }}>{fmt(total)}</strong>
           </div>
         )}
       </section>

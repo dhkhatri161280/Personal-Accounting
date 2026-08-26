@@ -118,6 +118,10 @@ export function BalanceSheetReport({
 
   const renderSection = (sk: string, side: "L" | "R", sub: Map<string, BSRow[]>) => {
     const sign = side === "L" ? 1 : -1;
+    // Same green/red "money in vs. money out" convention used app-wide -- Assets (right side)
+    // green, Liabilities & Capital (left side) red, consistent with how Net Worth colors the
+    // same two categories.
+    const color = side === "R" ? "#16a34a" : "#dc2626";
     const tot = [...sub.values()].flat().reduce((s, a) => s + sign * a.closing, 0);
     const isE = expanded.has(sk);
     return (
@@ -125,7 +129,7 @@ export function BalanceSheetReport({
         <button className="bs-sec-head" onClick={() => toggle(sk)}>
           <span className="bs-arr">{isE ? "-" : "+"}</span>
           <strong>{sk}</strong>
-          <span className="bs-amt">{fmt(tot)}</span>
+          <span className="bs-amt" style={{ color }}>{fmt(tot)}</span>
         </button>
         {isE && (
           <div className="bs-body">
@@ -138,7 +142,7 @@ export function BalanceSheetReport({
                     {sub.size > 1 && (
                       <div className="bs-sg-head">
                         <em>{grp}</em>
-                        <span>{fmt(gt)}</span>
+                        <span style={{ color }}>{fmt(gt)}</span>
                       </div>
                     )}
                     {rows
@@ -147,7 +151,7 @@ export function BalanceSheetReport({
                       .map((a) => (
                         <div key={a.id} className="bs-row">
                           {link(a)}
-                          <span>{fmt(sign * a.closing)}</span>
+                          <span style={{ color }}>{fmt(sign * a.closing)}</span>
                         </div>
                       ))}
                   </div>
@@ -207,7 +211,7 @@ export function BalanceSheetReport({
           {showPL && PLdisp < 0 && renderPL("L")}
           <div className="bs-total">
             <span>Total Capital and Liabilities</span>
-            <strong>{fmt(liabSide)}</strong>
+            <strong style={{ color: "#dc2626" }}>{fmt(liabSide)}</strong>
           </div>
         </div>
         <div className="bs-col">
@@ -218,7 +222,7 @@ export function BalanceSheetReport({
           {showPL && PLdisp >= 0 && renderPL("R")}
           <div className="bs-total">
             <span>Total Assets</span>
-            <strong>{fmt(assetSide)}</strong>
+            <strong style={{ color: "#16a34a" }}>{fmt(assetSide)}</strong>
           </div>
         </div>
       </div>

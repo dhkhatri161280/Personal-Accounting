@@ -6411,60 +6411,6 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   color: #991b1b !important;
 }
 
-/* Ledger drilldown wide view - desktop only */
-@media (min-width: 901px) {
-  .drill-panel.ledger-drill-panel {
-    width: min(1600px, calc(100vw - 36px)) !important;
-    max-width: none !important;
-  }
-  .drill-panel.ledger-drill-panel .top-scroll {
-    display: none !important;
-  }
-  .drill-panel.ledger-drill-panel .table-scroll {
-    overflow-x: visible !important;
-    max-width: 100% !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table {
-    width: 100% !important;
-    min-width: 0 !important;
-    table-layout: fixed !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table th,
-  .drill-panel.ledger-drill-panel .transaction-table td {
-    white-space: normal !important;
-    overflow: visible !important;
-    text-overflow: clip !important;
-    overflow-wrap: anywhere !important;
-    line-height: 1.35 !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table th:nth-child(1) {
-    width: 92px !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table th:nth-child(2) {
-    width: 105px !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table th:nth-child(3) {
-    width: 82px !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table th:nth-child(4),
-  .drill-panel.ledger-drill-panel .transaction-table th:nth-child(5) {
-    width: 18% !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table th:nth-child(7) {
-    width: 110px !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table th:nth-child(8) {
-    width: 58px !important;
-  }
-  .drill-panel.ledger-drill-panel .transaction-table .date-cell,
-  .drill-panel.ledger-drill-panel .transaction-table td.right {
-    white-space: nowrap !important;
-  }
-}
-
-@media (max-width: 900px) {
-}
-
 .drill-title-row {
   display: flex;
   align-items: flex-start;
@@ -7939,3 +7885,44 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   .fw-panel, .fw-panel--wide { width: calc(100vw - 16px) !important; left: 8px !important; }
   .fw-handle { display: none; }
 }
+
+/* Day Book's transaction table uses hardcoded pixel column widths (table-layout: fixed) tuned
+   for classic mode's ~9px font. .ui-refresh bumps table text to 13px with more padding
+   (.ui-refresh .data-panel table td above) without touching those widths -- at the larger size
+   the Date, Voucher Type, and Amount columns no longer fit their content and silently ellipsis-
+   truncate (e.g. "25-08-2026" clips to "25-08-2..."). Selector has higher specificity than the
+   base rule (extra .ui-refresh ancestor class) so no !important needed; scoped to the same
+   min-width so it only applies where the fixed-width layout is actually active. */
+@media (min-width: 1101px) {
+  .ui-refresh .transaction-table {
+    min-width: 1150px;
+  }
+  .ui-refresh .transaction-table th:nth-child(1) {
+    width: 115px;
+  }
+  .ui-refresh .transaction-table th:nth-child(2) {
+    width: 120px;
+  }
+  .ui-refresh .transaction-table th:nth-child(3) {
+    width: 90px;
+  }
+  .ui-refresh .transaction-table th:nth-child(7) {
+    width: 140px;
+  }
+  .ui-refresh .transaction-table th:nth-child(8) {
+    width: 78px;
+  }
+}
+
+/* The action-menu (Edit/Copy/Delete dot button) is untouched by .ui-refresh elsewhere, so at
+   13px table text it reads small/plain next to everything else -- scale it up to match instead
+   of leaving one classic-sized control sitting in an otherwise refreshed row. */
+.ui-refresh .action-menu summary {
+  width: 40px;
+  height: 36px;
+  border-radius: var(--ref-radius);
+  box-shadow: var(--ref-shadow);
+}
+.ui-refresh .action-menu .dot { width: 7px; height: 7px; }
+.ui-refresh .action-popover { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow-hover); }
+.ui-refresh .action-popover button { font-size: 12px; padding: 8px 12px; border-radius: 8px; }

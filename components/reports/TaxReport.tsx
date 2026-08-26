@@ -206,10 +206,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  // Clicking a pay period opens a popup (donut + full detail), rather than expanding an
-  // inline row -- separate from expandedKey, which still drives the RSU vest-group rows.
-  const [viewPeriod, setViewPeriod] = useState<{ type: "excel"; index: number } | { type: "manual"; id: string } | null>(null);
+  // Clicking a pay period (Excel-imported, manual/voucher-derived, or an RSU vest event) opens
+  // a popup with a donut + full detail, rather than expanding an inline row.
+  const [viewPeriod, setViewPeriod] = useState<
+    { type: "excel"; index: number } | { type: "manual"; id: string } | { type: "vest"; date: string } | null
+  >(null);
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
   const [showRsuModal, setShowRsuModal] = useState(false);
   const [periodVestModal, setPeriodVestModal] = useState<{ label: string; items: { grant: RsuGrant; vest: RsuVest }[] } | null>(null);
@@ -647,7 +648,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             <button
               key={y.year}
               className={`equity-grant-filter-chip${yr.year === y.year ? " equity-grant-filter-chip--active" : ""}`}
-              onClick={() => { setSelectedYear(y.year); setExpandedKey(null); }}
+              onClick={() => { setSelectedYear(y.year); setViewPeriod(null); }}
             >
               {y.year}
             </button>
@@ -851,7 +852,6 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           })}
           {vestGroups.map(({ date, items, stockIdx }) => {
             const key = `vest-${date}`;
-            const expanded = expandedKey === key;
             const anyPending = items.some(({ vest }) => vest.pending);
             const shares = items.reduce((s, { vest }) => s + vest.shares, 0);
             const grossVal = items.reduce((s, { vest }) => s + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0);
@@ -861,11 +861,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const swh = stockVal(stateWH, stockIdx);
             const ssdi = stockVal(stateSDI, stockIdx);
             const taxV = stockVal(totalTax, stockIdx);
+            // Vest events don't carry a stored "Net" figure the way a paystub period does --
+            // compute it the same way the popup's donut does (gross minus everything withheld).
+            const netVal = grossVal - (fed ?? 0) - (ssnV ?? 0) - (med ?? 0) - (swh ?? 0) - (ssdi ?? 0);
             const showDash = (v: number | null) => (v === null ? <span style={{ opacity: 0.3 }}>—</span> : fmt(v));
             return (
               <tr
                 key={key}
-                onClick={() => setExpandedKey(expanded ? null : key)}
+                onClick={() => setViewPeriod({ type: "vest", date })}
                 style={{ cursor: "pointer", background: "#eef2ff" }}
               >
                 <td title="Quarterly RSU vesting event, from the payroll Excel's 'Stocks' columns">
@@ -879,7 +882,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 <td className="right">{showDash(swh)}</td>
                 <td className="right">{showDash(ssdi)}</td>
                 <td className="right">{showDash(taxV)}</td>
-                <td className="right"><span style={{ opacity: 0.3 }}>—</span></td>
+                <td className="right">{anyPending ? <span style={{ opacity: 0.3 }}>—</span> : <span className="equity-amt" style={{ color: "#16a34a" }}>{fmt(netVal)}</span>}</td>
                 <td><span style={{ opacity: 0.3 }}>—</span></td>
                 <td>
                   <button
@@ -1151,9 +1154,33 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           stateWH: number; stateSDI: number; totalTax: number; k401: number; k401Emplr: number;
           medical: number; espp: number; base: number; telephone: number;
           isEditing: boolean; onEdit: (() => void) | null; estimated?: boolean;
+          isVest?: boolean; shares?: number; onViewShares?: () => void;
         } | null = null;
 
-        if (viewPeriod.type === "excel") {
+        if (viewPeriod.type === "vest") {
+          const vg = vestGroups.find((g) => g.date === viewPeriod.date);
+          if (vg) {
+            const shares = vg.items.reduce((s, { vest }) => s + vest.shares, 0);
+            const grossVal = vg.items.reduce((s, { vest }) => s + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0);
+            const vestLabel = `${new Date(vg.date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })} Vesting`;
+            period = {
+              label: vestLabel,
+              gross: grossVal,
+              federal: stockVal(federal, vg.stockIdx) ?? 0,
+              ssn: stockVal(ssn, vg.stockIdx) ?? 0,
+              medicare: stockVal(medicare, vg.stockIdx) ?? 0,
+              stateWH: stockVal(stateWH, vg.stockIdx) ?? 0,
+              stateSDI: stockVal(stateSDI, vg.stockIdx) ?? 0,
+              totalTax: stockVal(totalTax, vg.stockIdx) ?? 0,
+              k401: 0, k401Emplr: 0, medical: 0, espp: 0, base: 0, telephone: 0,
+              isEditing: false,
+              onEdit: null,
+              isVest: true,
+              shares,
+              onViewShares: () => { setViewPeriod(null); setPeriodVestModal({ label: vestLabel, items: vg.items }); },
+            };
+          }
+        } else if (viewPeriod.type === "excel") {
           const i = viewPeriod.index;
           const lbl = yr.periodLabels[i];
           period = {
@@ -1189,12 +1216,41 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           return null;
         }
 
-        const grid: [string, number][] = [
-          ["Base", period.base], ["Telephone", period.telephone], ["Medical", period.medical],
-          ["401K (employee)", period.k401], ["401K Employer Match", period.k401Emplr], ["ESPP Deduction", period.espp],
-          ["Federal", period.federal], ["SSN", period.ssn], ["Medicare", period.medicare],
-          ["State W/H", period.stateWH], ["State SDI", period.stateSDI], ["Total Tax", period.totalTax],
-        ];
+        // Green = added to you (earned pay, employer-paid benefits); red = comes out of your
+        // paycheck (taxes, your own contributions/premiums) -- same "money in / money out"
+        // convention as the donut's Net Take-Home (green) vs. tax/deduction slices (red/warm).
+        // Net Take-Home is computed the same way for every period type -- gross minus every
+        // other line below -- rather than trusting a separately-stored figure, so it can never
+        // silently be missing (a vest event never had one at all) or drift from what's shown.
+        const netTakeHome = Math.max(
+          0,
+          period.gross - period.federal - period.ssn - period.medicare - period.stateWH - period.stateSDI - period.k401 - period.medical - period.espp
+        );
+        const grid: { label: string; value: number; kind: "in" | "out" }[] = period.isVest
+          ? [
+              { label: "Net Take-Home", value: netTakeHome, kind: "in" },
+              { label: "Federal", value: period.federal, kind: "out" },
+              { label: "SSN", value: period.ssn, kind: "out" },
+              { label: "Medicare", value: period.medicare, kind: "out" },
+              { label: "State W/H", value: period.stateWH, kind: "out" },
+              { label: "State SDI", value: period.stateSDI, kind: "out" },
+              { label: "Total Tax", value: period.totalTax, kind: "out" },
+            ]
+          : [
+              { label: "Net Take-Home", value: netTakeHome, kind: "in" },
+              { label: "Base", value: period.base, kind: "in" },
+              { label: "Telephone", value: period.telephone, kind: "in" },
+              { label: "401K Employer Match", value: period.k401Emplr, kind: "in" },
+              { label: "Medical", value: period.medical, kind: "out" },
+              { label: "401K (employee)", value: period.k401, kind: "out" },
+              { label: "ESPP Deduction", value: period.espp, kind: "out" },
+              { label: "Federal", value: period.federal, kind: "out" },
+              { label: "SSN", value: period.ssn, kind: "out" },
+              { label: "Medicare", value: period.medicare, kind: "out" },
+              { label: "State W/H", value: period.stateWH, kind: "out" },
+              { label: "State SDI", value: period.stateSDI, kind: "out" },
+              { label: "Total Tax", value: period.totalTax, kind: "out" },
+            ];
 
         return (
           <Modal title={`${period.label} — ${yr.year}`} onClose={() => setViewPeriod(null)} wide>
@@ -1228,14 +1284,17 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   </div>
                 )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.75rem 1.25rem" }}>
-                  {grid.map(([lbl, val]) => (
-                    <div key={lbl}>
-                      <div style={{ fontSize: 11, opacity: 0.7 }}>{lbl}</div>
-                      <strong className="equity-amt">{fmt(val)}</strong>
+                  {grid.map((g) => (
+                    <div key={g.label}>
+                      <div style={{ fontSize: 11, opacity: 0.7 }}>{g.label}</div>
+                      <strong className="equity-amt" style={{ color: g.kind === "in" ? "#16a34a" : "#dc2626" }}>{fmt(g.value)}</strong>
                     </div>
                   ))}
                 </div>
                 <div style={{ marginTop: "1.25rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+                  {period.onViewShares && (
+                    <button onClick={period.onViewShares}>View {period.shares?.toLocaleString()} sh breakdown</button>
+                  )}
                   {period.onEdit && (
                     <button onClick={period.onEdit}>Edit with real paystub numbers</button>
                   )}
