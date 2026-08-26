@@ -1592,29 +1592,46 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           {(["Contribution Room", "Equity Timing", "Deduction Strategy", "Withholding", "State Tax", "Informational"] as const).map((cat) => {
             const items = taxPlanningScenarios.filter((s) => s.category === cat);
             if (items.length === 0) return null;
+            const cards = items.map((s) => (
+              <div key={s.id} className={`tp-card${s.actionable ? "" : " tp-card--dim"}`}>
+                <div className="tp-card-head">
+                  <strong className="tp-card-title">{s.title}</strong>
+                  {s.totalSavings > 0 && (
+                    <strong className={`tp-card-amount${s.hypothetical ? " tp-card-amount--hypothetical" : ""}`}>
+                      {s.hypothetical ? "if sold: " : "up to "}{fmt(s.totalSavings)}
+                    </strong>
+                  )}
+                </div>
+                <p className="tp-card-desc">{s.description}</p>
+                {s.totalSavings > 0 && (
+                  <p className="tp-card-meta">
+                    Federal: {fmt(s.fedSavings)} {s.stateSavings > 0 && <>· {stateResidency.name}: {fmt(s.stateSavings)}</>}
+                    {s.deadline && <> · by {fmtDate(s.deadline)}</>}
+                  </p>
+                )}
+                {s.caveat && <p className="tp-card-caveat">{s.caveat}</p>}
+              </div>
+            ));
+            // Equity Timing is purely informational (contingent on a sale you're not currently
+            // planning) and tends to have the most cards, one per held lot -- collapsed by
+            // default so it doesn't dominate the page; the summary line alone tells you whether
+            // it's worth opening.
+            if (cat === "Equity Timing") {
+              const total = items.reduce((s, i) => s + i.totalSavings, 0);
+              return (
+                <details key={cat} className="tp-cat">
+                  <summary className="tp-cat-label tp-cat-label--collapsible">
+                    {cat} — {items.length} batch{items.length !== 1 ? "es" : ""} not yet long-term
+                    {total > 0 && <> · up to {fmt(total)} total if each is held to its own anniversary</>}
+                  </summary>
+                  <div style={{ marginTop: "0.6rem" }}>{cards}</div>
+                </details>
+              );
+            }
             return (
               <div key={cat} className="tp-cat">
                 <h5 className="tp-cat-label">{cat}</h5>
-                {items.map((s) => (
-                  <div key={s.id} className={`tp-card${s.actionable ? "" : " tp-card--dim"}`}>
-                    <div className="tp-card-head">
-                      <strong className="tp-card-title">{s.title}</strong>
-                      {s.totalSavings > 0 && (
-                        <strong className={`tp-card-amount${s.hypothetical ? " tp-card-amount--hypothetical" : ""}`}>
-                          {s.hypothetical ? "if sold: " : "up to "}{fmt(s.totalSavings)}
-                        </strong>
-                      )}
-                    </div>
-                    <p className="tp-card-desc">{s.description}</p>
-                    {s.totalSavings > 0 && (
-                      <p className="tp-card-meta">
-                        Federal: {fmt(s.fedSavings)} {s.stateSavings > 0 && <>· {stateResidency.name}: {fmt(s.stateSavings)}</>}
-                        {s.deadline && <> · by {fmtDate(s.deadline)}</>}
-                      </p>
-                    )}
-                    {s.caveat && <p className="tp-card-caveat">{s.caveat}</p>}
-                  </div>
-                ))}
+                {cards}
               </div>
             );
           })}

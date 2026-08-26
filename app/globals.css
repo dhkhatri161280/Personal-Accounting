@@ -7911,6 +7911,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .tp-projection .tp-card-desc { color: #1e3a5f; }
 .tp-cat { margin-bottom: 1.25rem; }
 .tp-cat-label { margin: 0 0 0.5rem; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+.tp-cat-label--collapsible { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.3rem; text-transform: none; letter-spacing: normal; font-weight: 600; }
+.tp-cat-label--collapsible::-webkit-details-marker { display: none; }
+.tp-cat-label--collapsible::before { content: "▸"; font-size: 10px; color: #94a3b8; transition: transform 0.12s; }
+details[open] > .tp-cat-label--collapsible::before { transform: rotate(90deg); }
 .tp-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.6rem; background: #fff; }
 .tp-card--dim { background: #f8fafc; }
 .tp-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; }
