@@ -12,13 +12,15 @@ import {
   type GrAccount,
 } from "@/lib/gr-consolidation";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
+import { NetWorthReport } from "@/components/reports/NetWorthReport";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { EquityReport } from "@/components/reports/EquityReport";
+import { computeGrNetWorthTrend } from "@/lib/net-worth-trend";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
-type Report = "trial" | "income" | "balance" | "cashflow" | "cash" | "equity";
+type Report = "trial" | "income" | "balance" | "cashflow" | "cash" | "equity" | "networth";
 type DashKind = "cash" | "investments" | "fixedassets" | "capital" | "income" | "vouchers";
 
 const fmtInr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
@@ -608,6 +610,14 @@ export function GrApp() {
   const capitalTransfer = activeAccounts
     .filter((a) => ["Income", "Expense"].includes(grNature(a.parent)))
     .reduce((s, a) => s + a.closingInr, 0);
+
+  // Net Worth: real debt only (loans, credit cards, sundry creditors) -- excludes Capital
+  // Account/Reserves & Surplus, which are the accumulated net worth itself, not money owed to
+  // someone else (see BalanceSheetReport's bsLiabs above, which needs both for BS presentation).
+  const nwLiabs = activeAccounts
+    .filter((a) => grNature(a.parent) === "Liability" && Math.abs(a.closingInr) > tol)
+    .map(toRow);
+  const netWorthTrend = computeGrNetWorthTrend(gr.accounts, gr.transactions, grNature);
 
   // I&E rows for GroupedReport — use period-specific activity
   const ieExpenseRows = expenseAccounts
@@ -1372,6 +1382,9 @@ export function GrApp() {
             <button className={report === "cashflow" ? "selected" : ""} onClick={() => setReport("cashflow")}>
               Cash Flow
             </button>
+            <button className={report === "networth" ? "selected" : ""} onClick={() => setReport("networth")}>
+              Net Worth
+            </button>
             <button className={report === "cash" ? "selected" : ""} onClick={() => setReport("cash")}>
               Cash and Bank
             </button>
@@ -1488,6 +1501,23 @@ export function GrApp() {
                 capitalTransfer={capitalTransfer}
                 link={(a) => <LedgerLink name={a.name} />}
                 fmt={(n) => fmt(n)}
+              />
+            </div>
+          )}
+
+          {/* Net Worth — Assets minus real debt only, consolidated across US + India in INR */}
+          {report === "networth" && (
+            <div className="data-panel">
+              <h3>Net Worth (GR Consolidated)</h3>
+              <p className="gr-report-note">
+                All-time closing balances in INR, across both books.
+              </p>
+              <NetWorthReport
+                assets={bsAssets}
+                liabilities={nwLiabs}
+                trend={netWorthTrend}
+                fmt={fmt}
+                uiTheme={uiTheme}
               />
             </div>
           )}

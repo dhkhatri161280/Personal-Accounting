@@ -44,6 +44,8 @@ import { UnlockScreen } from "@/components/vault/UnlockScreen";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
+import { NetWorthReport } from "@/components/reports/NetWorthReport";
+import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
 import { TaxReport } from "@/components/reports/TaxReport";
@@ -569,6 +571,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     return { opening, debit, credit, closing, period };
   }, [data, year, customStart, customEnd]);
 
+  // Full-history net worth trend, independent of the report's selected period (year/custom
+  // range) -- net worth is a "since inception" view, not a period-scoped one like the other reports.
+  const netWorthTrend = useMemo(() => {
+    if (!data) return [];
+    return computeNetWorthTrend(data.accounts, data.transactions, data.groups || []);
+  }, [data]);
+
   const { cashFlowItems, cashFlowGroups } = useMemo(() => {
     if (!data) return { cashFlowItems: [], cashFlowGroups: [] };
     const tol = 0.005;
@@ -814,7 +823,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     isLiability = (a: (typeof rows)[number]) =>
       !isProfitLoss(a) && ["Liability", "Capital"].includes(natureFor(a)),
     isAsset = (a: (typeof rows)[number]) =>
-      !isProfitLoss(a) && ["Asset", "Bank", "Cash", "Investment"].includes(natureFor(a));
+      !isProfitLoss(a) && ["Asset", "Bank", "Cash", "Investment"].includes(natureFor(a)),
+    // Real debt only (loans, credit cards, sundry creditors) -- excludes Capital Account/Reserves
+    // & Surplus, which represent accumulated net worth itself rather than money owed to someone
+    // else. Used for Net Worth (Assets − real Liabilities), not the accounting-style Balance Sheet
+    // (Assets = Liabilities + Capital) which needs both.
+    isRealLiability = (a: (typeof rows)[number]) => !isProfitLoss(a) && natureFor(a) === "Liability";
 
   const incomeRows = active.filter(isIncome),
     expenseRows = active.filter(isExpense),
@@ -826,6 +840,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .filter((a) => Math.abs(a.closing) > tol),
     assetRows = active.filter((a) => isAsset(a) && Math.abs(a.closing) > tol),
     liabilityRows = active.filter((a) => isLiability(a) && Math.abs(a.closing) > tol),
+    realLiabilityRows = active.filter((a) => isRealLiability(a) && Math.abs(a.closing) > tol),
     periodIncome = periodIncomeRows.reduce((s, a) => s + a.closing, 0),
     periodExpense = periodExpenseRows.reduce((s, a) => s + a.closing, 0),
     periodSurplus = periodIncome - periodExpense;
@@ -2139,6 +2154,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               Cash Flow
             </button>
             <button
+              className={report === "networth" ? "selected" : ""}
+              onClick={() => setReport("networth")}
+            >
+              Net Worth
+            </button>
+            <button
               className={report === "cash" ? "selected" : ""}
               onClick={() => setReport("cash")}
             >
@@ -2463,6 +2484,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "recon" && data && (
             <ReconReport data={data} fmt={fmt} />
+          )}
+          {report === "networth" && (
+            <>
+              <h3 className="report-inline-heading">
+                Net Worth — <PeriodSelect />
+              </h3>
+              <NetWorthReport
+                assets={assetRows}
+                liabilities={realLiabilityRows}
+                trend={netWorthTrend}
+                fmt={fmt}
+                uiTheme={uiTheme}
+              />
+            </>
           )}
         </>
       )}
