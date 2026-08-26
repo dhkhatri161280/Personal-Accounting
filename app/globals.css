@@ -7897,6 +7897,29 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   .fw-handle { display: none; }
 }
 
+/* Tax Planning popup (TaxReport.tsx) -- font sizes match the same typography scale used by
+   .equity-summary-card / .equity-section-head elsewhere in the app (15px bold values, 16px
+   section headers, 10-12px captions), instead of one-off pixel values scoped to just this
+   popup, so it reads consistently with the rest of the report whether .ui-refresh is on or not. */
+.tp-disclaimer { font-size: 12px; opacity: 0.7; margin: 0 0 1rem; line-height: 1.5; }
+.tp-projection { border: 1px solid #dbeafe; background: #eff6ff; border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; }
+.tp-projection .tp-card-desc { color: #1e3a5f; }
+.tp-cat { margin-bottom: 1.25rem; }
+.tp-cat-label { margin: 0 0 0.5rem; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+.tp-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.6rem; background: #fff; }
+.tp-card--dim { background: #f8fafc; }
+.tp-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; }
+.tp-card-title { font-size: 14px; font-weight: 700; color: #0f172a; }
+.tp-card-amount { font-size: 15px; font-weight: 800; color: #16a34a; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tp-card-amount--hypothetical { color: #64748b; font-size: 13px; font-weight: 700; }
+.tp-card-desc { font-size: 13px; margin: 0.4rem 0 0; color: #334155; line-height: 1.55; }
+.tp-card-meta { font-size: 12px; margin: 0.4rem 0 0; opacity: 0.75; }
+.tp-card-caveat { font-size: 11.5px; margin: 0.4rem 0 0; opacity: 0.65; font-style: italic; line-height: 1.5; }
+.ui-refresh .tp-projection { border-radius: var(--ref-radius); border-color: #bfdbfe; }
+.ui-refresh .tp-card { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow); }
+.ui-refresh .tp-card:hover { box-shadow: var(--ref-shadow-hover); }
+.ui-refresh .tp-cat-label { font-size: 11px !important; }
+
 /* Day Book's transaction table uses hardcoded pixel column widths (table-layout: fixed) tuned
    for classic mode's ~9px font. .ui-refresh bumps table text to 13px with more padding
    (.ui-refresh .data-panel table td above) without touching those widths -- at the larger size

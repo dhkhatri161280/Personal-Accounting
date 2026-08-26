@@ -14,7 +14,7 @@ import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-eng
 import { estimateNjStateTax, computeNjPropertyTaxDeduction } from "@/lib/tax-nj-engine";
 import { estimateAzStateTax, computeAzItemizedDeduction } from "@/lib/tax-az-engine";
 import { resolveStateResidency } from "@/lib/tax-state-residency";
-import { computeTaxPlanningScenarios, type TaxPlanningScenario } from "@/lib/tax-planning";
+import { computeTaxPlanningScenarios } from "@/lib/tax-planning";
 import { fmtDate } from "@/lib/format-date";
 
 interface TaxReportProps {
@@ -557,10 +557,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           });
 
   // Computed "what if" scenarios (own tax engine only, no external AI/data-sharing) -- see
-  // lib/tax-planning.ts. RSU/ESPP hold-timing scenarios are skipped internally when no live
-  // price is available; everything else (401K/HSA room, itemize/bunch, withholding check)
-  // doesn't need one.
-  const taxPlanningScenarios: TaxPlanningScenario[] = computeTaxPlanningScenarios({
+  // lib/tax-planning.ts. Projects the rest of the tax year forward (remaining semi-monthly
+  // paychecks averaged from what's been received, plus any shares still scheduled to vest at
+  // today's live price) rather than only looking at year-to-date actuals. RSU/ESPP hold-timing
+  // scenarios are skipped internally when no live price is available.
+  const { scenarios: taxPlanningScenarios, projection: taxPlanningProjection } = computeTaxPlanningScenarios({
     taxYear: taxEstimateYear,
     filingStatus,
     stateCode: stateResidency.code,
@@ -580,9 +581,6 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     totalStateWH,
     stateItemizedTotal: stateItemized,
     stateHsaConforms: stateResidency.code === "AZ",
-    baselineFederalTax: taxEstimate.estimatedTax,
-    baselineStateTax: stateTaxEstimate.estimatedTax,
-    baselineFederalBalanceDue: taxEstimate.balanceDue,
     baselineFederalStandardDeduction: taxEstimate.rules.standardDeduction,
     grants: equity?.grants ?? [],
     esppPurchases: equity?.esppPurchases ?? [],
@@ -1486,43 +1484,60 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
 
       {showTaxPlanningModal && (
         <Modal title={`Tax Planning — ${yr.year}`} onClose={() => setShowTaxPlanningModal(false)} wide>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 1rem" }}>
+          <p className="tp-disclaimer">
             Every number below is computed by this app's own tax-rule tables and formulas — the same ones used
             elsewhere in this report — not by an external AI/LLM, and none of your data leaves the app. These are
             estimates to inform a conversation with a CPA, not tax advice, and not a substitute for one.
           </p>
+          <div className="tp-projection">
+            <h5 className="tp-cat-label">How this is projected</h5>
+            <p className="tp-card-desc">
+              You've received {taxPlanningProjection.periodsElapsed} of {taxPlanningProjection.periodsPerYear} paychecks
+              this year (about {fmt(taxPlanningProjection.avgRegularGrossPerPeriod)} gross each on average, not counting
+              stock vests). The {taxPlanningProjection.periodsRemaining} paychecks left before year-end are projected at
+              that same average, adding about {fmt(taxPlanningProjection.projectedRemainingGross)}.
+              {taxPlanningProjection.futureVestShares > 0 && taxPlanningProjection.livePriceUsed ? (
+                <>
+                  {" "}
+                  {taxPlanningProjection.futureVestShares.toLocaleString()} shares are still scheduled to vest before
+                  year-end — valued at today's ${taxPlanningProjection.livePriceUsed.toFixed(2)}, that's about{" "}
+                  {fmt(taxPlanningProjection.futureVestValue)} more ordinary income.
+                </>
+              ) : taxPlanningProjection.futureVestShares > 0 ? (
+                <> Shares are still scheduled to vest before year-end, but a live stock price wasn't available to value them here.</>
+              ) : (
+                <> No further RSU vests are scheduled before year-end.</>
+              )}{" "}
+              Put together, that's a projected {fmt(taxPlanningProjection.fullYearGross)} gross for {yr.year} — and on
+              that basis, if nothing changes, your projected federal tax for the year is about{" "}
+              {fmt(taxPlanningProjection.projectedFederalTax)} ({stateResidency.name}: about {fmt(taxPlanningProjection.projectedStateTax)}).
+              Every scenario below is measured against this projection, not just what's happened so far.
+            </p>
+          </div>
           {(["Contribution Room", "Equity Timing", "Deduction Strategy", "Withholding", "Informational"] as const).map((cat) => {
             const items = taxPlanningScenarios.filter((s) => s.category === cat);
             if (items.length === 0) return null;
             return (
-              <div key={cat} style={{ marginBottom: "1.25rem" }}>
-                <h5 style={{ margin: "0 0 0.5rem", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.6 }}>{cat}</h5>
+              <div key={cat} className="tp-cat">
+                <h5 className="tp-cat-label">{cat}</h5>
                 {items.map((s) => (
-                  <div
-                    key={s.id}
-                    style={{
-                      border: "1px solid #e2e8f0", borderRadius: 10, padding: "0.85rem 1rem", marginBottom: "0.6rem",
-                      background: s.actionable ? "#fff" : "#f8fafc",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" }}>
-                      <strong style={{ fontSize: 13 }}>{s.title}</strong>
+                  <div key={s.id} className={`tp-card${s.actionable ? "" : " tp-card--dim"}`}>
+                    <div className="tp-card-head">
+                      <strong className="tp-card-title">{s.title}</strong>
                       {s.totalSavings > 0 && (
-                        <strong className="equity-amt" style={{ color: "#16a34a", fontSize: 14, whiteSpace: "nowrap" }}>
-                          up to {fmt(s.totalSavings)}
+                        <strong className={`tp-card-amount${s.hypothetical ? " tp-card-amount--hypothetical" : ""}`}>
+                          {s.hypothetical ? "if sold: " : "up to "}{fmt(s.totalSavings)}
                         </strong>
                       )}
                     </div>
-                    <p style={{ fontSize: 12, margin: "0.4rem 0 0", color: "#334155" }}>{s.description}</p>
+                    <p className="tp-card-desc">{s.description}</p>
                     {s.totalSavings > 0 && (
-                      <p style={{ fontSize: 11, margin: "0.4rem 0 0", opacity: 0.75 }}>
+                      <p className="tp-card-meta">
                         Federal: {fmt(s.fedSavings)} {s.stateSavings > 0 && <>· {stateResidency.name}: {fmt(s.stateSavings)}</>}
                         {s.deadline && <> · by {fmtDate(s.deadline)}</>}
                       </p>
                     )}
-                    {s.caveat && (
-                      <p style={{ fontSize: 10.5, margin: "0.4rem 0 0", opacity: 0.6, fontStyle: "italic" }}>{s.caveat}</p>
-                    )}
+                    {s.caveat && <p className="tp-card-caveat">{s.caveat}</p>}
                   </div>
                 ))}
               </div>
