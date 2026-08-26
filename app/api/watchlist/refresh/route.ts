@@ -1,10 +1,12 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
-import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
+import { WATCHLIST_DEFAULT, type WatchlistEntry } from "@/lib/watchlist-default";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 const KV_KEY = "watchlist:v1";
+const MIN_ITEMS = 10;
+const MAX_ITEMS = 24;
 
 async function fetchPrice5d(symbol: string) {
   try {
@@ -14,25 +16,29 @@ async function fetchPrice5d(symbol: string) {
     );
     const json = await res.json() as {
       chart?: { result?: Array<{
-        meta?: { regularMarketPrice?: number; chartPreviousClose?: number; fiftyTwoWeekHigh?: number; fiftyTwoWeekLow?: number };
-        indicators?: { quote?: Array<{ close?: number[] }> };
+        meta?: { regularMarketPrice?: number; chartPreviousClose?: number };
       }> };
     };
-    const meta   = json?.chart?.result?.[0]?.meta;
-    const closes = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter((c): c is number => typeof c === "number") ?? [];
-    const price  = meta?.regularMarketPrice ?? null;
-    const first  = closes[0] ?? null;
-    return {
-      symbol,
-      price,
-      prevClose:  meta?.chartPreviousClose ?? null,
-      change5d:   price !== null && first !== null ? ((price - first) / first * 100) : null,
-      high52w:    meta?.fiftyTwoWeekHigh ?? null,
-      low52w:     meta?.fiftyTwoWeekLow  ?? null,
-    };
+    const meta = json?.chart?.result?.[0]?.meta;
+    return { symbol, price: meta?.regularMarketPrice ?? null, prevClose: meta?.chartPreviousClose ?? null };
   } catch {
-    return { symbol, price: null, prevClose: null, change5d: null, high52w: null, low52w: null };
+    return { symbol, price: null, prevClose: null };
   }
+}
+
+function change5d(price: number | null, prevClose: number | null) {
+  return price !== null && prevClose !== null && prevClose !== 0 ? ((price - prevClose) / prevClose) * 100 : null;
+}
+
+function isValidEntry(e: unknown): e is WatchlistEntry {
+  if (!e || typeof e !== "object") return false;
+  const w = e as Record<string, unknown>;
+  if (typeof w.symbol !== "string" || !w.symbol.trim()) return false;
+  if (typeof w.company !== "string" || !w.company.trim()) return false;
+  if (w.horizon !== "short" && w.horizon !== "long" && w.horizon !== "cyclical") return false;
+  if (typeof w.thesis !== "string" || !w.thesis.trim()) return false;
+  if (w.horizon === "cyclical" && (!Array.isArray(w.buyMonths) || !Array.isArray(w.sellMonths))) return false;
+  return true;
 }
 
 export async function POST() {
@@ -41,8 +47,9 @@ export async function POST() {
     return Response.json({ error: "GROQ_API_KEY not configured. Run: npx wrangler secret put GROQ_API_KEY --config wrangler.biometric.json" }, { status: 503 });
   }
 
-  // 1. Load current watchlist from KV (fall back to defaults)
-  let currentItems = WATCHLIST_DEFAULT;
+  // 1. Load current watchlist from KV (fall back to defaults) -- kept only as the
+  // returned-unchanged fallback if the AI response is unusable, not as a fixed ticker set.
+  let currentItems: WatchlistEntry[] = WATCHLIST_DEFAULT;
   try {
     const raw = await bindings.VAULT.get(KV_KEY);
     if (raw) {
@@ -51,44 +58,40 @@ export async function POST() {
     }
   } catch { /* use defaults */ }
 
-  // 2. Fetch 5-day price data for all symbols + market indices
-  const symbols       = [...new Set(currentItems.map(w => w.symbol))];
+  // 2. Market-wide context only (index levels) -- the AI picks its own tickers below, so there's
+  // no fixed symbol list to pre-fetch prices for.
   const marketSymbols = ["SPY", "QQQ", "^VIX"];
-  const priceResults  = await Promise.all([...symbols, ...marketSymbols].map(fetchPrice5d));
-  const priceMap      = Object.fromEntries(priceResults.map(p => [p.symbol, p]));
-
-  // 3. Build prompt context
-  const today         = new Date().toISOString().slice(0, 10);
-  const currentMonth  = new Date().getMonth() + 1;
-
-  const marketCtx = marketSymbols
-    .map(s => { const p = priceMap[s]; return `${s.replace("^", "")}: $${p.price?.toFixed(2) ?? "N/A"} (5d: ${p.change5d?.toFixed(1) ?? "N/A"}%)`; })
+  const marketPrices  = await Promise.all(marketSymbols.map(fetchPrice5d));
+  const marketCtx = marketPrices
+    .map((p) => `${p.symbol.replace("^", "")}: $${p.price?.toFixed(2) ?? "N/A"} (5d: ${change5d(p.price, p.prevClose)?.toFixed(1) ?? "N/A"}%)`)
     .join(" | ");
 
-  const stockCtx = currentItems.map(w => {
-    const p = priceMap[w.symbol];
-    return `${w.symbol} (${w.company}, ${w.horizon}) — Live=$${p.price?.toFixed(2) ?? "N/A"} 5d=${p.change5d?.toFixed(1) ?? "N/A"}% 52wH=$${p.high52w?.toFixed(0) ?? "N/A"} 52wL=$${p.low52w?.toFixed(0) ?? "N/A"}`;
-  }).join("\n");
+  const today        = new Date().toISOString().slice(0, 10);
+  const currentMonth = new Date().getMonth() + 1;
+  const currentSymbols = currentItems.map((w) => w.symbol).join(", ");
 
-  const prompt = `You are a US equity strategist providing short thesis updates. Today is ${today} (month ${currentMonth}).
+  const prompt = `You are a US equity strategist building an actively-managed watchlist from scratch each cycle -- not just updating commentary on a fixed list.
 
+TODAY: ${today} (month ${currentMonth})
 MARKET: ${marketCtx}
+YESTERDAY'S WATCHLIST (for context only, not a requirement to keep any of these): ${currentSymbols}
 
-STOCKS (symbol, horizon, live price, 5-day change, 52-week range):
-${stockCtx}
+TASK: Scan for what's actually moving markets right now -- recent earnings surprises, major company news, sector momentum, macro events (Fed policy, rates, geopolitics) -- and propose a fresh watchlist of exactly 18 US-listed stocks worth actively watching this cycle. Drop names whose catalyst has played out; keep or add names with a live, current reason to watch them. It is fine and expected for this list to differ from yesterday's.
 
-TASK: For each stock above, write a 1-2 sentence thesis that reflects TODAY's price action and market context.
-- Reference the actual live price and 5d movement in your thesis
-- NEVER include NVDA
-- For stocks down >8% in 5d: note if it is a buying dip or a broken thesis
-- For stocks up >8% in 5d: note the momentum and whether to hold or trim
+Mix: 6-8 short-term momentum names, 5-7 long-term structural holds, 3-5 cyclical/seasonal plays whose buy/sell window is relevant to month ${currentMonth} specifically.
 
-Return ONLY a JSON array of exactly ${currentItems.length} objects. Each object must have exactly two fields:
-{ "symbol": "TICKER", "thesis": "1-2 sentence thesis here" }
+Rules:
+- NEVER include NVDA.
+- No duplicate symbols.
+- Every thesis must reference a SPECIFIC, real, current reason (an actual earnings result, a named product/deal, a macro event) -- not generic filler like "strong fundamentals."
+- For horizon "cyclical" entries only, include buyMonths and sellMonths (arrays of month numbers 1-12) and a short seasonNote.
 
-No other fields. No markdown. No explanation. Just the JSON array.`;
+Return ONLY a JSON array of exactly 18 objects, each with these fields:
+{ "symbol": "TICKER", "company": "Full Company Name", "horizon": "short" | "long" | "cyclical", "thesis": "1-2 sentences with a specific, current reason", "analystTarget": number, "buyBelow": number, "sellAbove": number, "buyMonths": [numbers] (cyclical only), "sellMonths": [numbers] (cyclical only), "seasonNote": "short phrase" (cyclical only) }
 
-  // 4. Call Groq API (OpenAI-compatible)
+No markdown. No explanation. Just the JSON array.`;
+
+  // 3. Call Groq API (OpenAI-compatible)
   const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -97,12 +100,12 @@ No other fields. No markdown. No explanation. Just the JSON array.`;
     },
     body: JSON.stringify({
       model: "openai/gpt-oss-20b",
-      max_tokens: 4096,
+      max_tokens: 6144,
       messages: [
         { role: "system", content: "You are a US equity strategist. Return only valid JSON arrays, no markdown, no explanation." },
         { role: "user", content: prompt },
       ],
-      temperature: 0.3,
+      temperature: 0.4,
     }),
   });
 
@@ -114,35 +117,43 @@ No other fields. No markdown. No explanation. Just the JSON array.`;
   const groqJson = await groqRes.json() as { choices?: Array<{ message?: { content?: string } }> };
   const rawText  = groqJson?.choices?.[0]?.message?.content ?? "";
 
-  // 5. Parse thesis updates and merge into existing items (all numeric fields preserved)
-  let updatedItems: typeof WATCHLIST_DEFAULT;
+  // 4. Parse + validate the AI's proposed watchlist. A malformed or too-short response leaves
+  // the existing watchlist untouched rather than overwriting it with something broken.
+  let updatedItems: WatchlistEntry[];
   try {
     const match = rawText.match(/\[[\s\S]*\]/);
     if (!match) throw new Error("No JSON array in response");
-    const aiUpdates = JSON.parse(match[0]) as Array<{ symbol: string; thesis: string }>;
-    if (!Array.isArray(aiUpdates) || aiUpdates.length === 0) throw new Error("Empty or invalid array");
-    const thesisMap: Record<string, string> = {};
-    for (const u of aiUpdates) if (u.symbol && u.thesis) thesisMap[u.symbol] = u.thesis;
-    // Merge: numeric fields always come from WATCHLIST_DEFAULT (source of truth),
-    // thesis comes from AI if available, otherwise keep existing thesis from currentItems
-    const currentThesisMap: Record<string, string> = Object.fromEntries(currentItems.map(w => [w.symbol, w.thesis]));
-    updatedItems = WATCHLIST_DEFAULT.map(def => ({
-      ...def,
-      thesis: thesisMap[def.symbol] ?? currentThesisMap[def.symbol] ?? def.thesis,
-    }));
+    const parsed = JSON.parse(match[0]) as unknown[];
+    if (!Array.isArray(parsed)) throw new Error("Response is not an array");
+
+    const seen = new Set<string>();
+    const valid: WatchlistEntry[] = [];
+    for (const raw of parsed) {
+      if (!isValidEntry(raw)) continue;
+      const symbol = raw.symbol.toUpperCase().trim();
+      if (symbol === "NVDA" || seen.has(symbol)) continue;
+      seen.add(symbol);
+      valid.push({ ...raw, symbol });
+      if (valid.length >= MAX_ITEMS) break;
+    }
+
+    if (valid.length < MIN_ITEMS) {
+      throw new Error(`Only ${valid.length} valid entries after filtering (need at least ${MIN_ITEMS})`);
+    }
+    updatedItems = valid;
   } catch (e) {
     return Response.json({ error: `Parse error: ${String(e)}`, raw: rawText.slice(0, 500) }, { status: 502 });
   }
 
-  // 6. Save to KV
+  // 5. Save to KV
   const result = {
     items: updatedItems,
     updatedAt: new Date().toISOString(),
     source: "claude-ai",
     marketSnapshot: {
-      spy: priceMap["SPY"]?.price,
-      qqq: priceMap["QQQ"]?.price,
-      vix: priceMap["^VIX"]?.price,
+      spy: marketPrices.find((p) => p.symbol === "SPY")?.price ?? undefined,
+      qqq: marketPrices.find((p) => p.symbol === "QQQ")?.price ?? undefined,
+      vix: marketPrices.find((p) => p.symbol === "^VIX")?.price ?? undefined,
     },
   };
   try {

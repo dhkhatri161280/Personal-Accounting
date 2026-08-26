@@ -5,6 +5,7 @@ import type { WatchlistEntry } from "@/lib/watchlist-default";
 import type { Trade } from "@/lib/vault-types";
 import { fmtDate } from "@/lib/format-date";
 import { StatIcon } from "@/components/Icon";
+import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -161,6 +162,7 @@ export function TradingReport({
   async function deleteTrade(id: string) {
     if (!confirm("Delete this trade record? This can't be undone.")) return;
     await onSave(effectiveTrades.filter((t) => t.id !== id));
+    closeTradeForm();
   }
 
   // ── Layer 1: Live prices with auto-refresh ───────────────────────────────
@@ -378,14 +380,13 @@ export function TradingReport({
           <button className={activeTab === "closed"    ? "selected" : ""} onClick={() => setActiveTab("closed")}>Closed Positions ({closed.length})</button>
           <button className={activeTab === "watchlist" ? "selected" : ""} onClick={() => setActiveTab("watchlist")}>Watchlist ({watchlistItems.length})</button>
         </div>
-        {activeTab !== "watchlist" && !showTradeForm && (
+        {activeTab !== "watchlist" && (
           <button onClick={openAddTrade}>+ Add Trade</button>
         )}
       </div>
 
       {showTradeForm && (
-        <div className="equity-form">
-          <h5>{editTradeId ? "Edit Trade" : "New Trade"}</h5>
+        <Modal title={editTradeId ? "Edit Trade" : "New Trade"} onClose={closeTradeForm}>
           <div className="equity-form-grid">
             <label>
               Company
@@ -438,8 +439,17 @@ export function TradingReport({
               {savingTrade ? "Saving…" : editTradeId ? "Save Changes" : "Add Trade"}
             </button>
             <button onClick={closeTradeForm} disabled={savingTrade}>Cancel</button>
+            {editTradeId && (
+              <button
+                onClick={() => deleteTrade(editTradeId)}
+                disabled={savingTrade}
+                style={{ marginLeft: "auto", color: "#dc2626" }}
+              >
+                🗑 Delete Trade
+              </button>
+            )}
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* ── Open Positions ── */}
@@ -450,7 +460,7 @@ export function TradingReport({
               <th>Stock</th><th className="right">Buy Date</th><th className="right">Units</th>
               <th className="right">Cost/Sh</th><th className="right">Total Cost</th>
               <th className="right">Current Price</th><th className="right">Market Value</th>
-              <th className="right">G/(L)</th><th className="right">Daily G/(L)</th><th className="right">Actions</th>
+              <th className="right">G/(L)</th><th className="right">Daily G/(L)</th>
             </tr></thead>
             <tbody>
               {open.map((t) => {
@@ -458,7 +468,7 @@ export function TradingReport({
                 const dailyGL = t.units * (curPrice(t) - prevClose(t));
                 const dailyPct = ((curPrice(t) - prevClose(t)) / prevClose(t)) * 100;
                 return (
-                  <tr key={t.id} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
+                  <tr key={t.id} className={`tr-row-clickable ${gl < 0 ? "tr-row-loss" : "tr-row-gain"}`} onClick={() => openEditTrade(t)}>
                     <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
                     <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
@@ -471,10 +481,6 @@ export function TradingReport({
                     <td className="right trading-amt">{fmt(mv)}</td>
                     <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
                     <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</span><span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span></div></td>
-                    <td className="right">
-                      <button onClick={() => openEditTrade(t)} title="Edit or close this trade">✎</button>{" "}
-                      <button onClick={() => deleteTrade(t.id)} title="Delete this trade">🗑</button>
-                    </td>
                   </tr>
                 );
               })}
@@ -486,7 +492,6 @@ export function TradingReport({
               <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * curPrice(t), 0))}</th>
               <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
               {(() => { const td = open.reduce((s, t) => s + vsToday(t), 0); return <th className={`right trading-amt ${glClass(td)}`}>{td >= 0 ? "+" : ""}{fmt(td)}</th>; })()}
-              <th />
             </tr></tfoot>
           </table>
         </div>
@@ -506,7 +511,7 @@ export function TradingReport({
               <th>Stock</th><th className="right">Buy Date</th><th className="right">Sale Date</th>
               <th className="right">Days</th><th className="right">Units</th>
               <th className="right">Cost/Sh</th><th className="right">Sale/Sh</th>
-              <th className="right">Total Cost</th><th className="right">Proceeds</th><th className="right">G/(L)</th><th className="right">Actions</th>
+              <th className="right">Total Cost</th><th className="right">Proceeds</th><th className="right">G/(L)</th>
             </tr></thead>
             <tbody>
               {sortedClosed.map((t) => {
@@ -514,7 +519,7 @@ export function TradingReport({
                 const proceeds = t.units * t.marketOrSalePrice;
                 const days = daysBetween(t.buyDate, t.saleDate!);
                 return (
-                  <tr key={t.id} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
+                  <tr key={t.id} className={`tr-row-clickable ${gl < 0 ? "tr-row-loss" : "tr-row-gain"}`} onClick={() => openEditTrade(t)}>
                     <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
                     <td className="right">{fmtDate(t.saleDate!)}</td>
@@ -525,10 +530,6 @@ export function TradingReport({
                     <td className="right trading-amt">{fmt(tc)}</td>
                     <td className="right trading-amt">{fmt(proceeds)}</td>
                     <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
-                    <td className="right">
-                      <button onClick={() => openEditTrade(t)} title="Edit, or clear the sale date to reopen">✎</button>{" "}
-                      <button onClick={() => deleteTrade(t.id)} title="Delete this trade">🗑</button>
-                    </td>
                   </tr>
                 );
               })}
@@ -538,7 +539,6 @@ export function TradingReport({
               <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
               <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
               <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
-              <th />
             </tr></tfoot>
           </table>
         </div>
