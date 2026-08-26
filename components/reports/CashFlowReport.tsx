@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { StatIcon, type IconKind } from "@/components/Icon";
 
 interface CashFlowGroup {
   group: string;
@@ -22,6 +23,7 @@ export function CashFlowReport({
   fmt,
   onGroup,
   onLedger,
+  uiTheme,
 }: {
   periodLabel: string;
   cashOpening: number;
@@ -35,6 +37,7 @@ export function CashFlowReport({
   fmt: (n: number) => string;
   onGroup: (group: string) => void;
   onLedger: (group: string, ledger: string) => void;
+  uiTheme?: "classic" | "refresh";
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["inflows", "outflows"]));
   const toggle = (k: string) =>
@@ -101,14 +104,28 @@ export function CashFlowReport({
     );
   };
 
+  const summaryCards: { label: string; value: number; icon: IconKind; color: string }[] = [
+    { label: "Opening Balance", value: cashOpening, icon: "bank", color: "#64748b" },
+    { label: "Cash Inflows", value: cashInflows, icon: "trending-up", color: "#16a34a" },
+    { label: "Cash Outflows", value: cashOutflows, icon: "trending-up", color: "#dc2626" },
+    { label: "Closing Balance", value: cashFlowClosing, icon: "bank", color: "#1e40af" },
+  ];
+
   return (
     <div className="data-panel cash-flow-report">
       <h3>Cash Flow - {periodLabel}</h3>
-      <div className="cash-flow-summary">
-        <div className="report-line">
-          <span>Opening cash and bank balance</span>
-          <strong>{fmt(cashOpening)}</strong>
-        </div>
+      <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
+        {summaryCards.map((c) => (
+          <div key={c.label} className="equity-summary-col">
+            <div className="equity-summary-card">
+              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <div className="equity-summary-card-body">
+                <span>{c.label}</span>
+                <strong className="equity-amt">{fmt(c.value)}</strong>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
       <div className="cash-flow-columns">
         {renderSection(

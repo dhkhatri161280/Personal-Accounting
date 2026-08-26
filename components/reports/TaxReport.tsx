@@ -3,6 +3,8 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase, Account } from "@/lib/vault-types";
 import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear } from "@/lib/payroll-match";
 import { StatIcon, type IconKind } from "@/components/Icon";
+import { DonutChart, type DonutSegment } from "@/components/DonutChart";
+import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { classifyRsuSales, classifyEsppSales, summarizeCapitalGains } from "@/lib/tax-classify";
 import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
@@ -31,6 +33,24 @@ function row(rows: PayrollRow[], label: string, occurrence = 0): PayrollRow | un
 
 function at(r: PayrollRow | undefined, i: number): number {
   return r?.values[i] ?? 0;
+}
+
+// Fixed color per component (not palette-cycled) so a given slice means the same thing across
+// every paystub you open -- comparing periods side by side relies on Federal always being red,
+// Net always being green, etc.
+function paystubDonutSegments({
+  net, federal, ssn, medicare, state, k401, espp,
+}: {
+  net: number; federal: number; ssn: number; medicare: number; state: number; k401: number; espp: number;
+}): DonutSegment[] {
+  return [
+    { label: "Net Take-Home", value: Math.max(0, net), color: "#16a34a" },
+    { label: "Federal Tax", value: Math.max(0, federal), color: "#dc2626" },
+    { label: "SSN + Medicare", value: Math.max(0, ssn + medicare), color: "#d97706" },
+    { label: "State Tax", value: Math.max(0, state), color: "#7c3aed" },
+    { label: "401K", value: Math.max(0, k401), color: "#0891b2" },
+    { label: "ESPP", value: Math.max(0, espp), color: "#db2777" },
+  ];
 }
 
 // Display-only: "Jan 01 Jan 15" -> "Jan 15" to save space in the Pay Periods table. The full
@@ -796,7 +816,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                       {editing ? (
                         <EditFieldsForm form={manualForm} onChange={setManualForm} onSave={saveEdit} onCancel={() => setEditingTarget(null)} saving={savingManual} />
                       ) : (
-                        <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", padding: "0.5rem 0.25rem" }}>
+                        <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", padding: "0.5rem 0.25rem", flexWrap: "wrap" }}>
+                          {g > 0 && (
+                            <DonutChart
+                              segments={paystubDonutSegments({ net, federal: fed, ssn: ssnV, medicare: med, state: swh + ssdi, k401: at(k401, i), espp: at(esppRow, i) })}
+                              size={120}
+                              thickness={18}
+                              centerLabel="Gross"
+                              centerValue={fmt(g)}
+                            />
+                          )}
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.6rem 1.25rem", flex: 1 }}>
                             {rows.map((r, ri) => (
                               <div key={ri}>
@@ -879,7 +908,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                               Federal/SSN/Medicare/State are estimated from your closest matching pay period — replace with your real paystub numbers once you have them.
                             </p>
                           ) : null}
-                          <div style={{ display: "flex", gap: "1.25rem", alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", flexWrap: "wrap" }}>
+                            {(m.base + m.telephone + m.medical) > 0 && (
+                              <DonutChart
+                                segments={paystubDonutSegments({ net: m.net, federal: m.federal, ssn: m.ssn, medicare: m.medicare, state: m.stateWH + m.stateSDI, k401: m.k401, espp: m.espp ?? 0 })}
+                                size={120}
+                                thickness={18}
+                                centerLabel="Gross"
+                                centerValue={fmt(m.base + m.telephone + m.medical)}
+                              />
+                            )}
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.6rem 1.25rem", flex: 1 }}>
                               {[
                                 ["Base", m.base], ["Telephone", m.telephone], ["Medical", m.medical],
@@ -1335,29 +1373,34 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
 
       {voucherModalTx && (
         <Modal title={`${voucherModalTx.type} #${voucherModalTx.number || "—"}`} onClose={() => setVoucherModalTx(null)}>
-          <p style={{ margin: "0 0 0.75rem", fontSize: 13, opacity: 0.75 }}>
+          {uiTheme === "refresh" && <VoucherTypeBadge type={voucherModalTx.type} />}
+          <p style={{ margin: "0.5rem 0 0.75rem", fontSize: 13, opacity: 0.75 }}>
             {new Date(voucherModalTx.date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })}
           </p>
           {voucherModalTx.narration && <p style={{ margin: "0 0 0.75rem", fontSize: 13 }}>{voucherModalTx.narration}</p>}
-          <table className="equity-table" style={{ width: "100%" }}>
-            <thead><tr><th>Account</th><th className="right">Debit</th><th className="right">Credit</th></tr></thead>
-            <tbody>
-              {voucherModalTx.entries.map((e, i) => (
-                <tr key={i}>
-                  <td>{e.accountName}</td>
-                  <td className="right equity-amt">{e.amount < 0 ? fmt(Math.abs(e.amount)) : ""}</td>
-                  <td className="right equity-amt">{e.amount > 0 ? fmt(e.amount) : ""}</td>
+          {uiTheme === "refresh" ? (
+            <VoucherFlow entries={voucherModalTx.entries} fmt={fmt} />
+          ) : (
+            <table className="equity-table" style={{ width: "100%" }}>
+              <thead><tr><th>Account</th><th className="right">Debit</th><th className="right">Credit</th></tr></thead>
+              <tbody>
+                {voucherModalTx.entries.map((e, i) => (
+                  <tr key={i}>
+                    <td>{e.accountName}</td>
+                    <td className="right equity-amt">{e.amount < 0 ? fmt(Math.abs(e.amount)) : ""}</td>
+                    <td className="right equity-amt">{e.amount > 0 ? fmt(e.amount) : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th>Total</th>
+                  <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0))}</th>
+                  <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0))}</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th>Total</th>
-                <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0))}</th>
-                <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0))}</th>
-              </tr>
-            </tfoot>
-          </table>
+              </tfoot>
+            </table>
+          )}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
             <button onClick={() => setVoucherModalTx(null)}>Close</button>
             {!readOnly && (

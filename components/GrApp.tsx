@@ -19,6 +19,9 @@ import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { computeGrNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
+import { StatIcon } from "@/components/Icon";
+import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
+import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
@@ -1485,6 +1488,51 @@ export function GrApp() {
           {/* Income & Expenditure — uses GroupedReport for collapsible groups */}
           {report === "income" && (
             <>
+              <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
+                <div className="equity-summary-col">
+                  <div className="equity-summary-card">
+                    {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
+                    <div className="equity-summary-card-body">
+                      <span>Period Income</span>
+                      <strong className="equity-amt">{fmt(periodIncome)}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="equity-summary-col">
+                  <div className="equity-summary-card">
+                    {uiTheme === "refresh" && <StatIcon kind="receipt" color="#dc2626" />}
+                    <div className="equity-summary-card-body">
+                      <span>Period Expenditure</span>
+                      <strong className="equity-amt">{fmt(periodExpense)}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="equity-summary-col">
+                  <div className="equity-summary-card">
+                    {uiTheme === "refresh" && <StatIcon kind="scale" color={periodSurplus >= 0 ? "#16a34a" : "#dc2626"} />}
+                    <div className="equity-summary-card-body">
+                      <span>Surplus / (Deficit)</span>
+                      <strong className="equity-amt">{fmt(periodSurplus)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {periodExpense > tol && (() => {
+                const byCategory = new Map<string, number>();
+                for (const r of ieExpenseRows) {
+                  const cat = r.parent || "Other";
+                  byCategory.set(cat, (byCategory.get(cat) || 0) + Math.abs(r.closing));
+                }
+                const segments = [...byCategory.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
+                return (
+                  <div className="data-panel" style={{ marginBottom: "0.75rem" }}>
+                    <h4 style={{ marginTop: 0 }}>Expense Breakdown</h4>
+                    <DonutChart segments={segments} centerLabel="Total" centerValue={fmt(periodExpense)} fmt={fmt} />
+                  </div>
+                );
+              })()}
               <GroupedReport
                 title1="Expenditure"
                 rows1={ieExpenseRows}
@@ -1493,14 +1541,6 @@ export function GrApp() {
                 link={(a) => <LedgerLink name={a.name} />}
                 fmt={(n) => fmt(Math.abs(n))}
               />
-              <div className="period-result">
-                <span>Period income</span>
-                <strong>{fmt(periodIncome)}</strong>
-                <span>Period expenditure</span>
-                <strong>{fmt(periodExpense)}</strong>
-                <span>Surplus / (Deficit)</span>
-                <strong>{fmt(periodSurplus)}</strong>
-              </div>
             </>
           )}
 
@@ -1565,6 +1605,7 @@ export function GrApp() {
               fmt={(n) => fmt(n)}
               onGroup={() => {}}
               onLedger={() => {}}
+              uiTheme={uiTheme}
             />
           )}
 
@@ -1584,29 +1625,67 @@ export function GrApp() {
           )}
 
           {/* Cash and Bank */}
-          {report === "cash" && (
-            <div className="data-panel">
-              <h3>Cash and Bank Closing Balances</h3>
-              {bankCashAccounts
-                .filter((a) => Math.abs(a.closingInr) > tol)
-                .sort((a, b) => a.closingInr - b.closingInr)
-                .map((a, i) => (
-                  <div className="report-line" key={i}>
-                    <span>
-                      {a.name}{" "}
-                      {a.sources.map((s) => (
-                        <span key={s} className={`source-badge source-${s.toLowerCase()}`}>{s}</span>
-                      ))}
-                    </span>
-                    <strong>{fmt(-a.closingInr)}</strong>
+          {report === "cash" && (() => {
+            const bankTotal = bankCashAccounts
+              .filter((a) => /bank accounts/i.test(a.parent || ""))
+              .reduce((s, a) => s - a.closingInr, 0);
+            const cashTotal = bankCashAccounts
+              .filter((a) => /cash.in.hand|petty cash/i.test(a.parent || ""))
+              .reduce((s, a) => s - a.closingInr, 0);
+            const totalCashBank = -bankCashAccounts.reduce((s, a) => s + a.closingInr, 0);
+            return (
+              <div className="data-panel">
+                <h3>Cash and Bank Closing Balances</h3>
+                <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind="bank" color="#1e40af" />}
+                      <div className="equity-summary-card-body">
+                        <span>Bank Accounts</span>
+                        <strong className="equity-amt">{fmt(bankTotal)}</strong>
+                      </div>
+                    </div>
                   </div>
-                ))}
-              <div className="report-total">
-                <span>Total cash and bank (INR)</span>
-                <strong>{fmt(-bankCashAccounts.reduce((s, a) => s + a.closingInr, 0))}</strong>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind="cash" color="#16a34a" />}
+                      <div className="equity-summary-card-body">
+                        <span>Cash in Hand</span>
+                        <strong className="equity-amt">{fmt(cashTotal)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind="wallet" color="#7c3aed" />}
+                      <div className="equity-summary-card-body">
+                        <span>Total Cash and Bank</span>
+                        <strong className="equity-amt">{fmt(totalCashBank)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {bankCashAccounts
+                  .filter((a) => Math.abs(a.closingInr) > tol)
+                  .sort((a, b) => a.closingInr - b.closingInr)
+                  .map((a, i) => (
+                    <div className="report-line" key={i}>
+                      <span>
+                        {a.name}{" "}
+                        {a.sources.map((s) => (
+                          <span key={s} className={`source-badge source-${s.toLowerCase()}`}>{s}</span>
+                        ))}
+                      </span>
+                      <strong>{fmt(-a.closingInr)}</strong>
+                    </div>
+                  ))}
+                <div className="report-total">
+                  <span>Total cash and bank (INR)</span>
+                  <strong>{fmt(totalCashBank)}</strong>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </>
       )}
 
@@ -1745,6 +1824,7 @@ export function GrApp() {
             <button className="gr-modal-close" onClick={() => setExpandedGuid(null)} aria-label="Close">×</button>
             <div className="gr-modal-head">
               <span className={`source-badge source-${modalTx.source.toLowerCase()}`}>{modalTx.source}</span>
+              {uiTheme === "refresh" && <VoucherTypeBadge type={modalTx.type} />}
               <strong>{modalTx.type}</strong>
               {modalTx.number && <span className="gr-modal-num">#{modalTx.number}</span>}
               {modalTx.cancelled && <span className="gr-cancelled-tag">CANCELLED</span>}
@@ -1758,40 +1838,44 @@ export function GrApp() {
                 </span>
               )}
             </div>
-            <table className="gr-modal-table">
-              <thead>
-                <tr>
-                  <th>Ledger</th>
-                  <th className="right">Dr (INR)</th>
-                  <th className="right">Cr (INR)</th>
-                  {modalTx.source === "US" && <th className="right">Original (USD)</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {modalTx.entries.map((e, i) => (
-                  <tr key={i}>
-                    <td>{e.accountName}</td>
-                    <td className="right">{e.amountInr < 0 ? fmt(-e.amountInr) : "—"}</td>
-                    <td className="right">{e.amountInr > 0 ? fmt(e.amountInr) : "—"}</td>
-                    {modalTx.source === "US" && (
-                      <td className="right">
-                        {e.originalAmount !== 0
-                          ? `${fmt(Math.abs(e.originalAmount), "USD")} ${e.originalAmount < 0 ? "Dr" : "Cr"}`
-                          : "—"}
-                      </td>
-                    )}
+            {uiTheme === "refresh" ? (
+              <VoucherFlow entries={modalTx.entries.map((e) => ({ accountName: e.accountName, amount: e.amountInr }))} fmt={fmt} />
+            ) : (
+              <table className="gr-modal-table">
+                <thead>
+                  <tr>
+                    <th>Ledger</th>
+                    <th className="right">Dr (INR)</th>
+                    <th className="right">Cr (INR)</th>
+                    {modalTx.source === "US" && <th className="right">Original (USD)</th>}
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th>Total</th>
-                  <th className="right">{fmt(modalTx.amountInr)}</th>
-                  <th className="right">{fmt(modalTx.amountInr)}</th>
-                  {modalTx.source === "US" && <th className="right">{fmt(modalTx.amountUsd, "USD")}</th>}
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {modalTx.entries.map((e, i) => (
+                    <tr key={i}>
+                      <td>{e.accountName}</td>
+                      <td className="right">{e.amountInr < 0 ? fmt(-e.amountInr) : "—"}</td>
+                      <td className="right">{e.amountInr > 0 ? fmt(e.amountInr) : "—"}</td>
+                      {modalTx.source === "US" && (
+                        <td className="right">
+                          {e.originalAmount !== 0
+                            ? `${fmt(Math.abs(e.originalAmount), "USD")} ${e.originalAmount < 0 ? "Dr" : "Cr"}`
+                            : "—"}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th>Total</th>
+                    <th className="right">{fmt(modalTx.amountInr)}</th>
+                    <th className="right">{fmt(modalTx.amountInr)}</th>
+                    {modalTx.source === "US" && <th className="right">{fmt(modalTx.amountUsd, "USD")}</th>}
+                  </tr>
+                </tfoot>
+              </table>
+            )}
           </div>
         </div>
       )}

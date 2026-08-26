@@ -1,5 +1,6 @@
 "use client";
 import { StatIcon, type IconKind } from "@/components/Icon";
+import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import type { NetWorthPoint } from "@/lib/net-worth-trend";
 
 interface NWRow {
@@ -153,6 +154,18 @@ export function NetWorthReport({
         <div className="equity-summary-col" style={{ flex: "1 1 320px" }}>
           <div className="data-panel">
             <h4 style={{ marginTop: 0 }}>Assets</h4>
+            {assetGroups.size > 0 && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <DonutChart
+                  segments={[...assetGroups.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }))}
+                  centerLabel="Total"
+                  centerValue={fmt(totalAssets)}
+                  legend={false}
+                />
+              </div>
+            )}
             {[...assetGroups.entries()]
               .sort((a, b) => ASSET_ORDER.indexOf(a[0]) - ASSET_ORDER.indexOf(b[0]))
               .map(([cat, v]) => (

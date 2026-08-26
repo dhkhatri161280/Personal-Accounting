@@ -7588,12 +7588,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   flex-wrap: unset !important;
 }
 .ui-refresh .tr-summary-card {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
   border-radius: var(--ref-radius) !important;
   box-shadow: var(--ref-shadow);
   min-width: 0 !important;
   width: 100%;
   padding: 10px 13px !important;
 }
+.ui-refresh .tr-summary-card-body { min-width: 0; flex: 1; }
 .ui-refresh .tr-summary-card span { white-space: normal; overflow: visible; }
 .ui-refresh .tr-summary-card strong {
   /* One size down from the original 16px, and nowrap instead of wrap-as-fallback -- at the
@@ -7779,4 +7783,64 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   padding: 4px 10px !important;
   font-size: 11px !important;
   margin-left: 0 !important;
+}
+
+/* Voucher detail "From -> To" flow visual (VoucherVisual.tsx) -- opt-in under .ui-refresh like
+   the rest of the redesign; classic mode keeps the original plain Dr/Cr table untouched. */
+.ui-refresh .voucher-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ui-refresh .voucher-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  margin: 0.75rem 0;
+}
+.ui-refresh .voucher-flow-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ui-refresh .voucher-flow-col-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.ui-refresh .voucher-flow-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: var(--ref-radius);
+  border: 1px solid var(--ref-border);
+  box-shadow: var(--ref-shadow);
+  background: #fff;
+  padding: 10px 12px;
+}
+.ui-refresh .voucher-flow-card span { font-size: 12px; color: #334155; }
+.ui-refresh .voucher-flow-card strong { font-size: 15px; font-weight: 800; }
+.ui-refresh .voucher-flow-card--from { border-left: 3px solid #16a34a; }
+.ui-refresh .voucher-flow-card--to { border-left: 3px solid #dc2626; }
+.ui-refresh .voucher-flow-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  flex-shrink: 0;
+  transform: rotate(90deg);
+}
+@media (min-width: 520px) {
+  .ui-refresh .voucher-flow-arrow { transform: none; }
 }

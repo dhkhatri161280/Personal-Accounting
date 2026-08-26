@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
 import type { WatchlistEntry } from "@/lib/watchlist-default";
 import { fmtDate } from "@/lib/format-date";
+import { StatIcon } from "@/components/Icon";
 
 interface Trade {
   company: string;
@@ -73,7 +74,7 @@ function timeAgo(iso: string): string {
 function daysBetween(d1: string, d2: string) {
   return Math.round((new Date(d2).getTime() - new Date(d1).getTime()) / 86400000);
 }
-export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
+export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
   const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">("open");
   const [closedSort, setClosedSort]   = useState<"date" | "gl" | "pct">("date");
   const [watchFilter, setWatchFilter] = useState<"all" | "short" | "long" | "cyclical">("all");
@@ -223,28 +224,46 @@ export function TradingReport({ fmt }: { fmt: (n: number) => string }) {
       {/* Summary bar */}
       <div className="tr-summary-bar">
         <div className="tr-summary-card tr-summary-card--neutral">
-          <span>Open Positions</span>
-          <strong>{open.length}</strong>
+          {uiTheme === "refresh" && <StatIcon kind="stock" color="#64748b" />}
+          <div className="tr-summary-card-body">
+            <span>Open Positions</span>
+            <strong>{open.length}</strong>
+          </div>
         </div>
         <div className={`tr-summary-card ${totalUnrealized < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          <span>Unrealized G/(L)</span>
-          <strong className="trading-amt">{fmt(totalUnrealized)}</strong>
+          {uiTheme === "refresh" && <StatIcon kind="trending-up" color={totalUnrealized < 0 ? "#dc2626" : "#16a34a"} />}
+          <div className="tr-summary-card-body">
+            <span>Unrealized G/(L)</span>
+            <strong className="trading-amt">{fmt(totalUnrealized)}</strong>
+          </div>
         </div>
         <div className={`tr-summary-card ${totalRealized < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          <span>Realized G/(L)</span>
-          <strong className="trading-amt">{fmt(totalRealized)}</strong>
+          {uiTheme === "refresh" && <StatIcon kind="cash" color={totalRealized < 0 ? "#dc2626" : "#16a34a"} />}
+          <div className="tr-summary-card-body">
+            <span>Realized G/(L)</span>
+            <strong className="trading-amt">{fmt(totalRealized)}</strong>
+          </div>
         </div>
         <div className={`tr-summary-card ${netPL < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          <span>Net P&amp;L</span>
-          <strong className="trading-amt">{fmt(netPL)}</strong>
+          {uiTheme === "refresh" && <StatIcon kind="scale" color={netPL < 0 ? "#dc2626" : "#16a34a"} />}
+          <div className="tr-summary-card-body">
+            <span>Net P&amp;L</span>
+            <strong className="trading-amt">{fmt(netPL)}</strong>
+          </div>
         </div>
         <div className={`tr-summary-card ${totalDailyGL < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          <span>Daily G/(L)</span>
-          <strong className="trading-amt">{totalDailyGL >= 0 ? "+" : ""}{fmt(totalDailyGL)}</strong>
+          {uiTheme === "refresh" && <StatIcon kind="calendar" color={totalDailyGL < 0 ? "#dc2626" : "#16a34a"} />}
+          <div className="tr-summary-card-body">
+            <span>Daily G/(L)</span>
+            <strong className="trading-amt">{totalDailyGL >= 0 ? "+" : ""}{fmt(totalDailyGL)}</strong>
+          </div>
         </div>
         <div className="tr-summary-card tr-summary-card--neutral">
-          <span>Total Trades</span>
-          <strong>{TRADING_SEED.length}</strong>
+          {uiTheme === "refresh" && <StatIcon kind="receipt" color="#64748b" />}
+          <div className="tr-summary-card-body">
+            <span>Total Trades</span>
+            <strong>{TRADING_SEED.length}</strong>
+          </div>
         </div>
       </div>
 

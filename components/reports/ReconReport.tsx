@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { fiscalYearOf } from "@/lib/vault-accounting";
+import { StatIcon, type IconKind } from "@/components/Icon";
 
 interface ReconRow {
   name: string;
@@ -86,7 +87,7 @@ function computeAppBalances(data: Ledger, fyStart: string, fyEnd: string): Map<s
   return byName;
 }
 
-export function ReconReport({ data, fmt }: { data: Ledger; fmt: (n: number) => string }) {
+export function ReconReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
   const [onlyDiff, setOnlyDiff] = useState(true);
   const [fName, setFName] = useState("");
   const [fParent, setFParent] = useState("");
@@ -140,6 +141,9 @@ export function ReconReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
 
   const diffCount = rows.filter((r) => r.status !== "matched").length;
   const totalDiff = rows.reduce((s, r) => s + Math.abs(r.diff), 0);
+  const matchedCount = rows.filter((r) => r.status === "matched").length;
+  const appOnlyCount = rows.filter((r) => r.status === "app-only").length;
+  const tallyOnlyCount = rows.filter((r) => r.status === "tally-only").length;
 
   const statusLabel: Record<ReconRow["status"], string> = {
     matched: "Matched",
@@ -160,20 +164,40 @@ export function ReconReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     );
   }
 
+  const summaryCards: { label: string; value: number; icon: IconKind; color: string; format?: "count" | "money" }[] = [
+    { label: "Matched", value: matchedCount, icon: "scale", color: "#16a34a", format: "count" },
+    { label: "Differences", value: diffCount, icon: "tag", color: diffCount > 0 ? "#dc2626" : "#64748b", format: "count" },
+    { label: "App Only", value: appOnlyCount, icon: "receipt", color: "#7c3aed", format: "count" },
+    { label: "Tally Only", value: tallyOnlyCount, icon: "bank", color: "#d97706", format: "count" },
+    { label: "Total Difference", value: totalDiff, icon: "cash", color: totalDiff > tol ? "#dc2626" : "#16a34a" },
+  ];
+
   return (
     <div className="data-panel recon-panel">
       <div className="recon-header">
         <div>
           <h3 style={{ margin: 0 }}>Reconciliation — App vs Tally Ledger Balances</h3>
           <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "4px 0 0" }}>
-            Tally balances as of {new Date(snapshot.asOf).toLocaleString()}. {diffCount} ledger(s)
-            differ, total absolute difference {fmt(totalDiff)}.
+            Tally balances as of {new Date(snapshot.asOf).toLocaleString()}.
           </p>
         </div>
         <label className="recon-only-diff">
           <input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />
           Show only differences
         </label>
+      </div>
+      <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
+        {summaryCards.map((c) => (
+          <div key={c.label} className="equity-summary-col">
+            <div className="equity-summary-card">
+              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <div className="equity-summary-card-body">
+                <span>{c.label}</span>
+                <strong className="equity-amt">{c.format === "count" ? c.value : fmt(c.value)}</strong>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
       <table className="recon-table">
         <thead>

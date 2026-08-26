@@ -4,6 +4,7 @@ import type { IndiaTaxData, IndiaPayslipMonth, IndiaItrYear, Tx, Account } from 
 import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-india-payslip";
 import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
+import { DonutChart } from "@/components/DonutChart";
 import { fmtDate } from "@/lib/format-date";
 import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
 import { estimateEquityCapitalGainsTax } from "@/lib/india-capital-gains-tax";
@@ -1571,6 +1572,45 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                   Notes: {activeItrYear.notes}
                 </p>
               )}
+              {(() => {
+                const cgTotal = cgShortTerm + cgLongTerm;
+                const hpTotal = estimatedHouseProperty?.allowedAgainstOtherIncome ?? 0;
+                const otherTotal = activeItrYear.otherSourcesIncome ?? 0;
+                const salaryTotal = Math.max(0, activeItrYear.grossTotalIncome - cgTotal - hpTotal - otherTotal);
+                const incomeSegments = [
+                  { label: "Salary", value: salaryTotal, color: "#1e40af" },
+                  { label: "Capital Gains", value: Math.max(0, cgTotal), color: "#16a34a" },
+                  { label: "House Property", value: Math.max(0, hpTotal), color: "#d97706" },
+                  { label: "Other Sources", value: Math.max(0, otherTotal), color: "#7c3aed" },
+                ];
+                const otherDeductions = Math.max(0, displayDeductionsChapterVIA - section80CTotal - section80DTotal);
+                const deductionSegments = [
+                  { label: "Section 80C", value: section80CTotal, color: "#1e40af" },
+                  { label: "Section 80D", value: section80DTotal, color: "#7c3aed" },
+                  { label: "Other Deductions", value: otherDeductions, color: "#64748b" },
+                ];
+                if (activeItrYear.grossTotalIncome <= 0 && displayDeductionsChapterVIA <= 0) return null;
+                return (
+                  <div className="equity-summary-row" style={{ marginTop: "0.75rem" }}>
+                    {activeItrYear.grossTotalIncome > 0 && (
+                      <div className="equity-summary-col" style={{ flex: "1 1 320px" }}>
+                        <div className="data-panel">
+                          <h4 style={{ marginTop: 0 }}>Income Sources</h4>
+                          <DonutChart segments={incomeSegments} centerLabel="GTI" centerValue={fmt(activeItrYear.grossTotalIncome)} fmt={fmt} />
+                        </div>
+                      </div>
+                    )}
+                    {displayDeductionsChapterVIA > 0 && (
+                      <div className="equity-summary-col" style={{ flex: "1 1 320px" }}>
+                        <div className="data-panel">
+                          <h4 style={{ marginTop: 0 }}>Chapter VI-A Deductions</h4>
+                          <DonutChart segments={deductionSegments} centerLabel="Total" centerValue={fmt(displayDeductionsChapterVIA)} fmt={fmt} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           ) : (
             <p className="equity-empty">No ITR on file for AY {activeAy}.</p>

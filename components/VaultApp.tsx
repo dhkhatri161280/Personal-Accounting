@@ -53,6 +53,8 @@ import { TaxReport } from "@/components/reports/TaxReport";
 import { IndiaTaxReport } from "@/components/reports/IndiaTaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
 import { StatIcon } from "@/components/Icon";
+import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
+import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
@@ -2409,6 +2411,52 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <h3 className="report-inline-heading">
                 Income &amp; Expenditure — <PeriodSelect />
               </h3>
+              <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
+                <div className="equity-summary-col">
+                  <div className="equity-summary-card">
+                    {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
+                    <div className="equity-summary-card-body">
+                      <span>Period Income</span>
+                      <strong className="equity-amt">{fmt(periodIncome)}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="equity-summary-col">
+                  <div className="equity-summary-card">
+                    {uiTheme === "refresh" && <StatIcon kind="receipt" color="#dc2626" />}
+                    <div className="equity-summary-card-body">
+                      <span>Period Expenditure</span>
+                      <strong className="equity-amt">{fmt(periodExpense)}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="equity-summary-col">
+                  <div className="equity-summary-card">
+                    {uiTheme === "refresh" && <StatIcon kind="scale" color={periodSurplus >= 0 ? "#16a34a" : "#dc2626"} />}
+                    <div className="equity-summary-card-body">
+                      <span>Surplus / (Deficit)</span>
+                      <strong className="equity-amt">{fmt(periodSurplus)}</strong>
+                      <em>transferred to Capital</em>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {periodExpense > tol && (() => {
+                const byCategory = new Map<string, number>();
+                for (const r of periodExpenseRows) {
+                  const cat = r.parent || r.category || "Other";
+                  byCategory.set(cat, (byCategory.get(cat) || 0) + r.closing);
+                }
+                const segments = [...byCategory.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
+                return (
+                  <div className="data-panel" style={{ marginBottom: "0.75rem" }}>
+                    <h4 style={{ marginTop: 0 }}>Expense Breakdown</h4>
+                    <DonutChart segments={segments} centerLabel="Total" centerValue={fmt(periodExpense)} fmt={fmt} />
+                  </div>
+                );
+              })()}
               <GroupedReport
                 title1="Expenditure"
                 rows1={periodExpenseRows}
@@ -2417,14 +2465,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 link={(a) => <LedgerLink a={a} />}
                 fmt={fmt}
               />
-              <div className="period-result">
-                <span>Period income</span>
-                <strong>{fmt(periodIncome)}</strong>
-                <span>Period expenditure</span>
-                <strong>{fmt(periodExpense)}</strong>
-                <span>Surplus / (Deficit) transferred to Capital</span>
-                <strong>{fmt(periodSurplus)}</strong>
-              </div>
             </>
           )}{" "}
           {report === "balance" && (
@@ -2462,28 +2502,65 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 fmt={fmt}
                 onGroup={(group) => setCashFlowDetail({ group })}
                 onLedger={(group, ledger) => setCashFlowDetail({ group, ledger })}
+                uiTheme={uiTheme}
               />
             </>
           )}{" "}
-          {report === "cash" && (
-            <div className="data-panel">
-              <h3>
-                Cash and Bank Closing Balances — <PeriodSelect />
-              </h3>
-              {active
-                .filter((a) => isCashBank(a) && Math.abs(a.closing) > tol)
-                .map((a) => (
+          {report === "cash" && (() => {
+            const cashBankRows = active.filter((a) => isCashBank(a) && Math.abs(a.closing) > tol);
+            const bankTotal = cashBankRows
+              .filter((a) => /bank accounts/i.test(a.parent || ""))
+              .reduce((s, a) => s - a.closing, 0);
+            const cashTotal = cashBankRows
+              .filter((a) => /cash-in-hand/i.test(a.parent || ""))
+              .reduce((s, a) => s - a.closing, 0);
+            return (
+              <div className="data-panel">
+                <h3>
+                  Cash and Bank Closing Balances — <PeriodSelect />
+                </h3>
+                <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind="bank" color="#1e40af" />}
+                      <div className="equity-summary-card-body">
+                        <span>Bank Accounts</span>
+                        <strong className="equity-amt">{fmt(bankTotal)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind="cash" color="#16a34a" />}
+                      <div className="equity-summary-card-body">
+                        <span>Cash in Hand</span>
+                        <strong className="equity-amt">{fmt(cashTotal)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind="wallet" color="#7c3aed" />}
+                      <div className="equity-summary-card-body">
+                        <span>Total Cash and Bank</span>
+                        <strong className="equity-amt">{fmt(cashBank)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {cashBankRows.map((a) => (
                   <div className="report-line" key={a.id}>
                     <LedgerLink a={a} />
                     <strong>{fmt(-a.closing)}</strong>
                   </div>
                 ))}
-              <div className="report-total">
-                <span>Total cash and bank</span>
-                <strong>{fmt(cashBank)}</strong>
+                <div className="report-total">
+                  <span>Total cash and bank</span>
+                  <strong>{fmt(cashBank)}</strong>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
           {report === "equity" && data && (
             <EquityReport
               grants={data.equity?.grants ?? []}
@@ -2496,7 +2573,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             />
           )}
           {report === "trading" && (
-            <TradingReport fmt={fmt} />
+            <TradingReport fmt={fmt} uiTheme={uiTheme} />
           )}
           {report === "tax" && data && book === "india" && (
             <IndiaTaxReport
@@ -2525,7 +2602,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             />
           )}
           {report === "recon" && data && (
-            <ReconReport data={data} fmt={fmt} />
+            <ReconReport data={data} fmt={fmt} uiTheme={uiTheme} />
           )}
           {report === "networth" && (
             <>
@@ -2881,7 +2958,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               Close
             </button>
             <h2>
-              {selectedVoucher.type} Voucher {selectedVoucher.number}
+              {uiTheme === "refresh" && <VoucherTypeBadge type={selectedVoucher.type} />} {selectedVoucher.type} Voucher {selectedVoucher.number}
             </h2>
             <p>
               {selectedVoucher.date.split("-").reverse().join("-")} | {data.company}
@@ -2902,43 +2979,47 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </section>
             <h3>Narration</h3>
             <p className="voucher-narration">{cleanText(selectedVoucher.narration) || "-"}</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>Ledger</th>
-                  <th className="right">Debit</th>
-                  <th className="right">Credit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedVoucher.entries.map((e, i) => (
-                  <tr key={`${e.accountId}-${i}`}>
-                    <td>{e.accountName}</td>
-                    <td className="right">{e.amount < 0 ? fmt(-e.amount) : "-"}</td>
-                    <td className="right">{e.amount > 0 ? fmt(e.amount) : "-"}</td>
+            {uiTheme === "refresh" ? (
+              <VoucherFlow entries={selectedVoucher.entries} fmt={fmt} />
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ledger</th>
+                    <th className="right">Debit</th>
+                    <th className="right">Credit</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th>Total</th>
-                  <th className="right">
-                    {fmt(
-                      selectedVoucher.entries
-                        .filter((e) => e.amount < 0)
-                        .reduce((n, e) => n - e.amount, 0)
-                    )}
-                  </th>
-                  <th className="right">
-                    {fmt(
-                      selectedVoucher.entries
-                        .filter((e) => e.amount > 0)
-                        .reduce((n, e) => n + e.amount, 0)
-                    )}
-                  </th>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {selectedVoucher.entries.map((e, i) => (
+                    <tr key={`${e.accountId}-${i}`}>
+                      <td>{e.accountName}</td>
+                      <td className="right">{e.amount < 0 ? fmt(-e.amount) : "-"}</td>
+                      <td className="right">{e.amount > 0 ? fmt(e.amount) : "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th>Total</th>
+                    <th className="right">
+                      {fmt(
+                        selectedVoucher.entries
+                          .filter((e) => e.amount < 0)
+                          .reduce((n, e) => n - e.amount, 0)
+                      )}
+                    </th>
+                    <th className="right">
+                      {fmt(
+                        selectedVoucher.entries
+                          .filter((e) => e.amount > 0)
+                          .reduce((n, e) => n + e.amount, 0)
+                      )}
+                    </th>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
             <div className="voucher-detail-actions">
               {!selectedVoucher.cancelled && (
                 <button
