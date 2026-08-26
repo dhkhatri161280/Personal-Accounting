@@ -2522,6 +2522,17 @@ aside .install-app {
   text-transform: inherit;
   letter-spacing: inherit;
 }
+/* Action isn't sortable -- reuses .column-sort's layout/padding/font so its header lines up
+   exactly with the sortable ones (was a bare <th>Action</th> before, sized and centered subtly
+   differently from its siblings), but without the hover feedback that would wrongly suggest it's
+   clickable. */
+.column-sort--static {
+  justify-content: center;
+}
+.column-sort--static:hover {
+  background: transparent;
+  color: inherit;
+}
 .column-sort:hover {
   background: #eef4ff;
   color: #1559b7;
@@ -7895,22 +7906,27 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    min-width so it only applies where the fixed-width layout is actually active. */
 @media (min-width: 1101px) {
   .ui-refresh .transaction-table {
-    min-width: 1150px;
+    min-width: 1260px;
   }
   .ui-refresh .transaction-table th:nth-child(1) {
-    width: 115px;
-  }
-  .ui-refresh .transaction-table th:nth-child(2) {
     width: 120px;
   }
+  /* Header text (bold, uppercase, letter-spaced, inside a sort button with its own 5px/9px
+     padding and a 10px sort-arrow icon) needs meaningfully more room than the data below it --
+     measured "VOUCHER TYPE" at ~151px and "VOUCHER #" at ~126px all-in at this font, so sizing
+     these two for the data ("Payment", "404") alone was the bug: the header wrapped to two lines
+     while every sibling header stayed on one, an inconsistency the data-only check never caught. */
+  .ui-refresh .transaction-table th:nth-child(2) {
+    width: 172px;
+  }
   .ui-refresh .transaction-table th:nth-child(3) {
-    width: 90px;
+    width: 148px;
   }
   .ui-refresh .transaction-table th:nth-child(7) {
-    width: 140px;
+    width: 145px;
   }
   .ui-refresh .transaction-table th:nth-child(8) {
-    width: 78px;
+    width: 92px;
   }
 }
 

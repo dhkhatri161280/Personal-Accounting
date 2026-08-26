@@ -244,7 +244,9 @@ export function TransactionTable({
               {heading("narration", "Narration")}
               {heading("amount", "Amount", true)}
               {balanceMap && <th className="right balance-col">Balance</th>}
-              <th>Action</th>
+              <th>
+                <span className="column-sort column-sort--static">Action</span>
+              </th>
             </tr>
             <tr className="column-filters">
               <th>{filter("date", "date")}</th>
