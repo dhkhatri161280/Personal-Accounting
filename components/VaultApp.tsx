@@ -46,7 +46,7 @@ import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow } from "@/components/reports/NetWorthReport";
 import { computeNetWorthTrend } from "@/lib/net-worth-trend";
-import { computeHeldEquityValue } from "@/lib/equity-holdings";
+import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
 import { TaxReport } from "@/components/reports/TaxReport";
@@ -137,7 +137,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [voucherLines, setVoucherLines] = useState<VoucherLineDraft[]>(blankVoucherLines()),
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
-    [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
+    [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null),
+    [nvdaHistory, setNvdaHistory] = useState<PricePoint[]>([]);
 
   async function cacheUnifiedVaultPassword(pw: string) {
     const secret = sessionStorage.getItem(unifiedSecretKey);
@@ -517,6 +518,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .catch(() => {});
   }, [data?.equity]);
 
+  // Daily close history for valuing vested equity as of a *past* fiscal year-end (Net Worth),
+  // instead of applying today's live price to every historical period.
+  useEffect(() => {
+    if (!data?.equity) return;
+    fetch("/api/equity-price-history?ticker=NVDA")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const j = d as { points?: PricePoint[] };
+        if (Array.isArray(j.points)) setNvdaHistory(j.points.slice().sort((a, b) => a.date.localeCompare(b.date)));
+      })
+      .catch(() => {});
+  }, [data?.equity]);
+
   const calc = useMemo(() => {
     const empty = {
       opening: new Map<number, number>(),
@@ -846,26 +860,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     periodExpense = periodExpenseRows.reduce((s, a) => s + a.closing, 0),
     periodSurplus = periodIncome - periodExpense;
 
-  // Vested RSU/ESPP shares still held have real market value but aren't booked in the ledger
-  // (nothing to double-entry until sold) -- Net Worth adds them as an extra asset row so they're
-  // not silently missing from the total.
-  const heldEquity = data.equity
-    ? computeHeldEquityValue(data.equity.grants, data.equity.esppPurchases, nvdaPrice ?? 0)
-    : { rsuValue: 0, esppValue: 0, totalValue: 0 };
-  const netWorthAssetRows =
-    heldEquity.totalValue > 0 ? [...assetRows, equityHoldingsRow("equity-holdings", heldEquity.totalValue)] : assetRows;
-  // Historical trend points come from ledger balances only (no record of shares held as of a
-  // past date) -- bump just the latest (today's) point by the current equity value so it doesn't
-  // visually undercut the summary cards above, which do include it.
-  const netWorthTrendWithEquity =
-    heldEquity.totalValue > 0 && netWorthTrend.length > 0
-      ? netWorthTrend.map((p, i) =>
-          i === netWorthTrend.length - 1
-            ? { ...p, assets: p.assets + heldEquity.totalValue, netWorth: p.netWorth + heldEquity.totalValue }
-            : p
-        )
-      : netWorthTrend;
-
   const latestDate = data.transactions
       .filter((t) => !t.deleted)
       .reduce((m, t) => (t.date > m ? t.date : m), "0000-00-00"),
@@ -880,6 +874,33 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     balanceFY = fiscalYearOf(balanceEnd),
     balanceFYStart = `${balanceFY}-04-01`,
     nominalIds = new Set(rows.filter((a) => isIncome(a) || isExpense(a)).map((a) => a.id));
+
+  // Vested RSU/ESPP shares still held have real market value but aren't booked in the ledger
+  // (nothing to double-entry until sold) -- Net Worth adds them as an extra asset row so they're
+  // not silently missing from the total. Priced as of the selected period's end date: today's
+  // live price if that date hasn't happened yet (or is today), otherwise the actual historical
+  // closing price on that date -- so switching the Financial period dropdown shows what the
+  // equity was actually worth then, not today's value re-applied to every year.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const priceForDate = (d: string) => (d >= todayStr ? nvdaPrice ?? null : priceAsOf(nvdaHistory, d));
+  const balanceEndPrice = priceForDate(balanceEnd);
+  const heldEquity =
+    data.equity && balanceEndPrice
+      ? computeHeldEquityValueAsOf(data.equity.grants, data.equity.esppPurchases, balanceEnd, balanceEndPrice)
+      : { rsuValue: 0, esppValue: 0, totalValue: 0 };
+  const netWorthAssetRows =
+    heldEquity.totalValue > 0 ? [...assetRows, equityHoldingsRow("equity-holdings", heldEquity.totalValue)] : assetRows;
+  // Trend: each fiscal year-end point is valued at that year's own closing price (not today's),
+  // so the chart reflects actual historical equity value, not a flat bump on the latest point.
+  const netWorthTrendWithEquity = data.equity
+    ? netWorthTrend.map((p) => {
+        const price = priceForDate(p.fyEndDate);
+        const val = price
+          ? computeHeldEquityValueAsOf(data.equity!.grants, data.equity!.esppPurchases, p.fyEndDate, price).totalValue
+          : 0;
+        return val > 0 ? { ...p, assets: p.assets + val, netWorth: p.netWorth + val } : p;
+      })
+    : netWorthTrend;
 
   let capitalTransfer = 0;
   for (const t of data.transactions)

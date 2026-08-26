@@ -6,6 +6,7 @@ import {
   consolidateLedger,
   neededRateMonths,
   prevMonthKey,
+  getApplicableRate,
   type FxRates,
   type GrLedger,
   type GrTx,
@@ -17,6 +18,7 @@ import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { computeGrNetWorthTrend } from "@/lib/net-worth-trend";
+import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
@@ -170,6 +172,7 @@ export function GrApp() {
   const loadedRef = useRef(false);
   const [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
   const [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
+  const [nvdaHistory, setNvdaHistory] = useState<PricePoint[]>([]);
   const [equityData, setEquityData] = useState<EquityData | null>(null);
 
   const togglePrivacy = () =>
@@ -194,6 +197,19 @@ export function GrApp() {
         const { price: p, previousClose: pc } = d as { price?: number | null; previousClose?: number | null };
         if (typeof p === "number") setNvdaPrice(p);
         if (typeof pc === "number") setNvdaPrevClose(pc);
+      })
+      .catch(() => {});
+  }, [equityData]);
+
+  // Daily close history for valuing vested equity as of a *past* fiscal year-end (Net Worth
+  // trend), instead of applying today's live price to every historical period.
+  useEffect(() => {
+    if (!equityData) return;
+    fetch("/api/equity-price-history?ticker=NVDA")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const j = d as { points?: PricePoint[] };
+        if (Array.isArray(j.points)) setNvdaHistory(j.points.slice().sort((a, b) => a.date.localeCompare(b.date)));
       })
       .catch(() => {});
   }, [equityData]);
@@ -1507,19 +1523,22 @@ export function GrApp() {
 
           {/* Net Worth — Assets minus real debt only, consolidated across US + India in INR.
               Vested RSU/ESPP held aren't booked in either ledger (nothing to double-entry until
-              sold), so they're added as an extra asset row at today's INR value; the trend's
-              latest point gets the same bump so it doesn't visually undercut the summary cards. */}
+              sold), so they're added as an extra asset row at today's INR value. The trend's
+              historical points are valued at THAT year's own NVDA close and FX rate (not today's),
+              so switching years on the chart reflects what the equity was actually worth then. */}
           {report === "networth" && (() => {
             const equityValueInr = equityRsuInr + equityEsppInr;
             const nwAssets = equityValueInr > 0 ? [...bsAssets, equityHoldingsRow("equity-holdings", equityValueInr)] : bsAssets;
-            const nwTrend =
-              equityValueInr > 0 && netWorthTrend.length > 0
-                ? netWorthTrend.map((p, i) =>
-                    i === netWorthTrend.length - 1
-                      ? { ...p, assets: p.assets + equityValueInr, netWorth: p.netWorth + equityValueInr }
-                      : p
-                  )
-                : netWorthTrend;
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const nwTrend = equityData
+              ? netWorthTrend.map((p) => {
+                  const price = p.fyEndDate >= todayStr ? nvdaPrice ?? null : priceAsOf(nvdaHistory, p.fyEndDate);
+                  if (!price) return p;
+                  const fxRate = getApplicableRate(gr.fxRates, p.fyEndDate);
+                  const val = computeHeldEquityValueAsOf(equityData.grants, equityData.esppPurchases, p.fyEndDate, price * fxRate).totalValue;
+                  return val > 0 ? { ...p, assets: p.assets + val, netWorth: p.netWorth + val } : p;
+                })
+              : netWorthTrend;
             return (
               <div className="data-panel">
                 <h3>Net Worth (GR Consolidated)</h3>

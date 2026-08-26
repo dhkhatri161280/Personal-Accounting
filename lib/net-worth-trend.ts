@@ -3,6 +3,7 @@ import type { GrAccount, GrTx } from "./gr-consolidation";
 
 export interface NetWorthPoint {
   label: string;
+  fyEndDate: string; // "YYYY-03-31" -- lets callers value as-of-this-date data (e.g. equity) consistently
   assets: number;
   liabilities: number;
   netWorth: number;
@@ -81,7 +82,7 @@ export function computeNetWorthTrend(
       if (isAsset(a)) assets += -bal;
       else if (isRealLiability(a)) liabilities += bal;
     }
-    points.push({ label: fyLabel(fy), assets, liabilities, netWorth: assets - liabilities });
+    points.push({ label: fyLabel(fy), fyEndDate: end, assets, liabilities, netWorth: assets - liabilities });
   }
   return points;
 }
@@ -129,7 +130,7 @@ export function computeGrNetWorthTrend(
       if (isAsset(acc)) assets += -bal;
       else if (isRealLiability(acc)) liabilities += bal;
     }
-    points.push({ label: fyLabel(fy), assets, liabilities, netWorth: assets - liabilities });
+    points.push({ label: fyLabel(fy), fyEndDate: end, assets, liabilities, netWorth: assets - liabilities });
   }
   return points;
 }
