@@ -44,8 +44,9 @@ import { UnlockScreen } from "@/components/vault/UnlockScreen";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
-import { NetWorthReport } from "@/components/reports/NetWorthReport";
+import { NetWorthReport, equityHoldingsRow } from "@/components/reports/NetWorthReport";
 import { computeNetWorthTrend } from "@/lib/net-worth-trend";
+import { computeHeldEquityValue } from "@/lib/equity-holdings";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
 import { TaxReport } from "@/components/reports/TaxReport";
@@ -844,6 +845,26 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     periodIncome = periodIncomeRows.reduce((s, a) => s + a.closing, 0),
     periodExpense = periodExpenseRows.reduce((s, a) => s + a.closing, 0),
     periodSurplus = periodIncome - periodExpense;
+
+  // Vested RSU/ESPP shares still held have real market value but aren't booked in the ledger
+  // (nothing to double-entry until sold) -- Net Worth adds them as an extra asset row so they're
+  // not silently missing from the total.
+  const heldEquity = data.equity
+    ? computeHeldEquityValue(data.equity.grants, data.equity.esppPurchases, nvdaPrice ?? 0)
+    : { rsuValue: 0, esppValue: 0, totalValue: 0 };
+  const netWorthAssetRows =
+    heldEquity.totalValue > 0 ? [...assetRows, equityHoldingsRow("equity-holdings", heldEquity.totalValue)] : assetRows;
+  // Historical trend points come from ledger balances only (no record of shares held as of a
+  // past date) -- bump just the latest (today's) point by the current equity value so it doesn't
+  // visually undercut the summary cards above, which do include it.
+  const netWorthTrendWithEquity =
+    heldEquity.totalValue > 0 && netWorthTrend.length > 0
+      ? netWorthTrend.map((p, i) =>
+          i === netWorthTrend.length - 1
+            ? { ...p, assets: p.assets + heldEquity.totalValue, netWorth: p.netWorth + heldEquity.totalValue }
+            : p
+        )
+      : netWorthTrend;
 
   const latestDate = data.transactions
       .filter((t) => !t.deleted)
@@ -2491,9 +2512,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Net Worth — <PeriodSelect />
               </h3>
               <NetWorthReport
-                assets={assetRows}
+                assets={netWorthAssetRows}
                 liabilities={realLiabilityRows}
-                trend={netWorthTrend}
+                trend={netWorthTrendWithEquity}
                 fmt={fmt}
                 uiTheme={uiTheme}
               />

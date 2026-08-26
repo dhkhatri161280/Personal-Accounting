@@ -10,13 +10,21 @@ interface NWRow {
   closing: number;
 }
 
-const ASSET_ORDER = ["Bank & Cash", "Investments", "Fixed Assets", "Other Assets"];
+const ASSET_ORDER = ["Bank & Cash", "Investments", "Equity Holdings (RSU/ESPP)", "Fixed Assets", "Other Assets"];
 function assetCategory(parent: string): string {
   const p = (parent || "").toLowerCase();
+  if (p === "equity holdings (rsu/espp)") return "Equity Holdings (RSU/ESPP)";
   if (/bank accounts|cash-in-hand/.test(p)) return "Bank & Cash";
   if (/investments?/.test(p)) return "Investments";
   if (/fixed assets?/.test(p)) return "Fixed Assets";
   return "Other Assets";
+}
+
+/** Synthetic asset row for vested RSU/ESPP shares still held -- these aren't booked as a ledger
+ * account (there's nothing to double-entry until sold), so Net Worth adds their live market
+ * value as an extra row alongside the real ledger-derived asset rows. */
+export function equityHoldingsRow(id: string, value: number) {
+  return { id, name: "RSU + ESPP (vested, held)", parent: "Equity Holdings (RSU/ESPP)", closing: -value };
 }
 
 const LIAB_ORDER = ["Loans", "Credit Cards & Payables", "Other Liabilities"];
@@ -69,18 +77,26 @@ export function NetWorthReport({
     },
   ];
 
+  // Labels are drawn *inside* the SVG at each point's own x, rather than in a separate flex row
+  // below it -- two independently-laid-out elements (SVG internal viewBox scaling vs. a CSS flex
+  // row) can drift out of alignment under container-width or flex quirks elsewhere in the app;
+  // putting the text in the same coordinate space as the dots makes misalignment impossible.
   const W = 720,
-    H = 220,
-    PAD = 32;
+    PAD_X = 32,
+    PLOT_TOP = 16,
+    PLOT_BOTTOM = 168,
+    LABEL_Y = 196,
+    H = 210;
   const hasTrend = trend.length > 1;
   const vals = trend.map((p) => p.netWorth);
   const min = Math.min(0, ...vals),
     max = Math.max(0, ...vals, 1);
   const range = max - min || 1;
-  const stepX = trend.length > 1 ? (W - PAD * 2) / (trend.length - 1) : 0;
+  const plotHeight = PLOT_BOTTOM - PLOT_TOP;
+  const stepX = trend.length > 1 ? (W - PAD_X * 2) / (trend.length - 1) : 0;
   const xy = (i: number, v: number): [number, number] => {
-    const x = PAD + i * stepX;
-    const y = H - PAD - ((v - min) / range) * (H - PAD * 2);
+    const x = PAD_X + i * stepX;
+    const y = PLOT_BOTTOM - ((v - min) / range) * plotHeight;
     return [x, y];
   };
   const pathD = trend
@@ -89,7 +105,7 @@ export function NetWorthReport({
       return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
-  const zeroY = H - PAD - ((0 - min) / range) * (H - PAD * 2);
+  const zeroY = PLOT_BOTTOM - ((0 - min) / range) * plotHeight;
   const lineColor = netWorth >= 0 ? "#16a34a" : "#dc2626";
 
   return (
@@ -113,18 +129,20 @@ export function NetWorthReport({
         <div className="data-panel" style={{ marginTop: "1rem" }}>
           <h4 style={{ margin: "0 0 0.75rem" }}>Net Worth Over Time</h4>
           <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ overflow: "visible" }}>
-            <line x1={PAD} y1={zeroY} x2={W - PAD} y2={zeroY} stroke="#cbd5e1" strokeDasharray="4 4" />
+            <line x1={PAD_X} y1={zeroY} x2={W - PAD_X} y2={zeroY} stroke="#cbd5e1" strokeDasharray="4 4" />
             <path d={pathD} fill="none" stroke={lineColor} strokeWidth={2} />
             {trend.map((p, i) => {
               const [x, y] = xy(i, p.netWorth);
-              return <circle key={p.label} cx={x} cy={y} r={3} fill={p.netWorth >= 0 ? "#16a34a" : "#dc2626"} />;
+              return (
+                <g key={p.label}>
+                  <circle cx={x} cy={y} r={3} fill={p.netWorth >= 0 ? "#16a34a" : "#dc2626"} />
+                  <text x={x} y={LABEL_Y} fontSize={10} fill="#64748b" textAnchor="end" transform={`rotate(-40 ${x} ${LABEL_Y})`}>
+                    {p.label}
+                  </text>
+                </g>
+              );
             })}
           </svg>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "#64748b", marginTop: 4 }}>
-            {trend.map((p) => (
-              <span key={p.label}>{p.label}</span>
-            ))}
-          </div>
         </div>
       )}
 

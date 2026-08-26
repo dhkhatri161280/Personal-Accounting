@@ -12,7 +12,7 @@ import {
   type GrAccount,
 } from "@/lib/gr-consolidation";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
-import { NetWorthReport } from "@/components/reports/NetWorthReport";
+import { NetWorthReport, equityHoldingsRow } from "@/components/reports/NetWorthReport";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { EquityReport } from "@/components/reports/EquityReport";
@@ -1505,22 +1505,31 @@ export function GrApp() {
             </div>
           )}
 
-          {/* Net Worth — Assets minus real debt only, consolidated across US + India in INR */}
-          {report === "networth" && (
-            <div className="data-panel">
-              <h3>Net Worth (GR Consolidated)</h3>
-              <p className="gr-report-note">
-                All-time closing balances in INR, across both books.
-              </p>
-              <NetWorthReport
-                assets={bsAssets}
-                liabilities={nwLiabs}
-                trend={netWorthTrend}
-                fmt={fmt}
-                uiTheme={uiTheme}
-              />
-            </div>
-          )}
+          {/* Net Worth — Assets minus real debt only, consolidated across US + India in INR.
+              Vested RSU/ESPP held aren't booked in either ledger (nothing to double-entry until
+              sold), so they're added as an extra asset row at today's INR value; the trend's
+              latest point gets the same bump so it doesn't visually undercut the summary cards. */}
+          {report === "networth" && (() => {
+            const equityValueInr = equityRsuInr + equityEsppInr;
+            const nwAssets = equityValueInr > 0 ? [...bsAssets, equityHoldingsRow("equity-holdings", equityValueInr)] : bsAssets;
+            const nwTrend =
+              equityValueInr > 0 && netWorthTrend.length > 0
+                ? netWorthTrend.map((p, i) =>
+                    i === netWorthTrend.length - 1
+                      ? { ...p, assets: p.assets + equityValueInr, netWorth: p.netWorth + equityValueInr }
+                      : p
+                  )
+                : netWorthTrend;
+            return (
+              <div className="data-panel">
+                <h3>Net Worth (GR Consolidated)</h3>
+                <p className="gr-report-note">
+                  All-time closing balances in INR, across both books.
+                </p>
+                <NetWorthReport assets={nwAssets} liabilities={nwLiabs} trend={nwTrend} fmt={fmt} uiTheme={uiTheme} />
+              </div>
+            );
+          })()}
 
           {/* Cash Flow — uses CashFlowReport for collapsible groups */}
           {report === "cashflow" && (
