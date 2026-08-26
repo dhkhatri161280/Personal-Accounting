@@ -14,6 +14,7 @@ import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-eng
 import { estimateNjStateTax, computeNjPropertyTaxDeduction } from "@/lib/tax-nj-engine";
 import { estimateAzStateTax, computeAzItemizedDeduction } from "@/lib/tax-az-engine";
 import { resolveStateResidency } from "@/lib/tax-state-residency";
+import { computeTaxPlanningScenarios, type TaxPlanningScenario } from "@/lib/tax-planning";
 import { fmtDate } from "@/lib/format-date";
 
 interface TaxReportProps {
@@ -26,6 +27,7 @@ interface TaxReportProps {
   fmt: (n: number) => string;
   readOnly?: boolean;
   uiTheme?: "classic" | "refresh";
+  livePrice?: number | null;
 }
 
 function row(rows: PayrollRow[], label: string, occurrence = 0): PayrollRow | undefined {
@@ -201,7 +203,7 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, fmt, readOnly, uiTheme }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, fmt, readOnly, uiTheme, livePrice }: TaxReportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
@@ -209,7 +211,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // Clicking a pay period (Excel-imported, manual/voucher-derived, or an RSU vest event) opens
   // a popup with a donut + full detail, rather than expanding an inline row.
   const [viewPeriod, setViewPeriod] = useState<
-    { type: "excel"; index: number } | { type: "manual"; id: string } | { type: "vest"; date: string } | null
+    | { type: "excel"; index: number }
+    | { type: "manual"; id: string }
+    | { type: "vest"; date: string }
+    | { type: "ytd" }
+    | null
   >(null);
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
   const [showRsuModal, setShowRsuModal] = useState(false);
@@ -226,6 +232,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [hsaCoverage, setHsaCoverage] = useState<HsaCoverage>("family");
   const [showGainEventsModal, setShowGainEventsModal] = useState(false);
   const [showDeductionsModal, setShowDeductionsModal] = useState(false);
+  const [showTaxPlanningModal, setShowTaxPlanningModal] = useState(false);
   const [periodBreakdownModal, setPeriodBreakdownModal] = useState<{ label: string; row: PayrollRow | undefined } | null>(null);
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
@@ -384,6 +391,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const manualK401 = voucherPeriods.reduce((s, m) => s + m.k401, 0);
   const manualK401Emplr = voucherPeriods.reduce((s, m) => s + (m.k401Emplr ?? 0), 0);
   const manualEspp = voucherPeriods.reduce((s, m) => s + (m.espp ?? 0), 0);
+  const manualMedical = voucherPeriods.reduce((s, m) => s + m.medical, 0);
+  const manualBase = voucherPeriods.reduce((s, m) => s + m.base, 0);
+  const manualTelephone = voucherPeriods.reduce((s, m) => s + m.telephone, 0);
 
   // Sum a row across every Excel period, substituting an override's value wherever one
   // exists for that period index, then add the (unaffected) Stocks-column total.
@@ -417,6 +427,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const totalK401 = overriddenTotal(k401, "k401") + manualK401;
   const totalK401Emplr = overriddenTotal(k401Emplr, "k401Emplr") + manualK401Emplr;
   const totalEsppDeduction = overriddenTotal(esppRow, "espp") + manualEspp;
+  const totalMedical = overriddenTotal(medicalRow, "medical") + manualMedical;
+  const totalBaseYtd = overriddenTotal(baseRow, "base") + manualBase;
+  const totalTelephoneYtd = overriddenTotal(telRow, "telephone") + manualTelephone;
   const effectiveRate = totalGross > 0 ? (totalTaxAll / totalGross) * 100 : 0;
 
   // RSU vest records come from Reports > Equity (authoritative for date/shares/price) —
@@ -542,6 +555,41 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             taxYear: taxEstimateYear, filingStatus, agi: stateAgi,
             itemizedDeduction: stateItemized, stateWithheld: totalStateWH,
           });
+
+  // Computed "what if" scenarios (own tax engine only, no external AI/data-sharing) -- see
+  // lib/tax-planning.ts. RSU/ESPP hold-timing scenarios are skipped internally when no live
+  // price is available; everything else (401K/HSA room, itemize/bunch, withholding check)
+  // doesn't need one.
+  const taxPlanningScenarios: TaxPlanningScenario[] = computeTaxPlanningScenarios({
+    taxYear: taxEstimateYear,
+    filingStatus,
+    stateCode: stateResidency.code,
+    stateName: stateResidency.name,
+    longTermHoldingDays: taxEstimate.rules.longTermHoldingDays,
+    taxableWages,
+    totalGross,
+    totalFederal,
+    totalMedicare,
+    shortTermGainTaxable: gainTotals.shortTermGainTaxable,
+    longTermGainTaxable: gainTotals.longTermGainTaxable,
+    capitalLossDeduction: gainTotals.ordinaryLossDeduction,
+    federalItemizedTotal: federalItemized.total,
+    hsaContributionTotal,
+    hsaCoverage,
+    totalK401,
+    totalStateWH,
+    stateItemizedTotal: stateItemized,
+    stateHsaConforms: stateResidency.code === "AZ",
+    baselineFederalTax: taxEstimate.estimatedTax,
+    baselineStateTax: stateTaxEstimate.estimatedTax,
+    baselineFederalBalanceDue: taxEstimate.balanceDue,
+    baselineFederalStandardDeduction: taxEstimate.rules.standardDeduction,
+    grants: equity?.grants ?? [],
+    esppPurchases: equity?.esppPurchases ?? [],
+    livePrice: livePrice ?? null,
+    todayIso,
+  });
+  const taxPlanningTotalSavings = taxPlanningScenarios.reduce((s, sc) => s + sc.totalSavings, 0);
 
   const summaryCards: { label: string; value: number; sub: string; onClick?: () => void; icon: IconKind; color: string }[] = [
     { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Gross Salary", row: gross }), icon: "cash", color: "#1e40af" },
@@ -898,7 +946,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           })}
         </tbody>
         <tfoot>
-          <tr>
+          <tr onClick={() => setViewPeriod({ type: "ytd" })} style={{ cursor: "pointer" }} title="Click for the year-to-date breakdown">
             <th>Total</th>
             <th className="right">{fmt(totalGross)}</th>
             <th className="right">{fmt(totalFederal)}</th>
@@ -942,6 +990,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               <option value="self-only">Self-only</option>
             </select>
           </label>
+          <button onClick={() => setShowTaxPlanningModal(true)}>
+            💡 Tax Planning{taxPlanningTotalSavings > 0 ? ` (up to ${fmt(taxPlanningTotalSavings)})` : ""}
+          </button>
         </div>
       </div>
       <details style={{ margin: "0 0 0.75rem" }}>
@@ -1157,7 +1208,17 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           isVest?: boolean; shares?: number; onViewShares?: () => void;
         } | null = null;
 
-        if (viewPeriod.type === "vest") {
+        if (viewPeriod.type === "ytd") {
+          period = {
+            label: `Year-to-Date Total`,
+            gross: totalGross, federal: totalFederal, ssn: totalSsn, medicare: totalMedicare,
+            stateWH: totalStateWH, stateSDI: totalStateSDI, totalTax: totalTaxAll,
+            k401: totalK401, k401Emplr: totalK401Emplr, medical: totalMedical, espp: totalEsppDeduction,
+            base: totalBaseYtd, telephone: totalTelephoneYtd,
+            isEditing: false,
+            onEdit: null,
+          };
+        } else if (viewPeriod.type === "vest") {
           const vg = vestGroups.find((g) => g.date === viewPeriod.date);
           if (vg) {
             const shares = vg.items.reduce((s, { vest }) => s + vest.shares, 0);
@@ -1419,6 +1480,56 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           )}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowDeductionsModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {showTaxPlanningModal && (
+        <Modal title={`Tax Planning — ${yr.year}`} onClose={() => setShowTaxPlanningModal(false)} wide>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 1rem" }}>
+            Every number below is computed by this app's own tax-rule tables and formulas — the same ones used
+            elsewhere in this report — not by an external AI/LLM, and none of your data leaves the app. These are
+            estimates to inform a conversation with a CPA, not tax advice, and not a substitute for one.
+          </p>
+          {(["Contribution Room", "Equity Timing", "Deduction Strategy", "Withholding", "Informational"] as const).map((cat) => {
+            const items = taxPlanningScenarios.filter((s) => s.category === cat);
+            if (items.length === 0) return null;
+            return (
+              <div key={cat} style={{ marginBottom: "1.25rem" }}>
+                <h5 style={{ margin: "0 0 0.5rem", fontSize: 13, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.6 }}>{cat}</h5>
+                {items.map((s) => (
+                  <div
+                    key={s.id}
+                    style={{
+                      border: "1px solid #e2e8f0", borderRadius: 10, padding: "0.85rem 1rem", marginBottom: "0.6rem",
+                      background: s.actionable ? "#fff" : "#f8fafc",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap" }}>
+                      <strong style={{ fontSize: 13 }}>{s.title}</strong>
+                      {s.totalSavings > 0 && (
+                        <strong className="equity-amt" style={{ color: "#16a34a", fontSize: 14, whiteSpace: "nowrap" }}>
+                          up to {fmt(s.totalSavings)}
+                        </strong>
+                      )}
+                    </div>
+                    <p style={{ fontSize: 12, margin: "0.4rem 0 0", color: "#334155" }}>{s.description}</p>
+                    {s.totalSavings > 0 && (
+                      <p style={{ fontSize: 11, margin: "0.4rem 0 0", opacity: 0.75 }}>
+                        Federal: {fmt(s.fedSavings)} {s.stateSavings > 0 && <>· {stateResidency.name}: {fmt(s.stateSavings)}</>}
+                        {s.deadline && <> · by {fmtDate(s.deadline)}</>}
+                      </p>
+                    )}
+                    {s.caveat && (
+                      <p style={{ fontSize: 10.5, margin: "0.4rem 0 0", opacity: 0.6, fontStyle: "italic" }}>{s.caveat}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setShowTaxPlanningModal(false)}>Close</button>
           </div>
         </Modal>
       )}

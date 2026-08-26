@@ -2600,6 +2600,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onViewVoucher={editVoucher}
               fmt={fmt}
               uiTheme={uiTheme}
+              livePrice={nvdaPrice}
             />
           )}
           {report === "recon" && data && (

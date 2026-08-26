@@ -218,6 +218,24 @@ const HSA_LIMITS: Record<string, Record<HsaCoverage, number>> = {
   "2026": { "self-only": 4_400, family: 8_750 },
 };
 
+/** Elective-deferral limit for the annual room calc in tax-planning.ts -- doesn't include the
+ * age-50+ catch-up ($7,500 for 2024/2025), same "not modeled" omission as the HSA table above.
+ * 2024/2025 are the published IRS figures; 2026 is a projection (not yet announced at the time
+ * this was written), matching the "projected" convention used for the 2026 bracket tables. */
+const RETIREMENT_401K_LIMITS: Record<string, number> = {
+  "2016": 18_000, "2017": 18_000, "2018": 18_500, "2019": 19_000, "2020": 19_500,
+  "2021": 19_500, "2022": 20_500, "2023": 22_500, "2024": 23_000, "2025": 23_500, "2026": 24_500,
+};
+
+export function getHsaLimit(taxYear: string, coverage: HsaCoverage): number {
+  const limits = HSA_LIMITS[taxYear] ?? HSA_LIMITS["2026"];
+  return limits[coverage];
+}
+
+export function get401kLimit(taxYear: string): number {
+  return RETIREMENT_401K_LIMITS[taxYear] ?? RETIREMENT_401K_LIMITS["2026"];
+}
+
 /** Federal above-the-line HSA deduction (Form 8889) — the personal (non-payroll) contribution
  * amount, capped at the IRS annual limit for the coverage tier. California does NOT conform
  * to federal HSA treatment: contributions aren't deductible on the CA return, so this must be
