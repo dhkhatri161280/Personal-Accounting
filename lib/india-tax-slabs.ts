@@ -166,6 +166,13 @@ export function hasIndiaTaxSlabsFor(assessmentYear: string): boolean {
   return assessmentYear in SLABS;
 }
 
+/** Exposes the same per-AY cess rate the slab estimate uses, for other calculators (e.g. capital
+ * gains special-rate tax) that need to apply the identical cess without duplicating this table --
+ * null for an AY not modeled here, same "don't silently guess" convention as estimateIndiaTax. */
+export function cessRateFor(assessmentYear: string): number | null {
+  return SLABS[assessmentYear]?.cessRate ?? null;
+}
+
 /** Section 80C's combined cap (LIC, NSC, PPF, ELSS, PF, etc. all count against ONE limit, not
  * one each) -- raised from Rs 1,00,000 to Rs 1,50,000 starting FY2014-15 (AY2015-16). */
 export function section80CCap(assessmentYear: string): number {

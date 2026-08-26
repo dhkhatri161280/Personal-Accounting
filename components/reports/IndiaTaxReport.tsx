@@ -6,6 +6,7 @@ import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
 import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
+import { estimateEquityCapitalGainsTax } from "@/lib/india-capital-gains-tax";
 import { ledgerPeriodTotals } from "@/lib/ledger-period";
 import { computeHouseProperty } from "@/lib/india-house-property";
 import { buildPayrollLedgerReconciliation } from "@/lib/india-payroll-reconcile";
@@ -290,10 +291,18 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   // as a separately-typed field that can silently drift out of sync with the other two.
   const itrRefundOrDemand = activeItrYear ? itrTaxesPaid - activeItrYear.taxPayable : 0;
   // Capital gains are taxed at special flat rates (STCG under 111A, LTCG under 112/112A), not
-  // the individual's slab rate -- the slab estimator below only models ordinary/salary-rate
-  // taxation, so a year with capital gains on file gets no estimate at all rather than a
-  // confidently wrong one that silently taxed the gain at the slab rate.
+  // the individual's slab rate -- estimateEquityCapitalGainsTax below models the common
+  // STT-paid-equity case; the slab estimator runs against ordinary income with the raw CG
+  // figures backed out, and the two are added together for the combined estimate.
   const hasCapitalGains = !!(activeItrYear?.capitalGains && (activeItrYear.capitalGains.shortTerm !== 0 || activeItrYear.capitalGains.longTerm !== 0));
+  const cgShortTerm = activeItrYear?.capitalGains?.shortTerm ?? 0;
+  const cgLongTerm = activeItrYear?.capitalGains?.longTerm ?? 0;
+  // Only modeled for STT-paid listed equity / equity-oriented mutual funds (Secs 111A/112A) --
+  // null for an AY without slab/cess data, or if a year's mix isn't equity (not distinguished
+  // in the stored data, so this is offered as an equity-case estimate, not a certainty).
+  const equityCapitalGainsTax = activeItrYear && hasCapitalGains
+    ? estimateEquityCapitalGainsTax(activeItrYear.assessmentYear, cgShortTerm, cgLongTerm)
+    : null;
   // Raw = exactly what was invested/paid, even past the statutory cap (real information worth
   // keeping). Capped = what's actually claimable -- Section 80C's combined cap (LIC, NSC, PPF,
   // PF, ELSS, etc. all count against ONE limit) and 80D's cap, both year-aware.
@@ -342,9 +351,16 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   // slab-based estimate is still useful as a cross-check, and to pre-fill when adding a year by
   // hand. Only offered for Assessment Years whose slabs are actually modeled. Runs against the
   // (possibly recomputed) displayTotalIncome, not the raw stored figure, so it doesn't drift out
-  // of sync with a just-capped Ch VI-A Deductions figure.
-  const estimatedTaxPayable = activeItrYear && !hasCapitalGains && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
-    ? estimateIndiaTax(activeItrYear.assessmentYear, displayTotalIncome)
+  // of sync with a just-capped Ch VI-A Deductions figure. When capital gains are present,
+  // displayTotalIncome already has the raw STCG+LTCG baked in (see estimatedGti above) -- back
+  // that out before running it through the ordinary slab brackets, then add the special-rate CG
+  // tax (Secs 111A/112A) on top, since Ch VI-A deductions can't be claimed against that gain.
+  const estimatedTaxPayable = activeItrYear && hasIndiaTaxSlabsFor(activeItrYear.assessmentYear)
+    ? (hasCapitalGains
+        ? (equityCapitalGainsTax == null
+            ? null
+            : (estimateIndiaTax(activeItrYear.assessmentYear, Math.max(0, displayTotalIncome - cgShortTerm - cgLongTerm)) ?? 0) + equityCapitalGainsTax.totalTaxInclCess)
+        : estimateIndiaTax(activeItrYear.assessmentYear, displayTotalIncome))
     : null;
 
   const itrSummaryCards: { label: string; value: number; sub: string; icon: IconKind; color: string; onClick?: () => void }[] = activeItrYear
@@ -363,7 +379,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
         {
           label: "Tax Payable", value: activeItrYear.taxPayable,
           sub: hasCapitalGains
-            ? `${itrEffectiveRate.toFixed(1)}% effective rate — no slab estimate (capital gains taxed at special rates)`
+            ? (equityCapitalGainsTax == null || estimatedTaxPayable == null
+                ? `${itrEffectiveRate.toFixed(1)}% effective rate — no slab estimate (capital gains taxed at special rates)`
+                : Math.abs(estimatedTaxPayable - activeItrYear.taxPayable) <= 10
+                  ? `${itrEffectiveRate.toFixed(1)}% effective rate — matches estimate (slab + equity CG @ ${equityCapitalGainsTax.notes})`
+                  : `${itrEffectiveRate.toFixed(1)}% effective rate — estimate: ${fmt(estimatedTaxPayable)} (slab + equity CG, assumes STT-paid equity)`)
             : estimatedTaxPayable == null
               ? `${itrEffectiveRate.toFixed(1)}% effective rate`
               : Math.abs(estimatedTaxPayable - activeItrYear.taxPayable) <= 10
