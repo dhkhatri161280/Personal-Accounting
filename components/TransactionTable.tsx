@@ -237,8 +237,8 @@ export function TransactionTable({
           <thead>
             <tr>
               {heading("date", "Date")}
-              {heading("type", "Voucher Type")}
-              {heading("number", "Voucher #")}
+              {heading("type", "Type")}
+              {heading("number", "#")}
               {heading("debit", "Debit Ledger")}
               {heading("credit", "Credit Ledger")}
               {heading("narration", "Narration")}

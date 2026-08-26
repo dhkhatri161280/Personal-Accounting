@@ -7906,21 +7906,23 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    min-width so it only applies where the fixed-width layout is actually active. */
 @media (min-width: 1101px) {
   .ui-refresh .transaction-table {
-    min-width: 1260px;
+    min-width: 1130px;
   }
   .ui-refresh .transaction-table th:nth-child(1) {
     width: 120px;
   }
-  /* Header text (bold, uppercase, letter-spaced, inside a sort button with its own 5px/9px
-     padding and a 10px sort-arrow icon) needs meaningfully more room than the data below it --
-     measured "VOUCHER TYPE" at ~151px and "VOUCHER #" at ~126px all-in at this font, so sizing
-     these two for the data ("Payment", "404") alone was the bug: the header wrapped to two lines
-     while every sibling header stayed on one, an inconsistency the data-only check never caught. */
+  /* "Voucher Type"/"Voucher #" headers (bold, uppercase, letter-spaced, inside a sort button
+     with its own padding + a sort-arrow icon) measured ~175px/~127px needed just for the HEADER,
+     while the data below ("Payment", "404") only needs ~75px/~65px -- widening the column to fit
+     that verbose header left a large empty gap under every data row, which is its own bug.
+     Shortened the labels to "Type"/"#" (already the convention GR's Day Book uses) instead of
+     continuing to trade one problem for the other: header now needs ~97px/~66px, close to what
+     the data needs, so the column can be sized tight without wrapping OR wasting space. */
   .ui-refresh .transaction-table th:nth-child(2) {
-    width: 172px;
+    width: 105px;
   }
   .ui-refresh .transaction-table th:nth-child(3) {
-    width: 148px;
+    width: 74px;
   }
   .ui-refresh .transaction-table th:nth-child(7) {
     width: 145px;
@@ -7929,16 +7931,5 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
     width: 92px;
   }
 }
-
-/* The action-menu (Edit/Copy/Delete dot button) is untouched by .ui-refresh elsewhere, so at
-   13px table text it reads small/plain next to everything else -- scale it up to match instead
-   of leaving one classic-sized control sitting in an otherwise refreshed row. */
-.ui-refresh .action-menu summary {
-  width: 40px;
-  height: 36px;
-  border-radius: var(--ref-radius);
-  box-shadow: var(--ref-shadow);
-}
-.ui-refresh .action-menu .dot { width: 7px; height: 7px; }
 .ui-refresh .action-popover { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow-hover); }
 .ui-refresh .action-popover button { font-size: 12px; padding: 8px 12px; border-radius: 8px; }
