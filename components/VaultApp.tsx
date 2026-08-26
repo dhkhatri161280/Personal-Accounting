@@ -37,7 +37,6 @@ import {
   formatVoucherDisplayDate,
   voucherSideLedgerNames,
 } from "@/lib/vault-accounting";
-import { getSyncState, type SyncState } from "@/lib/sync-utils";
 import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
