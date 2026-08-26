@@ -2325,11 +2325,12 @@ export function PlaidImport({ data, onSave }: Props) {
                             <td className="plaid-recon-type">{g.types.join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
                             <td
-                              className={`plaid-recon-pending${pendingClearingTotal > 0 ? " plaid-recon-clickable" : ""}`}
-                              onClick={() => pendingClearingTotal > 0 && setExpandedUnclearedIdx(isUnclearedExpanded ? null : i)}
+                              className={`plaid-recon-pending${unclearedItems.length > 0 ? " plaid-recon-clickable" : ""}`}
+                              onClick={() => unclearedItems.length > 0 && setExpandedUnclearedIdx(isUnclearedExpanded ? null : i)}
+                              title={pendingClearingTotal > 0 ? `Net of ${unclearedItems.length} pending transaction(s) — $${pendingClearingTotal.toFixed(2)} gross before refunds/credits` : undefined}
                             >
-                              {pendingClearingTotal > 0
-                                ? <>{`$${pendingClearingTotal.toFixed(2)}`}<span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
+                              {unclearedItems.length > 0
+                                ? <>{`${uncleared >= 0 ? "+" : ""}$${uncleared.toFixed(2)}`}<span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
                                 : <span className="plaid-recon-zero">—</span>}
                             </td>
                             <td className="plaid-recon-amt">{vaultBal !== null ? `$${vaultBal.toFixed(2)}` : <span className="plaid-recon-nomatch">no match</span>}</td>
@@ -2449,8 +2450,11 @@ export function PlaidImport({ data, onSave }: Props) {
                 </tbody>
               </table>
               <div className="plaid-recon-note">
-                <strong>Difference = Plaid − Vault + Vault Pending.</strong>{" "}
-                <strong>Uncleared</strong> = pending charges at bank not yet settled (NOT in Plaid current balance, but posted to vault). Pending payments are excluded — they are already applied in both Plaid and vault. Click (▼) to see details.
+                <strong>Uncleared</strong> = the NET of pending charges and credits at the bank that Plaid's current
+                balance doesn't reflect yet but the vault already does (a refund reduces this figure, it isn't just
+                added up as if everything were a charge). Pending payments are excluded — they're already applied in
+                both Plaid and vault. Click (▼) to see the individual transactions, including the gross total before
+                netting refunds/credits.
                 <strong>Difference = Plaid − Vault + Uncleared</strong>; when $0.00, vault matches Plaid's settled position.
                 Click any non-zero row (▼) to drill down into which transactions explain the remaining gap.
                 {" "}<strong>Note:</strong> Plaid credit card balances can lag 1–2 days for settled transactions — the drill-down "Remaining gap" will show whether it's a sync lag or missing entries.
