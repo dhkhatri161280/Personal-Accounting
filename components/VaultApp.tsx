@@ -55,6 +55,7 @@ import { ReconReport } from "@/components/reports/ReconReport";
 import { StatIcon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
+import { FloatingWindow } from "@/components/FloatingWindow";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
@@ -2822,9 +2823,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </button>
           </form>
           {inlineLedgerSide && (
-            <div className="master-modal inline-ledger-modal">
+            <FloatingWindow title="Create Ledger from Voucher" onClose={() => setInlineLedgerSide(null)}>
               <form className="master-form" onSubmit={createLedgerInsideVoucher}>
-                <h3>Create Ledger from Voucher</h3>
                 <p>
                   The ledger will be selected as the {inlineLedgerSide} account and synchronized to
                   Tally before this voucher.
@@ -2879,17 +2879,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   <button className="primary">Create and select</button>
                 </div>
               </form>
-            </div>
+            </FloatingWindow>
           )}
         </div>
       )}
       {cashFlowDetail && (
-        <div className="drill-overlay" onClick={() => setCashFlowDetail(null)}>
-          <div className="drill-panel ledger-drill-panel" onClick={(e) => e.stopPropagation()}>
-            <button className="drill-close" onClick={() => setCashFlowDetail(null)}>
-              Close
-            </button>
-            <h2>{cashFlowDetail?.ledger ?? cashFlowDetail?.group}</h2>
+        <FloatingWindow title={cashFlowDetail?.ledger ?? cashFlowDetail?.group ?? ""} onClose={() => setCashFlowDetail(null)} wide initialWidth={1100} initialHeight={700}>
+          <div className="ledger-drill-panel">
             <p>
               Cash Flow | <PeriodSelect />
             </p>
@@ -2910,15 +2906,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDelete={(t) => deleteVoucher(t as Tx)}
             />
           </div>
-        </div>
+        </FloatingWindow>
       )}
       {selectedRow && (
-        <div className="drill-overlay" onClick={() => setSelected(null)}>
-          <div className="drill-panel ledger-drill-panel" onClick={(e) => e.stopPropagation()}>
-            <button className="drill-close" onClick={() => setSelected(null)}>
-              Close
-            </button>
-            <h2>{selectedRow.name}</h2>
+        <FloatingWindow title={selectedRow.name} onClose={() => setSelected(null)} wide initialWidth={1100} initialHeight={700}>
+          <div className="ledger-drill-panel">
             <p>
               {selectedRow.parent || selectedRow.category} | <PeriodSelect />
             </p>
@@ -2949,17 +2941,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDelete={(t) => deleteVoucher(t as Tx)}
             />
           </div>
-        </div>
+        </FloatingWindow>
       )}
       {selectedVoucher && (
-        <div className="drill-overlay" onClick={() => setSelectedVoucher(null)}>
-          <div className="drill-panel voucher-detail" onClick={(e) => e.stopPropagation()}>
-            <button className="drill-close" onClick={() => setSelectedVoucher(null)}>
-              Close
-            </button>
-            <h2>
-              {uiTheme === "refresh" && <VoucherTypeBadge type={selectedVoucher.type} />} {selectedVoucher.type} Voucher {selectedVoucher.number}
-            </h2>
+        <FloatingWindow
+          title={
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {uiTheme === "refresh" && <VoucherTypeBadge type={selectedVoucher.type} />}
+              {selectedVoucher.type} Voucher {selectedVoucher.number}
+            </span>
+          }
+          onClose={() => setSelectedVoucher(null)}
+          wide
+        >
+          <div className="voucher-detail">
             <p>
               {selectedVoucher.date.split("-").reverse().join("-")} | {data.company}
             </p>
@@ -3052,7 +3047,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </button>
             </div>
           </div>
-        </div>
+        </FloatingWindow>
       )}
     </div>
   );

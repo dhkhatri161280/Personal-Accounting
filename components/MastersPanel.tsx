@@ -1,5 +1,6 @@
 ﻿"use client";
 import { useMemo, useState } from "react";
+import { FloatingWindow } from "@/components/FloatingWindow";
 
 export type MasterGroup = {
   name: string;
@@ -444,7 +445,7 @@ export function MastersPanel({
         </form>
       )}
       {accountId !== null && (
-        <div className="master-modal">
+        <FloatingWindow title={`${account ? "Edit" : "Create"} Ledger Account`} onClose={() => setAccountId(null)}>
           <form
             className="master-form"
             onSubmit={(e) => {
@@ -452,7 +453,6 @@ export function MastersPanel({
               saveAccount(new FormData(e.currentTarget));
             }}
           >
-            <h3>{account ? "Edit" : "Create"} Ledger Account</h3>
             <label>
               Ledger name
               <input name="name" defaultValue={account?.name} required autoFocus />
@@ -508,10 +508,10 @@ export function MastersPanel({
               <button className="primary">Save ledger</button>
             </div>
           </form>
-        </div>
+        </FloatingWindow>
       )}
       {groupName !== null && (
-        <div className="master-modal">
+        <FloatingWindow title={`${group ? "Edit" : "Create"} Account Group`} onClose={() => setGroupName(null)}>
           <form
             className="master-form"
             onSubmit={(e) => {
@@ -519,7 +519,6 @@ export function MastersPanel({
               saveGroup(new FormData(e.currentTarget));
             }}
           >
-            <h3>{group ? "Edit" : "Create"} Account Group</h3>
             <label>
               Group name
               <input name="name" defaultValue={group?.name} required autoFocus />
@@ -563,7 +562,7 @@ export function MastersPanel({
               <button className="primary">Save group</button>
             </div>
           </form>
-        </div>
+        </FloatingWindow>
       )}
     </div>
   );

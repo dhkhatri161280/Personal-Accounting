@@ -5,6 +5,7 @@ import { parseIndiaPayslipFile, mergeIndiaPayslipMonths } from "@/lib/parse-indi
 import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { DonutChart } from "@/components/DonutChart";
+import { FloatingWindow } from "@/components/FloatingWindow";
 import { fmtDate } from "@/lib/format-date";
 import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
 import { estimateEquityCapitalGainsTax } from "@/lib/india-capital-gains-tax";
@@ -108,21 +109,9 @@ function summarizeFy(fy: string, allMonths: IndiaPayslipMonth[], allItrYears: In
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: "#fff", borderRadius: 12, padding: "1.25rem", maxWidth: 640, width: "100%", maxHeight: "85vh", overflow: "auto" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-          <h4 style={{ margin: 0 }}>{title}</h4>
-          <button onClick={onClose} aria-label="Close">✕</button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <FloatingWindow title={title} onClose={onClose} initialWidth={640}>
+      {children}
+    </FloatingWindow>
   );
 }
 

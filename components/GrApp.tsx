@@ -22,6 +22,7 @@ import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/eq
 import { StatIcon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
+import { FloatingWindow } from "@/components/FloatingWindow";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
@@ -1691,18 +1692,23 @@ export function GrApp() {
 
       {/* ── LEDGER DETAIL OVERLAY ─────────────────────────────────────────── */}
       {selectedAccount && (
-        <div className="drill-overlay" onClick={() => setSelectedLedgerName(null)}>
-          <div className="drill-panel ledger-drill-panel" onClick={(e) => e.stopPropagation()}>
+        <FloatingWindow
+          title={
+            <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedAccount.name}</span>
+              {selectedAccount.sources.map((s) => (
+                <span key={s} className={`source-badge source-${s.toLowerCase()}`}>{s}</span>
+              ))}
+            </span>
+          }
+          onClose={() => setSelectedLedgerName(null)}
+          wide
+          initialWidth={1100}
+          initialHeight={700}
+        >
+          <div className="ledger-drill-panel">
             <div className="drill-header-row">
-              <div className="drill-header-title">
-                <h2>{selectedAccount.name}</h2>
-                <p className="gr-drill-group">{selectedAccount.parent || "—"}</p>
-                <div className="gr-drill-src">
-                  {selectedAccount.sources.map((s) => (
-                    <span key={s} className={`source-badge source-${s.toLowerCase()}`}>{s}</span>
-                  ))}
-                </div>
-              </div>
+              <p className="gr-drill-group" style={{ margin: 0 }}>{selectedAccount.parent || "—"}</p>
               <div className="drill-period-bar">
                 <span>Period</span>
                 <select value={overlayYear} onChange={(e) => setOverlayYear(e.target.value)}>
@@ -1721,7 +1727,6 @@ export function GrApp() {
                   </optgroup>
                 </select>
               </div>
-              <button className="drill-close" onClick={() => setSelectedLedgerName(null)}>Close</button>
             </div>
             {(() => {
               const ps = overlayLedgerTxns.reduce(
@@ -1811,24 +1816,25 @@ export function GrApp() {
               <p className="gr-drill-nodata">No transactions in {overlayLabel}.</p>
             )}
           </div>
-        </div>
+        </FloatingWindow>
       )}
 
       {/* ── VOUCHER DETAIL MODAL ──────────────────────────────────────────── */}
       {modalTx && (
-        <div className="gr-modal-overlay" onClick={() => setExpandedGuid(null)}>
-          <div
-            className={`gr-modal-panel ${modalTx.source === "US" ? "gr-modal-us" : "gr-modal-in"}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button className="gr-modal-close" onClick={() => setExpandedGuid(null)} aria-label="Close">×</button>
-            <div className="gr-modal-head">
+        <FloatingWindow
+          title={
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span className={`source-badge source-${modalTx.source.toLowerCase()}`}>{modalTx.source}</span>
               {uiTheme === "refresh" && <VoucherTypeBadge type={modalTx.type} />}
-              <strong>{modalTx.type}</strong>
+              <span>{modalTx.type}</span>
               {modalTx.number && <span className="gr-modal-num">#{modalTx.number}</span>}
               {modalTx.cancelled && <span className="gr-cancelled-tag">CANCELLED</span>}
-            </div>
+            </span>
+          }
+          onClose={() => setExpandedGuid(null)}
+          wide
+        >
+          <div className={modalTx.source === "US" ? "gr-modal-us" : "gr-modal-in"}>
             <div className="gr-modal-meta">
               <span>{formatDate(modalTx.date)}</span>
               {modalTx.narration && <span className="gr-modal-narr">{modalTx.narration}</span>}
@@ -1877,7 +1883,7 @@ export function GrApp() {
               </table>
             )}
           </div>
-        </div>
+        </FloatingWindow>
       )}
 
       {/* ── FX RATES ──────────────────────────────────────────────────────── */}

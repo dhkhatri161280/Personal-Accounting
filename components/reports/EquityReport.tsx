@@ -4,29 +4,10 @@ import type { RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import type { ParsedGrant, ParsedVest } from "@/lib/parse-grant-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
+import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: "#fff", borderRadius: 10, maxWidth: wide ? 760 : 480, width: "100%", maxHeight: "85vh", overflow: "auto", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.9rem 1.1rem", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, background: "#fff" }}>
-          <strong>{title}</strong>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", lineHeight: 1, color: "#64748b" }}>✕</button>
-        </div>
-        <div style={{ padding: "1rem 1.1rem" }}>{children}</div>
-      </div>
-    </div>
-  );
 }
 
 

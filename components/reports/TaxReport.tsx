@@ -5,6 +5,7 @@ import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, esti
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { DonutChart, type DonutSegment } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
+import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { classifyRsuSales, classifyEsppSales, summarizeCapitalGains } from "@/lib/tax-classify";
 import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
@@ -37,18 +38,24 @@ function at(r: PayrollRow | undefined, i: number): number {
 
 // Fixed color per component (not palette-cycled) so a given slice means the same thing across
 // every paystub you open -- comparing periods side by side relies on Federal always being red,
-// Net always being green, etc.
+// Net always being green, etc. Take-home is computed as the REMAINDER (gross minus every other
+// slice), not read from a separately-stored "net" figure -- this app has more than one "Net"
+// concept on a paystub (e.g. "Net Salary" is gross minus tax only, before 401K/medical/ESPP;
+// "After Tax Salary" is the true final take-home), and picking the wrong one silently produces
+// slices that don't sum to gross. Computing the remainder guarantees they always do.
 function paystubDonutSegments({
-  net, federal, ssn, medicare, state, k401, espp,
+  gross, federal, ssn, medicare, state, k401, medical, espp,
 }: {
-  net: number; federal: number; ssn: number; medicare: number; state: number; k401: number; espp: number;
+  gross: number; federal: number; ssn: number; medicare: number; state: number; k401: number; medical: number; espp: number;
 }): DonutSegment[] {
+  const otherSlices = Math.max(0, federal) + Math.max(0, ssn) + Math.max(0, medicare) + Math.max(0, state) + Math.max(0, k401) + Math.max(0, medical) + Math.max(0, espp);
   return [
-    { label: "Net Take-Home", value: Math.max(0, net), color: "#16a34a" },
+    { label: "Net Take-Home", value: Math.max(0, gross - otherSlices), color: "#16a34a" },
     { label: "Federal Tax", value: Math.max(0, federal), color: "#dc2626" },
     { label: "SSN + Medicare", value: Math.max(0, ssn + medicare), color: "#d97706" },
     { label: "State Tax", value: Math.max(0, state), color: "#7c3aed" },
     { label: "401K", value: Math.max(0, k401), color: "#0891b2" },
+    { label: "Medical", value: Math.max(0, medical), color: "#0d9488" },
     { label: "ESPP", value: Math.max(0, espp), color: "#db2777" },
   ];
 }
@@ -72,26 +79,6 @@ function sumRow(r: PayrollRow | undefined): number {
 function stockVal(r: PayrollRow | undefined, idx: number): number | null {
   const v = r?.stockValues?.[idx];
   return v === undefined ? null : v;
-}
-
-function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: "#fff", borderRadius: 10, maxWidth: wide ? 760 : 480, width: "100%", maxHeight: "85vh", overflow: "auto", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.9rem 1.1rem", borderBottom: "1px solid #e2e8f0", position: "sticky", top: 0, background: "#fff" }}>
-          <strong>{title}</strong>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", lineHeight: 1, color: "#64748b" }}>✕</button>
-        </div>
-        <div style={{ padding: "1rem 1.1rem" }}>{children}</div>
-      </div>
-    </div>
-  );
 }
 
 const linkBtnStyle: React.CSSProperties = { background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, font: "inherit", textDecoration: "underline" };
@@ -220,6 +207,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [importError, setImportError] = useState("");
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  // Clicking a pay period opens a popup (donut + full detail), rather than expanding an
+  // inline row -- separate from expandedKey, which still drives the RSU vest-group rows.
+  const [viewPeriod, setViewPeriod] = useState<{ type: "excel"; index: number } | { type: "manual"; id: string } | null>(null);
   const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
   const [showRsuModal, setShowRsuModal] = useState(false);
   const [periodVestModal, setPeriodVestModal] = useState<{ label: string; items: { grant: RsuGrant; vest: RsuVest }[] } | null>(null);
@@ -756,8 +746,6 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const net = at(netSalary, i);
             if (!g && !t && !fed) return null; // skip empty future periods
             const key = `excel-${i}`;
-            const expanded = expandedKey === key;
-            const editing = editingTarget?.id === null && editingTarget?.periodIndex === i;
             const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label) : undefined;
             const match = yr.matches?.find((mt) => mt.periodIndex === i);
             const expectedNet = at(netSalary, i);
@@ -769,7 +757,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const periodEsppShares = periodEspp.reduce((s, e) => s + e.shares, 0);
             return (
               <Fragment key={key}>
-                <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer" }}>
+                <tr onClick={() => setViewPeriod({ type: "excel", index: i })} style={{ cursor: "pointer" }}>
                   <td title={label || undefined}>{label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`}</td>
                   <td className="right">{fmt(g)}</td>
                   <td className="right">{fmt(fed)}</td>
@@ -810,51 +798,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                     )}
                   </td>
                 </tr>
-                {expanded && (
-                  <tr>
-                    <td colSpan={11} style={{ background: "var(--panel-2, #f6f7f9)" }}>
-                      {editing ? (
-                        <EditFieldsForm form={manualForm} onChange={setManualForm} onSave={saveEdit} onCancel={() => setEditingTarget(null)} saving={savingManual} />
-                      ) : (
-                        <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", padding: "0.5rem 0.25rem", flexWrap: "wrap" }}>
-                          {g > 0 && (
-                            <DonutChart
-                              segments={paystubDonutSegments({ net, federal: fed, ssn: ssnV, medicare: med, state: swh + ssdi, k401: at(k401, i), espp: at(esppRow, i) })}
-                              size={120}
-                              thickness={18}
-                              centerLabel="Gross"
-                              centerValue={fmt(g)}
-                            />
-                          )}
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.6rem 1.25rem", flex: 1 }}>
-                            {rows.map((r, ri) => (
-                              <div key={ri}>
-                                <div style={{ fontSize: 11, opacity: 0.7 }}>{r.label}</div>
-                                <strong className="equity-amt">{fmt(r.values[i] ?? 0)}</strong>
-                              </div>
-                            ))}
-                          </div>
-                          {!readOnly && (
-                            <button
-                              onClick={() => startEditExcel(i, label)}
-                              title="Edit with real paystub numbers"
-                              aria-label="Edit with real paystub numbers"
-                              style={{ flexShrink: 0, fontSize: 15, lineHeight: 1, padding: "6px 9px", cursor: "pointer" }}
-                            >
-                              ✎
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )}
               </Fragment>
             );
           })}
           {allManualPeriods.map((m) => {
             const key = `manual-${m.id}`;
-            const expanded = expandedKey === key;
             const isOverride = m.periodIndex !== undefined;
             const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label);
             const editing = editingTarget?.id === m.id;
@@ -863,7 +811,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const mEsppShares = mEspp.reduce((s, e) => s + e.shares, 0);
             return (
               <Fragment key={key}>
-                <tr onClick={() => setExpandedKey(expanded ? null : key)} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : "#fffbeb" }}>
+                <tr onClick={() => setViewPeriod({ type: "manual", id: m.id })} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : "#fffbeb" }}>
                   <td title={`${m.label} — ${isOverride ? "corrected from the Excel import" : "posted in the vault but not yet in the imported Excel file"}`}>
                     {periodEndLabel(m.label, yr.year)} <em style={{ fontSize: 10, opacity: 0.6 }}>{isOverride ? "(edited)" : m.estimated ? "(from voucher, estimated)" : "(from voucher, edited)"}</em>
                   </td>
@@ -898,57 +846,6 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                     )}
                   </td>
                 </tr>
-                {expanded && (
-                  <tr>
-                    <td colSpan={11} style={{ background: "var(--panel-2, #f6f7f9)" }}>
-                      {!editing ? (
-                        <div style={{ padding: "0.5rem 0.25rem" }}>
-                          {m.estimated ? (
-                            <p style={{ fontSize: 11, opacity: 0.7, margin: "0 0 0.6rem" }}>
-                              Federal/SSN/Medicare/State are estimated from your closest matching pay period — replace with your real paystub numbers once you have them.
-                            </p>
-                          ) : null}
-                          <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", flexWrap: "wrap" }}>
-                            {(m.base + m.telephone + m.medical) > 0 && (
-                              <DonutChart
-                                segments={paystubDonutSegments({ net: m.net, federal: m.federal, ssn: m.ssn, medicare: m.medicare, state: m.stateWH + m.stateSDI, k401: m.k401, espp: m.espp ?? 0 })}
-                                size={120}
-                                thickness={18}
-                                centerLabel="Gross"
-                                centerValue={fmt(m.base + m.telephone + m.medical)}
-                              />
-                            )}
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "0.6rem 1.25rem", flex: 1 }}>
-                              {[
-                                ["Base", m.base], ["Telephone", m.telephone], ["Medical", m.medical],
-                                ["401K (employee)", m.k401], ["401K Employer Match", m.k401Emplr ?? 0], ["ESPP Deduction", m.espp ?? 0],
-                                ["Federal", m.federal], ["SSN", m.ssn], ["Medicare", m.medicare],
-                                ["State W/H", m.stateWH], ["State SDI", m.stateSDI], ["Net", m.net],
-                              ].map(([lbl, val]) => (
-                                <div key={lbl as string}>
-                                  <div style={{ fontSize: 11, opacity: 0.7 }}>{lbl}</div>
-                                  <strong className="equity-amt">{fmt(val as number)}</strong>
-                                </div>
-                              ))}
-                            </div>
-                            {!readOnly && (
-                              <button
-                                onClick={() => startEditExisting(m)}
-                                title="Edit with real paystub numbers"
-                                aria-label="Edit with real paystub numbers"
-                                style={{ flexShrink: 0, fontSize: 15, lineHeight: 1, padding: "6px 9px", cursor: "pointer" }}
-                              >
-                                ✎
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <EditFieldsForm form={manualForm} onChange={setManualForm} onSave={saveEdit} onCancel={() => setEditingTarget(null)} saving={savingManual} />
-                      )}
-                    </td>
-                  </tr>
-                )}
               </Fragment>
             );
           })}
@@ -1244,6 +1141,111 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           </div>
         </Modal>
       )}
+
+      {viewPeriod && (() => {
+        // Excel-imported and manually-entered (or voucher-derived) periods carry the same
+        // fields under different names -- normalize both into one shape so the popup below is
+        // written once, not duplicated per period type.
+        let period: {
+          label: string; gross: number; federal: number; ssn: number; medicare: number;
+          stateWH: number; stateSDI: number; totalTax: number; k401: number; k401Emplr: number;
+          medical: number; espp: number; base: number; telephone: number;
+          isEditing: boolean; onEdit: (() => void) | null; estimated?: boolean;
+        } | null = null;
+
+        if (viewPeriod.type === "excel") {
+          const i = viewPeriod.index;
+          const lbl = yr.periodLabels[i];
+          period = {
+            label: lbl ? periodEndLabel(lbl, yr.year) : `Period ${i + 1}`,
+            gross: at(gross, i), federal: at(federal, i), ssn: at(ssn, i), medicare: at(medicare, i),
+            stateWH: at(stateWH, i), stateSDI: at(stateSDI, i), totalTax: at(totalTax, i),
+            k401: at(k401, i), k401Emplr: at(k401Emplr, i), medical: at(medicalRow, i), espp: at(esppRow, i),
+            base: at(baseRow, i), telephone: at(telRow, i),
+            isEditing: editingTarget?.id === null && editingTarget?.periodIndex === i,
+            onEdit: readOnly ? null : () => startEditExcel(i, lbl),
+          };
+        } else {
+          const m = allManualPeriods.find((p) => p.id === viewPeriod.id);
+          if (m) {
+            period = {
+              label: periodEndLabel(m.label, yr.year),
+              gross: m.base + m.telephone, federal: m.federal, ssn: m.ssn, medicare: m.medicare,
+              stateWH: m.stateWH, stateSDI: m.stateSDI, totalTax: m.totalTax,
+              k401: m.k401, k401Emplr: m.k401Emplr ?? 0, medical: m.medical, espp: m.espp ?? 0,
+              base: m.base, telephone: m.telephone,
+              isEditing: editingTarget?.id === m.id,
+              onEdit: readOnly ? null : () => startEditExisting(m),
+              estimated: m.estimated,
+            };
+          }
+        }
+
+        if (!period) {
+          // The period this popup pointed at no longer exists under its old identity (e.g. an
+          // Excel period just got saved as a new manual override) -- close rather than show a
+          // stale/broken view.
+          setViewPeriod(null);
+          return null;
+        }
+
+        const grid: [string, number][] = [
+          ["Base", period.base], ["Telephone", period.telephone], ["Medical", period.medical],
+          ["401K (employee)", period.k401], ["401K Employer Match", period.k401Emplr], ["ESPP Deduction", period.espp],
+          ["Federal", period.federal], ["SSN", period.ssn], ["Medicare", period.medicare],
+          ["State W/H", period.stateWH], ["State SDI", period.stateSDI], ["Total Tax", period.totalTax],
+        ];
+
+        return (
+          <Modal title={`${period.label} — ${yr.year}`} onClose={() => setViewPeriod(null)} wide>
+            {period.isEditing ? (
+              <EditFieldsForm
+                form={manualForm}
+                onChange={setManualForm}
+                onSave={async () => { await saveEdit(); setViewPeriod(null); }}
+                onCancel={() => setEditingTarget(null)}
+                saving={savingManual}
+              />
+            ) : (
+              <>
+                {period.estimated && (
+                  <p style={{ fontSize: 11, opacity: 0.7, margin: "0 0 0.75rem" }}>
+                    Federal/SSN/Medicare/State are estimated from your closest matching pay period — replace with your real paystub numbers once you have them.
+                  </p>
+                )}
+                {period.gross > 0 && (
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: "1rem" }}>
+                    <DonutChart
+                      segments={paystubDonutSegments({
+                        gross: period.gross, federal: period.federal, ssn: period.ssn, medicare: period.medicare,
+                        state: period.stateWH + period.stateSDI, k401: period.k401, medical: period.medical, espp: period.espp,
+                      })}
+                      size={170}
+                      thickness={24}
+                      centerLabel="Gross"
+                      centerValue={fmt(period.gross)}
+                    />
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.75rem 1.25rem" }}>
+                  {grid.map(([lbl, val]) => (
+                    <div key={lbl}>
+                      <div style={{ fontSize: 11, opacity: 0.7 }}>{lbl}</div>
+                      <strong className="equity-amt">{fmt(val)}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: "1.25rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+                  {period.onEdit && (
+                    <button onClick={period.onEdit}>Edit with real paystub numbers</button>
+                  )}
+                  <button onClick={() => setViewPeriod(null)}>Close</button>
+                </div>
+              </>
+            )}
+          </Modal>
+        );
+      })()}
 
       {showGainEventsModal && (
         <Modal title={`RSU & ESPP Sales — ${yr.year}`} onClose={() => setShowGainEventsModal(false)} wide>
