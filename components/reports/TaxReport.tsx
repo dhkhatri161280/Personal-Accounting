@@ -414,6 +414,45 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     return sum + (gross?.stockValues?.reduce((s, v) => s + v, 0) ?? 0);
   }
 
+  // The most recently PAID period (by end date, not just latest index) -- used as the model
+  // for projecting the rest of the year in Tax Planning: a single recent paystub reflects your
+  // CURRENT elections (401k %, ESPP %, any raise) better than averaging across the whole year,
+  // which would be dragged down by older, possibly-since-changed periods. Considers both
+  // Excel-imported periods (override-aware) and voucher-derived periods, and only periods that
+  // have actually ended (not the in-progress current period, which hasn't been paid yet).
+  const lastPaidPeriod = (() => {
+    type Candidate = {
+      end: string; gross: number; federal: number; stateWH: number; medicare: number; k401: number; espp: number;
+    };
+    let best: Candidate | null = null;
+    for (let i = 0; i < yr.periodLabels.length; i++) {
+      const range = parsePeriodRange(yr.periodLabels[i], yr.year);
+      if (!range || range.end > todayIso) continue;
+      const ov = overrideByIndex.get(i);
+      const g = ov ? ov.base + ov.telephone : gross?.values[i] ?? 0;
+      if (!g) continue;
+      const cand: Candidate = {
+        end: range.end, gross: g,
+        federal: ov ? ov.federal : federal?.values[i] ?? 0,
+        stateWH: ov ? ov.stateWH : stateWH?.values[i] ?? 0,
+        medicare: ov ? ov.medicare : medicare?.values[i] ?? 0,
+        k401: ov ? ov.k401 : k401?.values[i] ?? 0,
+        espp: ov ? (ov.espp ?? 0) : esppRow?.values[i] ?? 0,
+      };
+      if (!best || cand.end > best.end) best = cand;
+    }
+    for (const vp of voucherPeriods) {
+      const range = parsePeriodRange(vp.label, yr.year);
+      const end = range?.end ?? vp.label;
+      if (end > todayIso) continue;
+      const g = vp.base + vp.telephone;
+      if (!g) continue;
+      const cand: Candidate = { end, gross: g, federal: vp.federal, stateWH: vp.stateWH, medicare: vp.medicare, k401: vp.k401, espp: vp.espp ?? 0 };
+      if (!best || cand.end > best.end) best = cand;
+    }
+    return best;
+  })();
+
   const totalGross = overriddenGrossTotal() + manualGross;
   const totalFederal = overriddenTotal(federal, "federal") + manualFederal;
   const totalSsn = overriddenTotal(ssn, "ssn") + manualSsn;
@@ -557,10 +596,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           });
 
   // Computed "what if" scenarios (own tax engine only, no external AI/data-sharing) -- see
-  // lib/tax-planning.ts. Projects the rest of the tax year forward (remaining semi-monthly
-  // paychecks averaged from what's been received, plus any shares still scheduled to vest at
-  // today's live price) rather than only looking at year-to-date actuals. RSU/ESPP hold-timing
-  // scenarios are skipped internally when no live price is available.
+  // lib/tax-planning.ts. Projects the rest of the tax year forward -- remaining semi-monthly
+  // paychecks are modeled on lastPaidPeriod (the most recent actual paystub, computed above),
+  // not a whole-year average, plus any shares still scheduled to vest at today's live price --
+  // rather than only looking at year-to-date actuals. RSU/ESPP hold-timing scenarios are
+  // skipped internally when no live price is available.
   const { scenarios: taxPlanningScenarios, projection: taxPlanningProjection } = computeTaxPlanningScenarios({
     taxYear: taxEstimateYear,
     filingStatus,
@@ -582,6 +622,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     stateItemizedTotal: stateItemized,
     stateHsaConforms: stateResidency.code === "AZ",
     baselineFederalStandardDeduction: taxEstimate.rules.standardDeduction,
+    totalEsppYtd: totalEsppDeduction,
+    lastPeriod: lastPaidPeriod,
     grants: equity?.grants ?? [],
     esppPurchases: equity?.esppPurchases ?? [],
     livePrice: livePrice ?? null,
@@ -1493,9 +1535,17 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             <h5 className="tp-cat-label">How this is projected</h5>
             <p className="tp-card-desc">
               You've received {taxPlanningProjection.periodsElapsed} of {taxPlanningProjection.periodsPerYear} paychecks
-              this year (about {fmt(taxPlanningProjection.avgRegularGrossPerPeriod)} gross each on average, not counting
-              stock vests). The {taxPlanningProjection.periodsRemaining} paychecks left before year-end are projected at
-              that same average, adding about {fmt(taxPlanningProjection.projectedRemainingGross)}.
+              this year. {taxPlanningProjection.modeledOnLastPaystub ? (
+                <>The {taxPlanningProjection.periodsRemaining} paychecks left before year-end are each modeled on your
+                most recent paystub (about {fmt(taxPlanningProjection.perPeriodGross)} gross, not counting stock vests) —
+                not a whole-year average, so it reflects your current pay rate and 401(k)/ESPP elections — adding about{" "}
+                {fmt(taxPlanningProjection.projectedRemainingGross)}.</>
+              ) : (
+                <>No recent paystub was found to model from, so the {taxPlanningProjection.periodsRemaining} paychecks
+                left before year-end are projected from this year's average instead (about{" "}
+                {fmt(taxPlanningProjection.perPeriodGross)} gross each), adding about{" "}
+                {fmt(taxPlanningProjection.projectedRemainingGross)}.</>
+              )}
               {taxPlanningProjection.futureVestShares > 0 && taxPlanningProjection.livePriceUsed ? (
                 <>
                   {" "}
@@ -1513,8 +1563,22 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               {fmt(taxPlanningProjection.projectedFederalTax)} ({stateResidency.name}: about {fmt(taxPlanningProjection.projectedStateTax)}).
               Every scenario below is measured against this projection, not just what's happened so far.
             </p>
+            {taxPlanningProjection.fullYearEspp > 0 && (
+              <p className="tp-card-desc" style={{ marginTop: "0.5rem" }}>
+                Separately: you're on track to contribute about {fmt(taxPlanningProjection.fullYearEspp)} to ESPP this
+                year ({fmt(taxPlanningProjection.totalEsppYtd)} so far, about {fmt(taxPlanningProjection.projectedRemainingEspp)} more
+                projected). ESPP is a post-tax payroll deduction — it doesn't change any of the tax numbers above, it just
+                buys NVDA shares at a discount on the plan's purchase cycle.
+                {taxPlanningProjection.nextEsppPurchaseDate && taxPlanningProjection.projectedEsppByNextPurchase != null && (
+                  <> Your next purchase looks to land around {fmtDate(taxPlanningProjection.nextEsppPurchaseDate)}
+                  (inferred from the gap between your last purchases), by which you're on track to have put in about{" "}
+                  {fmt(taxPlanningProjection.projectedEsppByNextPurchase + taxPlanningProjection.totalEsppYtd)}.</>
+                )} The IRS caps ESPP purchases at $25,000 of stock value per calendar year — this app doesn't check that
+                cap precisely, so it's worth confirming with your plan administrator if you're contributing near the max.
+              </p>
+            )}
           </div>
-          {(["Contribution Room", "Equity Timing", "Deduction Strategy", "Withholding", "Informational"] as const).map((cat) => {
+          {(["Contribution Room", "Equity Timing", "Deduction Strategy", "Withholding", "State Tax", "Informational"] as const).map((cat) => {
             const items = taxPlanningScenarios.filter((s) => s.category === cat);
             if (items.length === 0) return null;
             return (

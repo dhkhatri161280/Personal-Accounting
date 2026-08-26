@@ -7423,6 +7423,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .equity-summary-row {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  /* start, not the grid default of stretch -- a row mixing a short caption ("standard — click
+     for details") with a long one ("ordinary $X + LTCG $X + Medicare $X + NIIT $X") would
+     otherwise stretch every card in that row to match the tallest one, leaving the short-caption
+     cards padded with empty space and looking oversized next to their own content. */
+  align-items: start !important;
   gap: 10px !important;
   flex-wrap: unset !important;
   overflow-x: visible !important;

@@ -12,13 +12,15 @@ import type { RsuGrant, EsppPurchase } from "./vault-types";
  * from a licensed preparer; every scenario should stay framed as an estimate, not a directive.
  *
  * Every scenario is computed against a PROJECTED full tax year, not just year-to-date actuals:
- * remaining semi-monthly paychecks are estimated from the average of the paychecks received so
- * far, and any shares still scheduled to vest before year-end are added at today's live price.
- * See computeFullYearProjection() below. */
+ * remaining semi-monthly paychecks are modeled on the single most recently PAID paystub (not
+ * an average across the year -- a recent paystub reflects current elections like your 401(k)/
+ * ESPP percentage and any raise, which a whole-year average would dilute), and any shares still
+ * scheduled to vest before year-end are added at today's live price. See
+ * computeFullYearProjection() below. */
 
 export interface TaxPlanningScenario {
   id: string;
-  category: "Contribution Room" | "Equity Timing" | "Deduction Strategy" | "Withholding" | "Informational";
+  category: "Contribution Room" | "Equity Timing" | "Deduction Strategy" | "Withholding" | "State Tax" | "Informational";
   title: string;
   description: string;
   fedSavings: number; // >= 0, estimated dollars
@@ -30,12 +32,22 @@ export interface TaxPlanningScenario {
   hypothetical?: boolean; // true = contingent on a decision the user hasn't indicated they'll make (e.g. selling shares) -- rendered without the urgent "up to $X" styling
 }
 
+export interface LastPaidPeriod {
+  gross: number;
+  federal: number;
+  stateWH: number;
+  medicare: number;
+  k401: number;
+  espp: number;
+}
+
 export interface FullYearProjection {
   periodsPerYear: number;
   periodsElapsed: number;
   periodsRemaining: number;
-  regularGrossYtd: number; // totalGross minus this year's already-vested RSU/ESPP value
-  avgRegularGrossPerPeriod: number;
+  modeledOnLastPaystub: boolean; // true = per-period figures below come from the last paystub;
+  // false = no usable last paystub was found and this fell back to a whole-year average instead
+  perPeriodGross: number;
   projectedRemainingGross: number;
   futureVestShares: number;
   futureVestValue: number; // shares still scheduled to vest this year x today's live price
@@ -49,6 +61,14 @@ export interface FullYearProjection {
   projectedFederalTax: number;
   projectedStateTax: number;
   projectedFederalBalanceDue: number;
+  // ESPP -- post-tax payroll deduction, doesn't affect any of the tax figures above, tracked
+  // here purely so the projection can surface it (NVIDIA ESPP is a recurring purchase cycle).
+  perPeriodEspp: number;
+  totalEsppYtd: number;
+  projectedRemainingEspp: number;
+  fullYearEspp: number;
+  nextEsppPurchaseDate: string | null; // inferred from the gap between your last 2 purchases
+  projectedEsppByNextPurchase: number | null;
 }
 
 export interface TaxPlanningInput {
@@ -77,6 +97,14 @@ export interface TaxPlanningInput {
   stateHsaConforms: boolean; // AZ conforms; CA/NJ don't (HSA added back to state AGI)
 
   baselineFederalStandardDeduction: number;
+
+  // ESPP -- post-tax, doesn't feed the tax math, but the projection surfaces it (see
+  // FullYearProjection.fullYearEspp / nextEsppPurchaseDate) since it's useful cash-flow context.
+  totalEsppYtd: number;
+
+  // The single most recently PAID pay period -- used as the model for projecting the rest of
+  // the year (see the module doc comment above). Null falls back to a whole-year average.
+  lastPeriod: LastPaidPeriod | null;
 
   // Equity data for the full-year projection and the RSU/ESPP hold-timing scan.
   grants: RsuGrant[];
@@ -115,24 +143,29 @@ function daysBetween(isoDate: string, todayIso: string): number {
 // always uses this cadence (see PayrollYear.periodLabels), i.e. 24 paychecks/year.
 const PERIODS_PER_YEAR = 24;
 
+// A half-month period only counts as "elapsed" (i.e. actually paid) once it has ENDED -- the
+// period you're currently inside of hasn't been paid yet. E.g. on day 26 of a month, the 1st-15th
+// period ended on the 15th and was paid (elapsed), but the 16th-end period doesn't end (and get
+// paid) until month-end, so it's NOT elapsed yet -- only the 1st-15th period counts.
 function semiMonthlyPeriodsElapsed(taxYear: string, todayIso: string): number {
   const yearNum = Number(taxYear);
   const today = new Date(todayIso + "T00:00:00Z");
   if (today.getUTCFullYear() > yearNum) return PERIODS_PER_YEAR;
   if (today.getUTCFullYear() < yearNum) return 0;
-  const half = today.getUTCDate() <= 15 ? 1 : 2;
-  return today.getUTCMonth() * 2 + half; // 1..24
+  const firstHalfEnded = today.getUTCDate() > 15 ? 1 : 0;
+  return today.getUTCMonth() * 2 + firstHalfEnded; // 0..24
 }
 
 /** Projects the rest of the tax year forward from what's already happened: remaining paychecks
- * are estimated from the average of the paychecks received so far (excluding RSU/ESPP vest
- * value, which is projected separately from the actual vesting schedule, not averaged), and
- * shares still scheduled to vest before year-end are added at today's live price. */
+ * are modeled on the single most recently PAID paystub (falling back to a whole-year average
+ * only if none is available), RSU/ESPP vest value is projected separately from the actual
+ * vesting schedule (not modeled per-paycheck), and shares still scheduled to vest before
+ * year-end are added at today's live price. */
 export function computeFullYearProjection(input: TaxPlanningInput): FullYearProjection {
   const {
     taxYear, filingStatus, stateCode, totalGross, totalFederal, totalMedicare, totalStateWH, totalK401,
-    shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction, federalItemizedTotal,
-    hsaContributionTotal, hsaCoverage, stateHsaConforms, stateItemizedTotal, grants, livePrice, todayIso,
+    totalEsppYtd, lastPeriod, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction, federalItemizedTotal,
+    hsaContributionTotal, hsaCoverage, stateHsaConforms, stateItemizedTotal, grants, esppPurchases, livePrice, todayIso,
   } = input;
 
   const periodsElapsed = semiMonthlyPeriodsElapsed(taxYear, todayIso);
@@ -146,21 +179,55 @@ export function computeFullYearProjection(input: TaxPlanningInput): FullYearProj
   const futureVestShares = futureVests.reduce((s, { vest }) => s + vest.shares, 0);
   const futureVestValue = livePrice && livePrice > 0 ? futureVestShares * livePrice : 0;
 
+  // Model each remaining paycheck on the last one actually paid -- it reflects your CURRENT
+  // 401(k)/ESPP elections and pay rate, unlike a whole-year average which is dragged down by
+  // older periods that may no longer be representative (a raise, a contribution % change, etc).
+  const modeledOnLastPaystub = !!lastPeriod;
   const regularGrossYtd = Math.max(0, totalGross - historicalVestValueThisYear);
-  const avgRegularGrossPerPeriod = periodsElapsed > 0 ? regularGrossYtd / periodsElapsed : 0;
-  const projectedRemainingGross = avgRegularGrossPerPeriod * periodsRemaining;
+  const perPeriodGross = lastPeriod ? lastPeriod.gross : periodsElapsed > 0 ? regularGrossYtd / periodsElapsed : 0;
+  const perPeriodFederal = lastPeriod ? lastPeriod.federal : periodsElapsed > 0 ? totalFederal / periodsElapsed : 0;
+  const perPeriodStateWH = lastPeriod ? lastPeriod.stateWH : periodsElapsed > 0 ? totalStateWH / periodsElapsed : 0;
+  const perPeriodMedicare = lastPeriod ? lastPeriod.medicare : periodsElapsed > 0 ? totalMedicare / periodsElapsed : 0;
+  const perPeriodK401 = lastPeriod ? lastPeriod.k401 : periodsElapsed > 0 ? totalK401 / periodsElapsed : 0;
+  const perPeriodEspp = lastPeriod ? lastPeriod.espp : periodsElapsed > 0 ? totalEsppYtd / periodsElapsed : 0;
 
-  const avgFederalPerPeriod = periodsElapsed > 0 ? totalFederal / periodsElapsed : 0;
-  const avgStateWHPerPeriod = periodsElapsed > 0 ? totalStateWH / periodsElapsed : 0;
-  const avgMedicarePerPeriod = periodsElapsed > 0 ? totalMedicare / periodsElapsed : 0;
-  const avgK401PerPeriod = periodsElapsed > 0 ? totalK401 / periodsElapsed : 0;
-
+  const projectedRemainingGross = perPeriodGross * periodsRemaining;
   const fullYearGross = totalGross + projectedRemainingGross + futureVestValue;
-  const fullYearFederalWithheld = totalFederal + avgFederalPerPeriod * periodsRemaining;
-  const fullYearStateWithheld = totalStateWH + avgStateWHPerPeriod * periodsRemaining;
+  const fullYearFederalWithheld = totalFederal + perPeriodFederal * periodsRemaining;
+  const fullYearStateWithheld = totalStateWH + perPeriodStateWH * periodsRemaining;
   const fullYearMedicareWages = fullYearGross;
-  const fullYearMedicareWithheld = totalMedicare + avgMedicarePerPeriod * periodsRemaining;
-  const fullYearK401 = Math.min(totalK401 + avgK401PerPeriod * periodsRemaining, get401kLimit(taxYear));
+  const fullYearMedicareWithheld = totalMedicare + perPeriodMedicare * periodsRemaining;
+  const fullYearK401 = Math.min(totalK401 + perPeriodK401 * periodsRemaining, get401kLimit(taxYear));
+
+  // ESPP is post-tax (doesn't touch any figure above) -- NVIDIA's plan purchases on a recurring
+  // cycle, inferred here from the gap between your last two actual purchases rather than assumed.
+  const projectedRemainingEspp = perPeriodEspp * periodsRemaining;
+  const fullYearEspp = totalEsppYtd + projectedRemainingEspp;
+  const esppSorted = esppPurchases.slice().sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
+  let nextEsppPurchaseDate: string | null = null;
+  let projectedEsppByNextPurchase: number | null = null;
+  if (esppSorted.length > 0) {
+    const last = esppSorted[esppSorted.length - 1];
+    const cycleDays = esppSorted.length >= 2
+      ? daysBetween(esppSorted[esppSorted.length - 2].purchaseDate, last.purchaseDate)
+      : daysBetween(last.offeringDate, last.purchaseDate);
+    if (cycleDays > 0) {
+      // Roll forward by whole cycles until we're past today -- the last RECORDED purchase may
+      // be a cycle or two stale (not yet entered), so a single +cycleDays hop can still land in
+      // the past; keep going (capped) rather than surface an already-elapsed "next" date.
+      const next = new Date(last.purchaseDate + "T00:00:00Z");
+      let guard = 0;
+      do {
+        next.setUTCDate(next.getUTCDate() + cycleDays);
+        guard++;
+      } while (next.toISOString().slice(0, 10) <= todayIso && guard < 20);
+      nextEsppPurchaseDate = next.toISOString().slice(0, 10);
+      // daysBetween(a, b) = b - a in days -- positive when nextEsppPurchaseDate is in the future.
+      const daysUntilNext = Math.max(0, daysBetween(todayIso, nextEsppPurchaseDate));
+      const periodsUntilNext = Math.min(periodsRemaining, Math.round(daysUntilNext / 15));
+      projectedEsppByNextPurchase = perPeriodEspp * periodsUntilNext;
+    }
+  }
 
   const projTaxableWages = Math.max(0, fullYearGross - fullYearK401);
   const hsaDeduction = computeHsaDeduction(taxYear, hsaCoverage, hsaContributionTotal);
@@ -174,12 +241,14 @@ export function computeFullYearProjection(input: TaxPlanningInput): FullYearProj
   const projectedStateTax = estimateState(stateCode, taxYear, filingStatus, stateAgi, stateItemizedTotal, fullYearStateWithheld);
 
   return {
-    periodsPerYear: PERIODS_PER_YEAR, periodsElapsed, periodsRemaining,
-    regularGrossYtd, avgRegularGrossPerPeriod, projectedRemainingGross,
+    periodsPerYear: PERIODS_PER_YEAR, periodsElapsed, periodsRemaining, modeledOnLastPaystub,
+    perPeriodGross, projectedRemainingGross,
     futureVestShares, futureVestValue, livePriceUsed: livePrice ?? null,
     fullYearGross, fullYearFederalWithheld, fullYearStateWithheld,
     fullYearMedicareWages, fullYearMedicareWithheld, fullYearK401,
     projectedFederalTax: fed.estimatedTax, projectedStateTax, projectedFederalBalanceDue: fed.balanceDue,
+    perPeriodEspp, totalEsppYtd, projectedRemainingEspp, fullYearEspp,
+    nextEsppPurchaseDate, projectedEsppByNextPurchase,
   };
 }
 
@@ -403,15 +472,21 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
         itemizedDeduction: federalItemizedTotal + bunchTarget,
       });
       const fedSavings = Math.max(0, baselineFederalTax - bumped.estimatedTax);
+      // Property tax and charitable giving -- the two usual ways to bunch -- are also
+      // deductible on the state return for CA/AZ (and property tax specifically for NJ), so the
+      // same bunched dollars typically lower state tax too, on top of the federal savings above.
+      const bumpedStateAgi = stateAgiFor(bumped.agi, bumped.aboveLineDeduction);
+      const bumpedStateTax = estimateState(stateCode, taxYear, filingStatus, bumpedStateAgi, stateItemizedTotal + bunchTarget, projection.fullYearStateWithheld);
+      const stateSavingsFromBunch = Math.max(0, baselineStateTax - bumpedStateTax);
       scenarios.push({
         id: "itemize-bunch",
         category: "Deduction Strategy",
         title: `You're about $${Math.round(gap).toLocaleString()} short of itemizing paying off`,
-        description: `Right now your itemized deductions ($${Math.round(federalItemizedTotal).toLocaleString()}) are close to, but just under, the standard deduction ($${Math.round(baselineFederalStandardDeduction).toLocaleString()}) — so you're taking the standard deduction, and the itemized total isn't helping you at all. "Bunching" means deliberately pulling some deductible spending into this year that you'd otherwise pay next year — e.g. prepaying next year's property tax bill this December, or donating two years' worth of charity in one year (often through a donor-advised fund). If you bunched about $${Math.round(bunchTarget).toLocaleString()} of extra deductions into ${taxYear}, your itemized total would just clear the standard deduction, and your projected federal tax would drop from about $${Math.round(baselineFederalTax).toLocaleString()} to about $${Math.round(bumped.estimatedTax).toLocaleString()}.`,
-        fedSavings, stateSavings: 0,
-        totalSavings: fedSavings,
+        description: `Right now your itemized deductions ($${Math.round(federalItemizedTotal).toLocaleString()}) are close to, but just under, the standard deduction ($${Math.round(baselineFederalStandardDeduction).toLocaleString()}) — so you're taking the standard deduction, and the itemized total isn't helping you at all. "Bunching" means deliberately pulling some deductible spending into this year that you'd otherwise pay next year — e.g. prepaying next year's property tax bill this December, or donating two years' worth of charity in one year (often through a donor-advised fund). If you bunched about $${Math.round(bunchTarget).toLocaleString()} of extra deductions into ${taxYear}, your itemized total would just clear the standard deduction, and your projected federal tax would drop from about $${Math.round(baselineFederalTax).toLocaleString()} to about $${Math.round(bumped.estimatedTax).toLocaleString()}.${stateSavingsFromBunch > 0 ? ` The same bunched amount would also lower your projected ${stateName} tax from about $${Math.round(baselineStateTax).toLocaleString()} to about $${Math.round(bumpedStateTax).toLocaleString()}.` : ""}`,
+        fedSavings, stateSavings: stateSavingsFromBunch,
+        totalSavings: fedSavings + stateSavingsFromBunch,
         deadline: `${taxYear}-12-31`,
-        caveat: `The $${Math.round(bunchTarget).toLocaleString()} figure is the exact gap plus a small margin — matching the standard deduction to the penny doesn't help, you have to exceed it. State itemized rules differ (see the Tax report's own state section) and aren't included in this figure.`,
+        caveat: `The $${Math.round(bunchTarget).toLocaleString()} figure is the exact gap plus a small margin — matching the standard deduction to the penny doesn't help, you have to exceed it. The state figure assumes the bunched amount is ${stateCode === "NJ" ? "property tax (NJ's return only deducts property tax, not charitable giving)" : "property tax or charitable giving"} — a different kind of deduction may not carry the same state benefit.`,
         actionable: true,
       });
     } else if (gap <= 0) {
@@ -445,6 +520,34 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
         category: "Withholding",
         title: "Withholding looks on track",
         description: `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected federal balance due is about $${Math.round(Math.max(0, baselineFederalBalanceDue)).toLocaleString()}, under the $1,000 rule-of-thumb threshold for an underpayment penalty.`,
+        fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
+      });
+    }
+  }
+
+  // ── 8. State withholding / underpayment check ───────────────────────────────────────────
+  {
+    const stateBalanceDue = baselineStateTax - projection.fullYearStateWithheld;
+    const STATE_UNDERPAYMENT_FLAG_THRESHOLD = 500; // rough rule-of-thumb, states vary
+    if (stateBalanceDue > STATE_UNDERPAYMENT_FLAG_THRESHOLD) {
+      scenarios.push({
+        id: "state-withholding-check",
+        category: "State Tax",
+        title: `Projected to owe about $${Math.round(stateBalanceDue).toLocaleString()} to ${stateName} at filing`,
+        description: `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected ${stateName} tax is about $${Math.round(baselineStateTax).toLocaleString()} against about $${Math.round(projection.fullYearStateWithheld).toLocaleString()} withheld — a projected balance due of roughly $${Math.round(stateBalanceDue).toLocaleString()}. Most states, including ${stateName}, can also charge an underpayment penalty if too little was paid in during the year. Adjusting your state withholding (a separate election from federal, usually its own form with your employer) or making a state estimated payment before year-end can close this gap.`,
+        fedSavings: 0, stateSavings: 0, totalSavings: 0,
+        deadline: `${taxYear}-12-31`,
+        caveat: `$${STATE_UNDERPAYMENT_FLAG_THRESHOLD.toLocaleString()} is a rough rule-of-thumb, not ${stateName}'s actual underpayment-penalty formula, which this app doesn't model. Treat this as a heads-up, not a penalty calculation.`,
+        actionable: true,
+      });
+    } else {
+      scenarios.push({
+        id: "state-withholding-check",
+        category: "State Tax",
+        title: `${stateName} withholding looks on track`,
+        description: stateBalanceDue > 0
+          ? `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected ${stateName} balance due is about $${Math.round(stateBalanceDue).toLocaleString()}, a small enough gap that it's unlikely to trigger an underpayment penalty.`
+          : `Based on your pay so far plus what's projected for the rest of ${taxYear}, your ${stateName} withholding is on track to cover your projected ${stateName} tax, with an estimated refund of about $${Math.round(-stateBalanceDue).toLocaleString()}.`,
         fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
       });
     }
