@@ -2,22 +2,18 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
 import type { WatchlistEntry } from "@/lib/watchlist-default";
+import type { Trade } from "@/lib/vault-types";
 import { fmtDate } from "@/lib/format-date";
 import { StatIcon } from "@/components/Icon";
 
-interface Trade {
-  company: string;
-  symbol: string;
-  broker: "CST" | "CSS" | "RBS";
-  buyDate: string;
-  saleDate?: string;
-  units: number;
-  costPerSh: number;
-  marketOrSalePrice: number;
-  yesterday: number;
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-const TRADING_SEED: Trade[] = [
+// One-time seed for the migration to persisted vault storage (see the `trades === undefined`
+// effect below) -- stable "seed-N" ids so the migration is deterministic, not the trade data
+// this app now reads from day to day.
+const TRADING_SEED: Trade[] = ([
   { company: "MicroStrategy", symbol: "MSTR", broker: "CST", buyDate: "2025-07-22", units: 20, costPerSh: 420.71, marketOrSalePrice: 100.20, yesterday: 100.01 },
   { company: "MicroStrategy", symbol: "MSTR", broker: "CST", buyDate: "2025-07-22", units: 80, costPerSh: 186.20, marketOrSalePrice: 100.20, yesterday: 100.01 },
   { company: "Oracle", symbol: "ORCL", broker: "CST", buyDate: "2025-12-10", units: 44, costPerSh: 219.59, marketOrSalePrice: 149.80, yesterday: 147.02 },
@@ -48,7 +44,9 @@ const TRADING_SEED: Trade[] = [
   { company: "MicroStrategy", symbol: "MSTR", broker: "RBS", buyDate: "2024-12-09", saleDate: "2024-12-11", units: 32, costPerSh: 378.50, marketOrSalePrice: 405.00, yesterday: 100.01 },
   { company: "MicroStrategy", symbol: "MSTR", broker: "RBS", buyDate: "2024-12-05", saleDate: "2024-12-06", units: 12, costPerSh: 391.50, marketOrSalePrice: 401.50, yesterday: 100.01 },
   { company: "MicroStrategy", symbol: "MSTR", broker: "RBS", buyDate: "2024-11-27", saleDate: "2024-12-04", units: 135, costPerSh: 377.00, marketOrSalePrice: 407.50, yesterday: 100.01 },
-];
+] as Omit<Trade, "id">[]).map((t, i) => ({ ...t, id: `seed-${i}` }));
+
+const BLANK_TRADE_FORM = { company: "", symbol: "", broker: "CST" as Trade["broker"], buyDate: "", units: "", costPerSh: "", saleDate: "", salePrice: "" };
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const BROKER_LABEL: Record<string, string> = { CST: "Charles Schwab (CST)", CSS: "Charles Schwab (CSS)", RBS: "Robinhood (RBS)" };
@@ -74,10 +72,96 @@ function timeAgo(iso: string): string {
 function daysBetween(d1: string, d2: string) {
   return Math.round((new Date(d2).getTime() - new Date(d1).getTime()) / 86400000);
 }
-export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
+export function TradingReport({
+  fmt, uiTheme, trades, onSave,
+}: {
+  fmt: (n: number) => string;
+  uiTheme?: "classic" | "refresh";
+  trades: Trade[] | undefined; // undefined = never migrated to vault storage yet, see effect below
+  onSave: (trades: Trade[]) => Promise<void>;
+}) {
   const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">("open");
   const [closedSort, setClosedSort]   = useState<"date" | "gl" | "pct">("date");
   const [watchFilter, setWatchFilter] = useState<"all" | "short" | "long" | "cyclical">("all");
+
+  // The actual trade list this report reads/writes -- falls back to the fixed seed only until
+  // the one-time migration below persists it to the vault (or the user's first edit does).
+  const effectiveTrades = trades ?? TRADING_SEED;
+  const [showTradeForm, setShowTradeForm] = useState(false);
+  const [editTradeId, setEditTradeId]     = useState<string | null>(null);
+  const [tradeForm, setTradeForm]         = useState(BLANK_TRADE_FORM);
+  const [savingTrade, setSavingTrade]     = useState(false);
+
+  // One-time migration: the first time this report loads for a vault that predates persisted
+  // trades, write the seed data into the vault so it's no longer just hardcoded in source --
+  // from then on `trades` is always defined (even if the user later deletes everything down to
+  // an empty array), so this never fires again.
+  const migratedRef = useRef(false);
+  useEffect(() => {
+    if (trades === undefined && !migratedRef.current) {
+      migratedRef.current = true;
+      onSave(TRADING_SEED);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trades]);
+
+  function openAddTrade() {
+    setEditTradeId(null);
+    setTradeForm(BLANK_TRADE_FORM);
+    setShowTradeForm(true);
+  }
+  function openEditTrade(t: Trade) {
+    setEditTradeId(t.id);
+    setTradeForm({
+      company: t.company, symbol: t.symbol, broker: t.broker, buyDate: t.buyDate,
+      units: String(t.units), costPerSh: String(t.costPerSh),
+      saleDate: t.saleDate ?? "", salePrice: t.saleDate ? String(t.marketOrSalePrice) : "",
+    });
+    setShowTradeForm(true);
+  }
+  function closeTradeForm() {
+    setShowTradeForm(false);
+    setEditTradeId(null);
+    setTradeForm(BLANK_TRADE_FORM);
+  }
+  async function saveTradeForm() {
+    setSavingTrade(true);
+    try {
+      const closing = tradeForm.saleDate.trim() !== "";
+      const units = Number(tradeForm.units);
+      const costPerSh = Number(tradeForm.costPerSh);
+      if (editTradeId) {
+        const next = effectiveTrades.map((t) =>
+          t.id === editTradeId
+            ? {
+                ...t,
+                company: tradeForm.company, symbol: tradeForm.symbol.toUpperCase(), broker: tradeForm.broker,
+                buyDate: tradeForm.buyDate, units, costPerSh,
+                saleDate: closing ? tradeForm.saleDate : undefined,
+                marketOrSalePrice: closing ? Number(tradeForm.salePrice) : t.marketOrSalePrice,
+              }
+            : t
+        );
+        await onSave(next);
+      } else {
+        const t: Trade = {
+          id: uid(), company: tradeForm.company, symbol: tradeForm.symbol.toUpperCase(), broker: tradeForm.broker,
+          buyDate: tradeForm.buyDate, units, costPerSh,
+          saleDate: closing ? tradeForm.saleDate : undefined,
+          marketOrSalePrice: closing ? Number(tradeForm.salePrice) : costPerSh,
+          yesterday: costPerSh,
+        };
+        await onSave([...effectiveTrades, t]);
+      }
+      closeTradeForm();
+    } finally {
+      setSavingTrade(false);
+    }
+  }
+  async function deleteTrade(id: string) {
+    if (!confirm("Delete this trade record? This can't be undone.")) return;
+    await onSave(effectiveTrades.filter((t) => t.id !== id));
+  }
 
   // ── Layer 1: Live prices with auto-refresh ───────────────────────────────
   const [livePrices, setLivePrices]       = useState<Record<string, { price: number; prevClose: number | null }>>({});
@@ -101,7 +185,7 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
 
   // All symbols to fetch prices for (open positions + watchlist)
   const allFetchSymbols = useMemo(() => {
-    const open  = [...new Set(TRADING_SEED.filter(t => !t.saleDate).map(t => t.symbol))];
+    const open  = [...new Set(effectiveTrades.filter(t => !t.saleDate).map(t => t.symbol))];
     const watch = [...new Set(watchlistItems.map(w => w.symbol))];
     return [...new Set([...open, ...watch])];
   }, [watchlistItems]);
@@ -187,8 +271,8 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
   const livePrice    = (sym: string, fallback: number) => livePrices[sym]?.price ?? fallback;
   const livePrevClose = (sym: string, fallback: number) => livePrices[sym]?.prevClose ?? fallback;
 
-  const open   = TRADING_SEED.filter(t => !t.saleDate);
-  const closed = TRADING_SEED.filter(t => !!t.saleDate);
+  const open   = effectiveTrades.filter(t => !t.saleDate);
+  const closed = effectiveTrades.filter(t => !!t.saleDate);
 
   const curPrice  = (t: Trade) => t.saleDate ? t.marketOrSalePrice : livePrice(t.symbol, t.marketOrSalePrice);
   const prevClose = (t: Trade) => t.saleDate ? t.yesterday : livePrevClose(t.symbol, t.yesterday);
@@ -203,7 +287,7 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
   const totalDailyGL    = open.reduce((s, t) => s + vsToday(t), 0);
 
   const brokerGL: Record<string, number> = {};
-  TRADING_SEED.forEach(t => { brokerGL[t.broker] = (brokerGL[t.broker] ?? 0) + glOf(t); });
+  effectiveTrades.forEach(t => { brokerGL[t.broker] = (brokerGL[t.broker] ?? 0) + glOf(t); });
 
   const sortedClosed = [...closed].sort((a, b) => {
     if (closedSort === "gl")  return glOf(b) - glOf(a);
@@ -216,8 +300,8 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
 
   const missedGains     = closed.filter(t => glOf(t) > 0 && t.yesterday > t.marketOrSalePrice);
   const longSpeculative = closed.filter(t => daysBetween(t.buyDate, t.saleDate!) > 365 && glOf(t) < 0);
-  const mstrTrades      = TRADING_SEED.filter(t => t.symbol === "MSTR");
-  const mstrConc        = (mstrTrades.reduce((s, t) => s + costOf(t), 0) / TRADING_SEED.reduce((s, t) => s + costOf(t), 0)) * 100;
+  const mstrTrades      = effectiveTrades.filter(t => t.symbol === "MSTR");
+  const mstrConc        = (mstrTrades.reduce((s, t) => s + costOf(t), 0) / effectiveTrades.reduce((s, t) => s + costOf(t), 0)) * 100;
 
   return (
     <div className="trading-report">
@@ -262,7 +346,7 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
           {uiTheme === "refresh" && <StatIcon kind="receipt" color="#64748b" />}
           <div className="tr-summary-card-body">
             <span>Total Trades</span>
-            <strong>{TRADING_SEED.length}</strong>
+            <strong>{effectiveTrades.length}</strong>
           </div>
         </div>
       </div>
@@ -288,11 +372,75 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
       </div>
 
       {/* Tabs */}
-      <div className="tr-tabs">
-        <button className={activeTab === "open"      ? "selected" : ""} onClick={() => setActiveTab("open")}>Open Positions ({open.length})</button>
-        <button className={activeTab === "closed"    ? "selected" : ""} onClick={() => setActiveTab("closed")}>Closed Positions ({closed.length})</button>
-        <button className={activeTab === "watchlist" ? "selected" : ""} onClick={() => setActiveTab("watchlist")}>Watchlist ({watchlistItems.length})</button>
+      <div className="tr-tabs" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <button className={activeTab === "open"      ? "selected" : ""} onClick={() => setActiveTab("open")}>Open Positions ({open.length})</button>
+          <button className={activeTab === "closed"    ? "selected" : ""} onClick={() => setActiveTab("closed")}>Closed Positions ({closed.length})</button>
+          <button className={activeTab === "watchlist" ? "selected" : ""} onClick={() => setActiveTab("watchlist")}>Watchlist ({watchlistItems.length})</button>
+        </div>
+        {activeTab !== "watchlist" && !showTradeForm && (
+          <button onClick={openAddTrade}>+ Add Trade</button>
+        )}
       </div>
+
+      {showTradeForm && (
+        <div className="equity-form">
+          <h5>{editTradeId ? "Edit Trade" : "New Trade"}</h5>
+          <div className="equity-form-grid">
+            <label>
+              Company
+              <input value={tradeForm.company} onChange={(e) => setTradeForm((f) => ({ ...f, company: e.target.value }))} placeholder="MicroStrategy" />
+            </label>
+            <label>
+              Symbol
+              <input value={tradeForm.symbol} onChange={(e) => setTradeForm((f) => ({ ...f, symbol: e.target.value }))} placeholder="MSTR" />
+            </label>
+            <label>
+              Broker
+              <select value={tradeForm.broker} onChange={(e) => setTradeForm((f) => ({ ...f, broker: e.target.value as Trade["broker"] }))}>
+                <option value="CST">Charles Schwab (CST)</option>
+                <option value="CSS">Charles Schwab (CSS)</option>
+                <option value="RBS">Robinhood (RBS)</option>
+              </select>
+            </label>
+            <label>
+              Buy Date
+              <input type="date" value={tradeForm.buyDate} onChange={(e) => setTradeForm((f) => ({ ...f, buyDate: e.target.value }))} />
+            </label>
+            <label>
+              Units
+              <input type="number" value={tradeForm.units} onChange={(e) => setTradeForm((f) => ({ ...f, units: e.target.value }))} step="any" placeholder="100" />
+            </label>
+            <label>
+              Cost/Share
+              <input type="number" value={tradeForm.costPerSh} onChange={(e) => setTradeForm((f) => ({ ...f, costPerSh: e.target.value }))} step="0.01" placeholder="150.00" />
+            </label>
+            <label>
+              Sale Date <em style={{ fontWeight: 400 }}>(leave blank if still open)</em>
+              <input type="date" value={tradeForm.saleDate} onChange={(e) => setTradeForm((f) => ({ ...f, saleDate: e.target.value }))} />
+            </label>
+            {tradeForm.saleDate.trim() !== "" && (
+              <label>
+                Sale Price/Share
+                <input type="number" value={tradeForm.salePrice} onChange={(e) => setTradeForm((f) => ({ ...f, salePrice: e.target.value }))} step="0.01" placeholder="180.00" />
+              </label>
+            )}
+          </div>
+          <div className="equity-form-actions">
+            <button
+              onClick={saveTradeForm}
+              disabled={
+                savingTrade || !tradeForm.company || !tradeForm.symbol || !tradeForm.buyDate ||
+                !tradeForm.units || !tradeForm.costPerSh ||
+                (tradeForm.saleDate.trim() !== "" && !tradeForm.salePrice)
+              }
+            >
+              {savingTrade ? "Saving…" : editTradeId ? "Save Changes" : "Add Trade"}
+            </button>
+            <button onClick={closeTradeForm} disabled={savingTrade}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Open Positions ── */}
       {activeTab === "open" && (
@@ -302,15 +450,15 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
               <th>Stock</th><th className="right">Buy Date</th><th className="right">Units</th>
               <th className="right">Cost/Sh</th><th className="right">Total Cost</th>
               <th className="right">Current Price</th><th className="right">Market Value</th>
-              <th className="right">G/(L)</th><th className="right">Daily G/(L)</th>
+              <th className="right">G/(L)</th><th className="right">Daily G/(L)</th><th className="right">Actions</th>
             </tr></thead>
             <tbody>
-              {open.map((t, i) => {
+              {open.map((t) => {
                 const gl = glOf(t), pct = pctOf(t), mv = t.units * curPrice(t), tc = costOf(t);
                 const dailyGL = t.units * (curPrice(t) - prevClose(t));
                 const dailyPct = ((curPrice(t) - prevClose(t)) / prevClose(t)) * 100;
                 return (
-                  <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
+                  <tr key={t.id} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
                     <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
                     <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
@@ -323,6 +471,10 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
                     <td className="right trading-amt">{fmt(mv)}</td>
                     <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
                     <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</span><span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span></div></td>
+                    <td className="right">
+                      <button onClick={() => openEditTrade(t)} title="Edit or close this trade">✎</button>{" "}
+                      <button onClick={() => deleteTrade(t.id)} title="Delete this trade">🗑</button>
+                    </td>
                   </tr>
                 );
               })}
@@ -334,6 +486,7 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
               <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * curPrice(t), 0))}</th>
               <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
               {(() => { const td = open.reduce((s, t) => s + vsToday(t), 0); return <th className={`right trading-amt ${glClass(td)}`}>{td >= 0 ? "+" : ""}{fmt(td)}</th>; })()}
+              <th />
             </tr></tfoot>
           </table>
         </div>
@@ -353,15 +506,15 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
               <th>Stock</th><th className="right">Buy Date</th><th className="right">Sale Date</th>
               <th className="right">Days</th><th className="right">Units</th>
               <th className="right">Cost/Sh</th><th className="right">Sale/Sh</th>
-              <th className="right">Total Cost</th><th className="right">Proceeds</th><th className="right">G/(L)</th>
+              <th className="right">Total Cost</th><th className="right">Proceeds</th><th className="right">G/(L)</th><th className="right">Actions</th>
             </tr></thead>
             <tbody>
-              {sortedClosed.map((t, i) => {
+              {sortedClosed.map((t) => {
                 const gl = glOf(t), pct = pctOf(t), tc = costOf(t);
                 const proceeds = t.units * t.marketOrSalePrice;
                 const days = daysBetween(t.buyDate, t.saleDate!);
                 return (
-                  <tr key={i} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
+                  <tr key={t.id} className={gl < 0 ? "tr-row-loss" : "tr-row-gain"}>
                     <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
                     <td className="right">{fmtDate(t.buyDate)}</td>
                     <td className="right">{fmtDate(t.saleDate!)}</td>
@@ -372,6 +525,10 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
                     <td className="right trading-amt">{fmt(tc)}</td>
                     <td className="right trading-amt">{fmt(proceeds)}</td>
                     <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
+                    <td className="right">
+                      <button onClick={() => openEditTrade(t)} title="Edit, or clear the sale date to reopen">✎</button>{" "}
+                      <button onClick={() => deleteTrade(t.id)} title="Delete this trade">🗑</button>
+                    </td>
                   </tr>
                 );
               })}
@@ -381,6 +538,7 @@ export function TradingReport({ fmt, uiTheme }: { fmt: (n: number) => string; ui
               <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
               <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
               <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
+              <th />
             </tr></tfoot>
           </table>
         </div>

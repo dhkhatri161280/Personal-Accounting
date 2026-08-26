@@ -70,6 +70,22 @@ export type EsppPurchase = {
   sharesHeld: number;
 };
 
+// A single brokerage trade — open if saleDate is unset, closed once it is. marketOrSalePrice
+// doubles as "last known market price" while open (superseded by live price fetches at render
+// time) and "actual sale price" once closed; yesterday is only meaningful while open (daily G/L).
+export type Trade = {
+  id: string;
+  company: string;
+  symbol: string;
+  broker: "CST" | "CSS" | "RBS";
+  buyDate: string;
+  saleDate?: string;
+  units: number;
+  costPerSh: number;
+  marketOrSalePrice: number;
+  yesterday: number;
+};
+
 export type EquityData = {
   grants: RsuGrant[];
   esppPurchases: EsppPurchase[];
@@ -261,6 +277,7 @@ export type Ledger = {
   payroll?: PayrollData;
   indiaTax?: IndiaTaxData;
   tallyLedgerSnapshot?: TallyLedgerSnapshot;
+  trades?: Trade[];
 };
 
 export type Vault = {

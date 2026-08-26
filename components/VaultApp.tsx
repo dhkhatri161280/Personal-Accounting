@@ -2573,8 +2573,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               uiTheme={uiTheme}
             />
           )}
-          {report === "trading" && (
-            <TradingReport fmt={fmt} uiTheme={uiTheme} />
+          {report === "trading" && data && (
+            <TradingReport
+              fmt={fmt}
+              uiTheme={uiTheme}
+              trades={data.trades}
+              onSave={async (trades) => {
+                await save({ ...data, trades }, "reports");
+              }}
+            />
           )}
           {report === "tax" && data && book === "india" && (
             <IndiaTaxReport
