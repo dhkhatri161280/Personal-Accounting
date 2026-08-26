@@ -82,7 +82,30 @@ export function TradingReport({
   onSave: (trades: Trade[]) => Promise<void>;
 }) {
   const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">("open");
-  const [closedSort, setClosedSort]   = useState<"date" | "gl" | "pct">("date");
+  // Click-any-column-header sorting, Excel-style: null = default order, otherwise sort by that
+  // column's key, toggling direction on repeated clicks. Open and Closed tables sort independently.
+  const [openSort, setOpenSort]     = useState<{ key: string; dir: 1 | -1 } | null>(null);
+  const [closedSort, setClosedSort] = useState<{ key: string; dir: 1 | -1 } | null>({ key: "buyDate", dir: -1 });
+  function toggleSort(current: { key: string; dir: 1 | -1 } | null, setSort: (s: { key: string; dir: 1 | -1 }) => void, key: string) {
+    if (current?.key === key) setSort({ key, dir: current.dir === 1 ? -1 : 1 });
+    else setSort({ key, dir: 1 });
+  }
+  function sortTh(
+    label: string, key: string,
+    sort: { key: string; dir: 1 | -1 } | null,
+    setSort: (s: { key: string; dir: 1 | -1 }) => void,
+    align: "left" | "right" = "right"
+  ) {
+    const active = sort?.key === key;
+    return (
+      <th
+        className={`tr-th-sortable${align === "right" ? " right" : ""}${active ? " tr-th-sortable--active" : ""}`}
+        onClick={() => toggleSort(sort, setSort, key)}
+      >
+        {label}{active && (sort!.dir === 1 ? " ▲" : " ▼")}
+      </th>
+    );
+  }
   const [watchFilter, setWatchFilter] = useState<"all" | "short" | "long" | "cyclical">("all");
 
   // The actual trade list this report reads/writes -- falls back to the fixed seed only until
@@ -291,11 +314,64 @@ export function TradingReport({
   const brokerGL: Record<string, number> = {};
   effectiveTrades.forEach(t => { brokerGL[t.broker] = (brokerGL[t.broker] ?? 0) + glOf(t); });
 
-  const sortedClosed = [...closed].sort((a, b) => {
-    if (closedSort === "gl")  return glOf(b) - glOf(a);
-    if (closedSort === "pct") return pctOf(b) - pctOf(a);
-    return new Date(b.buyDate).getTime() - new Date(a.buyDate).getTime();
+  // IRS holding-period rule (26 U.S.C. § 1222): long-term once held for MORE than a year --
+  // matches the 365-day threshold this app's own tax engine uses elsewhere (lib/tax-usa-rules.ts).
+  // For an open position that's "as of today" (and can flip Short -> Long while still held);
+  // for a closed one it's the actual realized holding period that determines real tax treatment.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const heldDaysOf = (t: Trade) => daysBetween(t.buyDate, t.saleDate ?? todayIso);
+  const isLongTerm = (t: Trade) => heldDaysOf(t) >= 365;
+
+  const openRowsBase = open.map((t) => {
+    const gl = glOf(t), pct = pctOf(t), mv = t.units * curPrice(t), tc = costOf(t);
+    const dailyGL = t.units * (curPrice(t) - prevClose(t));
+    const dailyPct = ((curPrice(t) - prevClose(t)) / prevClose(t)) * 100;
+    return { t, gl, pct, mv, tc, dailyGL, dailyPct, curP: curPrice(t), isLong: isLongTerm(t) };
   });
+  const openSortGetters: Record<string, (r: (typeof openRowsBase)[number]) => string | number> = {
+    symbol: (r) => r.t.symbol,
+    term: (r) => (r.isLong ? 1 : 0),
+    buyDate: (r) => r.t.buyDate,
+    units: (r) => r.t.units,
+    costPerSh: (r) => r.t.costPerSh,
+    totalCost: (r) => r.tc,
+    currentPrice: (r) => r.curP,
+    marketValue: (r) => r.mv,
+    gl: (r) => r.gl,
+    dailyGL: (r) => r.dailyGL,
+  };
+  const openRows = openSort
+    ? [...openRowsBase].sort((a, b) => {
+        const va = openSortGetters[openSort.key](a), vb = openSortGetters[openSort.key](b);
+        return (va < vb ? -1 : va > vb ? 1 : 0) * openSort.dir;
+      })
+    : openRowsBase;
+
+  const closedRowsBase = closed.map((t) => {
+    const gl = glOf(t), pct = pctOf(t), tc = costOf(t);
+    const proceeds = t.units * t.marketOrSalePrice;
+    const days = daysBetween(t.buyDate, t.saleDate!);
+    return { t, gl, pct, tc, proceeds, days, isLong: isLongTerm(t) };
+  });
+  const closedSortGetters: Record<string, (r: (typeof closedRowsBase)[number]) => string | number> = {
+    symbol: (r) => r.t.symbol,
+    term: (r) => (r.isLong ? 1 : 0),
+    buyDate: (r) => r.t.buyDate,
+    saleDate: (r) => r.t.saleDate!,
+    days: (r) => r.days,
+    units: (r) => r.t.units,
+    costPerSh: (r) => r.t.costPerSh,
+    salePerSh: (r) => r.t.marketOrSalePrice,
+    totalCost: (r) => r.tc,
+    proceeds: (r) => r.proceeds,
+    gl: (r) => r.gl,
+  };
+  const sortedClosed = closedSort
+    ? [...closedRowsBase].sort((a, b) => {
+        const va = closedSortGetters[closedSort.key](a), vb = closedSortGetters[closedSort.key](b);
+        return (va < vb ? -1 : va > vb ? 1 : 0) * closedSort.dir;
+      })
+    : closedRowsBase;
 
   const glClass = (v: number) => v > 0 ? "tr-gain-pos" : v < 0 ? "tr-gain-neg" : "";
   const badge   = (v: number) => v >= 0 ? "tr-badge-pos" : "tr-badge-neg";
@@ -457,36 +533,38 @@ export function TradingReport({
         <div className="tr-table-wrap">
           <table className="tr-table">
             <thead><tr>
-              <th>Stock</th><th className="right">Buy Date</th><th className="right">Units</th>
-              <th className="right">Cost/Sh</th><th className="right">Total Cost</th>
-              <th className="right">Current Price</th><th className="right">Market Value</th>
-              <th className="right">G/(L)</th><th className="right">Daily G/(L)</th>
+              {sortTh("Stock", "symbol", openSort, setOpenSort, "left")}
+              {sortTh("Term", "term", openSort, setOpenSort)}
+              {sortTh("Buy Date", "buyDate", openSort, setOpenSort)}
+              {sortTh("Units", "units", openSort, setOpenSort)}
+              {sortTh("Cost/Sh", "costPerSh", openSort, setOpenSort)}
+              {sortTh("Total Cost", "totalCost", openSort, setOpenSort)}
+              {sortTh("Current Price", "currentPrice", openSort, setOpenSort)}
+              {sortTh("Market Value", "marketValue", openSort, setOpenSort)}
+              {sortTh("G/(L)", "gl", openSort, setOpenSort)}
+              {sortTh("Daily G/(L)", "dailyGL", openSort, setOpenSort)}
             </tr></thead>
             <tbody>
-              {open.map((t) => {
-                const gl = glOf(t), pct = pctOf(t), mv = t.units * curPrice(t), tc = costOf(t);
-                const dailyGL = t.units * (curPrice(t) - prevClose(t));
-                const dailyPct = ((curPrice(t) - prevClose(t)) / prevClose(t)) * 100;
-                return (
-                  <tr key={t.id} className={`tr-row-clickable ${gl < 0 ? "tr-row-loss" : "tr-row-gain"}`} onClick={() => openEditTrade(t)}>
-                    <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
-                    <td className="right">{fmtDate(t.buyDate)}</td>
-                    <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
-                    <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
-                    <td className="right trading-amt">{fmt(tc)}</td>
-                    <td className="right trading-amt">
-                      ${curPrice(t).toFixed(2)}
-                      {priceLoading && !livePrices[t.symbol] && <span style={{fontSize:"9px",color:"#94a3b8",marginLeft:"3px"}}>…</span>}
-                    </td>
-                    <td className="right trading-amt">{fmt(mv)}</td>
-                    <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
-                    <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</span><span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span></div></td>
-                  </tr>
-                );
-              })}
+              {openRows.map(({ t, gl, pct, mv, tc, dailyGL, dailyPct, isLong }) => (
+                <tr key={t.id} className={`tr-row-clickable ${gl < 0 ? "tr-row-loss" : "tr-row-gain"}`} onClick={() => openEditTrade(t)}>
+                  <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
+                  <td className="right"><span className={`tr-term-badge ${isLong ? "tr-term-badge--long" : "tr-term-badge--short"}`}>{isLong ? "Long" : "Short"}</span></td>
+                  <td className="right">{fmtDate(t.buyDate)}</td>
+                  <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
+                  <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
+                  <td className="right trading-amt">{fmt(tc)}</td>
+                  <td className="right trading-amt">
+                    ${curPrice(t).toFixed(2)}
+                    {priceLoading && !livePrices[t.symbol] && <span style={{fontSize:"9px",color:"#94a3b8",marginLeft:"3px"}}>…</span>}
+                  </td>
+                  <td className="right trading-amt">{fmt(mv)}</td>
+                  <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
+                  <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(dailyGL)}`}>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</span><span className={`tr-badge ${badge(dailyPct)}`}>{dailyPct >= 0 ? "+" : ""}{dailyPct.toFixed(2)}%</span></div></td>
+                </tr>
+              ))}
             </tbody>
             <tfoot><tr>
-              <th colSpan={4}>Total Open</th>
+              <th colSpan={5}>Total Open</th>
               <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
               <th />
               <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * curPrice(t), 0))}</th>
@@ -500,42 +578,39 @@ export function TradingReport({
       {/* ── Closed Positions ── */}
       {activeTab === "closed" && (
         <div className="tr-table-wrap">
-          <div className="tr-sort-row">
-            <span>Sort by:</span>
-            <button className={closedSort === "date" ? "selected" : ""} onClick={() => setClosedSort("date")}>Buy Date</button>
-            <button className={closedSort === "gl"   ? "selected" : ""} onClick={() => setClosedSort("gl")}>G/(L) $</button>
-            <button className={closedSort === "pct"  ? "selected" : ""} onClick={() => setClosedSort("pct")}>G/(L) %</button>
-          </div>
           <table className="tr-table">
             <thead><tr>
-              <th>Stock</th><th className="right">Buy Date</th><th className="right">Sale Date</th>
-              <th className="right">Days</th><th className="right">Units</th>
-              <th className="right">Cost/Sh</th><th className="right">Sale/Sh</th>
-              <th className="right">Total Cost</th><th className="right">Proceeds</th><th className="right">G/(L)</th>
+              {sortTh("Stock", "symbol", closedSort, setClosedSort, "left")}
+              {sortTh("Term", "term", closedSort, setClosedSort)}
+              {sortTh("Buy Date", "buyDate", closedSort, setClosedSort)}
+              {sortTh("Sale Date", "saleDate", closedSort, setClosedSort)}
+              {sortTh("Days", "days", closedSort, setClosedSort)}
+              {sortTh("Units", "units", closedSort, setClosedSort)}
+              {sortTh("Cost/Sh", "costPerSh", closedSort, setClosedSort)}
+              {sortTh("Sale/Sh", "salePerSh", closedSort, setClosedSort)}
+              {sortTh("Total Cost", "totalCost", closedSort, setClosedSort)}
+              {sortTh("Proceeds", "proceeds", closedSort, setClosedSort)}
+              {sortTh("G/(L)", "gl", closedSort, setClosedSort)}
             </tr></thead>
             <tbody>
-              {sortedClosed.map((t) => {
-                const gl = glOf(t), pct = pctOf(t), tc = costOf(t);
-                const proceeds = t.units * t.marketOrSalePrice;
-                const days = daysBetween(t.buyDate, t.saleDate!);
-                return (
-                  <tr key={t.id} className={`tr-row-clickable ${gl < 0 ? "tr-row-loss" : "tr-row-gain"}`} onClick={() => openEditTrade(t)}>
-                    <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
-                    <td className="right">{fmtDate(t.buyDate)}</td>
-                    <td className="right">{fmtDate(t.saleDate!)}</td>
-                    <td className="right">{days === 0 ? "Same day" : `${days}d`}</td>
-                    <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
-                    <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
-                    <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
-                    <td className="right trading-amt">{fmt(tc)}</td>
-                    <td className="right trading-amt">{fmt(proceeds)}</td>
-                    <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
-                  </tr>
-                );
-              })}
+              {sortedClosed.map(({ t, gl, pct, tc, proceeds, days, isLong }) => (
+                <tr key={t.id} className={`tr-row-clickable ${gl < 0 ? "tr-row-loss" : "tr-row-gain"}`} onClick={() => openEditTrade(t)}>
+                  <td><div className="tr-stock-cell"><span className="tr-symbol">{t.symbol}</span><span className="tr-company-sub">{t.company}</span></div></td>
+                  <td className="right"><span className={`tr-term-badge ${isLong ? "tr-term-badge--long" : "tr-term-badge--short"}`}>{isLong ? "Long" : "Short"}</span></td>
+                  <td className="right">{fmtDate(t.buyDate)}</td>
+                  <td className="right">{fmtDate(t.saleDate!)}</td>
+                  <td className="right">{days === 0 ? "Same day" : `${days}d`}</td>
+                  <td className="right trading-amt">{t.units % 1 === 0 ? t.units : t.units.toFixed(2)}</td>
+                  <td className="right trading-amt">${t.costPerSh.toFixed(2)}</td>
+                  <td className="right trading-amt">${t.marketOrSalePrice.toFixed(2)}</td>
+                  <td className="right trading-amt">{fmt(tc)}</td>
+                  <td className="right trading-amt">{fmt(proceeds)}</td>
+                  <td className="right"><div className="tr-gl-cell"><span className={`trading-amt ${glClass(gl)}`}>{fmt(gl)}</span><span className={`tr-badge ${badge(pct)}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(1)}%</span></div></td>
+                </tr>
+              ))}
             </tbody>
             <tfoot><tr>
-              <th colSpan={7}>Total Closed</th>
+              <th colSpan={8}>Total Closed</th>
               <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + costOf(t), 0))}</th>
               <th className="right trading-amt">{fmt(closed.reduce((s, t) => s + t.units * t.marketOrSalePrice, 0))}</th>
               <th className={`right trading-amt ${glClass(totalRealized)}`}>{fmt(totalRealized)}</th>
