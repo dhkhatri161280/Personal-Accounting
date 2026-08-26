@@ -517,6 +517,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // explicit salePrice on the vest/purchase) are added on top, split short/long term.
   const taxableWages = Math.max(0, totalGross - totalK401);
   const taxEstimateYear = listUsTaxYears().includes(yr.year) ? yr.year : listUsTaxYears()[0]!;
+  // Federal filing deadline (April 15 the following year, ignoring extensions/weekend shifts --
+  // an approximation, same convention as the HSA contribution deadline elsewhere in this file).
+  // Once it's passed, that year's return is done -- Tax Planning only makes sense for a year
+  // still open to act on, not one already filed and processed.
+  const taxYearFilingDeadline = `${Number(taxEstimateYear) + 1}-04-15`;
+  const taxYearIsOpenForPlanning = todayIso <= taxYearFilingDeadline;
   const gainEvents = [
     ...classifyRsuSales(equity?.grants ?? [], yr.year, 365),
     ...classifyEsppSales(equity?.esppPurchases ?? [], yr.year, 365),
@@ -1030,9 +1036,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               <option value="self-only">Self-only</option>
             </select>
           </label>
-          <button onClick={() => setShowTaxPlanningModal(true)}>
-            💡 Tax Planning{taxPlanningTotalSavings > 0 ? ` (up to ${fmt(taxPlanningTotalSavings)})` : ""}
-          </button>
+          {taxYearIsOpenForPlanning && (
+            <label
+              style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", color: "#2563eb" }}
+              onClick={() => setShowTaxPlanningModal(true)}
+            >
+              💡 Tax Planning{taxPlanningTotalSavings > 0 ? ` (up to ${fmt(taxPlanningTotalSavings)})` : ""}
+            </label>
+          )}
         </div>
       </div>
       <details style={{ margin: "0 0 0.75rem" }}>
@@ -1524,7 +1535,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         </Modal>
       )}
 
-      {showTaxPlanningModal && (
+      {showTaxPlanningModal && taxYearIsOpenForPlanning && (
         <Modal title={`Tax Planning — ${yr.year}`} onClose={() => setShowTaxPlanningModal(false)} wide>
           <p className="tp-disclaimer">
             Every number below is computed by this app's own tax-rule tables and formulas — the same ones used
