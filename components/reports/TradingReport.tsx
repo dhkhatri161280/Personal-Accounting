@@ -108,6 +108,25 @@ export function TradingReport({
   }
   const [watchFilter, setWatchFilter] = useState<"all" | "short" | "long" | "cyclical">("all");
 
+  // ── Schwab connection status (Phase 1: OAuth only, no live data wired in yet) ────────────
+  const [schwabStatus, setSchwabStatus] = useState<
+    { connected: false } | { connected: true; daysUntilReauth: number } | null
+  >(null);
+  useEffect(() => {
+    fetch("/api/schwab/status")
+      .then((r) => r.json())
+      .then((raw: unknown) => {
+        const d = raw as { connected: boolean; daysUntilReauth?: number };
+        setSchwabStatus(d.connected ? { connected: true, daysUntilReauth: d.daysUntilReauth ?? 0 } : { connected: false });
+      })
+      .catch(() => setSchwabStatus({ connected: false }));
+  }, []);
+  async function disconnectSchwabClick() {
+    if (!confirm("Disconnect from Schwab? You can reconnect any time.")) return;
+    await fetch("/api/schwab/status", { method: "DELETE" });
+    setSchwabStatus({ connected: false });
+  }
+
   // The actual trade list this report reads/writes -- falls back to the fixed seed only until
   // the one-time migration below persists it to the vault (or the user's first edit does).
   const effectiveTrades = trades ?? TRADING_SEED;
@@ -434,9 +453,22 @@ export function TradingReport({
         <span className="tr-price-status">
           {priceLoading ? "Loading prices…" : pricesRefreshing ? "Refreshing…" : lastPriceUpdate ? `Prices updated ${timeAgo(lastPriceUpdate.toISOString())} · auto-refresh every 5 min${isMarketOpen() ? " (market open)" : " (market closed)"}` : ""}
         </span>
-        <button className="tr-refresh-btn" onClick={() => fetchPrices(false)} disabled={priceLoading || pricesRefreshing}>
-          ↻ Refresh prices
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          {schwabStatus?.connected === true ? (
+            <span style={{ fontSize: 12, color: schwabStatus.daysUntilReauth <= 1 ? "#dc2626" : "#16a34a" }}>
+              ✓ Schwab connected
+              {schwabStatus.daysUntilReauth <= 1 ? " — re-auth needed today" : ` — re-auth in ${schwabStatus.daysUntilReauth}d`}
+              {" "}<button className="tr-refresh-btn" onClick={disconnectSchwabClick}>Disconnect</button>
+            </span>
+          ) : schwabStatus?.connected === false ? (
+            <a href="/api/schwab/authorize" className="tr-refresh-btn" style={{ textDecoration: "none" }}>
+              🔗 Connect Schwab
+            </a>
+          ) : null}
+          <button className="tr-refresh-btn" onClick={() => fetchPrices(false)} disabled={priceLoading || pricesRefreshing}>
+            ↻ Refresh prices
+          </button>
+        </div>
       </div>
 
       {/* Broker breakdown */}

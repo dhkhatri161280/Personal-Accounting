@@ -8,4 +8,6 @@ export interface AppBindings {
   TELLER_APP_ID?: string;
   TELLER_CERT?: { fetch: typeof fetch };
   GROQ_API_KEY?: string;
+  SCHWAB_CLIENT_ID?: string;
+  SCHWAB_CLIENT_SECRET?: string;
 }
