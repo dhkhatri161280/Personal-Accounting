@@ -15,9 +15,24 @@ async function getAccountHashes(accessToken: string): Promise<{ accountNumber: s
   return (await resp.json()) as { accountNumber: string; hashValue: string }[];
 }
 
-// Returns Schwab's raw per-account response (including securitiesAccount.positions[]) rather
-// than a normalized shape -- first pass is to see the REAL data before mapping it into this
-// app's Trade/dividend model.
+interface SchwabRawPosition {
+  longQuantity?: number;
+  shortQuantity?: number;
+  averagePrice?: number;
+  marketValue?: number;
+  instrument?: { symbol?: string; assetType?: string };
+}
+
+export interface NormalizedPosition {
+  symbol: string;
+  quantity: number;
+  avgPrice: number;
+  marketValue: number;
+}
+
+// Normalized to just what a sync/reconciliation feature needs: current quantity, blended average
+// cost, and market value per symbol. No lot-level detail is available (see /schwab/transactions --
+// that data isn't accessible under this product), so this is a snapshot, not a history.
 export async function GET() {
   const token = await getValidAccessToken(bindings);
   if (!token.ok) return Response.json({ error: `Schwab not usable: ${token.reason}` }, { status: 401 });
@@ -39,9 +54,19 @@ export async function GET() {
       const text = await resp.text();
       if (!resp.ok) return { accountNumber: h.accountNumber, error: `Positions fetch failed (${resp.status})`, raw: text.slice(0, 500) };
       try {
-        return { accountNumber: h.accountNumber, data: JSON.parse(text) };
+        const parsed = JSON.parse(text) as { securitiesAccount?: { positions?: SchwabRawPosition[] } };
+        const raw = parsed.securitiesAccount?.positions ?? [];
+        const positions: NormalizedPosition[] = raw
+          .filter((p) => p.instrument?.assetType === "EQUITY" && p.instrument?.symbol)
+          .map((p) => ({
+            symbol: p.instrument!.symbol!,
+            quantity: (p.longQuantity ?? 0) - (p.shortQuantity ?? 0),
+            avgPrice: p.averagePrice ?? 0,
+            marketValue: p.marketValue ?? 0,
+          }));
+        return { accountNumber: h.accountNumber, positions };
       } catch {
-        return { accountNumber: h.accountNumber, error: "Non-JSON response", raw: text.slice(0, 500) };
+        return { accountNumber: h.accountNumber, error: "Non-JSON or unexpected response", raw: text.slice(0, 500) };
       }
     })
   );

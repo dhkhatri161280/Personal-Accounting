@@ -52,6 +52,111 @@ const BLANK_TRADE_FORM = { company: "", symbol: "", broker: "CST" as Trade["brok
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const BROKER_LABEL: Record<string, string> = { CST: "Charles Schwab (CST)", CSS: "Charles Schwab (CSS)", RBS: "Robinhood (RBS)" };
 
+// Symbols that live in the Equity report instead of Trading (RSU/ESPP), even though they show
+// up as regular positions in the same Schwab account -- never synced into Trading as a "trade".
+const SCHWAB_SYNC_EXCLUDE = new Set(["NVDA"]);
+// Schwab's OAuth connection only covers one linked account, which matches the "CST" broker label
+// in this app's existing trade data (verified against real positions) -- sync only ever targets
+// that broker; CSS/RBS stay fully manual since they aren't connected.
+const SCHWAB_SYNC_BROKER: Trade["broker"] = "CST";
+
+interface SchwabPosition { symbol: string; quantity: number; avgPrice: number; marketValue: number }
+
+interface SchwabSyncAction {
+  symbol: string;
+  company: string;
+  kind: "new" | "increase" | "reduce" | "close";
+  deltaUnits: number;
+  estPrice: number;
+  note: string;
+}
+
+// Compares Schwab's real current positions (quantity + blended average cost -- no lot-level
+// detail is available, see lib/schwab-oauth.ts / the transactions route) against what's already
+// tracked in Trading, and proposes changes. Never applied automatically -- see applySchwabSync
+// below, which only runs once the user reviews and confirms this plan.
+function computeSchwabSyncPlan(trades: Trade[], positions: SchwabPosition[]): SchwabSyncAction[] {
+  const actions: SchwabSyncAction[] = [];
+  const openForBroker = trades.filter((t) => !t.saleDate && t.broker === SCHWAB_SYNC_BROKER && !SCHWAB_SYNC_EXCLUDE.has(t.symbol));
+  const trackedBySymbol = new Map<string, Trade[]>();
+  for (const t of openForBroker) {
+    const list = trackedBySymbol.get(t.symbol) ?? [];
+    list.push(t);
+    trackedBySymbol.set(t.symbol, list);
+  }
+  const schwabSymbols = new Set(positions.map((p) => p.symbol));
+
+  for (const pos of positions) {
+    if (SCHWAB_SYNC_EXCLUDE.has(pos.symbol) || pos.quantity <= 0) continue;
+    const tracked = trackedBySymbol.get(pos.symbol) ?? [];
+    const trackedQty = tracked.reduce((s, t) => s + t.units, 0);
+    const trackedCost = tracked.reduce((s, t) => s + t.units * t.costPerSh, 0);
+    const schwabTotalCost = pos.avgPrice * pos.quantity;
+
+    if (pos.quantity > trackedQty + 0.0001) {
+      const deltaUnits = pos.quantity - trackedQty;
+      const estPrice = Math.max(0, (schwabTotalCost - trackedCost) / deltaUnits);
+      actions.push({
+        symbol: pos.symbol, company: tracked[0]?.company ?? pos.symbol,
+        kind: trackedQty > 0 ? "increase" : "new", deltaUnits, estPrice,
+        note: trackedQty > 0
+          ? `Schwab shows ${pos.quantity} shares vs. ${trackedQty} tracked — adds ${deltaUnits.toFixed(2)} shares at an estimated $${estPrice.toFixed(2)}/share (back-calculated from Schwab's blended average; not a real trade date or price).`
+          : `New position on Schwab, not yet tracked here — ${deltaUnits.toFixed(2)} shares at Schwab's average cost of $${estPrice.toFixed(2)}/share.`,
+      });
+    } else if (pos.quantity < trackedQty - 0.0001) {
+      const deltaUnits = trackedQty - pos.quantity;
+      actions.push({
+        symbol: pos.symbol, company: tracked[0]?.company ?? pos.symbol,
+        kind: "reduce", deltaUnits, estPrice: pos.avgPrice,
+        note: `Schwab shows ${pos.quantity} shares vs. ${trackedQty} tracked — ${deltaUnits.toFixed(2)} shares appear to have been sold. Exact sale date/price is unknown (closes your oldest lot(s) first, dated today).`,
+      });
+    }
+  }
+  for (const [symbol, tracked] of trackedBySymbol) {
+    if (!schwabSymbols.has(symbol)) {
+      const trackedQty = tracked.reduce((s, t) => s + t.units, 0);
+      actions.push({
+        symbol, company: tracked[0]?.company ?? symbol, kind: "close", deltaUnits: trackedQty, estPrice: 0,
+        note: `No longer appears in your Schwab account — looks fully sold. Exact sale date/price is unknown.`,
+      });
+    }
+  }
+  return actions;
+}
+
+// Applies a user-confirmed sync plan: new/increase add a lot dated today at the estimated cost;
+// reduce/close consume oldest-open lots first (FIFO), splitting a lot if only part of it sold.
+function applySchwabSync(trades: Trade[], actions: SchwabSyncAction[], todayIso: string, priceForSymbol: (sym: string) => number): Trade[] {
+  let next = [...trades];
+  for (const a of actions) {
+    if (a.kind === "new" || a.kind === "increase") {
+      next.push({
+        id: uid(), symbol: a.symbol, company: a.company, broker: SCHWAB_SYNC_BROKER, buyDate: todayIso,
+        units: a.deltaUnits, costPerSh: a.estPrice, marketOrSalePrice: a.estPrice, yesterday: a.estPrice,
+      });
+      continue;
+    }
+    let remaining = a.deltaUnits;
+    const salePrice = priceForSymbol(a.symbol) || a.estPrice;
+    const openLots = next
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => !t.saleDate && t.symbol === a.symbol && t.broker === SCHWAB_SYNC_BROKER)
+      .sort((x, y) => x.t.buyDate.localeCompare(y.t.buyDate));
+    for (const { t, i } of openLots) {
+      if (remaining <= 0.0001) break;
+      if (t.units <= remaining + 0.0001) {
+        next[i] = { ...t, saleDate: todayIso, marketOrSalePrice: salePrice };
+        remaining -= t.units;
+      } else {
+        next[i] = { ...t, units: t.units - remaining };
+        next.push({ ...t, id: uid(), units: remaining, saleDate: todayIso, marketOrSalePrice: salePrice });
+        remaining = 0;
+      }
+    }
+  }
+  return next;
+}
+
 function isMarketOpen(): boolean {
   const now = new Date();
   const day = now.getUTCDay();
@@ -315,6 +420,44 @@ export function TradingReport({
   const livePrice    = (sym: string, fallback: number) => livePrices[sym]?.price ?? fallback;
   const livePrevClose = (sym: string, fallback: number) => livePrices[sym]?.prevClose ?? fallback;
 
+  // ── Schwab position sync (preview-then-confirm; never writes silently) ──────────────────
+  const [syncActions, setSyncActions] = useState<SchwabSyncAction[] | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncError, setSyncError]     = useState<string | null>(null);
+  const [syncApplying, setSyncApplying] = useState(false);
+  async function loadSchwabSyncPreview() {
+    setSyncLoading(true);
+    setSyncError(null);
+    try {
+      const res = await fetch("/api/schwab/positions");
+      const data = (await res.json()) as {
+        accounts?: Array<{ positions?: SchwabPosition[]; error?: string }>;
+        error?: string;
+      };
+      if (data.error) throw new Error(data.error);
+      const positions = (data.accounts ?? []).flatMap((a) => a.positions ?? []);
+      const plan = computeSchwabSyncPlan(effectiveTrades, positions);
+      setSyncActions(plan);
+    } catch (e) {
+      setSyncError(String(e instanceof Error ? e.message : e));
+      setSyncActions([]);
+    } finally {
+      setSyncLoading(false);
+    }
+  }
+  async function applySyncPlan() {
+    if (!syncActions || syncActions.length === 0) return;
+    setSyncApplying(true);
+    try {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const next = applySchwabSync(effectiveTrades, syncActions, todayIso, (sym) => livePrice(sym, 0));
+      await onSave(next);
+      setSyncActions(null);
+    } finally {
+      setSyncApplying(false);
+    }
+  }
+
   const open   = effectiveTrades.filter(t => !t.saleDate);
   const closed = effectiveTrades.filter(t => !!t.saleDate);
 
@@ -459,6 +602,9 @@ export function TradingReport({
               ✓ Schwab connected
               {schwabStatus.daysUntilReauth <= 1 ? " — re-auth needed today" : ` — re-auth in ${schwabStatus.daysUntilReauth}d`}
               {" "}<button className="tr-refresh-btn" onClick={disconnectSchwabClick}>Disconnect</button>
+              {" "}<button className="tr-refresh-btn" onClick={loadSchwabSyncPreview} disabled={syncLoading}>
+                {syncLoading ? "Checking…" : "🔄 Sync from Schwab"}
+              </button>
             </span>
           ) : schwabStatus?.connected === false ? (
             <a href="/api/schwab/authorize" className="tr-refresh-btn" style={{ textDecoration: "none" }}>
@@ -556,6 +702,36 @@ export function TradingReport({
                 🗑 Delete Trade
               </button>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {syncActions !== null && (
+        <Modal title="Sync from Schwab" onClose={() => setSyncActions(null)} wide>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 1rem" }}>
+            Compares your real Schwab positions (quantity + blended average cost) against what's
+            tracked here for Charles Schwab (CST). Schwab doesn't expose individual trade dates or
+            prices to this app, so any new/changed lot below uses an <strong>estimated</strong> date
+            (today) and price — review before applying. NVDA is never included here; it's tracked
+            in the Equity report instead.
+          </p>
+          {syncError && <p style={{ fontSize: 12, color: "#dc2626", margin: "0 0 1rem" }}>Error: {syncError}</p>}
+          {syncActions.length === 0 && !syncError && (
+            <p style={{ fontSize: 13 }}>Everything matches — no changes proposed.</p>
+          )}
+          {syncActions.map((a, i) => (
+            <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "0.65rem 0.85rem", marginBottom: "0.5rem" }}>
+              <strong style={{ fontSize: 13 }}>
+                {a.symbol} — {a.kind === "new" ? "New position" : a.kind === "increase" ? "Add to position" : a.kind === "reduce" ? "Partial sale" : "Fully sold"}
+              </strong>
+              <p style={{ fontSize: 12, margin: "0.3rem 0 0", color: "#334155" }}>{a.note}</p>
+            </div>
+          ))}
+          <div className="equity-form-actions">
+            <button onClick={applySyncPlan} disabled={syncApplying || syncActions.length === 0}>
+              {syncApplying ? "Applying…" : "Apply Sync"}
+            </button>
+            <button onClick={() => setSyncActions(null)} disabled={syncApplying}>Cancel</button>
           </div>
         </Modal>
       )}
