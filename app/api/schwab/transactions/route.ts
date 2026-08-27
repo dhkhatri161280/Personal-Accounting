@@ -14,11 +14,13 @@ async function getAccountHashes(accessToken: string): Promise<{ accountNumber: s
 }
 
 // Diagnostic pass-through to Schwab's transaction history, so real BUY lot dates/prices can be
-// inspected before building the actual sync logic on top of them. Defaults to the last 2 years
-// (Schwab's own max lookback window) to capture every lot that could still be an open position.
+// inspected before building the actual sync logic on top of them. Schwab caps startDate..endDate
+// at 1 year, so this defaults to the last 365 days -- older still-open lots (e.g. that NVDA
+// position with a multi-year cost basis) won't be captured by a single call; the real sync will
+// need to page backward in <=1-year windows to go further back.
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const startDate = url.searchParams.get("startDate") ?? new Date(Date.now() - 2 * 365 * 86_400_000).toISOString();
+  const startDate = url.searchParams.get("startDate") ?? new Date(Date.now() - 364 * 86_400_000).toISOString();
   const endDate = url.searchParams.get("endDate") ?? new Date().toISOString();
 
   const token = await getValidAccessToken(bindings);
@@ -36,14 +38,18 @@ export async function GET(request: Request) {
       const txUrl = new URL(`https://api.schwabapi.com/trader/v1/accounts/${h.hashValue}/transactions`);
       txUrl.searchParams.set("startDate", startDate);
       txUrl.searchParams.set("endDate", endDate);
-      txUrl.searchParams.set("types", "TRADE");
+      const types = url.searchParams.get("types");
+      if (types) txUrl.searchParams.set("types", types);
+      const symbol = url.searchParams.get("symbol");
+      if (symbol) txUrl.searchParams.set("symbol", symbol);
       const resp = await fetch(txUrl.toString(), { headers: { Authorization: `Bearer ${token.accessToken}` } });
       const text = await resp.text();
-      if (!resp.ok) return { accountNumber: h.accountNumber, error: `Transactions fetch failed (${resp.status})`, raw: text.slice(0, 500) };
+      const debug = { requestUrl: txUrl.toString().replace(/Bearer [^&]+/, "Bearer ***"), status: resp.status };
+      if (!resp.ok) return { accountNumber: h.accountNumber, error: `Transactions fetch failed (${resp.status})`, raw: text.slice(0, 500), debug };
       try {
-        return { accountNumber: h.accountNumber, data: JSON.parse(text) };
+        return { accountNumber: h.accountNumber, data: JSON.parse(text), debug };
       } catch {
-        return { accountNumber: h.accountNumber, error: "Non-JSON response", raw: text.slice(0, 500) };
+        return { accountNumber: h.accountNumber, error: "Non-JSON response", raw: text.slice(0, 500), debug };
       }
     })
   );
