@@ -30,7 +30,11 @@ function change5d(price: number | null, prevClose: number | null) {
   return price !== null && prevClose !== null && prevClose !== 0 ? ((price - prevClose) / prevClose) * 100 : null;
 }
 
-function isValidEntry(e: unknown): e is WatchlistEntry {
+// Only the fields the AI actually has a basis to know: which tickers are in the news and why.
+// Price levels are NOT requested from the AI -- see the live-price pass below for why.
+type AiPick = { symbol: string; company: string; horizon: WatchlistEntry["horizon"]; thesis: string; buyMonths?: number[]; sellMonths?: number[]; seasonNote?: string };
+
+function isValidPick(e: unknown): e is AiPick {
   if (!e || typeof e !== "object") return false;
   const w = e as Record<string, unknown>;
   if (typeof w.symbol !== "string" || !w.symbol.trim()) return false;
@@ -86,8 +90,10 @@ Rules:
 - Every thesis must reference a SPECIFIC, real, current reason (an actual earnings result, a named product/deal, a macro event) -- not generic filler like "strong fundamentals."
 - For horizon "cyclical" entries only, include buyMonths and sellMonths (arrays of month numbers 1-12) and a short seasonNote.
 
+Do NOT include any price levels, price targets, or dollar figures -- you don't have live market data, so any price you wrote would likely be stale or wrong. Prices are looked up separately, from a live feed, after you pick the tickers.
+
 Return ONLY a JSON array of exactly 18 objects, each with these fields:
-{ "symbol": "TICKER", "company": "Full Company Name", "horizon": "short" | "long" | "cyclical", "thesis": "1-2 sentences with a specific, current reason", "analystTarget": number, "buyBelow": number, "sellAbove": number, "buyMonths": [numbers] (cyclical only), "sellMonths": [numbers] (cyclical only), "seasonNote": "short phrase" (cyclical only) }
+{ "symbol": "TICKER", "company": "Full Company Name", "horizon": "short" | "long" | "cyclical", "thesis": "1-2 sentences with a specific, current reason", "buyMonths": [numbers] (cyclical only), "sellMonths": [numbers] (cyclical only), "seasonNote": "short phrase" (cyclical only) }
 
 No markdown. No explanation. Just the JSON array.`;
 
@@ -117,9 +123,10 @@ No markdown. No explanation. Just the JSON array.`;
   const groqJson = await groqRes.json() as { choices?: Array<{ message?: { content?: string } }> };
   const rawText  = groqJson?.choices?.[0]?.message?.content ?? "";
 
-  // 4. Parse + validate the AI's proposed watchlist. A malformed or too-short response leaves
-  // the existing watchlist untouched rather than overwriting it with something broken.
-  let updatedItems: WatchlistEntry[];
+  // 4. Parse + validate the AI's proposed tickers (symbol/company/horizon/thesis only -- no
+  // price data, see the prompt above for why). A malformed or too-short response leaves the
+  // existing watchlist untouched rather than overwriting it with something broken.
+  let picks: AiPick[];
   try {
     const match = rawText.match(/\[[\s\S]*\]/);
     if (!match) throw new Error("No JSON array in response");
@@ -127,9 +134,9 @@ No markdown. No explanation. Just the JSON array.`;
     if (!Array.isArray(parsed)) throw new Error("Response is not an array");
 
     const seen = new Set<string>();
-    const valid: WatchlistEntry[] = [];
+    const valid: AiPick[] = [];
     for (const raw of parsed) {
-      if (!isValidEntry(raw)) continue;
+      if (!isValidPick(raw)) continue;
       const symbol = raw.symbol.toUpperCase().trim();
       if (symbol === "NVDA" || seen.has(symbol)) continue;
       seen.add(symbol);
@@ -140,12 +147,34 @@ No markdown. No explanation. Just the JSON array.`;
     if (valid.length < MIN_ITEMS) {
       throw new Error(`Only ${valid.length} valid entries after filtering (need at least ${MIN_ITEMS})`);
     }
-    updatedItems = valid;
+    picks = valid;
   } catch (e) {
     return Response.json({ error: `Parse error: ${String(e)}`, raw: rawText.slice(0, 500) }, { status: 502 });
   }
 
-  // 5. Save to KV
+  // 5. Look up REAL live prices for the AI's chosen tickers, then derive buy/sell bands from
+  // that live price (+/-8%) -- deterministic math anchored to reality, not another AI guess.
+  // No analystTarget: this app has no reliable source for actual Wall Street consensus figures,
+  // and showing a fabricated one next to a real live price is exactly the kind of mismatch that
+  // made the AI-invented price levels look broken (e.g. "Live $480" next to "Target $140").
+  const pickPrices = await Promise.all(picks.map((p) => fetchPrice5d(p.symbol)));
+  const pickPriceMap = Object.fromEntries(pickPrices.map((p) => [p.symbol, p.price]));
+  const updatedItems: WatchlistEntry[] = picks.map((p) => {
+    const live = pickPriceMap[p.symbol];
+    const entry: WatchlistEntry = { symbol: p.symbol, company: p.company, horizon: p.horizon, thesis: p.thesis };
+    if (p.horizon === "cyclical") {
+      entry.buyMonths = p.buyMonths;
+      entry.sellMonths = p.sellMonths;
+      entry.seasonNote = p.seasonNote;
+    }
+    if (live && live > 0) {
+      entry.buyBelow = Math.round(live * 0.92 * 100) / 100;
+      entry.sellAbove = Math.round(live * 1.08 * 100) / 100;
+    }
+    return entry;
+  });
+
+  // 6. Save to KV
   const result = {
     items: updatedItems,
     updatedAt: new Date().toISOString(),
