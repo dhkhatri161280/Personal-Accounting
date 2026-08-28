@@ -26,8 +26,28 @@ $env:PL_VAULT_PASSWORD = Read-DpapiSecret 'us-vault'
 try {
   # ── Step 1: Preview ─────────────────────────────────────────────────────
   Write-Host '=== STEP 1: PREVIEW (read-only) ===' -ForegroundColor Cyan
-  & $node $runner preview us
+  $previewOutput = & $node $runner preview us 2>&1 | Out-String
+  Write-Host $previewOutput.Trim()
   if ($LASTEXITCODE -ne 0) { throw 'Preview failed' }
+
+  # Parse the plan's own counts so Steps 2/3 can skip a phase entirely when the
+  # preview already says there's nothing on that side -- the runner throws a hard
+  # "Safety stop" error if asked to push/pull with zero real candidates instead of
+  # just no-op'ing, so it's simplest to never call it in that case.
+  $appToTallyCount = 0
+  $tallyToAppCount = 0
+  $planMatch = [regex]::Match($previewOutput, 'PLAN_JSON:(\{.*\})')
+  if ($planMatch.Success) {
+    try {
+      $plan = $planMatch.Groups[1].Value | ConvertFrom-Json
+      $appToTallyCount = [int]$plan.appToTally
+      $tallyToAppCount = [int]$plan.tallyToApp
+    } catch {
+      Write-Host '  Could not parse plan counts -- will attempt both phases as before.' -ForegroundColor Yellow
+      $appToTallyCount = 1
+      $tallyToAppCount = 1
+    }
+  }
 
   Write-Host ''
   $confirm = Read-Host 'Review the plan above. Type YES to proceed with sync, anything else to abort'
@@ -37,6 +57,9 @@ try {
   Write-Host ''
   Write-Host '=== STEP 2: APP -> TALLY ===' -ForegroundColor Cyan
   $maxCycles = 60
+  if ($appToTallyCount -le 0) {
+    Write-Host '  App->Tally: nothing pending per preview -- skipping.' -ForegroundColor Green
+  } else {
   $cycle = 0
   do {
     $cycle++
@@ -77,10 +100,14 @@ try {
     if ($result -notmatch 'QUEUE_REMAINING') { break }
 
   } while ($true)
+  }
 
   # ── Step 3: Tally -> App (pull Tally changes into App) ──────────────────
   Write-Host ''
   Write-Host '=== STEP 3: TALLY -> APP ===' -ForegroundColor Cyan
+  if ($tallyToAppCount -le 0) {
+    Write-Host '  Tally->App: nothing pending per preview -- skipping.' -ForegroundColor Green
+  } else {
   $cycle = 0
   do {
     $cycle++
@@ -109,6 +136,7 @@ try {
     if ($result -notmatch 'QUEUE_REMAINING') { break }
 
   } while ($true)
+  }
 
   # ── Step 4: Final verification ───────────────────────────────────────────
   Write-Host ''
