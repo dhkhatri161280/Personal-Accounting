@@ -73,21 +73,17 @@ try {
   # ── Step 2: App -> Tally (push app changes to Tally) ────────────────────
   Write-Host ''
   Write-Host '=== STEP 2: APP -> TALLY ===' -ForegroundColor Cyan
-  # Generous headroom: a flaky candidate can consume several retry cycles without any net
-  # progress (see $consecutiveFailures below), so this needs to cover more than just one
-  # cycle per real item.
-  $maxCycles = 150
-  # How many candidate confirmations in a row can fail before giving up on this phase --
-  # observed in practice that the SAME candidate can fail once and then succeed moments
-  # later (the runner's own "what's next" answer isn't always stable between its dry-run and
-  # apply calls), so a single failure is not treated as fatal; only a run of failures with no
-  # successes in between means something is genuinely, persistently stuck.
-  $maxConsecutiveFailures = 8
+  $maxCycles = 60
+  # REVERTED: this used to auto-retry a failed candidate up to 8 times with a settling delay.
+  # Confirmed by direct observation that this caused genuine duplicate postings in Tally (e.g.
+  # the same $3,033 NVDA dividend landing as two separate Tally vouchers) -- the runner's
+  # dry-run/apply disagreement isn't a harmless race to retry past, it can mean a "failed"
+  # attempt still partially went through. Stop immediately on any failure instead; a human
+  # needs to check Tally for a partial write before trying that candidate again.
   if ($appToTallyCount -le 0) {
     Write-Host '  App->Tally: nothing pending per preview -- skipping.' -ForegroundColor Green
   } else {
   $cycle = 0
-  $consecutiveFailures = 0
   do {
     $cycle++
     if ($cycle -gt $maxCycles) { throw "Safety stop: exceeded $maxCycles app-to-tally cycles" }
@@ -120,23 +116,7 @@ try {
     $result = Invoke-Runner @('app-to-tally', 'us')
     Write-Host $result.Trim()
 
-    if ($LASTEXITCODE -ne 0) {
-      $consecutiveFailures++
-      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- pausing to let Tally settle, then retrying." -ForegroundColor Yellow
-      if ($consecutiveFailures -ge $maxConsecutiveFailures) {
-        throw "app-to-tally: $maxConsecutiveFailures consecutive failures, last on: $confirmStr -- stopping for manual review"
-      }
-      # The dry-run and apply calls a few hundred ms apart have been observed disagreeing on
-      # which candidate is next -- most likely Tally's own live interface (port 9001) hasn't
-      # fully caught up on the previous write yet. A short pause before the next dry-run gives
-      # it time to settle instead of hammering it again immediately.
-      Start-Sleep -Seconds 3
-      continue
-    }
-    $consecutiveFailures = 0
-    # Same reasoning as above, on the success path -- let Tally settle before asking it what's
-    # next again.
-    Start-Sleep -Milliseconds 800
+    if ($LASTEXITCODE -ne 0) { throw "app-to-tally failed on: $confirmStr -- CHECK TALLY for a partial duplicate before retrying" }
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
@@ -152,7 +132,6 @@ try {
     Write-Host '  Tally->App: nothing pending per preview -- skipping.' -ForegroundColor Green
   } else {
   $cycle = 0
-  $consecutiveFailures = 0
   do {
     $cycle++
     if ($cycle -gt $maxCycles) { throw "Safety stop: exceeded $maxCycles tally-to-app cycles" }
@@ -173,17 +152,7 @@ try {
     $result = Invoke-Runner @('tally-to-app', 'us')
     Write-Host $result.Trim()
 
-    if ($LASTEXITCODE -ne 0) {
-      $consecutiveFailures++
-      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- pausing to let Tally settle, then retrying." -ForegroundColor Yellow
-      if ($consecutiveFailures -ge $maxConsecutiveFailures) {
-        throw "tally-to-app: $maxConsecutiveFailures consecutive failures, last on: $confirmStr -- stopping for manual review"
-      }
-      Start-Sleep -Seconds 3
-      continue
-    }
-    $consecutiveFailures = 0
-    Start-Sleep -Milliseconds 800
+    if ($LASTEXITCODE -ne 0) { throw "tally-to-app failed on: $confirmStr -- CHECK TALLY for a partial duplicate before retrying" }
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
