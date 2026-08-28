@@ -337,8 +337,7 @@ function buildDraft(
   ledger: Ledger,
   newAcctsByName: Record<string, Account>,
   historyIndex: HistoryIndex,
-  plaidAcctMap: Map<string, PlaidAccount>,
-  plaidGlOverrides: Record<string, number> = {}
+  plaidAcctMap: Map<string, PlaidAccount>
 ): Pick<ImportRow, "entries" | "voucherType" | "narration" | "confidence" | "source"> {
   const accounts = ledger.accounts.filter((a) => a.active !== false);
   // Combined lookup: existing vault accounts + pending new ones
@@ -397,8 +396,14 @@ function buildDraft(
   // the checking account "Bank Of America" and would always win before "Credit Card - BofA".
   const instAliases: string[] = [];
   if (/bank.of.america|bofa/i.test(instLower)) {
-    if (isCreditAcct)
+    if (isCreditAcct) {
+      // Two physical BofA cards, two GL accounts -- Plaid's account nickname is the one
+      // stable signal that tells them apart (see BOFA_CARD_GL_BY_NAME above institution
+      // name/type alone can't, since both are "BofA credit").
+      const specific = bofaCardGlAccountName(plaidAcct?.name || "");
+      if (specific) instAliases.push(specific);
       instAliases.push("Credit Card - BofA", "BofA", "Bank Of America", "Bank of America");
+    }
     else
       instAliases.push(tx.institution_name, "BofA", "Bank Of America", "Bank of America", "Credit Card - BofA");
   }
@@ -410,16 +415,7 @@ function buildDraft(
     instAliases.push("AMEX Credit Card", "American Express", "Amex");
   // Fallback candidates only reached if institution aliases all failed
   const fallbackCardNames = ["Citi Credit Card", "Citibank", "Citi", "Bank Of America", "Bank of America", "Chase"];
-  let cardAcc = findAcct(accounts, ...instAliases, ...fallbackCardNames);
-  // Two physical cards sharing one GL account (e.g. two BofA cards) can't be told apart by
-  // institution name alone -- once the user has reclassified this specific Plaid account's
-  // history to its own GL account via the Balances tab's "Reclassify" tool, prefer that
-  // learned account over the generic institution match for all future imports from it.
-  const glOverrideId = plaidGlOverrides[tx.account_id];
-  if (glOverrideId != null) {
-    const overrideAcc = accounts.find((a) => a.id === glOverrideId);
-    if (overrideAcc) cardAcc = overrideAcc;
-  }
+  const cardAcc = findAcct(accounts, ...instAliases, ...fallbackCardNames);
 
   // Returns true when an account name plausibly belongs to the given institution
   function accountMatchesInstitution(accountName: string, institution: string): boolean {
@@ -902,13 +898,28 @@ function vaultUnclearedEntries(accountId: number, ledger: Ledger) {
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
+// Two physical BofA credit cards (the user's + spouse Hiral's) share one institution but post
+// to two separate GL accounts, split via a one-time manual reclassification (2026-08-27).
+// Plaid's own account nickname is stable per physical card, so it's the one reliable signal to
+// tell them apart -- institution name/type alone can't, since both are "BofA credit".
+const BOFA_CARD_GL_BY_NAME: Record<string, string> = {
+  "customized cash rewards visa signature": "Credit Card - BofA - Hiral",
+  "unlimited cash rewards visa signature": "Credit Card - BofA",
+};
+
+function bofaCardGlAccountName(plaidAcctName: string): string | undefined {
+  return BOFA_CARD_GL_BY_NAME[(plaidAcctName || "").toLowerCase().trim()];
+}
+
 function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): Account | undefined {
   const inst = (plaidAcct.institution_name || "").toLowerCase();
   const isCreditAcct = plaidAcct.type === "credit";
   const isSavings = plaidAcct.subtype === "savings";
   if (/bank.of.america|bofa/i.test(inst)) {
-    if (isCreditAcct)
-      return findAcct(vaultAccounts, "Credit Card - BofA", "BofA Credit Card");
+    if (isCreditAcct) {
+      const specific = bofaCardGlAccountName(plaidAcct.name);
+      return findAcct(vaultAccounts, ...(specific ? [specific] : []), "Credit Card - BofA", "BofA Credit Card");
+    }
     if (isSavings)
       return findAcct(vaultAccounts, "Saving Account", "Savings Account", "BofA Savings", "Savings");
     return findAcct(vaultAccounts, "Bank Of America", "Bank of America");
@@ -924,49 +935,6 @@ function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): A
   if (/wells.fargo/i.test(inst))
     return findAcct(vaultAccounts, "Wells Fargo");
   return undefined;
-}
-
-// ── Per-physical-card GL default (learned from the reclassify tool) ──────────────
-// When two physical Plaid accounts share one GL account and the user splits their history
-// into separate GL accounts via the Balances tab's "Reclassify" tool, we remember which vault
-// account each Plaid account_id was pointed to -- purely a UI default for future imports (not
-// accounting data, so it lives in localStorage rather than the vault ledger itself).
-const PLAID_GL_MAP_KEY = "dk-plaid-gl-map";
-
-function loadPlaidGlOverrides(): Record<string, number> {
-  if (typeof window === "undefined") return {};
-  try {
-    return JSON.parse(window.localStorage.getItem(PLAID_GL_MAP_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function savePlaidGlOverride(plaidAccountId: string, vaultAccountId: number) {
-  if (typeof window === "undefined") return;
-  const map = loadPlaidGlOverrides();
-  map[plaidAccountId] = vaultAccountId;
-  window.localStorage.setItem(PLAID_GL_MAP_KEY, JSON.stringify(map));
-}
-
-// Best-effort match of a real (settled) Plaid transaction to the vault Tx it was originally
-// imported as -- same amount/date/direction heuristic as alreadyImported's Pattern 1 (charge ->
-// entry on the Cr/positive side, refund/credit -> Dr/negative side), but returns the Tx itself
-// (so the reclassify tool can change which GL account it posted to) instead of a boolean.
-function findVaultTxMatchForPlaidTx(tx: PlaidTxRaw, ledger: Ledger, accountId: number, exclude: Set<number>): Tx | undefined {
-  const amt = Math.abs(tx.amount);
-  const txMs = new Date(tx.date + "T12:00:00Z").getTime();
-  const withinWindow = (vaultDate: string) =>
-    Math.abs(txMs - new Date(vaultDate + "T12:00:00Z").getTime()) / 86400000 <= 3;
-  return ledger.transactions.find((v) => {
-    if (v.deleted || exclude.has(v.id)) return false;
-    const entry = v.entries.find((e) => e.accountId === accountId);
-    if (!entry) return false;
-    if (Math.abs(Math.abs(entry.amount) - amt) >= 0.05) return false;
-    if (tx.amount > 0 && entry.amount <= 0) return false;
-    if (tx.amount < 0 && entry.amount >= 0) return false;
-    return v.date === tx.date || withinWindow(v.date);
-  });
 }
 
 // ── PlaidConnectButton sub-component ──────────────────────────────────────────
@@ -1042,19 +1010,6 @@ export function PlaidImport({ data, onSave }: Props) {
   const [savingPending, setSavingPending] = useState(false);
   const [expandedReconIdx, setExpandedReconIdx] = useState<number | null>(null);
   const [expandedUnclearedIdx, setExpandedUnclearedIdx] = useState<number | null>(null);
-  // "Reclassify" tool -- moves a specific physical card's historical vault entries from a
-  // shared GL account to its own GL account (e.g. splitting "Credit Card - BofA" history
-  // between two spouses' cards after a new GL account is created for one of them).
-  const [reclassifyTarget, setReclassifyTarget] = useState<{
-    plaidAccount: PlaidAccount;
-    vaultAcct: Account;
-  } | null>(null);
-  const [reclassifyCandidates, setReclassifyCandidates] = useState<
-    { tx: Tx; plaidTx: PlaidTxRaw; checked: boolean }[]
-  >([]);
-  const [reclassifyTargetAcctId, setReclassifyTargetAcctId] = useState<number | "">("");
-  const [reclassifyLoading, setReclassifyLoading] = useState(false);
-  const [reclassifyStatus, setReclassifyStatus] = useState("");
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [manualName, setManualName] = useState("");
@@ -1160,15 +1115,14 @@ export function PlaidImport({ data, onSave }: Props) {
       const historyIndex = buildHistoryIndex(data);
       const acctsToCreate = computeNewAccounts([...pending, ...pendingBankTxs], data, historyIndex);
       setNewAccts(acctsToCreate);
-      const glOverrides = loadPlaidGlOverrides();
       const draftPendingRows: ImportRow[] = pendingBankTxs.map((tx) => {
-        const draft = enforceContraType(buildDraft(tx, data, acctsToCreate, historyIndex, plaidAcctMap, glOverrides), data.accounts);
+        const draft = enforceContraType(buildDraft(tx, data, acctsToCreate, historyIndex, plaidAcctMap), data.accounts);
         const imported = alreadyImported(tx, pendingBankTxs, data, confirmedMatches);
         return { plaidTx: tx, skip: imported || isBofaPaymentDuplicate(tx), alreadyImported: imported, ...draft };
       });
       setPendingRows(draftPendingRows);
       const draftRows: ImportRow[] = pending.map((tx) => {
-        const draft = enforceContraType(buildDraft(tx, data, acctsToCreate, historyIndex, plaidAcctMap, glOverrides), data.accounts);
+        const draft = enforceContraType(buildDraft(tx, data, acctsToCreate, historyIndex, plaidAcctMap), data.accounts);
         const imported = alreadyImported(tx, pending, data, confirmedMatches);
         return {
           plaidTx: tx,
@@ -1182,85 +1136,6 @@ export function PlaidImport({ data, onSave }: Props) {
       setStatus("Failed to fetch transactions");
     } finally {
       setFetching(false);
-    }
-  }
-
-  // Opens the reclassify modal for one physical card sharing a GL account: pulls that card's
-  // full transaction history from Plaid (not just the default 90-day window) and matches each
-  // settled transaction to the vault Tx it was originally imported as, so the user can move
-  // just this card's real entries onto its own GL account.
-  async function openReclassify(plaidAccount: PlaidAccount, vaultAcct: Account) {
-    setReclassifyTarget({ plaidAccount, vaultAcct });
-    setReclassifyCandidates([]);
-    setReclassifyTargetAcctId("");
-    setReclassifyStatus("");
-    setReclassifyLoading(true);
-    try {
-      const inst = plaidAccount.institution_name || "";
-      const start = "2015-01-01";
-      const end = new Date().toISOString().slice(0, 10);
-      const r = await fetch(
-        `/api/plaid/transactions?institution=${encodeURIComponent(inst)}&start=${start}&end=${end}`
-      );
-      const { transactions } = (await r.json()) as { transactions: PlaidTxRaw[] };
-      const settled = transactions.filter((t) => !t.pending && t.account_id === plaidAccount.account_id);
-      const used = new Set<number>();
-      const candidates: { tx: Tx; plaidTx: PlaidTxRaw; checked: boolean }[] = [];
-      for (const plaidTx of settled) {
-        const match = findVaultTxMatchForPlaidTx(plaidTx, data, vaultAcct.id, used);
-        if (match) {
-          used.add(match.id);
-          candidates.push({ tx: match, plaidTx, checked: true });
-        }
-      }
-      candidates.sort((a, b) => b.plaidTx.date.localeCompare(a.plaidTx.date));
-      setReclassifyCandidates(candidates);
-      // Default target: the other active account already sharing this GL, if one exists
-      // (e.g. the "Credit Card - BofA - Hiral" account just created), else leave for the user to pick.
-      const otherShared = data.accounts.find(
-        (a) => a.active !== false && a.id !== vaultAcct.id && a.name.toLowerCase().includes("bofa") &&
-          a.name.toLowerCase() !== vaultAcct.name.toLowerCase()
-      );
-      if (otherShared) setReclassifyTargetAcctId(otherShared.id);
-    } catch {
-      setReclassifyStatus("Failed to fetch transaction history for this card.");
-    } finally {
-      setReclassifyLoading(false);
-    }
-  }
-
-  async function applyReclassify() {
-    if (!reclassifyTarget || !reclassifyTargetAcctId) return;
-    const targetAcct = data.accounts.find((a) => a.id === reclassifyTargetAcctId);
-    if (!targetAcct) return;
-    const checkedIds = new Set(reclassifyCandidates.filter((c) => c.checked).map((c) => c.tx.id));
-    if (!checkedIds.size) {
-      setReclassifyStatus("Nothing selected.");
-      return;
-    }
-    const sourceAcctId = reclassifyTarget.vaultAcct.id;
-    const next: Ledger = {
-      ...data,
-      transactions: data.transactions.map((v) => {
-        if (!checkedIds.has(v.id)) return v;
-        return {
-          ...v,
-          syncStatus: "pending",
-          syncFingerprint: v.syncFingerprint || `app-change-${Date.now()}`,
-          lastSyncedAt: undefined,
-          entries: v.entries.map((e) =>
-            e.accountId === sourceAcctId ? { ...e, accountId: targetAcct.id, accountName: targetAcct.name } : e
-          ),
-        };
-      }),
-    };
-    const ok = await onSave(next);
-    if (ok) {
-      savePlaidGlOverride(reclassifyTarget.plaidAccount.account_id, targetAcct.id);
-      setReclassifyStatus(`Moved ${checkedIds.size} transaction(s) to ${targetAcct.name}.`);
-      setReclassifyCandidates((cs) => cs.filter((c) => !checkedIds.has(c.tx.id)));
-    } else {
-      setReclassifyStatus("Save failed.");
     }
   }
 
@@ -2526,19 +2401,6 @@ export function PlaidImport({ data, onSave }: Props) {
                             <td>{g.institutions.join(", ")}</td>
                             <td title={g.vaultAcct ? `Vault: ${g.vaultAcct.name}` : "No matching vault account"}>
                               {g.names.join(" + ")}
-                              {shared && g.vaultAcct && (
-                                <button
-                                  type="button"
-                                  className="plaid-recon-reclassify-btn"
-                                  title="Move this card's historical transactions to its own GL account"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openReclassify(g.plaidAccts[0], g.vaultAcct!);
-                                  }}
-                                >
-                                  Reclassify →
-                                </button>
-                              )}
                             </td>
                             <td className="plaid-recon-type">{g.types.join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
@@ -2819,82 +2681,6 @@ export function PlaidImport({ data, onSave }: Props) {
           </div>
         );
       })()}
-      {reclassifyTarget && (
-        <div className="dk-modal" onClick={() => setReclassifyTarget(null)}>
-          <div className="dk-modal-card data-panel" onClick={(e) => e.stopPropagation()}>
-            <h4 style={{ marginTop: 0 }}>
-              Reclassify {reclassifyTarget.plaidAccount.name || reclassifyTarget.plaidAccount.institution_name} history
-            </h4>
-            <p className="equity-empty" style={{ marginTop: 0 }}>
-              Currently posted to <strong>{reclassifyTarget.vaultAcct.name}</strong>. Move the matched transactions
-              below to a different GL account — only entries on <strong>{reclassifyTarget.vaultAcct.name}</strong>{" "}
-              are touched, and each moved voucher stays linked to the same Tally record (pushed as an update on
-              next sync).
-            </p>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0" }}>
-              <label htmlFor="reclassify-target-acct">Move to:</label>
-              <select
-                id="reclassify-target-acct"
-                value={reclassifyTargetAcctId}
-                onChange={(e) => setReclassifyTargetAcctId(e.target.value ? Number(e.target.value) : "")}
-              >
-                <option value="">Select GL account…</option>
-                {data.accounts
-                  .filter((a) => a.active !== false && a.id !== reclassifyTarget.vaultAcct.id)
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-              </select>
-            </div>
-            {reclassifyLoading ? (
-              <p>Loading transaction history…</p>
-            ) : reclassifyCandidates.length === 0 ? (
-              <p className="equity-empty">No matching historical transactions found for this card.</p>
-            ) : (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748b", margin: "4px 0" }}>
-                  <span>{reclassifyCandidates.length} matched transaction(s) — uncheck any that don't belong to this card</span>
-                  <span>
-                    <button type="button" className="plaid-dupe-del-btn" style={{ marginRight: 6 }} onClick={() => setReclassifyCandidates((cs) => cs.map((c) => ({ ...c, checked: true })))}>All</button>
-                    <button type="button" className="plaid-dupe-del-btn" onClick={() => setReclassifyCandidates((cs) => cs.map((c) => ({ ...c, checked: false })))}>None</button>
-                  </span>
-                </div>
-                <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
-                  {reclassifyCandidates.map((c, i) => (
-                    <label
-                      key={c.tx.id}
-                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid #f1f5f9", fontSize: 13 }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={c.checked}
-                        onChange={(e) =>
-                          setReclassifyCandidates((cs) => cs.map((x, xi) => (xi === i ? { ...x, checked: e.target.checked } : x)))
-                        }
-                      />
-                      <span style={{ width: 90 }}>{fmtDate(c.plaidTx.date)}</span>
-                      <span style={{ flex: 1 }}>{c.tx.narration || c.plaidTx.name}</span>
-                      <span>${Math.abs(c.plaidTx.amount).toFixed(2)}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-            {reclassifyStatus && <p className="equity-empty">{reclassifyStatus}</p>}
-            <div className="modal-actions">
-              <button type="button" onClick={() => setReclassifyTarget(null)}>Close</button>
-              <button
-                type="button"
-                disabled={!reclassifyTargetAcctId || !reclassifyCandidates.some((c) => c.checked)}
-                onClick={applyReclassify}
-              >
-                Apply Reclassify
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
