@@ -2199,16 +2199,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               Cash Flow
             </button>
             <button
-              className={report === "networth" ? "selected" : ""}
-              onClick={() => setReport("networth")}
-            >
-              Net Worth
-            </button>
-            <button
               className={report === "cash" ? "selected" : ""}
               onClick={() => setReport("cash")}
             >
               Cash and Bank
+            </button>
+            <button
+              className={report === "networth" ? "selected" : ""}
+              onClick={() => setReport("networth")}
+            >
+              Net Worth
             </button>
             {book !== "india" && (
               <button

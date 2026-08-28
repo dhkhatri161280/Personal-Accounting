@@ -61,6 +61,7 @@ export function DonutChart({
               const len = frac * circumference;
               const dashoffset = -cumulative;
               cumulative += len;
+              const pct = Math.round(frac * 100);
               return (
                 <circle
                   key={seg.label}
@@ -72,7 +73,12 @@ export function DonutChart({
                   strokeWidth={thickness}
                   strokeDasharray={`${len} ${circumference - len}`}
                   strokeDashoffset={dashoffset}
-                />
+                  style={{ cursor: "default" }}
+                >
+                  {/* Native browser tooltip on hover -- which color is which category/amount
+                      isn't obvious from the ring alone, especially with legend={false}. */}
+                  <title>{`${seg.label}: ${fmt ? fmt(seg.value) : seg.value.toLocaleString()} (${pct}%)`}</title>
+                </circle>
               );
             })}
         </g>

@@ -1402,11 +1402,11 @@ export function GrApp() {
             <button className={report === "cashflow" ? "selected" : ""} onClick={() => setReport("cashflow")}>
               Cash Flow
             </button>
-            <button className={report === "networth" ? "selected" : ""} onClick={() => setReport("networth")}>
-              Net Worth
-            </button>
             <button className={report === "cash" ? "selected" : ""} onClick={() => setReport("cash")}>
               Cash and Bank
+            </button>
+            <button className={report === "networth" ? "selected" : ""} onClick={() => setReport("networth")}>
+              Net Worth
             </button>
             <button
               className={report === "equity" ? "selected" : ""}

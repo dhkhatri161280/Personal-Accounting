@@ -126,42 +126,48 @@ export function NetWorthReport({
         ))}
       </div>
 
-      {hasTrend && (
-        <div className="data-panel" style={{ marginTop: "1rem" }}>
-          <h4 style={{ margin: "0 0 0.75rem" }}>Net Worth Over Time</h4>
-          <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ overflow: "visible" }}>
-            <line x1={PAD_X} y1={zeroY} x2={W - PAD_X} y2={zeroY} stroke="#cbd5e1" strokeDasharray="4 4" />
-            <path d={pathD} fill="none" stroke={lineColor} strokeWidth={2} />
-            {trend.map((p, i) => {
-              const [x, y] = xy(i, p.netWorth);
-              return (
-                <g key={p.label}>
-                  <circle cx={x} cy={y} r={3} fill={p.netWorth >= 0 ? "#16a34a" : "#dc2626"} />
-                  <text x={x} y={LABEL_Y} fontSize={10} fill="#64748b" textAnchor="end" transform={`rotate(-40 ${x} ${LABEL_Y})`}>
-                    {p.label}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
-      )}
-
       <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
         <h4>Breakdown</h4>
       </div>
-      {assetGroups.size > 0 && (
-        <div className="data-panel" style={{ display: "flex", justifyContent: "center", marginBottom: "1rem" }}>
-          <DonutChart
-            segments={[...assetGroups.entries()]
-              .sort((a, b) => b[1] - a[1])
-              .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }))}
-            centerLabel="Total Assets"
-            centerValue={fmt(totalAssets)}
-            legend={false}
-          />
-        </div>
-      )}
+      <div className="equity-summary-row" style={{ alignItems: "stretch" }}>
+        {hasTrend && (
+          <div className="equity-summary-col" style={{ flex: "2 1 480px" }}>
+            <div className="data-panel" style={{ height: "100%" }}>
+              <h4 style={{ margin: "0 0 0.75rem" }}>Net Worth Over Time</h4>
+              <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ overflow: "visible" }}>
+                <line x1={PAD_X} y1={zeroY} x2={W - PAD_X} y2={zeroY} stroke="#cbd5e1" strokeDasharray="4 4" />
+                <path d={pathD} fill="none" stroke={lineColor} strokeWidth={2} />
+                {trend.map((p, i) => {
+                  const [x, y] = xy(i, p.netWorth);
+                  return (
+                    <g key={p.label}>
+                      <circle cx={x} cy={y} r={3} fill={p.netWorth >= 0 ? "#16a34a" : "#dc2626"} />
+                      <text x={x} y={LABEL_Y} fontSize={10} fill="#64748b" textAnchor="end" transform={`rotate(-40 ${x} ${LABEL_Y})`}>
+                        {p.label}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          </div>
+        )}
+        {assetGroups.size > 0 && (
+          <div className="equity-summary-col" style={{ flex: "1 1 260px" }}>
+            <div className="data-panel" style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <DonutChart
+                segments={[...assetGroups.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }))}
+                centerLabel="Total Assets"
+                centerValue={fmt(totalAssets)}
+                fmt={fmt}
+                legend={false}
+              />
+            </div>
+          </div>
+        )}
+      </div>
       <div className="equity-summary-row">
         <div className="equity-summary-col" style={{ flex: "1 1 320px" }}>
           <div className="data-panel">
