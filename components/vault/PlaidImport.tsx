@@ -233,9 +233,14 @@ function matchFromHistory(
     if (count > bestCount) { bestCount = count; bestKey = key; }
   });
 
-  // Need ≥3 weighted votes to avoid a single anomalous entry (e.g. one Costco Tire visit)
-  // from overriding the correct default for all future Costco transactions
-  if (bestCount < 3) return null;
+  // The ≥3-vote bar exists to stop one anomalous entry (e.g. a single Costco Tire visit) from
+  // overriding the correct default when MULTIPLE candidate pairs are competing for the same
+  // merchant word -- but when only one pair matches at all (no competing candidates), there's
+  // nothing for a low vote count to be wrong ABOUT, so a single unambiguous match (e.g. the one
+  // prior Lululemon voucher) is trusted immediately instead of asking the user to repeat the
+  // same manual correction 3 times before the app starts remembering it.
+  const minVotes = pairCounts.size > 1 ? 3 : 1;
+  if (bestCount < minVotes) return null;
 
   const [dStr, cStr] = bestKey.split(":");
   const agreement = bestCount / totalWeight;
