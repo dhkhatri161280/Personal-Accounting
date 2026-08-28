@@ -73,11 +73,21 @@ try {
   # ── Step 2: App -> Tally (push app changes to Tally) ────────────────────
   Write-Host ''
   Write-Host '=== STEP 2: APP -> TALLY ===' -ForegroundColor Cyan
-  $maxCycles = 60
+  # Generous headroom: a flaky candidate can consume several retry cycles without any net
+  # progress (see $consecutiveFailures below), so this needs to cover more than just one
+  # cycle per real item.
+  $maxCycles = 150
+  # How many candidate confirmations in a row can fail before giving up on this phase --
+  # observed in practice that the SAME candidate can fail once and then succeed moments
+  # later (the runner's own "what's next" answer isn't always stable between its dry-run and
+  # apply calls), so a single failure is not treated as fatal; only a run of failures with no
+  # successes in between means something is genuinely, persistently stuck.
+  $maxConsecutiveFailures = 8
   if ($appToTallyCount -le 0) {
     Write-Host '  App->Tally: nothing pending per preview -- skipping.' -ForegroundColor Green
   } else {
   $cycle = 0
+  $consecutiveFailures = 0
   do {
     $cycle++
     if ($cycle -gt $maxCycles) { throw "Safety stop: exceeded $maxCycles app-to-tally cycles" }
@@ -110,7 +120,15 @@ try {
     $result = Invoke-Runner @('app-to-tally', 'us')
     Write-Host $result.Trim()
 
-    if ($LASTEXITCODE -ne 0) { throw "app-to-tally failed on: $confirmStr" }
+    if ($LASTEXITCODE -ne 0) {
+      $consecutiveFailures++
+      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- re-checking and retrying rather than stopping the whole run." -ForegroundColor Yellow
+      if ($consecutiveFailures -ge $maxConsecutiveFailures) {
+        throw "app-to-tally: $maxConsecutiveFailures consecutive failures, last on: $confirmStr -- stopping for manual review"
+      }
+      continue
+    }
+    $consecutiveFailures = 0
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
@@ -126,6 +144,7 @@ try {
     Write-Host '  Tally->App: nothing pending per preview -- skipping.' -ForegroundColor Green
   } else {
   $cycle = 0
+  $consecutiveFailures = 0
   do {
     $cycle++
     if ($cycle -gt $maxCycles) { throw "Safety stop: exceeded $maxCycles tally-to-app cycles" }
@@ -146,7 +165,15 @@ try {
     $result = Invoke-Runner @('tally-to-app', 'us')
     Write-Host $result.Trim()
 
-    if ($LASTEXITCODE -ne 0) { throw "tally-to-app failed on: $confirmStr" }
+    if ($LASTEXITCODE -ne 0) {
+      $consecutiveFailures++
+      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- re-checking and retrying rather than stopping the whole run." -ForegroundColor Yellow
+      if ($consecutiveFailures -ge $maxConsecutiveFailures) {
+        throw "tally-to-app: $maxConsecutiveFailures consecutive failures, last on: $confirmStr -- stopping for manual review"
+      }
+      continue
+    }
+    $consecutiveFailures = 0
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
