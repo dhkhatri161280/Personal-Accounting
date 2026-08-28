@@ -911,6 +911,17 @@ function bofaCardGlAccountName(plaidAcctName: string): string | undefined {
   return BOFA_CARD_GL_BY_NAME[(plaidAcctName || "").toLowerCase().trim()];
 }
 
+// Display-only label suffix for the Balances tab so it's obvious at a glance whose card each
+// row is, without having to cross-reference the GL account column.
+const BOFA_CARD_OWNER_BY_NAME: Record<string, string> = {
+  "customized cash rewards visa signature": "Hiral",
+  "unlimited cash rewards visa signature": "DK",
+};
+
+function bofaCardOwnerLabel(plaidAcctName: string): string | undefined {
+  return BOFA_CARD_OWNER_BY_NAME[(plaidAcctName || "").toLowerCase().trim()];
+}
+
 function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): Account | undefined {
   const inst = (plaidAcct.institution_name || "").toLowerCase();
   const isCreditAcct = plaidAcct.type === "credit";
@@ -2400,7 +2411,12 @@ export function PlaidImport({ data, onSave }: Props) {
                           >
                             <td>{g.institutions.join(", ")}</td>
                             <td title={g.vaultAcct ? `Vault: ${g.vaultAcct.name}` : "No matching vault account"}>
-                              {g.names.join(" + ")}
+                              {g.names
+                                .map((n, ni) => {
+                                  const owner = bofaCardOwnerLabel(g.plaidAccts[ni]?.name || "");
+                                  return owner ? `${n} - ${owner}` : n;
+                                })
+                                .join(" + ")}
                             </td>
                             <td className="plaid-recon-type">{g.types.join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
