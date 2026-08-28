@@ -682,7 +682,21 @@ export function TradingReport({
     }
     return -sum; // asset convention: Dr (negative) increases the asset -> balance = -sum
   }, [data, glCompareAcctId]);
-  const glDiff = glAcctBalance !== null ? glAcctBalance - openCostExclNvda : null;
+
+  // Trading only tracks STOCK cost basis, never cash -- the GL account also holds whatever cash
+  // is sitting in the Schwab account (uninvested deposits, dividends/interest received, sale
+  // proceeds not yet reinvested), which cost-basis-alone can't see. Schwab's own Amount column
+  // already carries the right sign (negative = cash out, positive = cash in), so summing every
+  // row in the uploaded CSV gives the net cash MOVEMENT over whatever date range that export
+  // covers. This is a flow over that window, not a from-inception balance -- if the export
+  // doesn't reach back to when the account was first funded, it won't fully explain the gap on
+  // its own, but it's the best signal available from what's actually been uploaded.
+  const csvNetCashFlow = useMemo(() => {
+    if (!csvRows) return null;
+    return csvRows.reduce((s, r) => s + (r.amount ?? 0), 0);
+  }, [csvRows]);
+  const costPlusCash = csvNetCashFlow !== null ? openCostExclNvda + csvNetCashFlow : null;
+  const glDiff = glAcctBalance !== null && costPlusCash !== null ? glAcctBalance - costPlusCash : null;
 
   const curPrice  = (t: Trade) => t.saleDate ? t.marketOrSalePrice : livePrice(t.symbol, t.marketOrSalePrice);
   const prevClose = (t: Trade) => t.saleDate ? t.yesterday : livePrevClose(t.symbol, t.yesterday);
@@ -1099,9 +1113,11 @@ export function TradingReport({
                   </select>
                 </label>
               </div>
-              <table className="tr-table" style={{ maxWidth: 480 }}>
+              <table className="tr-table" style={{ maxWidth: 520 }}>
                 <tbody>
-                  <tr><td>Trading report cost basis ({SCHWAB_SYNC_BROKER}, excl. NVDA)</td><td className="right trading-amt">{fmt(openCostExclNvda)}</td></tr>
+                  <tr><td>Trading report cost basis (CST + CSS, excl. NVDA)</td><td className="right trading-amt">{fmt(openCostExclNvda)}</td></tr>
+                  <tr><td>+ Net cash flow per this CSV's date range</td><td className="right trading-amt">{csvNetCashFlow !== null ? fmt(csvNetCashFlow) : "—"}</td></tr>
+                  <tr><td><strong>= Cost basis + cash</strong></td><td className="right trading-amt"><strong>{costPlusCash !== null ? fmt(costPlusCash) : "—"}</strong></td></tr>
                   <tr><td>Selected GL account balance</td><td className="right trading-amt">{glAcctBalance !== null ? fmt(glAcctBalance) : "—"}</td></tr>
                   <tr>
                     <td><strong>Difference</strong></td>
@@ -1113,11 +1129,15 @@ export function TradingReport({
               </table>
               <p style={{ fontSize: 11, color: "#64748b", margin: "0.5rem 0 0" }}>
                 Cost basis is what Trading has recorded as paid for currently-open Schwab positions
-                (NVDA excluded -- it's RSU-sourced and tracked in Equity instead). The GL balance is
-                whatever your vault ledger has posted to the account selected above. A real
-                difference can mean an untracked deposit/withdrawal, an unrecorded dividend
-                reinvestment, or a trade missing from one side or the other -- the "not found in
-                Trading" rows above are the first place to check.
+                (NVDA excluded -- it's RSU-sourced and tracked in Equity instead). The cash line
+                sums every row in this CSV (trades, dividends, interest, transfers), so it's a net
+                MOVEMENT over whatever date range you exported, not a from-inception cash balance
+                -- if the export doesn't reach back to when the account was first funded, it won't
+                fully close the gap on its own. The GL balance is whatever your vault ledger has
+                posted to the account selected above. A remaining difference can mean an untracked
+                deposit/withdrawal, cash flows outside this CSV's window, or a trade missing from
+                one side or the other -- the "not found in Trading" rows above are the first place
+                to check.
               </p>
             </>
           )}
