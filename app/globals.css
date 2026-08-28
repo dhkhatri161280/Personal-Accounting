@@ -6421,6 +6421,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   border-color: #f87171 !important;
   color: #991b1b !important;
 }
+.sync-lock-button.backlog {
+  background: #ffedd5 !important;
+  border-color: #fb923c !important;
+  color: #9a3412 !important;
+}
 
 .drill-title-row {
   display: flex;

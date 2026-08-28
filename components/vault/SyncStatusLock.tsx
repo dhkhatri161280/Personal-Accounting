@@ -51,6 +51,14 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
     appToTally = Number(health?.appToTally || 0);
   const issueCount = conflicts + errors;
   const pendingCount = tallyToApp + appToTally;
+  // A large backlog is the one thing that's reliably preceded every real sync mess so far --
+  // the local engine's per-item safety net (link-by-fingerprint instead of duplicating) only
+  // behaves correctly with one or two stragglers at a time; letting many items pile up before
+  // syncing is what turns an ordinary retry into a real duplicate-posting incident. Flag it
+  // distinctly (not just "pending") so it reads as "go sync in small batches now", not
+  // "nothing urgent yet".
+  const LARGE_BACKLOG_THRESHOLD = 6;
+  const hasLargeBacklog = pendingCount >= LARGE_BACKLOG_THRESHOLD;
   const tone = fetchError
     ? "error"
     : health === null
@@ -59,16 +67,20 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
         ? "error"
         : health.status === "success" && pendingCount === 0
           ? "success"
-          : "pending";
+          : hasLargeBacklog
+            ? "backlog"
+            : "pending";
   const label = fetchError
     ? "Sync status unavailable"
     : tone === "error"
       ? `${issueCount || 1} sync issue${(issueCount || 1) === 1 ? "" : "s"}`
-      : tone === "pending"
-        ? health === null
-          ? "Checking sync status…"
-          : `${pendingCount || 1} item${(pendingCount || 1) === 1 ? "" : "s"} pending sync`
-        : "Sync successful";
+      : tone === "backlog"
+        ? `${pendingCount} items pending — sync in small batches to avoid a stuck backlog`
+        : tone === "pending"
+          ? health === null
+            ? "Checking sync status…"
+            : `${pendingCount || 1} item${(pendingCount || 1) === 1 ? "" : "s"} pending sync`
+          : "Sync successful";
 
   const syncNowLabel =
     triggerState === "sending"
