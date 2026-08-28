@@ -66,6 +66,25 @@ try {
     }
   }
 
+  # A "TALLY DELETE -> APP" line means an App-side voucher whose Tally link no longer resolves
+  # (e.g. because it was deleted directly in Tally during manual cleanup) gets marked deleted
+  # in the App too, on the theory that Tally's missing copy is authoritative. That's often
+  # right, but it's genuinely destructive if it's actually a real, still-valid record that just
+  # lost its link -- confirmed real risk of this exact thing happening. Never let this run
+  # unattended: require a SEPARATE explicit confirmation, showing exactly what it wants to
+  # delete, before Step 3 is allowed to touch anything.
+  $deleteLines = [regex]::Matches($previewOutput, 'TALLY DELETE -> APP:.*(?:\r?\n(?!TALLY|APP).*)*')
+  if ($deleteLines.Count -gt 0) {
+    Write-Host ''
+    Write-Host "WARNING: $($deleteLines.Count) voucher(s) above are proposed for DELETION from the App:" -ForegroundColor Red
+    foreach ($m in $deleteLines) { Write-Host $m.Value.Trim() -ForegroundColor Red }
+    Write-Host 'If any of these are real, still-valid records, do NOT confirm -- investigate first.' -ForegroundColor Yellow
+    $deleteConfirm = Read-Host 'Type DELETE to allow these specific deletions in Step 3, anything else to skip Step 3 entirely'
+    $allowTallyDeletes = ($deleteConfirm -eq 'DELETE')
+  } else {
+    $allowTallyDeletes = $true
+  }
+
   Write-Host ''
   $confirm = Read-Host 'Review the plan above. Type YES to proceed with sync, anything else to abort'
   if ($confirm -ne 'YES') { Write-Host 'Aborted. No data was changed.' -ForegroundColor Yellow; return }
@@ -137,7 +156,9 @@ try {
   # ── Step 3: Tally -> App (pull Tally changes into App) ──────────────────
   Write-Host ''
   Write-Host '=== STEP 3: TALLY -> APP ===' -ForegroundColor Cyan
-  if ($tallyToAppCount -le 0) {
+  if (-not $allowTallyDeletes) {
+    Write-Host '  Skipped -- deletions were not confirmed above. Re-run and type DELETE if you have verified they are safe.' -ForegroundColor Yellow
+  } elseif ($tallyToAppCount -le 0) {
     Write-Host '  Tally->App: nothing pending per preview -- skipping.' -ForegroundColor Green
   } else {
   $cycle = 0
