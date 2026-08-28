@@ -166,11 +166,23 @@ type HistoryRecord = {
 };
 type HistoryIndex = HistoryRecord[];
 
+// Generic finance/transaction vocabulary -- words that show up across many unrelated merchants'
+// narrations (a recurring "Citi Credit Card Payment" voucher, a card-tier name, etc.) and would
+// otherwise dominate the vote count in matchFromHistory purely by being common, drowning out the
+// one word that actually identifies the merchant (e.g. "lululemon" in "Platinum Lululemon Credit"
+// lost to "credit" matching dozens of unrelated Citi bill-payment vouchers). Excluded from BOTH
+// the current transaction's tokens and historical narrations so neither side can match on noise.
+const GENERIC_FINANCE_WORDS = new Set([
+  "credit", "debit", "payment", "pay", "card", "charge", "purchase", "platinum", "gold",
+  "signature", "rewards", "reward", "points", "point", "statement", "adjustment", "adj",
+  "thank", "you", "auto", "autopay", "online", "mobile", "web", "des", "ach", "pmt", "ppd",
+]);
+
 function tokenise(text: string): string[] {
   return (text || "")
     .toLowerCase()
     .split(/[\s\W]+/)
-    .filter((w) => w.length > 2 && !/^\d+$/.test(w)); // drop pure numbers (store IDs, dates)
+    .filter((w) => w.length > 2 && !/^\d+$/.test(w) && !GENERIC_FINANCE_WORDS.has(w)); // drop pure numbers (store IDs, dates) and generic finance noise words
 }
 
 function buildHistoryIndex(ledger: Ledger): HistoryIndex {
