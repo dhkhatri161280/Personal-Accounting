@@ -127,7 +127,11 @@ export function TransactionTable({
                     ? -1
                     : String(av) > String(bv)
                       ? 1
-                      : 0
+                      // Same date: fall back to voucher number so ties aren't left in
+                      // whatever order they happened to sit in the underlying array --
+                      // negated below along with the primary comparison, so a descending
+                      // date sort also shows the highest voucher number first within a day.
+                      : (Number(a.number) || 0) - (Number(b.number) || 0)
                   : sort.key === "number"
                     ? (Number(av) || 0) - (Number(bv) || 0)
                     : String(av).localeCompare(String(bv), undefined, { numeric: true });
