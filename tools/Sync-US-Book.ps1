@@ -125,7 +125,7 @@ try {
     # real state and reject it. Give KV time to actually propagate before asking again. This is
     # ONLY a delay -- no auto-retry on failure -- so it can't reproduce the duplicate-posting
     # bug from the earlier auto-retry attempt.
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 10
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
@@ -164,7 +164,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "tally-to-app failed on: $confirmStr -- CHECK TALLY for a partial duplicate before retrying" }
 
     # Same KV-propagation reasoning as Step 2 above.
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 10
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
