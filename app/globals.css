@@ -6779,6 +6779,8 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-recon-clickable { cursor: pointer; }
 .plaid-recon-clickable:hover td { background: #f0f6ff; }
 .plaid-recon-expand-icon { font-size: 10px; color: #93c5fd; margin-left: 4px; }
+.plaid-recon-reclassify-btn { margin-left: 8px; padding: 2px 8px; font-size: 10px; font-weight: 700; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.plaid-recon-reclassify-btn:hover { background: #e0e7ff; }
 .plaid-recon-detail-row td { padding: 0; background: #f8faff; }
 .plaid-recon-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid #dbeafe; }
 .plaid-recon-detail-col { padding: 12px 14px; }
