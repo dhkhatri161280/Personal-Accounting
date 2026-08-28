@@ -122,13 +122,21 @@ try {
 
     if ($LASTEXITCODE -ne 0) {
       $consecutiveFailures++
-      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- re-checking and retrying rather than stopping the whole run." -ForegroundColor Yellow
+      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- pausing to let Tally settle, then retrying." -ForegroundColor Yellow
       if ($consecutiveFailures -ge $maxConsecutiveFailures) {
         throw "app-to-tally: $maxConsecutiveFailures consecutive failures, last on: $confirmStr -- stopping for manual review"
       }
+      # The dry-run and apply calls a few hundred ms apart have been observed disagreeing on
+      # which candidate is next -- most likely Tally's own live interface (port 9001) hasn't
+      # fully caught up on the previous write yet. A short pause before the next dry-run gives
+      # it time to settle instead of hammering it again immediately.
+      Start-Sleep -Seconds 3
       continue
     }
     $consecutiveFailures = 0
+    # Same reasoning as above, on the success path -- let Tally settle before asking it what's
+    # next again.
+    Start-Sleep -Milliseconds 800
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
@@ -167,13 +175,15 @@ try {
 
     if ($LASTEXITCODE -ne 0) {
       $consecutiveFailures++
-      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- re-checking and retrying rather than stopping the whole run." -ForegroundColor Yellow
+      Write-Host "  Candidate failed ($consecutiveFailures consecutive) -- pausing to let Tally settle, then retrying." -ForegroundColor Yellow
       if ($consecutiveFailures -ge $maxConsecutiveFailures) {
         throw "tally-to-app: $maxConsecutiveFailures consecutive failures, last on: $confirmStr -- stopping for manual review"
       }
+      Start-Sleep -Seconds 3
       continue
     }
     $consecutiveFailures = 0
+    Start-Sleep -Milliseconds 800
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
