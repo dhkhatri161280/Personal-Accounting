@@ -118,6 +118,15 @@ try {
 
     if ($LASTEXITCODE -ne 0) { throw "app-to-tally failed on: $confirmStr -- CHECK TALLY for a partial duplicate before retrying" }
 
+    # The vault lives in Cloudflare KV, which doesn't guarantee a write is visible everywhere
+    # the instant it completes -- the very next dry-run (a few hundred ms later, in the next
+    # loop iteration) was observed reading a stale copy that still thought this just-synced
+    # voucher was pending, proposing it again, only for the apply call moments later to see the
+    # real state and reject it. Give KV time to actually propagate before asking again. This is
+    # ONLY a delay -- no auto-retry on failure -- so it can't reproduce the duplicate-posting
+    # bug from the earlier auto-retry attempt.
+    Start-Sleep -Seconds 5
+
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
     if ($result -notmatch 'QUEUE_REMAINING') { break }
@@ -153,6 +162,9 @@ try {
     Write-Host $result.Trim()
 
     if ($LASTEXITCODE -ne 0) { throw "tally-to-app failed on: $confirmStr -- CHECK TALLY for a partial duplicate before retrying" }
+
+    # Same KV-propagation reasoning as Step 2 above.
+    Start-Sleep -Seconds 5
 
     $remaining = [regex]::Match($result, 'QUEUE_REMAINING:\s*(\d+)')
     if ($remaining.Success -and [int]$remaining.Groups[1].Value -eq 0) { break }
