@@ -481,6 +481,7 @@ export function TradingReport({
   const [glCompareAcctId, setGlCompareAcctId] = useState<number | "">("");
   const [addingRowKey, setAddingRowKey] = useState<string | null>(null);
   const [addedRowKeys, setAddedRowKeys] = useState<Set<string>>(new Set());
+  const [addingAll, setAddingAll] = useState(false);
   function rowKey(row: SchwabCsvRow) {
     return `${row.date}|${row.action}|${row.symbol}|${row.amount}`;
   }
@@ -509,15 +510,38 @@ export function TradingReport({
 
   const tradeMatches = useMemo(() => {
     if (!classifiedCsv) return [];
-    return classifiedCsv.trades.map((row) => {
-      const qty = Math.abs(row.quantity ?? 0);
-      const price = row.price ?? 0;
-      const matched = effectiveTrades.some((t) => {
+    const exactMatch = (row: SchwabCsvRow, qty: number, price: number) =>
+      effectiveTrades.some((t) => {
         if (t.symbol !== row.symbol || !SCHWAB_BROKER_CODES.has(t.broker)) return false;
         if (row.action === "Buy") return t.buyDate === row.date && Math.abs(t.units - qty) < 0.01 && Math.abs(t.costPerSh - price) < 0.01;
         if (row.action === "Sell") return t.saleDate === row.date && Math.abs(t.units - qty) < 0.01 && Math.abs(t.marketOrSalePrice - price) < 0.01;
         return false;
       });
+
+    // Schwab reports each partial fill as its own line (e.g. two separate 75-share sells the
+    // same day), but a manually-tracked Trading record commonly blends same-day fills into one
+    // lot at the weighted-average price -- an exact per-row match alone missed that (a real,
+    // already-recorded OKLO sale showed as "not found" purely because of this). Group by
+    // symbol+date+action and also check whether the BLENDED total matches a single trade record.
+    const groups = new Map<string, SchwabCsvRow[]>();
+    for (const row of classifiedCsv.trades) {
+      const key = `${row.symbol}|${row.date}|${row.action}`;
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(row);
+    }
+    const groupMatched = new Map<string, boolean>();
+    for (const [key, rowsInGroup] of groups) {
+      if (rowsInGroup.length < 2) continue; // single-row groups are covered by exactMatch already
+      const totalQty = rowsInGroup.reduce((s, r) => s + Math.abs(r.quantity ?? 0), 0);
+      const totalCost = rowsInGroup.reduce((s, r) => s + Math.abs(r.quantity ?? 0) * (r.price ?? 0), 0);
+      const blendedPrice = totalQty > 0 ? totalCost / totalQty : 0;
+      groupMatched.set(key, exactMatch(rowsInGroup[0], totalQty, blendedPrice));
+    }
+
+    return classifiedCsv.trades.map((row) => {
+      const qty = Math.abs(row.quantity ?? 0);
+      const price = row.price ?? 0;
+      const key = `${row.symbol}|${row.date}|${row.action}`;
+      const matched = exactMatch(row, qty, price) || (groupMatched.get(key) ?? false);
       return { row, matched };
     });
   }, [classifiedCsv, effectiveTrades]);
@@ -551,7 +575,7 @@ export function TradingReport({
   useEffect(() => {
     if (!data || !csvRows) return;
     setDivDebitAcctId((cur) => cur !== "" ? cur : (data.accounts.find((a) => a.active !== false && /schwab/i.test(a.name))?.id ?? ""));
-    setDivCreditAcctId((cur) => cur !== "" ? cur : (data.accounts.find((a) => a.active !== false && /dividend/i.test(a.name))?.id ?? ""));
+    setDivCreditAcctId((cur) => cur !== "" ? cur : (data.accounts.find((a) => a.active !== false && /other income/i.test(a.name))?.id ?? data.accounts.find((a) => a.active !== false && /dividend/i.test(a.name))?.id ?? ""));
     setGlCompareAcctId((cur) => cur !== "" ? cur : (data.accounts.find((a) => a.active !== false && /schwab/i.test(a.name))?.id ?? ""));
   }, [csvRows, data]);
 
@@ -584,6 +608,57 @@ export function TradingReport({
       if (ok) setAddedRowKeys((prev) => new Set(prev).add(key));
     } finally {
       setAddingRowKey(null);
+    }
+  }
+
+  // Rows worth bulk-posting: not already added this session, and no matching voucher already
+  // appears to exist (that heuristic is informational-only for the per-row Add button above, but
+  // for an unattended bulk action it's used as a real skip so this can't double-post income
+  // that's already been recorded by hand).
+  const bulkEligibleRows = useMemo(
+    () => incomeRows.filter((row) => !addedRowKeys.has(rowKey(row)) && !likelyRecorded(row)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [incomeRows, addedRowKeys, data]
+  );
+
+  // Posts one Receipt voucher per row (not a single lump sum) so each keeps its own real date,
+  // narration, and symbol -- matters for date-based reports and for spotting a specific one
+  // later if it turns out wrong. Numbers each sequentially against a running copy of the ledger
+  // so two vouchers landing on dates that would otherwise collide still get distinct numbers.
+  async function addAllIncomeVouchers() {
+    if (!data || !onSaveLedger || divDebitAcctId === "" || divCreditAcctId === "" || !bulkEligibleRows.length) return;
+    const debitAcct = data.accounts.find((a) => a.id === divDebitAcctId);
+    const creditAcct = data.accounts.find((a) => a.id === divCreditAcctId);
+    if (!debitAcct || !creditAcct) return;
+    setAddingAll(true);
+    try {
+      let workingTxs = [...data.transactions];
+      const newKeys: string[] = [];
+      for (const row of bulkEligibleRows) {
+        const amt = Math.abs(row.amount ?? 0);
+        const tx: Tx = {
+          id: nextTransactionIds(workingTxs, 1)[0],
+          guid: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+          date: row.date,
+          number: nextVoucherNumber({ ...data, transactions: workingTxs }, "Receipt", row.date),
+          type: "Receipt",
+          narration: `${row.symbol} ${row.action}`.trim(),
+          historical: false,
+          cancelled: false,
+          syncStatus: "pending",
+          entries: [
+            { accountId: debitAcct.id, accountName: debitAcct.name, amount: -amt },
+            { accountId: creditAcct.id, accountName: creditAcct.name, amount: amt },
+          ],
+        };
+        workingTxs = [...workingTxs, tx];
+        newKeys.push(rowKey(row));
+      }
+      const ok = await onSaveLedger({ ...data, transactions: workingTxs });
+      if (ok) setAddedRowKeys((prev) => new Set([...prev, ...newKeys]));
+    } finally {
+      setAddingAll(false);
     }
   }
 
@@ -965,7 +1040,19 @@ export function TradingReport({
                         ))}
                       </select>
                     </label>
-                    <span style={{ fontSize: 11, color: "#64748b" }}>applies to whichever row's Add button you click below</span>
+                    <span style={{ fontSize: 11, color: "#64748b" }}>applies to whichever row's Add button you click, or Add All below</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 0.5rem" }}>
+                    <button
+                      onClick={addAllIncomeVouchers}
+                      disabled={addingAll || !bulkEligibleRows.length || divDebitAcctId === "" || divCreditAcctId === ""}
+                    >
+                      {addingAll ? "Adding all…" : `Add All (${bulkEligibleRows.length})`}
+                    </button>
+                    <span style={{ fontSize: 11, color: "#64748b" }}>
+                      posts one voucher per row on its own real date; skips any row already added
+                      this session or flagged as already-recorded above
+                    </span>
                   </div>
                   <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: "1rem" }}>
                     {incomeRows.map((row) => {
