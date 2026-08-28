@@ -768,6 +768,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const isCashBank = (a: Account) =>
     /^(bank accounts|cash-in-hand)$/.test((a.parent || "").toLowerCase());
 
+  // Display order for the Cash and Bank Balances breakdown: Credit Cards,
+  // then Checking, then Savings, then Charles Schwab last.
+  const bankAccountOrderRank = (name: string) => {
+    const n = (name || "").toLowerCase();
+    if (/charles schwab/.test(n)) return 3;
+    if (/credit card/.test(n)) return 0;
+    if (/savings/.test(n)) return 2;
+    return 1;
+  };
+
   const accountById = new Map(rows.map((a) => [a.id, a]));
 
   const cashBank = rows.filter(isCashBank).reduce((s, a) => s - a.closing, 0),
@@ -1406,7 +1416,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     };
     const detailRows =
       kind === "cash"
-        ? rows.filter((a) => isCashBank(a) && Math.abs(a.closing) > tol)
+        ? (() => {
+            const cashRows = rows.filter((a) => isCashBank(a) && Math.abs(a.closing) > tol);
+            return book === "us"
+              ? [...cashRows].sort((a, b) => bankAccountOrderRank(a.name) - bankAccountOrderRank(b.name))
+              : cashRows;
+          })()
         : kind === "investments"
           ? active.filter((a) => /^investments$/i.test(a.parent || "") && Math.abs(a.closing) > tol)
           : kind === "capital"

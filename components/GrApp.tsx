@@ -610,6 +610,16 @@ export function GrApp() {
     ["Bank", "Cash"].includes(grNature(a.parent))
   );
 
+  // Display order for the Cash & Bank Accounts breakdown: Credit Cards,
+  // then Checking, then Savings, then Charles Schwab last (matches the US book).
+  const bankAccountOrderRank = (name: string) => {
+    const n = (name || "").toLowerCase();
+    if (/charles schwab/.test(n)) return 3;
+    if (/credit card/.test(n)) return 0;
+    if (/savings/.test(n)) return 2;
+    return 1;
+  };
+
   // Convert GrAccount → BSRow shape for report components
   const toRow = (a: GrAccount, idx: number) => ({
     id: idx,
@@ -916,7 +926,7 @@ export function GrApp() {
                 {bankCashAccounts
                   .filter((a) => Math.abs(a.closingInr) > tol)
                   .slice()
-                  .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
+                  .sort((a, b) => bankAccountOrderRank(a.name) - bankAccountOrderRank(b.name))
                   .map((a) => (
                     <button
                       key={a.name}
