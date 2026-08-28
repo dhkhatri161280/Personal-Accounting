@@ -41,6 +41,15 @@ export function DonutChart({
   const circumference = 2 * Math.PI * radius;
   let cumulative = 0;
 
+  // A fixed font size overflows the donut hole for longer currency strings -- Indian Rupee
+  // formatting (lakh/crore grouping + paise decimals, e.g. "₹56,37,12,591.47") runs noticeably
+  // longer than a comparable USD figure, so this scales down for longer center values instead
+  // of spilling text over the ring. Unchanged for short strings (still caps at 16px).
+  const innerDiameter = size - thickness * 2;
+  const centerFontSize = centerValue
+    ? Math.min(16, Math.max(8, Math.floor((innerDiameter * 0.85) / (centerValue.length * 0.58))))
+    : 16;
+
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
@@ -68,7 +77,7 @@ export function DonutChart({
             })}
         </g>
         {centerValue && (
-          <text x={size / 2} y={size / 2 - (centerLabel ? 4 : -5)} textAnchor="middle" fontSize={16} fontWeight={800} fill="#0f172a">
+          <text x={size / 2} y={size / 2 - (centerLabel ? 4 : -5)} textAnchor="middle" fontSize={centerFontSize} fontWeight={800} fill="#0f172a">
             {centerValue}
           </text>
         )}

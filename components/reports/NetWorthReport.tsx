@@ -150,22 +150,22 @@ export function NetWorthReport({
       <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
         <h4>Breakdown</h4>
       </div>
+      {assetGroups.size > 0 && (
+        <div className="data-panel" style={{ display: "flex", justifyContent: "center", marginBottom: "1rem" }}>
+          <DonutChart
+            segments={[...assetGroups.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }))}
+            centerLabel="Total Assets"
+            centerValue={fmt(totalAssets)}
+            legend={false}
+          />
+        </div>
+      )}
       <div className="equity-summary-row">
         <div className="equity-summary-col" style={{ flex: "1 1 320px" }}>
           <div className="data-panel">
             <h4 style={{ marginTop: 0 }}>Assets</h4>
-            {assetGroups.size > 0 && (
-              <div style={{ marginBottom: "0.75rem" }}>
-                <DonutChart
-                  segments={[...assetGroups.entries()]
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }))}
-                  centerLabel="Total"
-                  centerValue={fmt(totalAssets)}
-                  legend={false}
-                />
-              </div>
-            )}
             {[...assetGroups.entries()]
               .sort((a, b) => ASSET_ORDER.indexOf(a[0]) - ASSET_ORDER.indexOf(b[0]))
               .map(([cat, v]) => (
