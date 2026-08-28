@@ -867,23 +867,6 @@ function vaultBookBalance(accountId: number, plaidType: string, ledger: Ledger):
   return plaidType === "credit" ? sum : -sum;
 }
 
-// Same convention as vaultBookBalance, but scoped to entries tagged with a specific Plaid
-// account_id (see Tx.plaidAccountId) -- lets two physical accounts that both post to the same
-// GL account (e.g. two BofA credit cards) be reconciled separately instead of only as a
-// combined total. Only entries saved from a Plaid import after this tagging existed carry the
-// tag; older/manual entries are untagged and fall into the "leftover" bucket computed by the
-// caller (total vaultBookBalance minus the sum of every physical account's tagged balance).
-function vaultBookBalanceForPlaidAccount(accountId: number, plaidType: string, plaidAccountId: string, ledger: Ledger): number {
-  let sum = 0;
-  for (const v of ledger.transactions) {
-    if (v.deleted || v.cancelled || v.plaidAccountId !== plaidAccountId) continue;
-    for (const e of v.entries) {
-      if (e.accountId === accountId) sum += e.amount;
-    }
-  }
-  return plaidType === "credit" ? sum : -sum;
-}
-
 // Sum of vault entries with syncStatus==="bank-pending" for this account.
 // These are transactions posted via the Pending tab that haven't cleared the bank yet.
 // Used to compute Adj Diff = Plaid − Vault + VaultPendingNet; when zero, books are reconciled.
@@ -1204,7 +1187,6 @@ export function PlaidImport({ data, onSave }: Props) {
         guid: crypto.randomUUID(),
         syncStatus: "bank-pending" as const,
         createdAt: importedAt,
-        plaidAccountId: r.plaidTx.account_id,
         date: r.plaidTx.date,
         number: "",
         type: r.voucherType,
@@ -1332,7 +1314,6 @@ export function PlaidImport({ data, onSave }: Props) {
         guid: crypto.randomUUID(),
         syncStatus: "pending" as const,
         createdAt: importedAt,
-        plaidAccountId: r.plaidTx.account_id,
         date: r.plaidTx.date,
         number: "",
         type: r.voucherType,
@@ -2195,8 +2176,9 @@ export function PlaidImport({ data, onSave }: Props) {
                     // physical accounts (e.g. two BofA credit cards, one per spouse) map to the
                     // same GL account. Each keeps its own real Plaid balance/pending; only the
                     // Vault Balance side needs to be split further below, since the ledger itself
-                    // doesn't distinguish which card a transaction came from unless it's tagged
-                    // (Tx.plaidAccountId) -- see vaultBookBalanceForPlaidAccount.
+                    // doesn't distinguish which card a transaction came from -- that split is done
+                    // by proportional allocation against each card's own Plaid balance share (see
+                    // plaidBalSumByVaultId below), not per-transaction attribution.
                     const groups: Array<{
                       vaultAcct: Account | undefined;
                       institutions: string[];
@@ -2228,11 +2210,20 @@ export function PlaidImport({ data, onSave }: Props) {
                       });
                     }
                     // How many physical Plaid accounts share each GL account -- >1 means the Vault
-                    // Balance column below has to use the tagged per-card split, not the full total.
+                    // Balance column below has to be split across them, not shown as the full
+                    // total on every row. There's no way to know which specific transaction
+                    // belongs to which physical card once they're posted to one shared GL account
+                    // (and no interest in tracking that going forward either) -- so instead of
+                    // attributing individual entries, the one real vault balance is allocated
+                    // proportionally to each card's own share of the combined Plaid balance. This
+                    // always sums to the exact real total (see the Total row) with no leftover
+                    // bucket needed; it's an estimate for each individual row, not a hard fact.
                     const vaultIdShareCount = new Map<number, number>();
+                    const plaidBalSumByVaultId = new Map<number, number>();
                     for (const g of groups) {
                       if (!g.vaultAcct) continue;
                       vaultIdShareCount.set(g.vaultAcct.id, (vaultIdShareCount.get(g.vaultAcct.id) ?? 0) + 1);
+                      plaidBalSumByVaultId.set(g.vaultAcct.id, (plaidBalSumByVaultId.get(g.vaultAcct.id) ?? 0) + (g.plaidBal ?? 0));
                     }
 
                     // Fixed display order: BofA → Citi → AMEX → Chase → others; depository before credit within each institution
@@ -2260,15 +2251,24 @@ export function PlaidImport({ data, onSave }: Props) {
                     // way every other card's own row already computes it) for shared GL accounts.
                     const rowSummaries: Array<{ vaultAcctId: number | undefined; plaidBal: number | null; uncleared: number }> = [];
                     const realRows = groups.map((g, i) => {
-                      // Shared: >1 physical Plaid account posts to this same GL account (e.g. two
-                      // spouses' BofA cards) -- use only THIS card's tagged entries, not the full
-                      // combined GL total, so each row reconciles against its own real activity.
+                      // Shared: >1 physical Plaid account posts to this same GL account. There's
+                      // no per-transaction attribution (see the comment on plaidBalSumByVaultId
+                      // above), so this row's slice of the one real vault balance is allocated
+                      // proportionally to its own share of the combined Plaid balance.
                       const shared = !!g.vaultAcct && (vaultIdShareCount.get(g.vaultAcct.id) ?? 0) > 1;
                       const vaultBal = !g.vaultAcct
                         ? null
-                        : shared
-                          ? vaultBookBalanceForPlaidAccount(g.vaultAcct.id, g.plaidType, g.plaidAccts[0].account_id, data)
-                          : vaultBookBalance(g.vaultAcct.id, g.plaidType, data);
+                        : !shared
+                          ? vaultBookBalance(g.vaultAcct.id, g.plaidType, data)
+                          : (() => {
+                              const total = vaultBookBalance(g.vaultAcct!.id, g.plaidType, data);
+                              const plaidSum = plaidBalSumByVaultId.get(g.vaultAcct!.id) ?? 0;
+                              // Degenerate case (combined Plaid balance nets to ~0): split evenly
+                              // rather than divide by ~0 and produce a wild allocation.
+                              return Math.abs(plaidSum) < 0.01
+                                ? total / (vaultIdShareCount.get(g.vaultAcct!.id) ?? 1)
+                                : total * ((g.plaidBal ?? 0) / plaidSum);
+                            })();
                       const acctIdSet = new Set(g.plaidAccts.map((a) => a.account_id));
 
                       // Drill-down: identify which transactions explain the gap
@@ -2278,15 +2278,13 @@ export function PlaidImport({ data, onSave }: Props) {
                       ].sort((a, b) => b.plaidTx.date.localeCompare(a.plaidTx.date));
 
                       // Vault entries for this account (last 90 days to cover Plaid window) --
-                      // when shared, further scoped to entries tagged for THIS physical card, so
-                      // the drill-down doesn't pull in the other card's activity on the same GL.
+                      // shown in full on every row sharing this GL account, since there's no real
+                      // per-transaction split (the Vault Balance above is an allocated estimate,
+                      // not a claim about which specific entries belong to this card).
                       const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0];
                       const recentVaultEntries = g.vaultAcct
                         ? data.transactions
-                            .filter((v) =>
-                              !v.deleted && !v.cancelled && v.date >= cutoff90 &&
-                              (!shared || v.plaidAccountId === g.plaidAccts[0].account_id)
-                            )
+                            .filter((v) => !v.deleted && !v.cancelled && v.date >= cutoff90)
                             .flatMap((v) =>
                               v.entries
                                 .filter((e) => e.accountId === g.vaultAcct!.id)
@@ -2508,14 +2506,12 @@ export function PlaidImport({ data, onSave }: Props) {
                       );
                     });
 
-                    // For each GL account shared by multiple physical Plaid accounts, insert two
-                    // rows right after its last card row: an "Untagged" line for whatever portion
-                    // of the vault balance isn't attributable to any specific card (entries posted
-                    // before tagging existed, or entered manually — shrinks as more Plaid-tagged
-                    // transactions land), and a "Total" line summing every card's ALREADY
+                    // For each GL account shared by multiple physical Plaid accounts, insert one
+                    // "Total" row right after its last card row, summing every card's ALREADY
                     // correctly-signed figures (refunds/credits netted against charges exactly like
-                    // every other card's own row) plus that untagged portion, so it reconciles
-                    // directly against the one real GL balance for this shared account.
+                    // every other card's own row) so it reconciles directly against the one real GL
+                    // balance for this shared account. Each individual card row above is a
+                    // proportional estimate; this Total row is the exact real figure.
                     const lastIndexForVaultId = new Map<number, number>();
                     groups.forEach((g, i) => { if (g.vaultAcct) lastIndexForVaultId.set(g.vaultAcct.id, i); });
 
@@ -2527,30 +2523,7 @@ export function PlaidImport({ data, onSave }: Props) {
                       if ((vaultIdShareCount.get(vid) ?? 0) <= 1 || lastIndexForVaultId.get(vid) !== i) return;
 
                       const vName = g.vaultAcct.name;
-                      const members = groups.filter((gg) => gg.vaultAcct?.id === vid);
                       const totalVaultBal = vaultBookBalance(vid, g.plaidType, data);
-                      const taggedSum = members.reduce(
-                        (s, gg) => s + vaultBookBalanceForPlaidAccount(vid, gg.plaidType, gg.plaidAccts[0].account_id, data), 0
-                      );
-                      const leftover = totalVaultBal - taggedSum;
-                      if (Math.abs(leftover) >= 0.01) {
-                        finalRows.push(
-                          <tr key={`untagged-${vid}`} className="plaid-recon-row">
-                            <td
-                              colSpan={2}
-                              title="Entries on this GL account posted before per-card tagging existed, or entered manually — not attributable to either physical card individually. Shrinks as more Plaid-tagged transactions accumulate."
-                            >
-                              ↳ Untagged / manual entries on {vName}
-                            </td>
-                            <td className="plaid-recon-type">—</td>
-                            <td className="plaid-recon-amt">—</td>
-                            <td><span className="plaid-recon-zero">—</span></td>
-                            <td className="plaid-recon-amt">${leftover.toFixed(2)}</td>
-                            <td>—</td>
-                          </tr>
-                        );
-                      }
-
                       const memberSummaries = rowSummaries.filter((r) => r.vaultAcctId === vid);
                       const totalPlaidBal = memberSummaries.every((m) => m.plaidBal !== null)
                         ? memberSummaries.reduce((s, m) => s + (m.plaidBal ?? 0), 0)
