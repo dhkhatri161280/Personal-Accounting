@@ -1110,15 +1110,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           : nextVoucherNumber(data, type, date, editTx?.guid),
       type,
       narration: String(f.get("narration") || ""),
-      syncFingerprint: undefined,
-      lastSyncedAt: undefined,
       historical: editTx?.historical || false,
       cancelled: editTx?.cancelled || false,
       entries,
     };
-    tx.syncStatus = "pending";
-    if (!editTx) tx.syncFingerprint = undefined;
-    tx.lastSyncedAt = undefined;
     const validation = validateVoucher(tx, data.accounts);
     if (!validation.valid) {
       setStatus(validation.errors.join(" "));

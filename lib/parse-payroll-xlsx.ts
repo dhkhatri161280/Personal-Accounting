@@ -100,6 +100,12 @@ export async function parsePayrollXlsx(file: File): Promise<PayrollData> {
   const wb = XLSX.read(buf, { type: "array" });
 
   const years: PayrollYear[] = [];
+  // A sheet whose NAME matches the expected year pattern but whose CONTENT parseSheet couldn't
+  // locate (missing "Particulars" header, or a renamed "Salary"/"CUMULATIVE" column) used to
+  // just silently return null and vanish -- the whole year missing from the imported data with
+  // no indication why. Track these so the caller can tell the user exactly which year(s) failed
+  // and that it's a template mismatch, not "nothing to import."
+  const unparsedSheets: string[] = [];
   for (const sheetName of wb.SheetNames) {
     // Most years are "Yearly <YYYY>" (current employer). A prior employer's year, before that
     // naming convention started, is instead named "<YYYY> RCS" -- same internal layout
@@ -109,9 +115,17 @@ export async function parsePayrollXlsx(file: File): Promise<PayrollData> {
     if (!m) continue;
     const y = parseSheet(wb.Sheets[sheetName], sheetName, m[1], XLSX);
     if (y) years.push(y);
+    else unparsedSheets.push(sheetName);
   }
 
   years.sort((a, b) => b.year.localeCompare(a.year));
 
-  return { years, importedAt: new Date().toISOString(), sourceFileName: file.name };
+  return {
+    years,
+    importedAt: new Date().toISOString(),
+    sourceFileName: file.name,
+    ...(unparsedSheets.length
+      ? { warnings: [`Could not parse sheet(s): ${unparsedSheets.join(", ")} -- expected a "Particulars" header row with "Salary"/"CUMULATIVE" columns; check for a renamed header.`] }
+      : {}),
+  };
 }

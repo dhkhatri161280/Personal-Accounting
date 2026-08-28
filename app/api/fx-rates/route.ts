@@ -32,6 +32,7 @@ export async function POST(request: Request) {
 
   // Determine which months we need to fetch
   const missing = months.filter((m) => stored[m] == null).sort();
+  const errors: string[] = [];
 
   // Fetch ALL missing months in a SINGLE range query to frankfurter.app
   if (missing.length > 0) {
@@ -59,8 +60,15 @@ export async function POST(request: Request) {
               Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10000) / 10000;
           }
         }
+      } else {
+        errors.push(`FX rate fetch failed: HTTP ${resp.status}`);
       }
-    } catch {}
+    } catch (e: any) {
+      // Distinguish a real fetch failure from "not yet available" (the caller currently can't
+      // tell these apart from a bare missing month, and silently falls back to a stale/default
+      // rate either way) -- surfaced via `errors` so a caller that cares can show it.
+      errors.push("FX rate fetch failed: " + (e?.message || "network error"));
+    }
   }
 
   // Apply any custom rate overrides
@@ -75,8 +83,10 @@ export async function POST(request: Request) {
   if (missing.length || body.customRates) {
     try {
       await bindings.VAULT.put(FX_KEY, JSON.stringify(stored));
-    } catch {}
+    } catch (e: any) {
+      errors.push("Failed to save fetched rates: " + (e?.message || "write failed"));
+    }
   }
 
-  return Response.json({ rates: stored });
+  return Response.json({ rates: stored, errors });
 }

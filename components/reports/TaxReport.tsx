@@ -269,6 +269,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       }
       await onSave(parsed);
       setSelectedYear(parsed.years[0].year);
+      if (parsed.warnings?.length) setImportError(parsed.warnings.join(" "));
     } catch (err: any) {
       setImportError("Failed to parse Excel file: " + (err?.message ?? "Unknown error"));
     } finally {

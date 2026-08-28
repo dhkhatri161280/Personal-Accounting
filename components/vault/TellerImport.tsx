@@ -109,10 +109,15 @@ function isPayroll(tx: TellerTxRaw) {
 // ── Account finder helpers ─────────────────────────────────────────────────────
 
 function findAcct(accounts: Account[], ...names: string[]): Account | undefined {
+  // Exact match for every candidate first, THEN substring fallback -- see PlaidImport.tsx's
+  // findAcct for why (a later, more specific exact match shouldn't lose to an earlier
+  // candidate's accidental substring match).
+  for (const name of names) {
+    const exact = accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
+    if (exact) return exact;
+  }
   for (const name of names) {
     const lc = name.toLowerCase();
-    const exact = accounts.find((a) => a.name.toLowerCase() === lc);
-    if (exact) return exact;
     const partial = accounts.find((a) => a.name.toLowerCase().includes(lc));
     if (partial) return partial;
   }
@@ -159,10 +164,22 @@ function matchFromHistory(
   tx: TellerTxRaw,
   ledger: Ledger
 ): { debitId: number; creditId: number; confidence: number } | null {
-  const keywords = `${tx.name} ${tx.merchant_name || ""}`
-    .toLowerCase()
-    .split(/\W+/)
-    .filter((w) => w.length > 3);
+  // Ampersand-glued merchant names (PG&E, AT&T, H&M, S&P) break into fragments too short to
+  // survive the length filter below if split on "&" like every other non-word char -- e.g.
+  // "PG&E" -> "pg" + "e", both dropped, leaving zero keywords and silently defeating history
+  // matching even when strong prior history exists. Collapse a "&" glued directly to letters
+  // (no spaces) into one word first; a genuinely spaced separator like "Bed & Bath" is
+  // untouched and still splits into two ordinary words.
+  const rawText = `${tx.name} ${tx.merchant_name || ""}`.toLowerCase();
+  const abbreviations = (rawText.match(/[a-z0-9]+(?:&[a-z0-9]+)+/g) || [])
+    .map((w) => w.replace(/&/g, ""))
+    .filter((w) => w.length >= 2 && !/^\d+$/.test(w));
+  const keywords = [
+    ...new Set([
+      ...rawText.replace(/(\S)&(\S)/g, "$1$2").split(/\W+/).filter((w) => w.length > 3),
+      ...abbreviations,
+    ]),
+  ];
 
   const scores = new Map<string, number>();
 

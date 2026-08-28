@@ -98,10 +98,18 @@ function isPayroll(tx: PlaidTxRaw) {
 // ── Account finder helpers ─────────────────────────────────────────────────────
 
 function findAcct(accounts: Account[], ...names: string[]): Account | undefined {
+  // Two passes: try an EXACT match for every candidate name first (in priority order), and
+  // only fall back to substring matching if none of them hit. Previously this checked exact
+  // *and* substring for name[0] before ever trying name[1]'s exact match -- so a later, more
+  // specific candidate's exact match could lose to an earlier candidate's accidental substring
+  // match against an unrelated account (e.g. a short generic alias like "BofA" substring-matching
+  // whichever of two real BofA accounts happens to sit first, non-deterministically).
+  for (const name of names) {
+    const exact = accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
+    if (exact) return exact;
+  }
   for (const name of names) {
     const lc = name.toLowerCase();
-    const exact = accounts.find((a) => a.name.toLowerCase() === lc);
-    if (exact) return exact;
     const partial = accounts.find((a) => a.name.toLowerCase().includes(lc));
     if (partial) return partial;
   }
@@ -179,16 +187,21 @@ const GENERIC_FINANCE_WORDS = new Set([
 ]);
 
 function tokenise(text: string): string[] {
-  return (text || "")
-    .toLowerCase()
-    // Collapse an "&" glued directly to letters on both sides (PG&E, AT&T, S&P) into one word
-    // BEFORE the general split below -- otherwise it breaks into fragments too short to survive
-    // the length filter (PG&E -> "pg" + "e", both dropped) and merchant matching sees zero
-    // tokens at all. A spaced "Bed & Bath" is untouched (no non-space char touching the &), so
-    // it still splits into two separate real words as expected.
+  const lower = (text || "").toLowerCase();
+  // Ampersand-glued abbreviations (PG&E, AT&T, S&P) are real, meaningful merchant identifiers
+  // even at 2 characters once collapsed (H&M -> "hm", S&P -> "sp") -- collected separately so
+  // the general length>2 noise filter below (needed to drop generic short words like "of"/"to"
+  // everywhere else) doesn't discard them the way it dropped PG&E's fragments before this fix.
+  // Requires letters glued directly to the "&" (no spaces) so a genuine spaced separator like
+  // "Bed & Bath" is untouched and still splits into two ordinary words via the path below.
+  const abbreviations = (lower.match(/[a-z0-9]+(?:&[a-z0-9]+)+/g) || [])
+    .map((w) => w.replace(/&/g, ""))
+    .filter((w) => w.length >= 2 && !/^\d+$/.test(w));
+  const words = lower
     .replace(/(\S)&(\S)/g, "$1$2")
     .split(/[\s\W]+/)
     .filter((w) => w.length > 2 && !/^\d+$/.test(w) && !GENERIC_FINANCE_WORDS.has(w)); // drop pure numbers (store IDs, dates) and generic finance noise words
+  return [...new Set([...words, ...abbreviations])];
 }
 
 // Each calendar month gets its own separate "House Hold Exps - Mon YY" account (see
@@ -415,7 +428,7 @@ function buildDraft(
   }
   else if (/chase/i.test(instLower))
     instAliases.push("Chase Credit Card", "Chase Bank", "Chase");
-  else if (/citi/i.test(instLower))
+  else if (/citi(?!zen)/i.test(instLower))
     instAliases.push("Citi Credit Card", "Citibank", "Citi");
   else if (/american express|amex/i.test(instLower))
     instAliases.push("AMEX Credit Card", "American Express", "Amex");
@@ -429,7 +442,7 @@ function buildDraft(
     const inst = institution.toLowerCase();
     if (/bank.of.america|bofa/i.test(inst)) return /bank.of.america|bofa/i.test(a);
     if (/chase/i.test(inst)) return /chase/i.test(a);
-    if (/citi/i.test(inst)) return /citi/i.test(a);
+    if (/citi(?!zen)/i.test(inst)) return /citi(?!zen)/i.test(a);
     if (/american express|amex/i.test(inst)) return /american express|amex/i.test(a);
     if (/wells.fargo/i.test(inst)) return /wells.fargo/i.test(a);
     // Generic: any word > 3 chars from institution appears in account name
@@ -442,8 +455,17 @@ function buildDraft(
   // duplicate report of this one movement, not a distinct transaction (force-skipped below, and at
   // the row-build call site so it can never be double-saved). Build one Contra voucher from the debit leg.
   if (/bank of america|bofa/i.test(instLower) && /payment to acct\s*#?\s*\d+/i.test(tx.name)) {
+    // This transaction is on the CHECKING side of the payment -- tx.account_id is the bank
+    // account, not the card being paid, so the per-card learned mapping (keyed by the card's
+    // own Plaid account_id) can't be consulted here. There are now two possible BofA card GL
+    // accounts (see BOFA_CARD_GL_BY_NAME); this can't reliably tell which one is being paid
+    // from just the account-number fragment in tx.name (no last-4-digit mapping is stored), so
+    // it stays a lower-confidence guess flagged for review rather than a silent default.
     const cardAcc = findAcct(accounts, "Credit Card - BofA", "BofA Credit Card");
     const bankAcc = findAcct(accounts, "Bank Of America", "Bank of America", tx.institution_name);
+    const multipleBofaCards = accounts.filter(
+      (a) => a.active !== false && /^credit card - bofa/i.test(a.name)
+    ).length > 1;
     if (cardAcc && bankAcc) {
       return {
         entries: [
@@ -451,8 +473,10 @@ function buildDraft(
           { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
         ],
         voucherType: "Contra",
-        narration: "BofA Credit Card Payment",
-        confidence: 0.85,
+        narration: multipleBofaCards
+          ? `BofA Credit Card Payment — verify which card (${tx.name})`
+          : "BofA Credit Card Payment",
+        confidence: multipleBofaCards ? 0.4 : 0.85,
         source: "history",
       };
     }
@@ -506,7 +530,7 @@ function buildDraft(
 
   // ── Citi card feed: money-IN transactions (payment received by Citi from user's bank) ──
   // "PAYMENT THANK YOU", "AUTOPAY PAYMENT", etc. — institution = "Citibank Online"
-  if (/citi/i.test(instLower) && tx.amount < 0) {
+  if (/citi(?!zen)/i.test(instLower) && tx.amount < 0) {
     const citiAcc = findAcct(accounts, "Citi Credit Card", "Citibank", "Citi");
     if (/payment|autopay|thank you/i.test(tx.name)) {
       const bankAcc = findAcct(accounts, "Bank Of America", "Bank of America", "BofA", "Chase Bank", "Chase");
@@ -679,6 +703,18 @@ function buildDraft(
         creditAcc = cardAcc;
       }
     }
+    // Same-institution, wrong-physical-card guard: matchFromHistory has no idea which of two
+    // same-institution cards (e.g. DK's vs Hiral's BofA card) a transaction came from -- it
+    // just picks whichever card historically won the most votes for that merchant, so the
+    // institution guard above never catches it (both cards pass accountMatchesInstitution).
+    // cardAcc was already resolved above specifically for THIS Plaid account (via
+    // bofaCardGlAccountName); if history instead matched a different account from the same
+    // shared-card family, that's always wrong for a card-identity purpose and gets corrected
+    // here -- otherwise a charge on Hiral's card can silently post to DK's account (or vice
+    // versa) whenever that merchant's history happens to be weighted toward the other card.
+    const sameCardFamily = (a?: Account) => a && cardAcc && /^credit card - bofa/i.test(a.name) && /^credit card - bofa/i.test(cardAcc.name);
+    if (creditAcc && cardAcc && creditAcc.id !== cardAcc.id && sameCardFamily(creditAcc)) creditAcc = cardAcc;
+    if (debitAcc && cardAcc && debitAcc.id !== cardAcc.id && sameCardFamily(debitAcc)) debitAcc = cardAcc;
     if (debitAcc && creditAcc) {
       const amt = Math.abs(tx.amount);
       return {
@@ -815,6 +851,13 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
       const a = ledger.accounts.find((ac) => ac.id === e.accountId);
       return a && (isCcAcct(a) || isBankAcct(a));
     });
+  // Merchant tokens for the fuzzy (non-exact-date) path only -- an exact-date match is almost
+  // always the same Plaid transaction re-fetched, so it stays merchant-agnostic as before. The
+  // fuzzy ±2-day window exists for bank pending/posted lag, not for "same amount, any merchant,
+  // within a couple days" -- without a merchant check it silently hides a genuine second
+  // purchase (e.g. two separate $4.75 coffees at the same cafe 2 days apart) as a duplicate,
+  // with no way for the user to ever see and correct it.
+  const txMerchantTokens = new Set(tokenise(tx.merchant_name || tx.name || ""));
   const singleMatch = ledger.transactions.some((v) => {
     if (v.deleted) return false;
     if (Math.abs(vaultDebitAmt(v) - amt) >= 0.05) return false;
@@ -825,7 +868,10 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
     // Exclude Contra entries (CC payments): both sides are financial — Dr AMEX / Cr Chase.
     // A CC payment has the same debit-side check as a refund but is NOT a refund.
     if (tx.amount < 0 && hasCcOrBankOnSide(v, true)) return false;
-    return v.date === tx.date || withinWindow(v.date);
+    if (v.date === tx.date) return true;
+    if (!withinWindow(v.date)) return false;
+    const vaultTokens = tokenise(v.narration || "");
+    return vaultTokens.some((t) => txMerchantTokens.has(t));
   });
   if (singleMatch) return true;
 
@@ -842,9 +888,13 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
   }
 
   // Pattern 3: same-merchant same-day same-direction charges posted as one combined vault entry
-  // Only group same-direction (both expense or both income) to avoid mixing receipts with payments
+  // Only group same-direction (both expense or both income) to avoid mixing receipts with payments.
+  // Skip generic finance noise words (same stoplist as tokenise()) -- otherwise two unrelated
+  // same-day, same-sign transactions that both happen to say "purchase" or "payment" get pooled
+  // as false peers, and a genuine second transaction can silently vanish from the import screen
+  // if their combined total coincidentally matches an existing vault entry.
   const merchantKey = (tx.merchant_name || tx.name || "")
-    .toLowerCase().split(/\W+/).find((w) => w.length > 2) || "";
+    .toLowerCase().split(/\W+/).find((w) => w.length > 2 && !GENERIC_FINANCE_WORDS.has(w)) || "";
   if (!merchantKey) return false;
 
   const txSign = Math.sign(tx.amount);
@@ -947,7 +997,7 @@ function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): A
     return isCreditAcct
       ? findAcct(vaultAccounts, "Chase Credit Card")
       : findAcct(vaultAccounts, "Chase Bank", "Chase");
-  if (/citi/i.test(inst))
+  if (/citi(?!zen)/i.test(inst))
     return findAcct(vaultAccounts, "Citi Credit Card", "Citibank", "Citi");
   if (/wells.fargo/i.test(inst))
     return findAcct(vaultAccounts, "Wells Fargo");
@@ -2258,16 +2308,24 @@ export function PlaidImport({ data, onSave }: Props) {
                     // bucket needed; it's an estimate for each individual row, not a hard fact.
                     const vaultIdShareCount = new Map<number, number>();
                     const plaidBalSumByVaultId = new Map<number, number>();
+                    // If ANY member sharing a GL account has a null Plaid balance (a failed
+                    // fetch, not a real $0), the whole group falls back to an even split rather
+                    // than a proportional one -- otherwise that member's $0-via-null contribution
+                    // to plaidBalSumByVaultId would silently push 100%+ of the real total onto
+                    // the OTHER member(s), and the individual rows would stop summing to the
+                    // group's real total (the one invariant this allocation is supposed to keep).
+                    const hasNullBalanceByVaultId = new Map<number, boolean>();
                     for (const g of groups) {
                       if (!g.vaultAcct) continue;
                       vaultIdShareCount.set(g.vaultAcct.id, (vaultIdShareCount.get(g.vaultAcct.id) ?? 0) + 1);
                       plaidBalSumByVaultId.set(g.vaultAcct.id, (plaidBalSumByVaultId.get(g.vaultAcct.id) ?? 0) + (g.plaidBal ?? 0));
+                      if (g.plaidBal === null) hasNullBalanceByVaultId.set(g.vaultAcct.id, true);
                     }
 
                     // Fixed display order: BofA → Citi → AMEX → Chase → others; depository before credit within each institution
                     const instRank = (inst: string) => {
                       if (/bank.of.america|bofa/i.test(inst)) return 0;
-                      if (/citi/i.test(inst)) return 1;
+                      if (/citi(?!zen)/i.test(inst)) return 1;
                       if (/american express|amex/i.test(inst)) return 2;
                       if (/chase/i.test(inst)) return 3;
                       if (/wells.fargo/i.test(inst)) return 4;
@@ -2301,9 +2359,12 @@ export function PlaidImport({ data, onSave }: Props) {
                           : (() => {
                               const total = vaultBookBalance(g.vaultAcct!.id, g.plaidType, data);
                               const plaidSum = plaidBalSumByVaultId.get(g.vaultAcct!.id) ?? 0;
-                              // Degenerate case (combined Plaid balance nets to ~0): split evenly
-                              // rather than divide by ~0 and produce a wild allocation.
-                              return Math.abs(plaidSum) < 0.01
+                              // Degenerate cases -- split evenly instead of producing a silently
+                              // misleading allocation: (a) any member of this group has a null
+                              // Plaid balance (a failed fetch, not a real $0) -- see
+                              // hasNullBalanceByVaultId above; (b) the combined Plaid balance
+                              // nets to ~0, which would otherwise divide by ~0.
+                              return hasNullBalanceByVaultId.get(g.vaultAcct!.id) || Math.abs(plaidSum) < 0.01
                                 ? total / (vaultIdShareCount.get(g.vaultAcct!.id) ?? 1)
                                 : total * ((g.plaidBal ?? 0) / plaidSum);
                             })();
@@ -2632,12 +2693,20 @@ export function PlaidImport({ data, onSave }: Props) {
           })
           .sort((a, b) => b.date.localeCompare(a.date));
 
+        // A voucher that was already pushed to Tally (has a tallyGuid/syncFingerprint) needs
+        // syncStatus flagged "pending" on delete so the sync engine actually removes it from
+        // Tally too -- otherwise it vanishes from the app while quietly staying in Tally
+        // forever. One never synced can just be dropped locally (same pattern as
+        // VaultApp.tsx's deleteVoucher).
+        function markDeleted(v: Tx): Tx {
+          if (!v.tallyGuid && !v.syncFingerprint) return { ...v, deleted: true };
+          return { ...v, deleted: true, syncStatus: "pending", lastSyncedAt: undefined };
+        }
+
         async function deleteTx(id: number) {
           const next: Ledger = {
             ...data,
-            transactions: data.transactions.map(v =>
-              v.id === id ? { ...v, deleted: true } : v
-            ),
+            transactions: data.transactions.map(v => v.id === id ? markDeleted(v) : v),
           };
           const ok = await onSave(next);
           if (ok) setStatus(`Voucher #${id} deleted.`);
@@ -2650,7 +2719,7 @@ export function PlaidImport({ data, onSave }: Props) {
           if (!window.confirm(`Delete ${extraIds.size} extra duplicate voucher(s)? The oldest entry in each group will be kept.`)) return;
           const next: Ledger = {
             ...data,
-            transactions: data.transactions.map(v => extraIds.has(v.id) ? { ...v, deleted: true } : v),
+            transactions: data.transactions.map(v => extraIds.has(v.id) ? markDeleted(v) : v),
           };
           const ok = await onSave(next);
           if (ok) setStatus(`${extraIds.size} duplicate(s) deleted.`);

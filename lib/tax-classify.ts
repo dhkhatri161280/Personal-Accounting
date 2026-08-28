@@ -34,7 +34,7 @@ export function classifyRsuSales(grants: RsuGrant[], year: string, holdingDays: 
         costBasis,
         proceeds,
         gain: proceeds - costBasis,
-        term: heldDays >= holdingDays ? "long" : "short",
+        term: heldDays > holdingDays ? "long" : "short",
       });
     }
   }
@@ -64,7 +64,7 @@ export function classifyEsppSales(purchases: EsppPurchase[], year: string, holdi
       costBasis,
       proceeds,
       gain: proceeds - costBasis,
-      term: heldDays >= holdingDays ? "long" : "short",
+      term: heldDays > holdingDays ? "long" : "short",
     });
   }
   return events;

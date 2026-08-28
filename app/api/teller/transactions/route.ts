@@ -53,7 +53,15 @@ export async function GET(request: Request) {
   try {
     const raw = await bindings.VAULT.get(ENROLLMENTS_KEY);
     if (raw) enrollments = JSON.parse(raw);
-  } catch {}
+  } catch (e: any) {
+    // A storage read failure must not look like "zero transactions, zero errors" -- that's
+    // indistinguishable from a genuinely clean, complete sync of a user with no banks
+    // connected, which is the single worst failure mode for a transaction sync endpoint.
+    return Response.json(
+      { transactions: [], accounts: [], errors: ["Storage unavailable: " + (e?.message || "read failed")] },
+      { status: 503 }
+    );
+  }
 
   if (enrollments.length === 0) {
     return Response.json({ transactions: [], accounts: [], errors: [] });
@@ -90,7 +98,18 @@ export async function GET(request: Request) {
             `${TELLER_BASE}/accounts/${account.id}/transactions?from_id=&count=500`,
             enrollment.access_token
           );
-          if (!txResp.ok) continue;
+          if (!txResp.ok) {
+            // Unlike the account-fetch failure above, this used to be silently skipped with no
+            // errors[] entry -- the account still shows up with a real balance but looks like
+            // it has zero activity, indistinguishable from a genuinely inactive account.
+            let msg = "transactions fetch failed";
+            try {
+              const err = (await txResp.json()) as { error?: { message?: string } };
+              msg = err.error?.message || msg;
+            } catch {}
+            errors.push(`${enrollment.institution_name} (${account.name || account.id}): ${msg}`);
+            continue;
+          }
 
           const txs = (await txResp.json()) as TellerTransaction[];
           for (const tx of txs) {

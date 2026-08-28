@@ -16,6 +16,23 @@ $runner = Join-Path $runtime 'dual-port-engine-runner.js'
 if (-not (Test-Path -LiteralPath $node))   { throw "Local Node runtime was not found: $node" }
 if (-not (Test-Path -LiteralPath $runner)) { throw "Sync runner was not found: $runner" }
 
+# Runs the runner with stderr redirected into the output stream (2>&1) WITHOUT the
+# script-wide $ErrorActionPreference='Stop' converting every stderr line the runner writes
+# into an uncatchable terminating error -- that's the exact crash class the "skip when nothing
+# pending" fix above only patched for one specific message. Any other benign stderr text
+# (a progress note, a differently-worded warning) at any of these call sites would still crash
+# the whole script uncatchably without this. $LASTEXITCODE is checked explicitly by the caller
+# instead of relying on PowerShell's blanket stderr-is-fatal behavior.
+function Invoke-Runner([string[]]$RunnerArgs) {
+  $prevPref = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    return & $node $runner @RunnerArgs 2>&1 | Out-String
+  } finally {
+    $ErrorActionPreference = $prevPref
+  }
+}
+
 Write-Host 'FINTECH BY DK - US BOOK SYNC' -ForegroundColor Cyan
 Write-Host 'Tally must be open on port 9001 before continuing.' -ForegroundColor Yellow
 Write-Host ''
@@ -26,7 +43,7 @@ $env:PL_VAULT_PASSWORD = Read-DpapiSecret 'us-vault'
 try {
   # ── Step 1: Preview ─────────────────────────────────────────────────────
   Write-Host '=== STEP 1: PREVIEW (read-only) ===' -ForegroundColor Cyan
-  $previewOutput = & $node $runner preview us 2>&1 | Out-String
+  $previewOutput = Invoke-Runner @('preview', 'us')
   Write-Host $previewOutput.Trim()
   if ($LASTEXITCODE -ne 0) { throw 'Preview failed' }
 
@@ -67,7 +84,7 @@ try {
 
     # Dry-run to discover what confirmation string is needed
     $env:PL_APPLY_CONFIRM = ''
-    $output = & $node $runner app-to-tally us 2>&1 | Out-String
+    $output = Invoke-Runner @('app-to-tally', 'us')
 
     # Parse "Expected exactly: APPLY US <TYPE> <NUMBER>" from the output
     $match = [regex]::Match($output, 'Expected exactly:\s*(APPLY\s+US\s+\S+\s+\S+)')
@@ -90,7 +107,7 @@ try {
     Write-Host "  Applying: $confirmStr" -ForegroundColor White
 
     $env:PL_APPLY_CONFIRM = $confirmStr
-    $result = & $node $runner app-to-tally us 2>&1 | Out-String
+    $result = Invoke-Runner @('app-to-tally', 'us')
     Write-Host $result.Trim()
 
     if ($LASTEXITCODE -ne 0) { throw "app-to-tally failed on: $confirmStr" }
@@ -114,7 +131,7 @@ try {
     if ($cycle -gt $maxCycles) { throw "Safety stop: exceeded $maxCycles tally-to-app cycles" }
 
     $env:PL_APPLY_CONFIRM = ''
-    $output = & $node $runner tally-to-app us 2>&1 | Out-String
+    $output = Invoke-Runner @('tally-to-app', 'us')
 
     $match = [regex]::Match($output, 'Expected exactly:\s*(APPLY\s+US\s+\S+\s+\S+)')
     if (-not $match.Success) {
@@ -126,7 +143,7 @@ try {
     Write-Host "  Applying: $confirmStr" -ForegroundColor White
 
     $env:PL_APPLY_CONFIRM = $confirmStr
-    $result = & $node $runner tally-to-app us 2>&1 | Out-String
+    $result = Invoke-Runner @('tally-to-app', 'us')
     Write-Host $result.Trim()
 
     if ($LASTEXITCODE -ne 0) { throw "tally-to-app failed on: $confirmStr" }

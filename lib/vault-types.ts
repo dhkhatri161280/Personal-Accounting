@@ -153,6 +153,10 @@ export type PayrollData = {
   years: PayrollYear[];
   importedAt: string;
   sourceFileName: string;
+  // Set when a sheet's name matched the expected "Yearly <year>"/"<year> RCS" pattern but its
+  // content couldn't be located (e.g. a renamed header column) -- that year silently vanished
+  // from `years` otherwise, with nothing telling the user why.
+  warnings?: string[];
 };
 
 // One TCS-style payslip (or similar Indian payroll slip), parsed from a password-protected

@@ -6,7 +6,18 @@ const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const conn = await getConnection(bindings);
+  let conn;
+  try {
+    conn = await getConnection(bindings);
+  } catch (e: any) {
+    // Distinguish "storage unavailable right now" from "genuinely never connected" -- the
+    // latter is what the UI shows a "Connect Schwab" button for, which is the wrong
+    // troubleshooting path for a transient outage.
+    return Response.json(
+      { connected: false, error: "Storage unavailable: " + (e?.message || "read failed") },
+      { status: 503 }
+    );
+  }
   if (!conn) return Response.json({ connected: false });
 
   const refreshExpiresAt = conn.refresh_token_expires_at;

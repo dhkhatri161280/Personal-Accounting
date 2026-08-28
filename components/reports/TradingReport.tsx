@@ -482,7 +482,7 @@ export function TradingReport({
   // for a closed one it's the actual realized holding period that determines real tax treatment.
   const todayIso = new Date().toISOString().slice(0, 10);
   const heldDaysOf = (t: Trade) => daysBetween(t.buyDate, t.saleDate ?? todayIso);
-  const isLongTerm = (t: Trade) => heldDaysOf(t) >= 365;
+  const isLongTerm = (t: Trade) => heldDaysOf(t) > 365; // IRC §1222: MORE than 1 year, not >=
 
   const openRowsBase = open.map((t) => {
     const gl = glOf(t), pct = pctOf(t), mv = t.units * curPrice(t), tc = costOf(t);

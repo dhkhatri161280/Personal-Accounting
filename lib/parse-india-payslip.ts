@@ -48,10 +48,18 @@ export function parseIndiaPayslipText(text: string, sourceFile: string): IndiaPa
   const grossEarnings = num(text, /Total Earnings \(Current \+ Arrears\)\s+([\d,]+\.\d{2})/) ?? 0;
   const otherAllowances = Math.max(0, grossEarnings - basic - hra - conveyance);
 
-  const pf = num(text, /Provident Fund\s+([\d,]+\.\d{2})/) ?? 0;
+  let pf = num(text, /Provident Fund\s+([\d,]+\.\d{2})/) ?? 0;
   const professionalTax = num(text, /Professional Tax\s+([\d,]+\.\d{2})/) ?? 0;
   const incomeTax = num(text, /Income Tax\s+([\d,]+\.\d{2})/) ?? 0;
   const totalDeductions = num(text, /Total Deductions\s+([\d,]+\.\d{2})/) ?? 0;
+  // Sanity guard on the first-match-wins assumption above: "Provident Fund" appears a second
+  // time later on these slips as a cumulative retiral balance, which can be far larger than
+  // this month's deduction. A monthly PF deduction can never exceed total deductions -- if it
+  // does, the regex almost certainly grabbed the cumulative balance instead (a future template
+  // reordering sections would trigger this). Zero it out rather than silently keep a wrong
+  // figure 10-50x too large; the true deduction still surfaces (lumped into otherDeductions)
+  // instead of vanishing.
+  if (pf > totalDeductions) pf = 0;
   const otherDeductions = Math.max(0, totalDeductions - pf - professionalTax - incomeTax);
 
   const netPay = num(text, /Net Pay \(INR\)\s+([\d,]+\.\d{2})/) ?? 0;
@@ -93,13 +101,16 @@ export function parseIndiaPayslipText(text: string, sourceFile: string): IndiaPa
 
 /** Combines newly-parsed months into an existing set, replacing same-month entries with
  * whichever slip was generated later -- a reissued/corrected slip (e.g. a bonus payout that
- * revises an earlier month's numbers) should win over the original. Falls back to keeping the
- * incoming one if neither slip has a comparable generation timestamp. */
+ * revises an earlier month's numbers) should win over the original. When neither slip has a
+ * comparable generation timestamp (the "Payslip generated on:" line can fail to match a
+ * differently-worded/formatted slip), keeps the EXISTING record rather than blindly trusting
+ * the incoming one -- a stale re-upload of an old file should not be able to silently clobber
+ * a correct record just because this one detail failed to parse. */
 export function mergeIndiaPayslipMonths(existing: IndiaPayslipMonth[], incoming: IndiaPayslipMonth[]): IndiaPayslipMonth[] {
   const byDate = new Map(existing.map((m) => [m.date, m]));
   for (const m of incoming) {
     const prev = byDate.get(m.date);
-    if (!prev || !prev.generatedAt || !m.generatedAt || m.generatedAt >= prev.generatedAt) {
+    if (!prev || (prev.generatedAt && m.generatedAt && m.generatedAt >= prev.generatedAt)) {
       byDate.set(m.date, m);
     }
   }

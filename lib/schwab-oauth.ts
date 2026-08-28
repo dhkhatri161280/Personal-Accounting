@@ -36,13 +36,12 @@ export async function saveConnection(bindings: AppBindings, tokens: { access_tok
   await bindings.VAULT.put(KV_KEY, JSON.stringify(connection));
 }
 
+// Throws on a real storage failure instead of returning null -- callers need to tell "genuinely
+// never connected" apart from "can't check right now", since the former sends the user down a
+// re-auth flow and the latter is just a transient KV hiccup.
 export async function getConnection(bindings: AppBindings): Promise<SchwabConnection | null> {
-  try {
-    const raw = await bindings.VAULT.get(KV_KEY);
-    return raw ? (JSON.parse(raw) as SchwabConnection) : null;
-  } catch {
-    return null;
-  }
+  const raw = await bindings.VAULT.get(KV_KEY);
+  return raw ? (JSON.parse(raw) as SchwabConnection) : null;
 }
 
 export async function disconnectSchwab(bindings: AppBindings): Promise<void> {
@@ -51,13 +50,18 @@ export async function disconnectSchwab(bindings: AppBindings): Promise<void> {
 
 export type ValidAccessTokenResult =
   | { ok: true; accessToken: string }
-  | { ok: false; reason: "not_connected" | "refresh_token_expired" | "refresh_failed" };
+  | { ok: false; reason: "not_connected" | "refresh_token_expired" | "refresh_failed" | "storage_unavailable" };
 
 // Returns a currently-valid access token, transparently refreshing it via the refresh_token if
 // the 30-minute access token has expired. If the refresh_token itself is past its 7-day life,
 // there's nothing this function can do -- the caller needs to prompt the user to reconnect.
 export async function getValidAccessToken(bindings: AppBindings): Promise<ValidAccessTokenResult> {
-  const conn = await getConnection(bindings);
+  let conn: SchwabConnection | null;
+  try {
+    conn = await getConnection(bindings);
+  } catch {
+    return { ok: false, reason: "storage_unavailable" };
+  }
   if (!conn) return { ok: false, reason: "not_connected" };
 
   if (new Date(conn.access_token_expires_at).getTime() > Date.now() + 30_000) {

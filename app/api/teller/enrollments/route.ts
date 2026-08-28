@@ -14,18 +14,22 @@ type Enrollment = {
   connected_at: string;
 };
 
+// Throws on a real storage failure instead of silently returning [] -- DELETE below writes
+// back whatever this returns, so a swallowed read failure treated as "no enrollments" would
+// wipe out every other already-connected bank on a transient KV hiccup.
 async function loadEnrollments(): Promise<Enrollment[]> {
-  try {
-    const raw = await bindings.VAULT.get(ENROLLMENTS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  const raw = await bindings.VAULT.get(ENROLLMENTS_KEY);
+  return raw ? JSON.parse(raw) : [];
 }
 
 // List enrollments — strips access_token before sending to client
 export async function GET() {
-  const enrollments = await loadEnrollments();
+  let enrollments: Enrollment[];
+  try {
+    enrollments = await loadEnrollments();
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "read failed"), { status: 503 });
+  }
   return Response.json(
     enrollments.map(({ access_token: _, ...e }) => e)
   );
@@ -41,7 +45,12 @@ export async function DELETE(request: Request) {
   }
   if (!body.enrollment_id) return new Response("Missing enrollment_id", { status: 400 });
 
-  const enrollments = await loadEnrollments();
+  let enrollments: Enrollment[];
+  try {
+    enrollments = await loadEnrollments();
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "read failed"), { status: 503 });
+  }
   const filtered = enrollments.filter((e) => e.enrollment_id !== body.enrollment_id);
   try {
     await bindings.VAULT.put(ENROLLMENTS_KEY, JSON.stringify(filtered));

@@ -98,7 +98,15 @@ export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult
   const deductionUsed = usedItemized ? itemized : rules.standardDeduction;
   const taxableOrdinary = Math.max(0, ordinaryIncome - deductionUsed);
   const ordinaryTax = applyBrackets(taxableOrdinary, rules.federalBrackets);
-  const ltcgTax = applyBrackets(longTermGain, rules.longTermCapGainBrackets);
+  // LTCG brackets apply on top of ordinary taxable income, not from $0 -- e.g. at $370k
+  // ordinary income, a $100k gain is taxed entirely at 15%, not partly at the 0% bracket the
+  // gain would see if it were the household's only income. Stack-then-subtract gives the tax
+  // on just the gain slice sitting above taxableOrdinary in the LTCG bracket table.
+  const ltcgTax = Math.max(
+    0,
+    applyBrackets(taxableOrdinary + longTermGain, rules.longTermCapGainBrackets) -
+      applyBrackets(taxableOrdinary, rules.longTermCapGainBrackets)
+  );
 
   const medicareWages = input.medicareWages ?? input.wages;
   const additionalMedicareTax = round2(

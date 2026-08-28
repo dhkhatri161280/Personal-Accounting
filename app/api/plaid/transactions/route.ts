@@ -21,7 +21,15 @@ export async function GET(request: Request) {
   try {
     const raw = await bindings.VAULT.get(CONNECTIONS_KEY);
     if (raw) connections = JSON.parse(raw);
-  } catch {}
+  } catch (e: any) {
+    // A storage read failure must not look like "zero transactions, zero errors" -- that's
+    // indistinguishable from a genuinely clean, complete sync of a user with no banks
+    // connected, which is the single worst failure mode for a transaction sync endpoint.
+    return Response.json(
+      { transactions: [], accounts: [], errors: ["Storage unavailable: " + (e?.message || "read failed")] },
+      { status: 503 }
+    );
+  }
 
   if (connections.length === 0)
     return Response.json({ transactions: [], accounts: [], errors: [] });

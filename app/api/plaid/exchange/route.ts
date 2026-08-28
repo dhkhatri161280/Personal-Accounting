@@ -35,7 +35,9 @@ export async function POST(request: Request) {
   if (!resp.ok || !data.access_token)
     return Response.json({ error: data.error_message || "Exchange failed" }, { status: 400 });
 
-  // Load existing connections
+  // Load existing connections. A failed read must NOT silently fall through to an empty list --
+  // the write below replaces the whole key, so treating a storage hiccup as "no connections yet"
+  // would wipe out every other already-connected bank.
   let connections: Array<{
     access_token: string;
     item_id: string;
@@ -46,7 +48,9 @@ export async function POST(request: Request) {
   try {
     const raw = await bindings.VAULT.get(CONNECTIONS_KEY);
     if (raw) connections = JSON.parse(raw);
-  } catch {}
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "read failed"), { status: 503 });
+  }
 
   // Replace if same institution already connected
   connections = connections.filter((c) => c.item_id !== data.item_id);

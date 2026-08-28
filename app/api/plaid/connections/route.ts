@@ -14,18 +14,22 @@ type Connection = {
   connected_at: string;
 };
 
+// Throws on a real storage failure instead of silently returning [] -- a caller treating a
+// failed read as "no connections" and then writing that empty list back (e.g. DELETE below)
+// would wipe out every other already-connected bank on a transient KV hiccup.
 async function loadConnections(): Promise<Connection[]> {
-  try {
-    const raw = await bindings.VAULT.get(CONNECTIONS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  const raw = await bindings.VAULT.get(CONNECTIONS_KEY);
+  return raw ? JSON.parse(raw) : [];
 }
 
 // List connections (strips access_token — never sent to client)
 export async function GET() {
-  const connections = await loadConnections();
+  let connections: Connection[];
+  try {
+    connections = await loadConnections();
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "read failed"), { status: 503 });
+  }
   return Response.json(
     connections.map(({ access_token: _, ...c }) => c)
   );
@@ -41,7 +45,12 @@ export async function DELETE(request: Request) {
   }
   if (!body.item_id) return new Response("Missing item_id", { status: 400 });
 
-  const connections = await loadConnections();
+  let connections: Connection[];
+  try {
+    connections = await loadConnections();
+  } catch (e: any) {
+    return new Response("Storage unavailable: " + (e?.message || "read failed"), { status: 503 });
+  }
   const filtered = connections.filter((c) => c.item_id !== body.item_id);
   try {
     await bindings.VAULT.put(CONNECTIONS_KEY, JSON.stringify(filtered));
