@@ -6,7 +6,7 @@ import type { Trade, Ledger, Tx } from "@/lib/vault-types";
 import { fmtDate } from "@/lib/format-date";
 import { StatIcon } from "@/components/Icon";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
-import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
+import { nextVoucherNumber, nextTransactionIds, recomputeVoucherNumbers } from "@/lib/vault-accounting";
 import { parseSchwabTransactionsCsv, classifySchwabRows, type SchwabCsvRow } from "@/lib/parse-schwab-csv";
 
 function uid() {
@@ -557,16 +557,24 @@ export function TradingReport({
     return rows.sort((a, b) => b.date.localeCompare(a.date));
   }, [classifiedCsv]);
 
-  // Best-effort, informational only (never blocks the Add button) -- a same-day, same-amount
-  // voucher whose narration mentions the symbol (for dividends) or "interest"/"dividend".
+  // Narration a posted voucher for this row would carry -- shared between the posting functions
+  // and the already-recorded check below, so they always agree on what "this row" looks like
+  // once posted.
+  function incomeNarration(row: SchwabCsvRow): string {
+    return `${row.symbol} ${row.action}`.trim() + ` (${fmtDate(row.date)})`;
+  }
+
+  // Best-effort, informational only (never blocks the Add button) -- matched by narration+amount,
+  // NOT date, since a posted voucher is dated when it was ENTERED (today), not the original
+  // transaction date -- see addIncomeVoucher below.
   function likelyRecorded(row: SchwabCsvRow): boolean {
     if (!data) return false;
     const amt = Math.abs(row.amount ?? 0);
-    const symbolOrKind = row.symbol || (/interest/i.test(row.action) ? "interest" : "dividend");
+    const narration = incomeNarration(row);
     return data.transactions.some((v) =>
-      !v.deleted && v.date === row.date &&
+      !v.deleted &&
       v.entries.some((e) => Math.abs(Math.abs(e.amount) - amt) < 0.01) &&
-      new RegExp(symbolOrKind, "i").test(v.narration || "")
+      (v.narration || "").trim() === narration
     );
   }
 
@@ -587,15 +595,16 @@ export function TradingReport({
     const key = rowKey(row);
     setAddingRowKey(key);
     try {
+      const todayIso = new Date().toISOString().slice(0, 10);
       const amt = Math.abs(row.amount ?? 0);
       const tx: Tx = {
         id: nextTransactionIds(data.transactions, 1)[0],
         guid: crypto.randomUUID(),
         createdAt: new Date().toISOString(),
-        date: row.date,
-        number: nextVoucherNumber(data, "Receipt", row.date),
+        date: todayIso, // catch-up entry posted TODAY, not backdated into an already-reported period
+        number: nextVoucherNumber(data, "Receipt", todayIso),
         type: "Receipt",
-        narration: `${row.symbol} ${row.action}`.trim(),
+        narration: incomeNarration(row),
         historical: false,
         cancelled: false,
         syncStatus: "pending",
@@ -621,10 +630,12 @@ export function TradingReport({
     [incomeRows, addedRowKeys, data]
   );
 
-  // Posts one Receipt voucher per row (not a single lump sum) so each keeps its own real date,
-  // narration, and symbol -- matters for date-based reports and for spotting a specific one
-  // later if it turns out wrong. Numbers each sequentially against a running copy of the ledger
-  // so two vouchers landing on dates that would otherwise collide still get distinct numbers.
+  // Posts one Receipt voucher per row (not a single lump sum) so each keeps its own narration and
+  // symbol -- matters for spotting a specific one later if it turns out wrong -- but ALL dated
+  // TODAY as a catch-up entry, never backdated to the original transaction date, since that would
+  // reach back into already-closed/reported periods. The original date is preserved in the
+  // narration instead (see incomeNarration). Numbered sequentially against a running copy of the
+  // ledger so multiple same-day vouchers still get distinct numbers.
   async function addAllIncomeVouchers() {
     if (!data || !onSaveLedger || divDebitAcctId === "" || divCreditAcctId === "" || !bulkEligibleRows.length) return;
     const debitAcct = data.accounts.find((a) => a.id === divDebitAcctId);
@@ -632,6 +643,7 @@ export function TradingReport({
     if (!debitAcct || !creditAcct) return;
     setAddingAll(true);
     try {
+      const todayIso = new Date().toISOString().slice(0, 10);
       let workingTxs = [...data.transactions];
       const newKeys: string[] = [];
       for (const row of bulkEligibleRows) {
@@ -640,10 +652,10 @@ export function TradingReport({
           id: nextTransactionIds(workingTxs, 1)[0],
           guid: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
-          date: row.date,
-          number: nextVoucherNumber({ ...data, transactions: workingTxs }, "Receipt", row.date),
+          date: todayIso,
+          number: nextVoucherNumber({ ...data, transactions: workingTxs }, "Receipt", todayIso),
           type: "Receipt",
-          narration: `${row.symbol} ${row.action}`.trim(),
+          narration: incomeNarration(row),
           historical: false,
           cancelled: false,
           syncStatus: "pending",
@@ -659,6 +671,68 @@ export function TradingReport({
       if (ok) setAddedRowKeys((prev) => new Set([...prev, ...newKeys]));
     } finally {
       setAddingAll(false);
+    }
+  }
+
+  // One-time repair for vouchers already posted with the ORIGINAL bug (dated to the historical
+  // transaction date instead of today) -- detected by exact narration+amount match against the
+  // currently-loaded CSV, using the pre-fix narration format (just "SYMBOL Action", no date
+  // suffix), Receipt type, and the currently-selected debit/credit accounts. Moves each to
+  // today's date and refreshes its narration to the corrected format, rather than deleting and
+  // reposting, so the voucher's own history/guid is preserved. Renumbers the whole ledger
+  // afterward so voucher numbers stay consistent with the corrected dates.
+  function isBackdatedIncomeVoucher(v: Tx): SchwabCsvRow | null {
+    if (v.deleted || v.type !== "Receipt" || v.entries.length !== 2) return null;
+    if (divDebitAcctId === "" || divCreditAcctId === "") return null;
+    const debit = v.entries.find((e) => e.amount < 0);
+    const credit = v.entries.find((e) => e.amount > 0);
+    if (!debit || !credit || debit.accountId !== divDebitAcctId || credit.accountId !== divCreditAcctId) return null;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    if (v.date === todayIso) return null; // already correct
+    // v.date === row.date is a required match, not just amount+narration -- two rows can share
+    // both (e.g. two separate $22.00 ORCL dividends on different dates), and the bug being fixed
+    // here is exactly that each voucher's date still equals its own source row's original date,
+    // so that's the one piece of evidence that disambiguates which row a given voucher came from.
+    return (
+      incomeRows.find(
+        (row) =>
+          row.date === v.date &&
+          Math.abs(Math.abs(debit.amount) - Math.abs(row.amount ?? 0)) < 0.01 &&
+          (v.narration || "").trim() === `${row.symbol} ${row.action}`.trim()
+      ) ?? null
+    );
+  }
+
+  const backdatedCount = useMemo(() => {
+    if (!data) return 0;
+    return data.transactions.filter((v) => isBackdatedIncomeVoucher(v) !== null).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, incomeRows, divDebitAcctId, divCreditAcctId]);
+
+  const [fixingDates, setFixingDates] = useState(false);
+
+  async function fixBackdatedPostings() {
+    if (!data || !onSaveLedger) return;
+    setFixingDates(true);
+    try {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const nextTx = data.transactions.map((v) => {
+        const row = isBackdatedIncomeVoucher(v);
+        if (!row) return v;
+        return {
+          ...v,
+          date: todayIso,
+          narration: incomeNarration(row),
+          syncStatus: "pending" as const,
+          syncFingerprint: v.syncFingerprint || `app-change-${Date.now()}`,
+          lastSyncedAt: undefined,
+        };
+      });
+      const nextData: Ledger = { ...data, transactions: nextTx };
+      recomputeVoucherNumbers(nextData);
+      await onSaveLedger(nextData);
+    } finally {
+      setFixingDates(false);
     }
   }
 
@@ -1027,6 +1101,20 @@ export function TradingReport({
                   these are RSU shares transferred in from Equity Award Center for safekeeping,
                   not purchases. Tracked in the Equity report, not here.
                 </p>
+              )}
+
+              {backdatedCount > 0 && (
+                <div style={{ border: "1px solid #fca5a5", background: "#fef2f2", borderRadius: 8, padding: "0.65rem 0.85rem", marginBottom: "1rem" }}>
+                  <p style={{ fontSize: 13, margin: "0 0 0.5rem", color: "#991b1b" }}>
+                    <strong>{backdatedCount} voucher(s) were posted with the wrong date</strong> --
+                    backdated to their original transaction date instead of today. This moves each
+                    one to today's date and refreshes voucher numbering, without deleting or
+                    recreating them.
+                  </p>
+                  <button onClick={fixBackdatedPostings} disabled={fixingDates}>
+                    {fixingDates ? "Fixing…" : `Fix ${backdatedCount} Backdated Voucher(s)`}
+                  </button>
+                </div>
               )}
 
               {/* Dividends + Bank Interest -- every row shown, each addable independently */}
