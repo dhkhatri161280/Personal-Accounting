@@ -181,6 +181,12 @@ const GENERIC_FINANCE_WORDS = new Set([
 function tokenise(text: string): string[] {
   return (text || "")
     .toLowerCase()
+    // Collapse an "&" glued directly to letters on both sides (PG&E, AT&T, S&P) into one word
+    // BEFORE the general split below -- otherwise it breaks into fragments too short to survive
+    // the length filter (PG&E -> "pg" + "e", both dropped) and merchant matching sees zero
+    // tokens at all. A spaced "Bed & Bath" is untouched (no non-space char touching the &), so
+    // it still splits into two separate real words as expected.
+    .replace(/(\S)&(\S)/g, "$1$2")
     .split(/[\s\W]+/)
     .filter((w) => w.length > 2 && !/^\d+$/.test(w) && !GENERIC_FINANCE_WORDS.has(w)); // drop pure numbers (store IDs, dates) and generic finance noise words
 }
