@@ -867,6 +867,23 @@ function vaultBookBalance(accountId: number, plaidType: string, ledger: Ledger):
   return plaidType === "credit" ? sum : -sum;
 }
 
+// Same convention as vaultBookBalance, but scoped to entries tagged with a specific Plaid
+// account_id (see Tx.plaidAccountId) -- lets two physical accounts that both post to the same
+// GL account (e.g. two BofA credit cards) be reconciled separately instead of only as a
+// combined total. Only entries saved from a Plaid import after this tagging existed carry the
+// tag; older/manual entries are untagged and fall into the "leftover" bucket computed by the
+// caller (total vaultBookBalance minus the sum of every physical account's tagged balance).
+function vaultBookBalanceForPlaidAccount(accountId: number, plaidType: string, plaidAccountId: string, ledger: Ledger): number {
+  let sum = 0;
+  for (const v of ledger.transactions) {
+    if (v.deleted || v.cancelled || v.plaidAccountId !== plaidAccountId) continue;
+    for (const e of v.entries) {
+      if (e.accountId === accountId) sum += e.amount;
+    }
+  }
+  return plaidType === "credit" ? sum : -sum;
+}
+
 // Sum of vault entries with syncStatus==="bank-pending" for this account.
 // These are transactions posted via the Pending tab that haven't cleared the bank yet.
 // Used to compute Adj Diff = Plaid − Vault + VaultPendingNet; when zero, books are reconciled.
@@ -1187,6 +1204,7 @@ export function PlaidImport({ data, onSave }: Props) {
         guid: crypto.randomUUID(),
         syncStatus: "bank-pending" as const,
         createdAt: importedAt,
+        plaidAccountId: r.plaidTx.account_id,
         date: r.plaidTx.date,
         number: "",
         type: r.voucherType,
@@ -1314,6 +1332,7 @@ export function PlaidImport({ data, onSave }: Props) {
         guid: crypto.randomUUID(),
         syncStatus: "pending" as const,
         createdAt: importedAt,
+        plaidAccountId: r.plaidTx.account_id,
         date: r.plaidTx.date,
         number: "",
         type: r.voucherType,
@@ -2172,6 +2191,12 @@ export function PlaidImport({ data, onSave }: Props) {
                       pendingByAcctId.set(tx.account_id, (pendingByAcctId.get(tx.account_id) || 0) + tx.amount);
                     }
 
+                    // One row per physical Plaid account, always -- never merged, even when two
+                    // physical accounts (e.g. two BofA credit cards, one per spouse) map to the
+                    // same GL account. Each keeps its own real Plaid balance/pending; only the
+                    // Vault Balance side needs to be split further below, since the ledger itself
+                    // doesn't distinguish which card a transaction came from unless it's tagged
+                    // (Tx.plaidAccountId) -- see vaultBookBalanceForPlaidAccount.
                     const groups: Array<{
                       vaultAcct: Account | undefined;
                       institutions: string[];
@@ -2182,7 +2207,6 @@ export function PlaidImport({ data, onSave }: Props) {
                       pendingSum: number;
                       plaidAccts: PlaidAccount[];
                     }> = [];
-                    const byVaultId = new Map<number, number>();
 
                     for (const acct of plaidAccounts) {
                       const vaultAcct = matchVaultAccount(acct, vaultAccs);
@@ -2192,30 +2216,23 @@ export function PlaidImport({ data, onSave }: Props) {
                         : (acct.balances?.current ?? null);
                       const inst = acct.institution_name || "—";
                       const pending = pendingByAcctId.get(acct.account_id) ?? 0;
-
-                      if (vaultAcct && byVaultId.has(vaultAcct.id)) {
-                        const g = groups[byVaultId.get(vaultAcct.id)!];
-                        if (!g.institutions.includes(inst)) g.institutions.push(inst);
-                        g.names.push(acct.name);
-                        const t = acct.subtype || acct.type;
-                        if (!g.types.includes(t)) g.types.push(t);
-                        if (bal !== null) g.plaidBal = (g.plaidBal ?? 0) + bal;
-                        g.pendingSum += pending;
-                        g.plaidAccts.push(acct);
-                      } else {
-                        const idx = groups.length;
-                        groups.push({
-                          vaultAcct,
-                          institutions: [inst],
-                          names: [acct.name],
-                          types: [acct.subtype || acct.type],
-                          plaidBal: bal,
-                          plaidType: acct.type,
-                          pendingSum: pending,
-                          plaidAccts: [acct],
-                        });
-                        if (vaultAcct) byVaultId.set(vaultAcct.id, idx);
-                      }
+                      groups.push({
+                        vaultAcct,
+                        institutions: [inst],
+                        names: [acct.name],
+                        types: [acct.subtype || acct.type],
+                        plaidBal: bal,
+                        plaidType: acct.type,
+                        pendingSum: pending,
+                        plaidAccts: [acct],
+                      });
+                    }
+                    // How many physical Plaid accounts share each GL account -- >1 means the Vault
+                    // Balance column below has to use the tagged per-card split, not the full total.
+                    const vaultIdShareCount = new Map<number, number>();
+                    for (const g of groups) {
+                      if (!g.vaultAcct) continue;
+                      vaultIdShareCount.set(g.vaultAcct.id, (vaultIdShareCount.get(g.vaultAcct.id) ?? 0) + 1);
                     }
 
                     // Fixed display order: BofA → Citi → AMEX → Chase → others; depository before credit within each institution
@@ -2238,8 +2255,20 @@ export function PlaidImport({ data, onSave }: Props) {
                       return (a.vaultAcct?.name || "").localeCompare(b.vaultAcct?.name || "");
                     });
 
-                    return groups.map((g, i) => {
-                      const vaultBal = g.vaultAcct ? vaultBookBalance(g.vaultAcct.id, g.plaidType, data) : null;
+                    // Captured per-row so a "Total" row can sum the ALREADY correctly-signed
+                    // per-card figures (refunds/credits netted against charges exactly the same
+                    // way every other card's own row already computes it) for shared GL accounts.
+                    const rowSummaries: Array<{ vaultAcctId: number | undefined; plaidBal: number | null; uncleared: number }> = [];
+                    const realRows = groups.map((g, i) => {
+                      // Shared: >1 physical Plaid account posts to this same GL account (e.g. two
+                      // spouses' BofA cards) -- use only THIS card's tagged entries, not the full
+                      // combined GL total, so each row reconciles against its own real activity.
+                      const shared = !!g.vaultAcct && (vaultIdShareCount.get(g.vaultAcct.id) ?? 0) > 1;
+                      const vaultBal = !g.vaultAcct
+                        ? null
+                        : shared
+                          ? vaultBookBalanceForPlaidAccount(g.vaultAcct.id, g.plaidType, g.plaidAccts[0].account_id, data)
+                          : vaultBookBalance(g.vaultAcct.id, g.plaidType, data);
                       const acctIdSet = new Set(g.plaidAccts.map((a) => a.account_id));
 
                       // Drill-down: identify which transactions explain the gap
@@ -2248,11 +2277,16 @@ export function PlaidImport({ data, onSave }: Props) {
                         ...pendingRows.filter((r) => acctIdSet.has(r.plaidTx.account_id)),
                       ].sort((a, b) => b.plaidTx.date.localeCompare(a.plaidTx.date));
 
-                      // Vault entries for this account (last 90 days to cover Plaid window)
+                      // Vault entries for this account (last 90 days to cover Plaid window) --
+                      // when shared, further scoped to entries tagged for THIS physical card, so
+                      // the drill-down doesn't pull in the other card's activity on the same GL.
                       const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0];
                       const recentVaultEntries = g.vaultAcct
                         ? data.transactions
-                            .filter((v) => !v.deleted && !v.cancelled && v.date >= cutoff90)
+                            .filter((v) =>
+                              !v.deleted && !v.cancelled && v.date >= cutoff90 &&
+                              (!shared || v.plaidAccountId === g.plaidAccts[0].account_id)
+                            )
                             .flatMap((v) =>
                               v.entries
                                 .filter((e) => e.accountId === g.vaultAcct!.id)
@@ -2324,6 +2358,7 @@ export function PlaidImport({ data, onSave }: Props) {
                       const diff = g.plaidBal !== null && vaultBal !== null
                         ? g.plaidBal - vaultBal + uncleared
                         : null;
+                      rowSummaries.push({ vaultAcctId: g.vaultAcct?.id, plaidBal: g.plaidBal, uncleared });
                       const pendingClearingTotal = unclearedItems.reduce((s, u) => s + Math.abs(u.amount), 0);
                       const balanced = diff !== null && Math.abs(diff) < 1;
                       const isExpanded = expandedReconIdx === i;
@@ -2472,6 +2507,71 @@ export function PlaidImport({ data, onSave }: Props) {
                         </React.Fragment>
                       );
                     });
+
+                    // For each GL account shared by multiple physical Plaid accounts, insert two
+                    // rows right after its last card row: an "Untagged" line for whatever portion
+                    // of the vault balance isn't attributable to any specific card (entries posted
+                    // before tagging existed, or entered manually — shrinks as more Plaid-tagged
+                    // transactions land), and a "Total" line summing every card's ALREADY
+                    // correctly-signed figures (refunds/credits netted against charges exactly like
+                    // every other card's own row) plus that untagged portion, so it reconciles
+                    // directly against the one real GL balance for this shared account.
+                    const lastIndexForVaultId = new Map<number, number>();
+                    groups.forEach((g, i) => { if (g.vaultAcct) lastIndexForVaultId.set(g.vaultAcct.id, i); });
+
+                    const finalRows: React.ReactNode[] = [];
+                    groups.forEach((g, i) => {
+                      finalRows.push(realRows[i]);
+                      if (!g.vaultAcct) return;
+                      const vid = g.vaultAcct.id;
+                      if ((vaultIdShareCount.get(vid) ?? 0) <= 1 || lastIndexForVaultId.get(vid) !== i) return;
+
+                      const vName = g.vaultAcct.name;
+                      const members = groups.filter((gg) => gg.vaultAcct?.id === vid);
+                      const totalVaultBal = vaultBookBalance(vid, g.plaidType, data);
+                      const taggedSum = members.reduce(
+                        (s, gg) => s + vaultBookBalanceForPlaidAccount(vid, gg.plaidType, gg.plaidAccts[0].account_id, data), 0
+                      );
+                      const leftover = totalVaultBal - taggedSum;
+                      if (Math.abs(leftover) >= 0.01) {
+                        finalRows.push(
+                          <tr key={`untagged-${vid}`} className="plaid-recon-row">
+                            <td
+                              colSpan={2}
+                              title="Entries on this GL account posted before per-card tagging existed, or entered manually — not attributable to either physical card individually. Shrinks as more Plaid-tagged transactions accumulate."
+                            >
+                              ↳ Untagged / manual entries on {vName}
+                            </td>
+                            <td className="plaid-recon-type">—</td>
+                            <td className="plaid-recon-amt">—</td>
+                            <td><span className="plaid-recon-zero">—</span></td>
+                            <td className="plaid-recon-amt">${leftover.toFixed(2)}</td>
+                            <td>—</td>
+                          </tr>
+                        );
+                      }
+
+                      const memberSummaries = rowSummaries.filter((r) => r.vaultAcctId === vid);
+                      const totalPlaidBal = memberSummaries.every((m) => m.plaidBal !== null)
+                        ? memberSummaries.reduce((s, m) => s + (m.plaidBal ?? 0), 0)
+                        : null;
+                      const totalUncleared = memberSummaries.reduce((s, m) => s + m.uncleared, 0);
+                      const totalDiff = totalPlaidBal !== null ? totalPlaidBal - totalVaultBal + totalUncleared : null;
+                      const totalBalanced = totalDiff !== null && Math.abs(totalDiff) < 1;
+                      finalRows.push(
+                        <tr key={`total-${vid}`} className="plaid-recon-row plaid-recon-total-row">
+                          <td colSpan={2}><strong>Total — {vName}</strong></td>
+                          <td className="plaid-recon-type">—</td>
+                          <td className="plaid-recon-amt"><strong>{totalPlaidBal !== null ? `$${totalPlaidBal.toFixed(2)}` : "—"}</strong></td>
+                          <td className="plaid-recon-amt"><strong>{totalUncleared >= 0 ? "+" : ""}${totalUncleared.toFixed(2)}</strong></td>
+                          <td className="plaid-recon-amt"><strong>${totalVaultBal.toFixed(2)}</strong></td>
+                          <td className={`plaid-recon-diff${totalDiff !== null ? (totalBalanced ? " good" : " bad") : ""}`}>
+                            <strong>{totalDiff !== null ? `${totalDiff >= 0 ? "+" : ""}$${totalDiff.toFixed(2)}` : "—"}</strong>
+                          </td>
+                        </tr>
+                      );
+                    });
+                    return finalRows;
                   })()}
                 </tbody>
               </table>

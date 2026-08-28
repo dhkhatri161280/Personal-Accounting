@@ -12,6 +12,9 @@ export type Tx = {
   syncStatus?: string;
   lastSyncedAt?: string;
   createdAt?: string;   // ISO timestamp when this entry was first saved to vault
+  plaidAccountId?: string; // Plaid's account_id, when this Tx came from a Plaid import -- lets
+  // the Balances reconciliation tell apart two physical accounts (e.g. two credit cards) that
+  // both post to the same GL account. Purely a reconciliation hint, never used for accounting.
   date: string;
   number: string;
   type: string;
