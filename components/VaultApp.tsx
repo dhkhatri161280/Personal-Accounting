@@ -2576,6 +2576,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onSave={async (trades) => {
                 await save({ ...data, trades }, "reports");
               }}
+              data={data}
+              onSaveLedger={(next) => save(next, "reports")}
             />
           )}
           {report === "tax" && data && book === "india" && (

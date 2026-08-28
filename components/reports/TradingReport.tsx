@@ -2,10 +2,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
 import type { WatchlistEntry } from "@/lib/watchlist-default";
-import type { Trade } from "@/lib/vault-types";
+import type { Trade, Ledger, Tx } from "@/lib/vault-types";
 import { fmtDate } from "@/lib/format-date";
 import { StatIcon } from "@/components/Icon";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
+import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
+import { parseSchwabTransactionsCsv, classifySchwabRows, type SchwabCsvRow } from "@/lib/parse-schwab-csv";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -179,12 +181,16 @@ function daysBetween(d1: string, d2: string) {
   return Math.round((new Date(d2).getTime() - new Date(d1).getTime()) / 86400000);
 }
 export function TradingReport({
-  fmt, uiTheme, trades, onSave,
+  fmt, uiTheme, trades, onSave, data, onSaveLedger,
 }: {
   fmt: (n: number) => string;
   uiTheme?: "classic" | "refresh";
   trades: Trade[] | undefined; // undefined = never migrated to vault storage yet, see effect below
   onSave: (trades: Trade[]) => Promise<void>;
+  // Full ledger access, only needed for the Schwab CSV reconcile tool below (dividend voucher
+  // posting + comparing Trading's own cost basis against the real GL account balance).
+  data?: Ledger;
+  onSaveLedger?: (next: Ledger) => Promise<boolean>;
 }) {
   const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">("open");
   // Click-any-column-header sorting, Excel-style: null = default order, otherwise sort by that
@@ -458,8 +464,135 @@ export function TradingReport({
     }
   }
 
+  // ── Schwab CSV reconcile (Accounts > History > Export on Schwab.com -- separate from, and
+  // much more complete than, the Trader API, which can only ever see forward from whenever
+  // thinkorswim was enabled). Read-only cross-check against Trading's own records, plus an
+  // optional single-dividend voucher proposal -- never writes trades automatically. ──────────
+  const [csvRows, setCsvRows] = useState<SchwabCsvRow[] | null>(null);
+  const [csvError, setCsvError] = useState("");
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [divDebitAcctId, setDivDebitAcctId] = useState<number | "">("");
+  const [divCreditAcctId, setDivCreditAcctId] = useState<number | "">("");
+  const [divSaving, setDivSaving] = useState(false);
+  const [divSaved, setDivSaved] = useState(false);
+  const [glCompareAcctId, setGlCompareAcctId] = useState<number | "">("");
+
+  function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setCsvError("");
+    setDivSaved(false);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      const rows = parseSchwabTransactionsCsv(text);
+      if (!rows.length) {
+        setCsvError('Could not parse any rows -- is this a Schwab "Export" transaction history CSV?');
+        return;
+      }
+      setCsvRows(rows);
+    };
+    reader.onerror = () => setCsvError("Failed to read file.");
+    reader.readAsText(file);
+  }
+
+  const classifiedCsv = useMemo(() => (csvRows ? classifySchwabRows(csvRows) : null), [csvRows]);
+
+  const tradeMatches = useMemo(() => {
+    if (!classifiedCsv) return [];
+    return classifiedCsv.trades.map((row) => {
+      const qty = Math.abs(row.quantity ?? 0);
+      const price = row.price ?? 0;
+      const matched = effectiveTrades.some((t) => {
+        if (t.symbol !== row.symbol || t.broker !== SCHWAB_SYNC_BROKER) return false;
+        if (row.action === "Buy") return t.buyDate === row.date && Math.abs(t.units - qty) < 0.01 && Math.abs(t.costPerSh - price) < 0.01;
+        if (row.action === "Sell") return t.saleDate === row.date && Math.abs(t.units - qty) < 0.01 && Math.abs(t.marketOrSalePrice - price) < 0.01;
+        return false;
+      });
+      return { row, matched };
+    });
+  }, [classifiedCsv, effectiveTrades]);
+
+  // Most recent dividend only -- explicitly NOT proposing older ones too, since those may
+  // already have been accounted for by hand and re-adding them would double-count income.
+  const latestDividend = useMemo(() => {
+    if (!classifiedCsv || !classifiedCsv.dividends.length) return null;
+    return [...classifiedCsv.dividends].sort((a, b) => b.date.localeCompare(a.date))[0];
+  }, [classifiedCsv]);
+
+  // Best-effort, informational only (never blocks the Add button either way) -- a same-day,
+  // same-amount voucher whose narration mentions the symbol or "dividend".
+  const latestDividendLikelyRecorded = useMemo(() => {
+    if (!latestDividend || !data) return false;
+    const amt = Math.abs(latestDividend.amount ?? 0);
+    return data.transactions.some((v) =>
+      !v.deleted && v.date === latestDividend.date &&
+      v.entries.some((e) => Math.abs(Math.abs(e.amount) - amt) < 0.01) &&
+      (new RegExp(latestDividend.symbol, "i").test(v.narration || "") || /dividend/i.test(v.narration || ""))
+    );
+  }, [latestDividend, data]);
+
+  // Default the account pickers via a fuzzy name match once the CSV loads, same "findAcct"-style
+  // pattern used elsewhere -- editable in the UI below, never silently assumed.
+  useEffect(() => {
+    if (!data || !csvRows) return;
+    setDivDebitAcctId((cur) => cur !== "" ? cur : (data.accounts.find((a) => a.active !== false && /schwab/i.test(a.name))?.id ?? ""));
+    setDivCreditAcctId((cur) => cur !== "" ? cur : (data.accounts.find((a) => a.active !== false && /dividend/i.test(a.name))?.id ?? ""));
+    setGlCompareAcctId((cur) => cur !== "" ? cur : (data.accounts.find((a) => a.active !== false && /schwab/i.test(a.name))?.id ?? ""));
+  }, [csvRows, data]);
+
+  async function addDividendVoucher() {
+    if (!latestDividend || !data || !onSaveLedger || divDebitAcctId === "" || divCreditAcctId === "") return;
+    const debitAcct = data.accounts.find((a) => a.id === divDebitAcctId);
+    const creditAcct = data.accounts.find((a) => a.id === divCreditAcctId);
+    if (!debitAcct || !creditAcct) return;
+    setDivSaving(true);
+    try {
+      const amt = Math.abs(latestDividend.amount ?? 0);
+      const tx: Tx = {
+        id: nextTransactionIds(data.transactions, 1)[0],
+        guid: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        date: latestDividend.date,
+        number: nextVoucherNumber(data, "Receipt", latestDividend.date),
+        type: "Receipt",
+        narration: `${latestDividend.symbol} ${latestDividend.action}`.trim(),
+        historical: false,
+        cancelled: false,
+        syncStatus: "pending",
+        entries: [
+          { accountId: debitAcct.id, accountName: debitAcct.name, amount: -amt },
+          { accountId: creditAcct.id, accountName: creditAcct.name, amount: amt },
+        ],
+      };
+      const ok = await onSaveLedger({ ...data, transactions: [...data.transactions, tx] });
+      if (ok) setDivSaved(true);
+    } finally {
+      setDivSaving(false);
+    }
+  }
+
   const open   = effectiveTrades.filter(t => !t.saleDate);
   const closed = effectiveTrades.filter(t => !!t.saleDate);
+
+  // Cost basis of open Schwab (CST) positions, excluding NVDA (RSU-sourced, tracked in Equity
+  // report instead -- see SCHWAB_SYNC_EXCLUDE) -- for comparison against the real GL balance.
+  const openCostExclNvda = useMemo(
+    () => open.filter((t) => t.broker === SCHWAB_SYNC_BROKER && !SCHWAB_SYNC_EXCLUDE.has(t.symbol))
+      .reduce((s, t) => s + t.units * t.costPerSh, 0),
+    [open]
+  );
+  const glAcctBalance = useMemo(() => {
+    if (!data || glCompareAcctId === "") return null;
+    let sum = 0;
+    for (const v of data.transactions) {
+      if (v.deleted || v.cancelled) continue;
+      for (const e of v.entries) if (e.accountId === glCompareAcctId) sum += e.amount;
+    }
+    return -sum; // asset convention: Dr (negative) increases the asset -> balance = -sum
+  }, [data, glCompareAcctId]);
+  const glDiff = glAcctBalance !== null ? glAcctBalance - openCostExclNvda : null;
 
   const curPrice  = (t: Trade) => t.saleDate ? t.marketOrSalePrice : livePrice(t.symbol, t.marketOrSalePrice);
   const prevClose = (t: Trade) => t.saleDate ? t.yesterday : livePrevClose(t.symbol, t.yesterday);
@@ -614,6 +747,11 @@ export function TradingReport({
           <button className="tr-refresh-btn" onClick={() => fetchPrices(false)} disabled={priceLoading || pricesRefreshing}>
             ↻ Refresh prices
           </button>
+          {data && onSaveLedger && (
+            <button className="tr-refresh-btn" onClick={() => setCsvModalOpen(true)}>
+              📄 Reconcile Schwab CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -732,6 +870,141 @@ export function TradingReport({
               {syncApplying ? "Applying…" : "Apply Sync"}
             </button>
             <button onClick={() => setSyncActions(null)} disabled={syncApplying}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {csvModalOpen && (
+        <Modal
+          title="Reconcile Schwab CSV"
+          onClose={() => { setCsvModalOpen(false); setCsvRows(null); setCsvError(""); setDivSaved(false); }}
+          wide
+        >
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 1rem" }}>
+            Upload the transaction history CSV from Schwab.com (Accounts → History → Export) --
+            this is separate from the Trader API and covers your full account history, not just
+            what's synced so far. Read-only cross-check against Trading; nothing here is saved
+            except the one dividend voucher below, and only if you click Add.
+          </p>
+          {!csvRows ? (
+            <>
+              <input type="file" accept=".csv" onChange={handleCsvFile} />
+              {csvError && <p style={{ fontSize: 12, color: "#dc2626", margin: "0.75rem 0 0" }}>{csvError}</p>}
+            </>
+          ) : (
+            <>
+              {/* Trade cross-check */}
+              <h4 style={{ margin: "0 0 0.4rem" }}>Trades vs. Trading report ({SCHWAB_SYNC_BROKER} broker)</h4>
+              {tradeMatches.length === 0 ? (
+                <p style={{ fontSize: 13 }}>No Buy/Sell rows found in this file.</p>
+              ) : (
+                <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: "1rem" }}>
+                  {tradeMatches.map(({ row, matched }, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px", borderBottom: "1px solid #f1f5f9", fontSize: 12 }}>
+                      <span style={{ width: 20 }}>{matched ? "✓" : "⚠"}</span>
+                      <span style={{ width: 90 }}>{fmtDate(row.date)}</span>
+                      <span style={{ width: 45 }}>{row.action}</span>
+                      <span style={{ width: 55, fontWeight: 700 }}>{row.symbol}</span>
+                      <span style={{ width: 70 }}>{row.quantity ?? "—"} sh</span>
+                      <span style={{ width: 90 }}>@ ${(row.price ?? 0).toFixed(2)}</span>
+                      <span style={{ color: matched ? "#16a34a" : "#b45309" }}>{matched ? "found in Trading" : "not found in Trading — review"}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {classifiedCsv && classifiedCsv.journaledShares.length > 0 && (
+                <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 1rem" }}>
+                  {classifiedCsv.journaledShares.length} "Journaled Shares" row(s) found (
+                  {[...new Set(classifiedCsv.journaledShares.map((r) => r.symbol))].join(", ")}) --
+                  these are RSU shares transferred in from Equity Award Center for safekeeping,
+                  not purchases. Tracked in the Equity report, not here.
+                </p>
+              )}
+
+              {/* Dividend proposal -- most recent only */}
+              <h4 style={{ margin: "0 0 0.4rem" }}>Most recent dividend</h4>
+              {!latestDividend ? (
+                <p style={{ fontSize: 13 }}>No dividend rows found in this file.</p>
+              ) : (
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "0.65rem 0.85rem", marginBottom: "1rem" }}>
+                  <p style={{ fontSize: 13, margin: "0 0 0.5rem" }}>
+                    <strong>{fmtDate(latestDividend.date)} — {latestDividend.symbol} {latestDividend.action}</strong>
+                    {" "}${(latestDividend.amount ?? 0).toFixed(2)}
+                    {latestDividendLikelyRecorded && (
+                      <span style={{ color: "#16a34a" }}> — a matching voucher already appears to exist on this date; double-check before adding.</span>
+                    )}
+                  </p>
+                  <p style={{ fontSize: 11, color: "#64748b", margin: "0 0 0.5rem" }}>
+                    Only the most recent dividend is proposed -- earlier ones may already be
+                    recorded by hand and re-adding them would double-count income.
+                  </p>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <label style={{ fontSize: 12 }}>
+                      Debit (cash into):{" "}
+                      <select value={divDebitAcctId} onChange={(e) => setDivDebitAcctId(e.target.value ? Number(e.target.value) : "")}>
+                        <option value="">Select account…</option>
+                        {data!.accounts.filter((a) => a.active !== false).sort((a, b) => a.name.localeCompare(b.name)).map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={{ fontSize: 12 }}>
+                      Credit (income):{" "}
+                      <select value={divCreditAcctId} onChange={(e) => setDivCreditAcctId(e.target.value ? Number(e.target.value) : "")}>
+                        <option value="">Select account…</option>
+                        {data!.accounts.filter((a) => a.active !== false).sort((a, b) => a.name.localeCompare(b.name)).map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      onClick={addDividendVoucher}
+                      disabled={divSaving || divSaved || divDebitAcctId === "" || divCreditAcctId === ""}
+                    >
+                      {divSaved ? "Added ✓" : divSaving ? "Adding…" : "Add Voucher"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Cost basis vs GL balance */}
+              <h4 style={{ margin: "0 0 0.4rem" }}>Open position cost basis (excl. NVDA) vs. GL balance</h4>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: "0.5rem" }}>
+                <label style={{ fontSize: 12 }}>
+                  Compare against:{" "}
+                  <select value={glCompareAcctId} onChange={(e) => setGlCompareAcctId(e.target.value ? Number(e.target.value) : "")}>
+                    <option value="">Select account…</option>
+                    {data!.accounts.filter((a) => a.active !== false).sort((a, b) => a.name.localeCompare(b.name)).map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <table className="tr-table" style={{ maxWidth: 480 }}>
+                <tbody>
+                  <tr><td>Trading report cost basis ({SCHWAB_SYNC_BROKER}, excl. NVDA)</td><td className="right trading-amt">{fmt(openCostExclNvda)}</td></tr>
+                  <tr><td>Selected GL account balance</td><td className="right trading-amt">{glAcctBalance !== null ? fmt(glAcctBalance) : "—"}</td></tr>
+                  <tr>
+                    <td><strong>Difference</strong></td>
+                    <td className={`right trading-amt ${glDiff !== null ? (Math.abs(glDiff) < 1 ? "" : glClass(glDiff)) : ""}`}>
+                      <strong>{glDiff !== null ? fmt(glDiff) : "—"}</strong>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style={{ fontSize: 11, color: "#64748b", margin: "0.5rem 0 0" }}>
+                Cost basis is what Trading has recorded as paid for currently-open Schwab positions
+                (NVDA excluded -- it's RSU-sourced and tracked in Equity instead). The GL balance is
+                whatever your vault ledger has posted to the account selected above. A real
+                difference can mean an untracked deposit/withdrawal, an unrecorded dividend
+                reinvestment, or a trade missing from one side or the other -- the "not found in
+                Trading" rows above are the first place to check.
+              </p>
+            </>
+          )}
+          <div className="equity-form-actions">
+            <button onClick={() => { setCsvModalOpen(false); setCsvRows(null); setCsvError(""); setDivSaved(false); }}>Close</button>
           </div>
         </Modal>
       )}
