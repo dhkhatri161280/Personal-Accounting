@@ -185,8 +185,22 @@ function tokenise(text: string): string[] {
     .filter((w) => w.length > 2 && !/^\d+$/.test(w) && !GENERIC_FINANCE_WORDS.has(w)); // drop pure numbers (store IDs, dates) and generic finance noise words
 }
 
+// Each calendar month gets its own separate "House Hold Exps - Mon YY" account (see
+// houseHoldMonthName), so 4 real Lululemon vouchers across 4 different months look like 4
+// entirely different, unrelated debit accounts to matchFromHistory -- splitting what should be
+// one strong, repeated signal into 4 single-vote candidates that never clear any confidence bar.
+// Normalizing every household-month account to one shared sentinel id during indexing lets them
+// all vote together; HOUSEHOLD_FAMILY_ID is substituted back to the CURRENT transaction's own
+// month at every call site that reads a matched id (see the 3 substitution points below).
+const HOUSEHOLD_FAMILY_ID = -1;
+
 function buildHistoryIndex(ledger: Ledger): HistoryIndex {
   const index: HistoryIndex = [];
+  const acctById = new Map(ledger.accounts.map((a) => [a.id, a]));
+  const normalize = (id: number): number => {
+    const a = acctById.get(id);
+    return a && /^house hold exps/i.test(a.name) ? HOUSEHOLD_FAMILY_ID : id;
+  };
   for (const v of ledger.transactions) {
     if (v.deleted || v.cancelled) continue;
     const debitE = v.entries.find((e) => e.amount < 0);
@@ -194,7 +208,7 @@ function buildHistoryIndex(ledger: Ledger): HistoryIndex {
     if (!debitE || !creditE) continue;
     const tokens = tokenise(v.narration || "");
     if (tokens.length) {
-      index.push({ tokens, debitId: debitE.accountId, creditId: creditE.accountId, isReceipt: v.type === "Receipt" });
+      index.push({ tokens, debitId: normalize(debitE.accountId), creditId: normalize(creditE.accountId), isReceipt: v.type === "Receipt" });
     }
   }
   return index;
@@ -557,7 +571,9 @@ function buildDraft(
       const histCrId = adjMatch
         ? (adjMatch.fromPaymentHistory ? adjMatch.debitId : adjMatch.creditId)
         : null;
-      const crAcc = (histCrId ? accounts.find((a) => a.id === histCrId) : null)
+      const crAcc = (histCrId === HOUSEHOLD_FAMILY_ID
+          ? allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase())
+          : histCrId ? accounts.find((a) => a.id === histCrId) : null)
         || findAcct(accounts, "Misc Income", "Other Income");
       if (crAcc) {
         return {
@@ -636,16 +652,13 @@ function buildDraft(
       finalDebitId = match.creditId;
       finalCreditId = match.debitId;
     }
-    let debitAcc = accounts.find((a) => a.id === finalDebitId);
-    let creditAcc = accounts.find((a) => a.id === finalCreditId);
-    // Household month guard: history matched "House Hold Exps - Apr 25" for a recurring
-    // merchant, but the current tx belongs to a different month → use current month's account.
-    if (debitAcc && /^house hold exps/i.test(debitAcc.name)) {
-      const currentHH = allAccounts.find(
-        (a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase()
-      );
-      if (currentHH) debitAcc = currentHH;
-    }
+    // Household month guard: history matched the normalized "House Hold Exps" family (see
+    // HOUSEHOLD_FAMILY_ID) for a recurring merchant that's been expensed under several different
+    // months' accounts — substitute the CURRENT tx's own month's account, not a lookup by the
+    // (non-existent) sentinel id.
+    const currentHH = () => allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase());
+    let debitAcc = finalDebitId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalDebitId);
+    let creditAcc = finalCreditId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalCreditId);
     // Institution guard: for expense transactions the credit side must come from
     // the same institution as the Plaid transaction. If history suggested a card
     // from a different bank (e.g. Citi for a BofA charge), substitute cardAcc.
@@ -672,15 +685,11 @@ function buildDraft(
   // ── Card-based default: most common expense on this card (no merchant match) ──
   if (tx.amount > 0 && cardAcc) {
     const defaultDebitId = cardDefaultExpense(cardAcc.id, historyIndex);
-    let defaultDebitAcc = defaultDebitId ? accounts.find((a) => a.id === defaultDebitId) : null;
     // Household month guard: card default picks the most frequent HouseHold month across
-    // ALL history (e.g. Apr 25 for AMEX), but we must use the tx's own month.
-    if (defaultDebitAcc && /^house hold exps/i.test(defaultDebitAcc.name)) {
-      const currentHH = allAccounts.find(
-        (a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase()
-      );
-      if (currentHH) defaultDebitAcc = currentHH;
-    }
+    // ALL history (via the normalized HOUSEHOLD_FAMILY_ID), but we must use the tx's own month.
+    const defaultDebitAcc = defaultDebitId === HOUSEHOLD_FAMILY_ID
+      ? allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase())
+      : defaultDebitId ? accounts.find((a) => a.id === defaultDebitId) : null;
     if (defaultDebitAcc) {
       return {
         entries: [
