@@ -180,17 +180,25 @@ export function buildShadowPeriod(t: Tx): ShadowPeriod {
 // a persisted manual period — i.e. genuinely new since the last Excel import or manual entry.
 export function findUncoveredSalaryVouchers(transactions: Tx[], yr: PayrollYear): Tx[] {
   const manualGuids = new Set((yr.manualPeriods ?? []).map((m) => m.txGuid));
+  const grossRow = yr.rows.find((r) => r.label === "Gross Salary");
   return transactions.filter((t) => {
     if (manualGuids.has(t.guid)) return false;
     if (!t.date.startsWith(yr.year)) return false;
     if (!isSalaryVoucher(t)) return false;
-    const covered = yr.periodLabels.some((label) => {
+    const covered = yr.periodLabels.some((label, i) => {
       if (!label) return false;
       const range = parsePeriodRange(label, yr.year);
       if (!range) return false;
       const endPlus = new Date(range.end + "T00:00:00Z");
       endPlus.setUTCDate(endPlus.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
-      return t.date >= range.start && t.date <= endPlus.toISOString().slice(0, 10);
+      if (t.date < range.start || t.date > endPlus.toISOString().slice(0, 10)) return false;
+      // A period column that exists (a real label) but has no real data yet -- e.g.
+      // deliberately left blank as a placeholder for a future pay period -- must not count
+      // as "already covering" a voucher. Otherwise the voucher never gets promoted to an
+      // estimated line, AND the real-period row itself gets skipped for being empty (see
+      // "skip empty future periods" in TaxReport.tsx) -- so the whole period silently
+      // disappears from the table instead of showing either version.
+      return (grossRow?.values[i] ?? 0) > 0;
     });
     return !covered;
   });
