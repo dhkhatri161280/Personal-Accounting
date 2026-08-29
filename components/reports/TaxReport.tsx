@@ -238,6 +238,36 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
 
+  // One-time cleanup for duplicate manual periods created by the bug fixed below, BEFORE the
+  // fix existed -- multiple vouchers estimating to the same label had each gotten their own
+  // row. Keeps one entry per label (preferring a manually-corrected one over a still-"estimated"
+  // one), only among voucher-derived periods (periodIndex === undefined; an Excel-correction
+  // override is keyed by periodIndex, not label, and can't collide the same way).
+  const cleanupAttemptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!payroll || readOnly) return;
+    const yr = payroll.years.find((y) => y.year === activeYearLabel);
+    if (!yr || cleanupAttemptedRef.current.has(yr.year)) return;
+    const voucherPeriods = (yr.manualPeriods ?? []).filter((m) => m.periodIndex === undefined);
+    const byLabel = new Map<string, typeof voucherPeriods>();
+    for (const m of voucherPeriods) byLabel.set(m.label, [...(byLabel.get(m.label) ?? []), m]);
+    const dupeLabels = [...byLabel.entries()].filter(([, group]) => group.length > 1);
+    if (dupeLabels.length === 0) { cleanupAttemptedRef.current.add(yr.year); return; }
+    const keepIds = new Set(
+      dupeLabels.map(([, group]) => (group.find((m) => !m.estimated) ?? group[0]).id)
+    );
+    const dropIds = new Set(
+      dupeLabels.flatMap(([, group]) => group.filter((m) => !keepIds.has(m.id)).map((m) => m.id))
+    );
+    const updatedYears = payroll.years.map((y) =>
+      y.year !== yr.year ? y : { ...y, manualPeriods: (y.manualPeriods ?? []).filter((m) => !dropIds.has(m.id)) }
+    );
+    (async () => {
+      const ok = await onSave({ ...payroll, years: updatedYears });
+      if (ok !== false) cleanupAttemptedRef.current.add(yr.year);
+    })();
+  }, [payroll, activeYearLabel, readOnly, onSave]);
+
   // Once a salary voucher is posted for a period the Excel doesn't cover, auto-create a
   // (marked "estimated") Tax tab line for it right away — no need to wait for a re-import.
   useEffect(() => {
@@ -246,7 +276,24 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     if (!yr) return;
     const uncovered = findUncoveredSalaryVouchers(transactions, yr).filter((t) => !attemptedGuidsRef.current.has(t.guid));
     if (uncovered.length === 0) return;
-    const newManual = uncovered.map((t) => estimateManualPeriod(yr, t));
+    // Two different vouchers (e.g. distinct historical paychecks from an old employer, both
+    // falling in the same inferred "Mon 01 Mon 15" bucket) can independently estimate to the
+    // SAME period label -- previously each got its own manual period, so the same label showed
+    // up twice in the table. Keep only the first voucher per unique label; every voucher in
+    // this batch (created or skipped as a duplicate) still counts as handled so it doesn't
+    // re-trigger every render.
+    const existingLabels = new Set((yr.manualPeriods ?? []).map((m) => m.label));
+    const newManual: ReturnType<typeof estimateManualPeriod>[] = [];
+    for (const t of uncovered) {
+      const period = estimateManualPeriod(yr, t);
+      if (existingLabels.has(period.label)) continue;
+      existingLabels.add(period.label);
+      newManual.push(period);
+    }
+    if (newManual.length === 0) {
+      uncovered.forEach((t) => attemptedGuidsRef.current.add(t.guid));
+      return;
+    }
     const updatedYears = payroll.years.map((y) =>
       y.year !== yr.year ? y : { ...y, manualPeriods: [...(y.manualPeriods ?? []), ...newManual] }
     );
@@ -834,8 +881,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           </tr>
         </thead>
         <tbody>
-          {yr.periodLabels.map((label, i) => {
-            // Once a period has a correction overlaid on it, the allManualPeriods row below
+          {(() => {
+          // Excel-imported periods and voucher-derived manual periods used to render as two
+          // separate blocks (all Excel rows, THEN all manual rows) regardless of actual date --
+          // for a year with irregular/overlapping historical periods (job changes, old employer
+          // bi-weekly cycles) this scattered the table, e.g. "Jan 29" at the top and "Jan 15"
+          // stuck in a disconnected block further down. Both kinds now carry a sortEnd (the
+          // period's real end date) and get merged into one chronologically-ordered list.
+          type Row = { sortEnd: string; node: React.ReactNode };
+          const excelEntries = yr.periodLabels.map((label, i): Row | null => {
+            // Once a period has a correction overlaid on it, the manual entry below
             // is the sole renderer for it (full edit history, no duplicate row).
             if (overrideByIndex.has(i)) return null;
             const g = at(gross, i);
@@ -857,7 +912,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const isPast = range ? range.end < todayIso : false;
             const periodEspp = range ? yearEspp.filter((e) => e.purchaseDate >= range.start && e.purchaseDate <= range.end) : [];
             const periodEsppShares = periodEspp.reduce((s, e) => s + e.shares, 0);
-            return (
+            const node = (
               <Fragment key={key}>
                 <tr onClick={() => setViewPeriod({ type: "excel", index: i })} style={{ cursor: "pointer" }}>
                   <td title={label || undefined}>{label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`}</td>
@@ -902,8 +957,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </tr>
               </Fragment>
             );
-          })}
-          {allManualPeriods.map((m) => {
+            return { sortEnd: range ? range.end : "9999-99-99", node };
+          }).filter((x): x is Row => x !== null);
+
+          const manualEntries: Row[] = allManualPeriods.map((m) => {
             const key = `manual-${m.id}`;
             const isOverride = m.periodIndex !== undefined;
             const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label);
@@ -911,7 +968,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const mRange = parsePeriodRange(m.label, yr.year);
             const mEspp = mRange ? yearEspp.filter((e) => e.purchaseDate >= mRange.start && e.purchaseDate <= mRange.end) : [];
             const mEsppShares = mEspp.reduce((s, e) => s + e.shares, 0);
-            return (
+            const node = (
               <Fragment key={key}>
                 <tr onClick={() => setViewPeriod({ type: "manual", id: m.id })} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : "#fffbeb" }}>
                   <td title={`${m.label} — ${isOverride ? "corrected from the Excel import" : "posted in the vault but not yet in the imported Excel file"}`}>
@@ -950,7 +1007,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </tr>
               </Fragment>
             );
-          })}
+            return { sortEnd: mRange ? mRange.end : "9999-99-99", node };
+          });
+
+          return [...excelEntries, ...manualEntries]
+            .sort((a, b) => a.sortEnd.localeCompare(b.sortEnd))
+            .map((entry) => entry.node);
+          })()}
           {vestGroups.map(({ date, items, stockIdx }) => {
             const key = `vest-${date}`;
             const anyPending = items.some(({ vest }) => vest.pending);
