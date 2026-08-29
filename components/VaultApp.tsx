@@ -2614,7 +2614,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               equity={data.equity}
               accounts={data.accounts}
               onSave={async (payroll) => {
-                await save({ ...data, payroll }, "reports");
+                return await save({ ...data, payroll }, "reports");
               }}
               onViewVoucher={editVoucher}
               fmt={fmt}

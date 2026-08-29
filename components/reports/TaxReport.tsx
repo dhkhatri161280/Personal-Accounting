@@ -22,7 +22,7 @@ interface TaxReportProps {
   transactions: Tx[];
   equity: EquityData | undefined;
   accounts: Account[];
-  onSave: (payroll: PayrollData) => Promise<void>;
+  onSave: (payroll: PayrollData) => Promise<boolean | void>;
   onViewVoucher: (tx: Tx) => void; // only used for the explicit "Edit in Daybook" action inside the voucher popup
   fmt: (n: number) => string;
   readOnly?: boolean;
@@ -246,12 +246,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     if (!yr) return;
     const uncovered = findUncoveredSalaryVouchers(transactions, yr).filter((t) => !attemptedGuidsRef.current.has(t.guid));
     if (uncovered.length === 0) return;
-    uncovered.forEach((t) => attemptedGuidsRef.current.add(t.guid));
     const newManual = uncovered.map((t) => estimateManualPeriod(yr, t));
     const updatedYears = payroll.years.map((y) =>
       y.year !== yr.year ? y : { ...y, manualPeriods: [...(y.manualPeriods ?? []), ...newManual] }
     );
-    onSave({ ...payroll, years: updatedYears });
+    // Only mark these as "attempted" once the save actually succeeds -- onSave resolves
+    // false on a version conflict (two saves racing, e.g. right after posting the voucher
+    // and matching it via "Already posted?"), and silently marking a failed attempt as done
+    // meant it would never be retried for the rest of this page visit.
+    (async () => {
+      const ok = await onSave({ ...payroll, years: updatedYears });
+      if (ok !== false) uncovered.forEach((t) => attemptedGuidsRef.current.add(t.guid));
+    })();
   }, [payroll, transactions, activeYearLabel, readOnly, onSave]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
