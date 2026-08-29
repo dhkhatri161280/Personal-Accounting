@@ -1,7 +1,8 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase, Account } from "@/lib/vault-types";
-import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear } from "@/lib/payroll-match";
+import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear, matchPayrollPeriod, inferPeriodLabel } from "@/lib/payroll-match";
+import type { ParsedPaystub } from "@/lib/parse-paystub-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { DonutChart, type DonutSegment } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
@@ -246,6 +247,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [editingTarget, setEditingTarget] = useState<{ id: string | null; periodIndex?: number; label: string } | null>(null);
   const [manualForm, setManualForm] = useState(BLANK_MANUAL_FORM);
   const [savingManual, setSavingManual] = useState(false);
+  const paystubFileInputRef = useRef<HTMLInputElement>(null);
+  const [parsingPaystub, setParsingPaystub] = useState(false);
+  const [paystubError, setPaystubError] = useState("");
+  const [paystubReview, setPaystubReview] = useState<{
+    target: { id: string | null; periodIndex?: number; label: string };
+    parsed: ParsedPaystub;
+    tieOut: { voucher: Tx; voucherNet: number } | null;
+  } | null>(null);
+  const [savingPaystub, setSavingPaystub] = useState(false);
   const [startingManualYear, setStartingManualYear] = useState(false);
   const [manualYearInput, setManualYearInput] = useState(() => String(new Date().getFullYear()));
   const [filingStatus, setFilingStatus] = useState<UsFilingStatus>("mfj");
@@ -347,6 +357,85 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       setImportError("Failed to parse Excel file: " + (err?.message ?? "Unknown error"));
     } finally {
       setImporting(false);
+    }
+  }
+
+  // Parses a real paystub PDF and stages it for review (paystubReview) -- never writes
+  // anything until the user explicitly clicks Save in the review panel, same "preview then
+  // confirm" pattern as every other write in this app. Finds which period it belongs to: an
+  // existing Excel period first (matchPayrollPeriod, same logic used for Plaid's payroll
+  // auto-draft), then an existing manual/estimated period with the same inferred label, and
+  // only creates a brand-new one if neither exists yet.
+  async function handlePaystubUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setPaystubError("");
+    setPaystubReview(null);
+    setParsingPaystub(true);
+    try {
+      const { parsePaystubPdf } = await import("@/lib/parse-paystub-pdf");
+      const parsed = await parsePaystubPdf(file);
+      if (!parsed.periodEnd) {
+        setPaystubError("Could not read the pay period dates from this PDF — please check the file.");
+        return;
+      }
+
+      const yearIdx = years.findIndex((y) => y.year === yr.year);
+      const match = matchPayrollPeriod(payroll, parsed.periodEnd);
+      const inferredLabel = inferPeriodLabel(parsed.periodEnd);
+      let target: { id: string | null; periodIndex?: number; label: string };
+      if (match && match.yearIdx === yearIdx) {
+        target = { id: null, periodIndex: match.periodIndex, label: yr.periodLabels[match.periodIndex] || inferredLabel };
+      } else {
+        const existingManual = (yr.manualPeriods ?? []).find((m) => m.label === inferredLabel);
+        target = existingManual
+          ? { id: existingManual.id, periodIndex: existingManual.periodIndex, label: inferredLabel }
+          : { id: null, periodIndex: undefined, label: inferredLabel };
+      }
+
+      // Same tie-out comparison as the Pay Periods table, surfaced immediately here instead of
+      // requiring a save-then-look-at-the-table round trip.
+      let tieOut: { voucher: Tx; voucherNet: number } | null = null;
+      const existingManualForTarget = target.id ? (yr.manualPeriods ?? []).find((m) => m.id === target.id) : undefined;
+      const linkedTx = existingManualForTarget?.txGuid
+        ? transactions.find((t) => t.guid === existingManualForTarget.txGuid)
+        : findPayrollVoucher(transactions, yr.year, target.label, yr.periodLabels);
+      if (linkedTx) tieOut = { voucher: linkedTx, voucherNet: voucherNetAmount(linkedTx, accounts) };
+
+      setPaystubReview({ target, parsed, tieOut });
+    } catch (err: any) {
+      setPaystubError("Failed to parse paystub PDF: " + (err?.message ?? "Unknown error"));
+    } finally {
+      setParsingPaystub(false);
+    }
+  }
+
+  async function savePaystubReview() {
+    if (!paystubReview) return;
+    setSavingPaystub(true);
+    try {
+      const { target, parsed } = paystubReview;
+      const fields = {
+        base: parsed.base, telephone: parsed.telephone, medical: parsed.medical,
+        k401: parsed.k401, k401Emplr: parsed.k401Emplr, espp: parsed.espp,
+        federal: parsed.federal, ssn: parsed.ssn, medicare: parsed.medicare,
+        stateWH: parsed.stateWH, stateSDI: parsed.stateSDI,
+        totalTax: parsed.totalTax, net: parsed.netPay, estimated: false as const,
+      };
+      const updatedYears = payroll!.years.map((y) => {
+        if (y.year !== yr.year) return y;
+        const existing = y.manualPeriods ?? [];
+        if (target.id) {
+          return { ...y, manualPeriods: existing.map((x) => (x.id === target.id ? { ...x, ...fields } : x)) };
+        }
+        const newPeriod: ManualPayrollPeriod = { id: crypto.randomUUID(), label: target.label, periodIndex: target.periodIndex, ...fields };
+        return { ...y, manualPeriods: [...existing, newPeriod] };
+      });
+      await onSave({ ...payroll!, years: updatedYears });
+      setPaystubReview(null);
+    } finally {
+      setSavingPaystub(false);
     }
   }
 
@@ -798,17 +887,76 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           <h3>Tax &amp; Paystub Details</h3>
           <div className="equity-price-row">
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleUpload} />
+            <input ref={paystubFileInputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handlePaystubUpload} />
             {!readOnly && (
-              <button className="equity-refresh" onClick={() => fileInputRef.current?.click()} disabled={importing}>
-                {importing ? "Importing…" : "↻ Re-import from Excel"}
-              </button>
+              <>
+                <button className="equity-refresh" onClick={() => paystubFileInputRef.current?.click()} disabled={parsingPaystub}>
+                  {parsingPaystub ? "Reading…" : "📄 Upload Paystub PDF"}
+                </button>
+                <button className="equity-refresh" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+                  {importing ? "Importing…" : "↻ Re-import from Excel"}
+                </button>
+              </>
             )}
           </div>
         </div>
         {importError && <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>{importError}</p>}
+        {paystubError && <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>{paystubError}</p>}
         <p className="equity-seed-note">
           Imported {new Date(payroll.importedAt).toLocaleDateString()} from {payroll.sourceFileName}
         </p>
+
+        {paystubReview && (() => {
+          const { target, parsed, tieOut } = paystubReview;
+          const netVariance = tieOut ? tieOut.voucherNet - parsed.netPay : 0;
+          const netMismatch = tieOut && Math.abs(netVariance) > 1;
+          return (
+            <div className="equity-inline-detail" style={{ marginTop: "0.75rem", border: "1px solid #cbd5e1", borderRadius: 8, padding: "0.75rem" }}>
+              <strong>Parsed paystub — {periodEndLabel(target.label, yr.year)}</strong>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.4rem", margin: "0.5rem 0", fontSize: 13 }}>
+                <span>Base: {fmt(parsed.base)}</span>
+                <span>Telephone: {fmt(parsed.telephone)}</span>
+                <span>Medical: {fmt(parsed.medical)}</span>
+                <span>401K: {fmt(parsed.k401)}</span>
+                <span>401K Employer: {fmt(parsed.k401Emplr)}</span>
+                <span>ESPP: {fmt(parsed.espp)}</span>
+                <span>Federal: {fmt(parsed.federal)}</span>
+                <span>SSN: {fmt(parsed.ssn)}</span>
+                <span>Medicare: {fmt(parsed.medicare)}</span>
+                <span>State W/H: {fmt(parsed.stateWH)}</span>
+                <span>State SDI: {fmt(parsed.stateSDI)}</span>
+                <span><strong>Net: {fmt(parsed.netPay)}</strong></span>
+              </div>
+              {parsed.distribution.length > 0 && (
+                <p style={{ fontSize: 12, opacity: 0.8, margin: "0.25rem 0" }}>
+                  Distribution: {parsed.distribution.map((d) => `${d.accountType} ...${d.accountLast4} ${fmt(d.amount)}`).join(", ")}
+                </p>
+              )}
+              {tieOut ? (
+                <p style={{ fontSize: 13, fontWeight: 600, color: netMismatch ? "#dc2626" : "#16a34a", margin: "0.4rem 0" }}>
+                  {netMismatch
+                    ? `⚠ Linked voucher (${tieOut.voucher.type} #${tieOut.voucher.number || "—"}) shows ${fmt(tieOut.voucherNet)} — differs from this paystub's real Net by ${fmt(netVariance)}.`
+                    : `✓ Linked voucher (${tieOut.voucher.type} #${tieOut.voucher.number || "—"}) matches this paystub's real Net.`}
+                </p>
+              ) : (
+                <p style={{ fontSize: 13, opacity: 0.7, margin: "0.4rem 0" }}>No voucher linked to this period yet.</p>
+              )}
+              {parsed.warnings.length > 0 && (
+                <ul style={{ fontSize: 12, color: "#b45309", margin: "0.4rem 0", paddingLeft: "1.2rem" }}>
+                  {parsed.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              )}
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                <button className="equity-refresh" onClick={savePaystubReview} disabled={savingPaystub}>
+                  {savingPaystub ? "Saving…" : "Save to Tax Tab"}
+                </button>
+                <button className="equity-refresh" onClick={() => setPaystubReview(null)} disabled={savingPaystub}>
+                  Discard
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="equity-grant-filter">
           <span className="equity-grant-filter-label">Year:</span>
