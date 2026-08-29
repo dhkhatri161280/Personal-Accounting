@@ -38,6 +38,26 @@ function at(r: PayrollRow | undefined, i: number): number {
   return r?.values[i] ?? 0;
 }
 
+// A linked voucher was previously trusted purely by DATE match -- its actual dollar amount
+// was never compared to the expected payroll Net Salary, so a wrongly-linked or mistyped
+// voucher (e.g. today's swapped-GUID incident) would show a plain, unflagged link with no
+// indication anything was off.
+//
+// A payroll Receipt's debit side is NOT just the bank account(s) -- deduction lines (Tax,
+// Health Insurance, 401K, Legal Plan) are debited the same way the destination bank is
+// (vault convention: negative = debit, positive = credit). Summing every negative entry
+// would give the gross-ish total, not the real net deposit. Only entries whose account is
+// an actual bank/cash account count -- same category pattern isCashBank() uses in
+// components/VaultApp.tsx.
+function voucherNetAmount(tx: Tx, accounts: Account[]): number {
+  const bankIds = new Set(
+    accounts.filter((a) => /^(bank accounts|cash-in-hand)$/i.test(a.parent || "")).map((a) => a.id)
+  );
+  return -tx.entries
+    .filter((e) => e.amount < 0 && bankIds.has(e.accountId))
+    .reduce((s, e) => s + e.amount, 0);
+}
+
 // Fixed color per component (not palette-cycled) so a given slice means the same thing across
 // every paystub you open -- comparing periods side by side relies on Federal always being red,
 // Net always being green, etc. Take-home is computed as the REMAINDER (gross minus every other
@@ -908,6 +928,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const expectedNet = at(netSalary, i);
             const variance = match ? match.depositAmount - expectedNet : 0;
             const varianceFlag = match && Math.abs(variance) > 1;
+            const linkedNet = linkedTx ? voucherNetAmount(linkedTx, accounts) : 0;
+            const linkedVariance = linkedTx ? linkedNet - expectedNet : 0;
+            const linkedVarianceFlag = !!linkedTx && Math.abs(linkedVariance) > 1;
             const range = label ? parsePeriodRange(label, yr.year) : null;
             const isPast = range ? range.end < todayIso : false;
             const periodEspp = range ? yearEspp.filter((e) => e.purchaseDate >= range.start && e.purchaseDate <= range.end) : [];
@@ -939,8 +962,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   </td>
                   <td>
                     {linkedTx ? (
-                      <button className="tax-voucher-link" onClick={(e) => { e.stopPropagation(); openVoucherModal(linkedTx); }} title={linkedTx.narration || ""} style={linkBtnStyle}>
-                        🔗 {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                      <button
+                        className="tax-voucher-link"
+                        onClick={(e) => { e.stopPropagation(); openVoucherModal(linkedTx); }}
+                        title={`${linkedTx.narration || ""}${linkedVarianceFlag ? ` — voucher amount ${fmt(linkedNet)} differs from expected net ${fmt(expectedNet)} by ${fmt(linkedVariance)}` : ""}`}
+                        style={{ ...linkBtnStyle, ...(linkedVarianceFlag ? { color: "#dc2626", fontWeight: 600 } : undefined) }}
+                      >
+                        {linkedVarianceFlag ? "⚠️" : "🔗"} {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                       </button>
                     ) : match ? (
                       <span
@@ -964,6 +992,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const key = `manual-${m.id}`;
             const isOverride = m.periodIndex !== undefined;
             const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label);
+            const txNet = tx ? voucherNetAmount(tx, accounts) : 0;
+            const txVarianceFlag = !!tx && Math.abs(txNet - m.net) > 1;
             const editing = editingTarget?.id === m.id;
             const mRange = parsePeriodRange(m.label, yr.year);
             const mEspp = mRange ? yearEspp.filter((e) => e.purchaseDate >= mRange.start && e.purchaseDate <= mRange.end) : [];
@@ -997,8 +1027,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   </td>
                   <td>
                     {tx ? (
-                      <button className="tax-voucher-link" onClick={(e) => { e.stopPropagation(); openVoucherModal(tx); }} title={tx.narration || ""} style={linkBtnStyle}>
-                        🔗 {tx.type} #{tx.number || "—"} · {new Date(tx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                      <button
+                        className="tax-voucher-link"
+                        onClick={(e) => { e.stopPropagation(); openVoucherModal(tx); }}
+                        title={`${tx.narration || ""}${txVarianceFlag ? ` — voucher amount ${fmt(txNet)} differs from this period's net ${fmt(m.net)} by ${fmt(txNet - m.net)}` : ""}`}
+                        style={{ ...linkBtnStyle, ...(txVarianceFlag ? { color: "#dc2626", fontWeight: 600 } : undefined) }}
+                      >
+                        {txVarianceFlag ? "⚠️" : "🔗"} {tx.type} #{tx.number || "—"} · {new Date(tx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                       </button>
                     ) : (
                       <span style={{ opacity: 0.4 }}>{m.txGuid ? "Voucher removed" : "—"}</span>
