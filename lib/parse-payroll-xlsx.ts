@@ -54,7 +54,11 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
   // (..., 24, 25, 26, 27) with no gap — so the numeric-header scan alone can't tell where
   // the real periods end. The period date-range row ("Mon DD Mon DD") can: stop as soon as
   // a column's label stops looking like a period, even though the number sequence continues.
-  const PERIOD_LABEL_RE = /^[A-Za-z]{3}\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{1,2}$/;
+  // First space is optional (not just \s+) -- a transcription typo like "Jul17 Jul 30"
+  // (missing space after the first month) must still count as a real period, or this scan
+  // stops right there and everything after gets misread as the Stocks sub-table, silently
+  // dropping the rest of the year's periods.
+  const PERIOD_LABEL_RE = /^[A-Za-z]{3}\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{1,2}$/;
   const periodStartCol = cumulativeCol + 1;
   let lastCol = periodStartCol;
   while (hRow[lastCol] !== undefined && hRow[lastCol] !== null && hRow[lastCol] !== "") {

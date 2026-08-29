@@ -10,7 +10,10 @@ const MONTHS: Record<string, string> = {
 // those simply fail to parse here and are skipped, which is fine since Plaid's
 // payroll auto-detection is NVIDIA-specific anyway.
 export function parsePeriodRange(label: string, year: string): { start: string; end: string } | null {
-  const m = label.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{1,2})$/);
+  // First space is optional (\s* not \s+) -- see matching note in lib/parse-payroll-xlsx.ts.
+  // A label that fails this parse is treated elsewhere (normalizePayrollYear) as "this must be
+  // the Stocks sub-table, not a real period" -- a single missing space must not trigger that.
+  const m = label.match(/^([A-Za-z]{3})\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{1,2})$/);
   if (!m) return null;
   const mo1 = MONTHS[m[1]];
   const mo2 = MONTHS[m[3]];
