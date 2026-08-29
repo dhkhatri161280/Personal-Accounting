@@ -923,7 +923,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const net = at(netSalary, i);
             if (!g && !t && !fed) return null; // skip empty future periods
             const key = `excel-${i}`;
-            const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label) : undefined;
+            const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label, yr.periodLabels) : undefined;
             const match = yr.matches?.find((mt) => mt.periodIndex === i);
             const expectedNet = at(netSalary, i);
             const variance = match ? match.depositAmount - expectedNet : 0;
@@ -968,7 +968,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                         title={`${linkedTx.narration || ""}${linkedVarianceFlag ? ` — voucher amount ${fmt(linkedNet)} differs from expected net ${fmt(expectedNet)} by ${fmt(linkedVariance)}` : ""}`}
                         style={{ ...linkBtnStyle, ...(linkedVarianceFlag ? { color: "#dc2626", fontWeight: 600 } : undefined) }}
                       >
-                        {linkedVarianceFlag ? "⚠️" : "🔗"} {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                        {linkedVarianceFlag ? "⚠" : "🔗"} {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                       </button>
                     ) : match ? (
                       <span
@@ -991,7 +991,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           const manualEntries: Row[] = allManualPeriods.map((m) => {
             const key = `manual-${m.id}`;
             const isOverride = m.periodIndex !== undefined;
-            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label);
+            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label, yr.periodLabels);
             const txNet = tx ? voucherNetAmount(tx, accounts) : 0;
             const txVarianceFlag = !!tx && Math.abs(txNet - m.net) > 1;
             const editing = editingTarget?.id === m.id;
@@ -1033,7 +1033,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                         title={`${tx.narration || ""}${txVarianceFlag ? ` — voucher amount ${fmt(txNet)} differs from this period's net ${fmt(m.net)} by ${fmt(txNet - m.net)}` : ""}`}
                         style={{ ...linkBtnStyle, ...(txVarianceFlag ? { color: "#dc2626", fontWeight: 600 } : undefined) }}
                       >
-                        {txVarianceFlag ? "⚠️" : "🔗"} {tx.type} #{tx.number || "—"} · {new Date(tx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                        {txVarianceFlag ? "⚠" : "🔗"} {tx.type} #{tx.number || "—"} · {new Date(tx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                       </button>
                     ) : (
                       <span style={{ opacity: 0.4 }}>{m.txGuid ? "Voucher removed" : "—"}</span>
@@ -1109,7 +1109,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             <th className="right">{fmt(totalNet)}</th>
             <th>{(yearEspp.reduce((s, e) => s + e.shares, 0)).toLocaleString()} sh</th>
             <th>
-              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l)).length + voucherPeriods.length}
+              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l, yr.periodLabels)).length + voucherPeriods.length}
               {" / "}
               {yr.periodLabels.filter((l) => l).length + voucherPeriods.length} linked
             </th>

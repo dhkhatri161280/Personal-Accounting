@@ -93,13 +93,36 @@ export function rowValue(year: PayrollYear, label: string, periodIndex: number, 
 // can link straight to it instead of tracking a separate "confirmed" flag.
 const VOUCHER_WINDOW_DAYS_AFTER = 10;
 
-export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string): Tx | undefined {
+// allPeriodLabels (optional): the full ordered list of period labels for this year, used to
+// stop a period's trailing grace window from stealing a voucher that actually belongs to an
+// EARLIER period. Tightly-spaced historical periods (e.g. an old employer's ~14-day cycles)
+// can have period N+1's own native date range overlap period N's 10-day grace window -- a
+// paycheck landing a few days into period N+1 is almost always the LATE payment for period N
+// (which just ended), not an early one for period N+1 (which hasn't finished yet, so can't
+// have been paid out). Without this, a call made independently per period (as the render loop
+// does) has no way to know the voucher was already claimed by an earlier period's own lookup.
+export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = []): Tx | undefined {
   const range = parsePeriodRange(periodLabel, year);
   if (!range) return undefined;
   const endPlus = new Date(range.end + "T00:00:00Z");
   endPlus.setUTCDate(endPlus.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
   const endPlusStr = endPlus.toISOString().slice(0, 10);
-  return transactions.find((t) => isSalaryVoucher(t) && t.date >= range.start && t.date <= endPlusStr);
+  const index = allPeriodLabels.indexOf(periodLabel);
+  const earlierRanges = index > 0
+    ? allPeriodLabels
+        .slice(0, index)
+        .map((l) => (l ? parsePeriodRange(l, year) : null))
+        .filter((r): r is { start: string; end: string } => !!r)
+    : [];
+  const claimedByEarlier = (t: Tx) =>
+    earlierRanges.some((r) => {
+      const ep = new Date(r.end + "T00:00:00Z");
+      ep.setUTCDate(ep.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
+      return t.date >= r.start && t.date <= ep.toISOString().slice(0, 10);
+    });
+  return transactions.find(
+    (t) => isSalaryVoucher(t) && t.date >= range.start && t.date <= endPlusStr && !claimedByEarlier(t)
+  );
 }
 
 export function isSalaryVoucher(t: Tx): boolean {
