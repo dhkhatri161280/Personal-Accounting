@@ -1117,7 +1117,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         </tfoot>
       </table>
       {allManualPeriods.length > 0 && (
-        <p className="equity-seed-note" style={{ marginTop: "-0.5rem" }}>
+        <p className="equity-seed-note" style={{ marginTop: "0.5rem" }}>
           {voucherPeriods.length > 0 && `${voucherPeriods.length} pay period(s) auto-added from posted vouchers. `}
           {overrideByIndex.size > 0 && `${overrideByIndex.size} period(s) corrected from the Excel import. `}
           Rows highlighted above — expand any row (including regular Excel-imported ones) and click "✎ Edit" to enter real paystub numbers.
