@@ -83,11 +83,26 @@ interface Props {
 // ── Payroll template constants ─────────────────────────────────────────────────
 
 const PAYROLL_PATTERNS = [/nvidia/i, /nviida/i, /adp.*payroll/i, /payroll.*nvidia/i];
-const PAYROLL_GROSS = 10_196.67;
-const PAYROLL_MEDICAL = 202.50; // Medical ($193.50) + Legal Plan ($9)
+
+// Fallback figures, taken from the most recent known real paystub (pay date 08/14/2026).
+// Only used when the Excel-imported payroll data (Tax tab) has no real numbers for this
+// specific pay period yet -- these WILL drift as pay rate / benefit elections change, so
+// any voucher built from this fallback keeps confidence < 1 and still needs a human look
+// (see the "auto" badge) rather than being trusted blindly.
+const PAYROLL_BASE = 10_166.67; // Salary line only (not Gross -- Telephone is separate below)
+const PAYROLL_TELEPHONE = 30.00; // Wireless Device reimbursement
+const PAYROLL_TAX = 2_062.49; // Federal + Medicare + Social Security + CA State, combined
+const PAYROLL_MEDICAL = 184.50; // Medical + Dental + Vision, combined (Legal Plan is its own line below)
 const PAYROLL_401K = 813.33;
-const PAYROLL_TELEPHONE = 30.00;
-const PAYROLL_BASE = PAYROLL_GROSS - PAYROLL_TELEPHONE;
+const PAYROLL_LEGAL = 9.00;
+
+// NVIDIA's direct deposit always splits a fixed amount into a second account (e.g. $1,500 +
+// $500 into two Chase sub-accounts, tracked here as one combined "Chase Bank" line) -- only
+// the primary (Plaid-linked) account shows up as its own pending transaction, so this second
+// leg has to be added to the draft manually since there's no separate feed for it. If the
+// split amount or destination ever changes, update these two constants.
+const PAYROLL_SECONDARY_BANK = "Chase Bank";
+const PAYROLL_SECONDARY_AMOUNT = 2_000.00;
 
 function isPayroll(tx: PlaidTxRaw) {
   if (tx.amount >= 0) return false; // must be a deposit (money in)
@@ -375,33 +390,51 @@ function buildDraft(
     const taxAcc = findAcct(accounts, "Tax Deduction", "Tax");
     const medAcc = findAcct(accounts, "Health Insurance", "Medical");
     const k401Acc = findAcct(accounts, "401K Investments", "401k");
+    const legalAcc = findAcct(accounts, "Legal Plan - Nvidia", "Legal Plan");
     const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America");
+    const secondaryBankAcc = findAcct(accounts, PAYROLL_SECONDARY_BANK);
 
     if (salaryAcc && taxAcc && medAcc && k401Acc && bankAcc) {
-      // Prefer the actual imported paystub numbers (Reports → Tax) for this pay period
-      // over the hardcoded fallback constants, when available.
+      // Prefer the actual imported paystub numbers (Reports → Tax) for this pay period over
+      // the hardcoded fallback constants -- but only when that period actually has real
+      // (non-zero) data. A period row that exists but hasn't been filled in yet (e.g. the
+      // books have run ahead of the last Excel import) must not silently zero everything out.
       const match = matchPayrollPeriod(ledger.payroll, tx.date);
-      let base = PAYROLL_BASE;
-      let telephone = PAYROLL_TELEPHONE;
-      let medical = PAYROLL_MEDICAL;
-      let k401 = PAYROLL_401K;
+      let base = PAYROLL_BASE, telephone = PAYROLL_TELEPHONE, medical = PAYROLL_MEDICAL,
+        k401 = PAYROLL_401K, tax = PAYROLL_TAX, matched = false, haveRealTax = false;
       if (match) {
         const y = ledger.payroll!.years[match.yearIdx];
-        base = rowValue(y, "Base", match.periodIndex) + rowValue(y, "Bonus", match.periodIndex);
-        telephone = rowValue(y, "Telephone", match.periodIndex);
-        medical = rowValue(y, "Medical", match.periodIndex);
-        k401 = rowValue(y, "401K", match.periodIndex);
+        const mBase = rowValue(y, "Base", match.periodIndex) + rowValue(y, "Bonus", match.periodIndex);
+        if (mBase > 0) {
+          base = mBase;
+          telephone = rowValue(y, "Telephone", match.periodIndex);
+          medical = rowValue(y, "Medical", match.periodIndex);
+          k401 = rowValue(y, "401K", match.periodIndex);
+          const mTax = rowValue(y, "Total Tax", match.periodIndex);
+          if (mTax > 0) { tax = mTax; haveRealTax = true; }
+          matched = true;
+        }
       }
-      const taxAmount = Math.max(0, base + telephone - medical - k401 - netDeposit);
+      const legal = PAYROLL_LEGAL;
+      const secondaryAmount = secondaryBankAcc ? PAYROLL_SECONDARY_AMOUNT : 0;
+      // Without a real imported tax figure, solve for whatever balances the FULL paycheck
+      // (both destination accounts combined) -- not just this one bank line, which would
+      // silently misattribute the other account's share to "tax" once a paycheck splits
+      // across two accounts.
+      if (!haveRealTax) {
+        tax = Math.max(0, base + telephone - medical - k401 - legal - netDeposit - secondaryAmount);
+      }
       const entries: EntryDraft[] = [
         { accountId: salaryAcc.id, accountName: salaryAcc.name, amount: base },
         ...(telAcc ? [{ accountId: telAcc.id, accountName: telAcc.name, amount: telephone }] : []),
-        { accountId: taxAcc.id, accountName: taxAcc.name, amount: -taxAmount },
+        { accountId: taxAcc.id, accountName: taxAcc.name, amount: -tax },
         { accountId: medAcc.id, accountName: medAcc.name, amount: -medical },
         { accountId: k401Acc.id, accountName: k401Acc.name, amount: -k401 },
+        ...(legalAcc ? [{ accountId: legalAcc.id, accountName: legalAcc.name, amount: -legal }] : []),
         { accountId: bankAcc.id, accountName: bankAcc.name, amount: -netDeposit },
+        ...(secondaryBankAcc ? [{ accountId: secondaryBankAcc.id, accountName: secondaryBankAcc.name, amount: -secondaryAmount }] : []),
       ];
-      return { entries, voucherType: "Receipt", narration: "Salary Income - Semi Monthly", confidence: match ? 0.98 : 0.95, source: "payroll" };
+      return { entries, voucherType: "Receipt", narration: "Salary Income - Semi Monthly", confidence: matched ? 0.98 : 0.9, source: "payroll" };
     }
   }
 
