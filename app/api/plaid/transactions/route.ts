@@ -26,13 +26,13 @@ export async function GET(request: Request) {
     // indistinguishable from a genuinely clean, complete sync of a user with no banks
     // connected, which is the single worst failure mode for a transaction sync endpoint.
     return Response.json(
-      { transactions: [], accounts: [], errors: ["Storage unavailable: " + (e?.message || "read failed")] },
+      { transactions: [], accounts: [], errors: ["Storage unavailable: " + (e?.message || "read failed")], itemErrors: [] },
       { status: 503 }
     );
   }
 
   if (connections.length === 0)
-    return Response.json({ transactions: [], accounts: [], errors: [] });
+    return Response.json({ transactions: [], accounts: [], errors: [], itemErrors: [] });
 
   const url = new URL(request.url);
   const endDate = url.searchParams.get("end") || new Date().toISOString().slice(0, 10);
@@ -50,6 +50,10 @@ export async function GET(request: Request) {
   const allTransactions: unknown[] = [];
   const allAccounts: unknown[] = [];
   const errors: string[] = [];
+  // Structured alongside `errors` (kept as plain strings for the status banner) so the client
+  // can offer a "Reconnect" button for the specific broken item_id, instead of just displaying
+  // text -- see app/api/plaid/link-token/route.ts's update-mode support.
+  const itemErrors: { item_id: string; institution_name: string; error_code?: string; error_message?: string }[] = [];
 
   await Promise.all(
     activeConnections.map(async (conn) => {
@@ -102,6 +106,12 @@ export async function GET(request: Request) {
 
         if (txData.error_message || txData.error_code) {
           errors.push(`${conn.institution_name}: ${txData.error_message || txData.error_code}`);
+          itemErrors.push({
+            item_id: conn.item_id,
+            institution_name: conn.institution_name,
+            error_code: txData.error_code,
+            error_message: txData.error_message,
+          });
           return;
         }
 
@@ -125,5 +135,5 @@ export async function GET(request: Request) {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
-  return Response.json({ transactions: allTransactions, accounts: allAccounts, errors });
+  return Response.json({ transactions: allTransactions, accounts: allAccounts, errors, itemErrors });
 }

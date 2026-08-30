@@ -1083,6 +1083,67 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
   );
 }
 
+// Repairs ONE broken connection in place (update mode) -- same access_token/item_id, same
+// transaction history, no duplicate connection. Distinct from PlaidConnectButton above, which
+// always creates a brand-new Item; going through that flow for an already-broken bank would add
+// a second connection for the same institution instead of fixing the first one.
+function PlaidReconnectButton({
+  itemId, institutionName, onReconnected,
+}: {
+  itemId: string;
+  institutionName: string;
+  onReconnected: () => void;
+}) {
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function startReconnect() {
+    setLoading(true);
+    setError("");
+    fetch("/api/plaid/link-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id: itemId }),
+    })
+      .then((r) => r.json())
+      .then((d: any) => {
+        if (d.link_token) setLinkToken(d.link_token);
+        else setError(d.error_message || d.error_code || "Failed to get an update-mode link token");
+      })
+      .catch(() => setError("Network error — check Plaid credentials"))
+      .finally(() => setLoading(false));
+  }
+
+  // Update mode: completing Link re-authenticates the SAME item server-side. The public_token
+  // returned here is not exchanged for anything -- the original access_token stays valid, so
+  // there's no /api/plaid/exchange call, unlike PlaidConnectButton's new-connection flow.
+  const onSuccess = useCallback<PlaidLinkOnSuccess>(() => {
+    setLinkToken(null);
+    onReconnected();
+  }, [onReconnected]);
+
+  const { open, ready } = usePlaidLink({ token: linkToken || "", onSuccess });
+
+  useEffect(() => {
+    if (linkToken && ready) open();
+  }, [linkToken, ready, open]);
+
+  if (error) {
+    return (
+      <span className="plaid-error">
+        {error}{" "}
+        <button className="plaid-connect-btn" onClick={startReconnect}>Retry</button>
+      </span>
+    );
+  }
+  return (
+    <button className="plaid-connect-btn" onClick={startReconnect} disabled={loading}>
+      {loading ? "Opening…" : `🔧 Reconnect ${institutionName}`}
+    </button>
+  );
+}
+
 // ── Main PlaidImport component ─────────────────────────────────────────────────
 
 export function PlaidImport({ data, onSave }: Props) {
@@ -1101,6 +1162,9 @@ export function PlaidImport({ data, onSave }: Props) {
   const [hideInVault, setHideInVault] = useState(true);
   const [newAccts, setNewAccts] = useState<Record<string, Account>>({});
   const [status, setStatus] = useState("");
+  const [brokenItems, setBrokenItems] = useState<
+    { item_id: string; institution_name: string; error_code?: string; error_message?: string }[]
+  >([]);
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingTxs, setPendingTxs] = useState<PlaidTxRaw[]>([]);
@@ -1188,13 +1252,15 @@ export function PlaidImport({ data, onSave }: Props) {
         ? ""
         : `?institution=${selectedConns.map((c) => encodeURIComponent(c.institution_name)).join(",")}`;
       const r = await fetch(`/api/plaid/transactions${qs}`);
-      const { transactions, accounts: rawPlaidAccts, errors } = (await r.json()) as {
+      const { transactions, accounts: rawPlaidAccts, errors, itemErrors } = (await r.json()) as {
         transactions: PlaidTxRaw[];
         accounts: PlaidAccount[];
         errors: string[];
+        itemErrors?: { item_id: string; institution_name: string; error_code?: string; error_message?: string }[];
       };
       if (errors?.length) setStatus(`Partial fetch — ${errors.join(", ")}`);
       else setStatus("");
+      setBrokenItems(itemErrors ?? []);
       // Enrich each account with its institution_name inferred from transactions
       const acctToInst = new Map<string, string>();
       for (const tx of transactions) {
@@ -1708,7 +1774,26 @@ export function PlaidImport({ data, onSave }: Props) {
         </button>
       </div>
 
-      {status && <div className="plaid-status">{status}</div>}
+      {status && (
+        <div className="plaid-status">
+          <div>{status}</div>
+          {brokenItems.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+              {brokenItems.map((b) => (
+                <PlaidReconnectButton
+                  key={b.item_id}
+                  itemId={b.item_id}
+                  institutionName={b.institution_name}
+                  onReconnected={() => {
+                    setBrokenItems((prev) => prev.filter((x) => x.item_id !== b.item_id));
+                    fetchTransactions();
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tab bar */}
       {(rows.length > 0 || pendingTxs.length > 0 || plaidAccounts.length > 0) && (
