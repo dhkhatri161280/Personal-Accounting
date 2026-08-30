@@ -360,7 +360,30 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         setImportError('No "Yearly <year>" sheets found in this file.');
         return;
       }
-      await onSave(parsed);
+      // A re-import replaces payroll.years wholesale -- without this, every manual correction
+      // (a joining-bonus voucher explicitly linked to a period the date-window match can't
+      // reach, a real-paystub edit overlaid on an Excel period) is silently wiped the next time
+      // the same workbook is re-imported, even though nothing about that correction changed.
+      // Carry them forward by matching on the period's LABEL TEXT (not periodIndex), since a
+      // re-import can shift column positions (e.g. inserting/renaming an early column) --
+      // blindly keeping the same index could silently attach an old correction to the wrong
+      // period. An override whose label no longer exists in the freshly parsed sheet is dropped
+      // (it was orphaned) rather than carried forward onto whatever now sits at its old index.
+      const mergedYears = parsed.years.map((y) => {
+        const oldYear = payroll?.years.find((oy) => oy.year === y.year);
+        const oldManual = oldYear?.manualPeriods ?? [];
+        if (oldManual.length === 0) return y;
+        const carried = oldManual
+          .map((m) => {
+            if (m.periodIndex === undefined) return m; // voucher-derived period, no index to remap
+            const oldLabel = oldYear!.periodLabels[m.periodIndex];
+            const newIndex = oldLabel ? y.periodLabels.indexOf(oldLabel) : -1;
+            return newIndex === -1 ? null : { ...m, periodIndex: newIndex };
+          })
+          .filter((m): m is ManualPayrollPeriod => m !== null);
+        return { ...y, manualPeriods: carried };
+      });
+      await onSave({ ...parsed, years: mergedYears });
       setSelectedYear(parsed.years[0].year);
       if (parsed.warnings?.length) setImportError(parsed.warnings.join(" "));
     } catch (err: any) {
@@ -410,7 +433,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       const existingManualForTarget = target.id ? (yr.manualPeriods ?? []).find((m) => m.id === target.id) : undefined;
       const linkedTx = existingManualForTarget?.txGuid
         ? transactions.find((t) => t.guid === existingManualForTarget.txGuid)
-        : findPayrollVoucher(transactions, yr.year, target.label, yr.periodLabels);
+        : findPayrollVoucher(transactions, yr.year, target.label, yr.periodLabels, claimedTxGuids);
       if (linkedTx) tieOut = { voucher: linkedTx, voucherNet: voucherNetAmount(linkedTx, accounts) };
 
       setPaystubReview({ target, parsed, tieOut });
@@ -560,6 +583,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // or totals would double-count it.
   const voucherPeriods = allManualPeriods.filter((m) => m.periodIndex === undefined);
   const overrideByIndex = new Map(allManualPeriods.filter((m) => m.periodIndex !== undefined).map((m) => [m.periodIndex!, m]));
+  // Vouchers already explicitly assigned to a period via a manual override's txGuid (e.g. a
+  // joining bonus paid the same date as the following regular paycheck) must not also be
+  // auto-matched into another period whose own window happens to cover that same date.
+  const claimedTxGuids = new Set(allManualPeriods.filter((m) => m.txGuid).map((m) => m.txGuid!));
 
   const manualGross = voucherPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
   const manualFederal = voucherPeriods.reduce((s, m) => s + m.federal, 0);
@@ -1096,7 +1123,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             // transactions (RSU vest/sale proceeds, etc.) that happen to fall within the same
             // 15-day matching window and loosely match "salary", producing worse false
             // mismatches than the single-voucher check it was meant to improve on.
-            const allLinkedTxs = label ? findAllPayrollVouchers(transactions, yr.year, label, yr.periodLabels) : [];
+            const allLinkedTxs = label ? findAllPayrollVouchers(transactions, yr.year, label, yr.periodLabels, claimedTxGuids) : [];
             const linkedTx = allLinkedTxs[0];
             const primaryNet = linkedTx ? voucherNetAmount(linkedTx, accounts) : 0;
             const linkedTxs = linkedTx
@@ -1175,7 +1202,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           const manualEntries: Row[] = allManualPeriods.map((m) => {
             const key = `manual-${m.id}`;
             const isOverride = m.periodIndex !== undefined;
-            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label, yr.periodLabels);
+            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label, yr.periodLabels, claimedTxGuids);
             const txNet = tx ? voucherNetAmount(tx, accounts) : 0;
             const txVarianceFlag = !!tx && Math.abs(txNet - m.net) > 1;
             const editing = editingTarget?.id === m.id;
@@ -1293,7 +1320,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             <th className="right">{fmt(totalNet)}</th>
             <th>{(yearEspp.reduce((s, e) => s + e.shares, 0)).toLocaleString()} sh</th>
             <th>
-              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l, yr.periodLabels)).length + voucherPeriods.length}
+              {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l, yr.periodLabels, claimedTxGuids)).length + voucherPeriods.length}
               {" / "}
               {yr.periodLabels.filter((l) => l).length + voucherPeriods.length} linked
             </th>
@@ -1585,7 +1612,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         } else if (viewPeriod.type === "excel") {
           const i = viewPeriod.index;
           const lbl = yr.periodLabels[i];
-          const linkedTx = lbl ? findPayrollVoucher(transactions, yr.year, lbl, yr.periodLabels) : undefined;
+          const linkedTx = lbl ? findPayrollVoucher(transactions, yr.year, lbl, yr.periodLabels, claimedTxGuids) : undefined;
           period = {
             label: lbl ? periodEndLabel(lbl, yr.year) : `Period ${i + 1}`,
             employer: (linkedTx && employerFromVoucher(linkedTx)) || undefined,
@@ -1599,7 +1626,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         } else {
           const m = allManualPeriods.find((p) => p.id === viewPeriod.id);
           if (m) {
-            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label, yr.periodLabels);
+            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label, yr.periodLabels, claimedTxGuids);
             period = {
               label: periodEndLabel(m.label, yr.year),
               employer: (tx && employerFromVoucher(tx)) || undefined,

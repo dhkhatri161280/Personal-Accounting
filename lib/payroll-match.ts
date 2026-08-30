@@ -139,7 +139,12 @@ function voucherWindow(range: { start: string; end: string }): { from: string; t
 // regular paycheck, same date, as a separate Receipt) -- findAllPayrollVouchers returns every
 // match so a tie-out check can sum them, and findPayrollVoucher (the common case) is just its
 // first result for call sites that only ever expect one.
-export function findAllPayrollVouchers(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = []): Tx[] {
+// excludeGuids (optional): vouchers already explicitly assigned to a DIFFERENT period via a
+// manual override's txGuid (e.g. a joining bonus paid out on the same date as the next regular
+// paycheck, so both land inside that regular period's own window). Without this, window-based
+// matching has no way to know the voucher was already spoken for, and double-counts it into
+// whichever other period's window also happens to cover its date.
+export function findAllPayrollVouchers(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = [], excludeGuids?: Set<string>): Tx[] {
   const range = parsePeriodRange(periodLabel, year);
   if (!range) return [];
   const { from, to } = voucherWindow(range);
@@ -156,12 +161,12 @@ export function findAllPayrollVouchers(transactions: Tx[], year: string, periodL
       return t.date >= w.from && t.date <= w.to;
     });
   return transactions
-    .filter((t) => isSalaryVoucher(t) && t.date >= from && t.date <= to && !claimedByEarlier(t))
+    .filter((t) => isSalaryVoucher(t) && t.date >= from && t.date <= to && !claimedByEarlier(t) && !excludeGuids?.has(t.guid))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = []): Tx | undefined {
-  return findAllPayrollVouchers(transactions, year, periodLabel, allPeriodLabels)[0];
+export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = [], excludeGuids?: Set<string>): Tx | undefined {
+  return findAllPayrollVouchers(transactions, year, periodLabel, allPeriodLabels, excludeGuids)[0];
 }
 
 export function isSalaryVoucher(t: Tx): boolean {
