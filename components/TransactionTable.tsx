@@ -13,6 +13,15 @@ export type VoucherRow = {
 };
 type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount";
 
+// Tally's own Day Book order within a date: Contra, Payment, Receipt, Journal -- fixed, never
+// reversed even when the date sort direction is descending (only the date itself, and voucher
+// number within a type, follow the chosen direction). Each voucher type has its own independent
+// numbering sequence per fiscal year, so tie-breaking by raw number alone (ignoring type) doesn't
+// reliably reproduce this -- a Contra voucher's own sequence commonly runs far lower than the
+// same date's Payment/Receipt numbers, so it was sorting to the wrong end of the day entirely.
+const VOUCHER_TYPE_ORDER: Record<string, number> = { contra: 0, payment: 1, receipt: 2, journal: 3 };
+const voucherTypeRank = (type: string) => VOUCHER_TYPE_ORDER[(type || "").toLowerCase()] ?? 99;
+
 const text = (value: string) =>
   String(value || "")
     .replace(/&apos;/gi, "'")
@@ -117,24 +126,30 @@ export function TransactionTable({
           })
         )
         .sort((a, b) => {
+          if (sort.key === "date") {
+            const av = String(value(a, "date")), bv = String(value(b, "date"));
+            if (av !== bv) {
+              const cmp = av < bv ? -1 : 1;
+              return sort.direction === "asc" ? cmp : -cmp;
+            }
+            // Same date: Tally's fixed voucher-type order first (Contra, Payment, Receipt,
+            // Journal) -- never reversed by direction, since Tally itself always shows this
+            // order regardless of date direction. Only within the same type does voucher
+            // number follow the chosen direction (matching how every other date's ordering
+            // already behaves).
+            const ta = voucherTypeRank(a.type), tb = voucherTypeRank(b.type);
+            if (ta !== tb) return ta - tb;
+            const numCmp = (Number(a.number) || 0) - (Number(b.number) || 0);
+            return sort.direction === "asc" ? numCmp : -numCmp;
+          }
           const av = value(a, sort.key),
             bv = value(b, sort.key),
             result =
               typeof av === "number"
                 ? av - Number(bv)
-                : sort.key === "date"
-                  ? String(av) < String(bv)
-                    ? -1
-                    : String(av) > String(bv)
-                      ? 1
-                      // Same date: fall back to voucher number so ties aren't left in
-                      // whatever order they happened to sit in the underlying array --
-                      // negated below along with the primary comparison, so a descending
-                      // date sort also shows the highest voucher number first within a day.
-                      : (Number(a.number) || 0) - (Number(b.number) || 0)
-                  : sort.key === "number"
-                    ? (Number(av) || 0) - (Number(bv) || 0)
-                    : String(av).localeCompare(String(bv), undefined, { numeric: true });
+                : sort.key === "number"
+                  ? (Number(av) || 0) - (Number(bv) || 0)
+                  : String(av).localeCompare(String(bv), undefined, { numeric: true });
           return sort.direction === "asc" ? result : -result;
         }),
     [transactions, filters, sort, selectedLedgerName]
