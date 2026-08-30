@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
-import type { Ledger, Tx, Trade } from "@/lib/vault-types";
+import type { Ledger, Tx, Trade, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import {
@@ -116,7 +116,13 @@ function applySchwabSync(trades: Trade[], actions: SchwabSyncAction[], todayIso:
   return next;
 }
 
-type ImportedActivity = { activityId: number; kind: "trade" | "transferIn" | "dividendInterest"; importedAt: string };
+type ImportedActivity = { activityId: number; kind: "trade" | "transferIn" | "dividendInterest" | "vest" | "esppPurchase" | "dismissed"; importedAt: string };
+
+function isEquitySymbol(a: SchwabActivity): boolean {
+  const inst = primaryInstrument(a);
+  const symbol = inst?.instrument?.uniformSymbol || inst?.instrument?.symbol || "";
+  return SCHWAB_SYNC_EXCLUDE.has(symbol);
+}
 
 const ONE_YEAR_MS = 364 * 86_400_000;
 
@@ -255,7 +261,12 @@ export function SchwabImport({ data, onSave }: Props) {
   }
 
   const pending = useMemo(() => (activities ?? []).filter((a) => !importedIds.has(a.activityId)), [activities, importedIds]);
-  const classified = useMemo(() => classifySchwabActivity(pending), [pending]);
+  // NVDA (and anything else in SCHWAB_SYNC_EXCLUDE) is RSU-sourced and tracked in the Equity
+  // report, not Trading -- split out BEFORE classifying so it can never end up with a "Confirm
+  // cost basis" button that would create a duplicate/wrong Trading lot for it.
+  const equityOnly = useMemo(() => pending.filter(isEquitySymbol), [pending]);
+  const tradingPending = useMemo(() => pending.filter((a) => !isEquitySymbol(a)), [pending]);
+  const classified = useMemo(() => classifySchwabActivity(tradingPending), [tradingPending]);
 
   async function markImported(a: SchwabActivity, kind: ImportedActivity["kind"]) {
     const body = { activityId: a.activityId, kind };
@@ -264,6 +275,35 @@ export function SchwabImport({ data, onSave }: Props) {
   }
 
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+
+  // For an activity that's already reflected elsewhere (e.g. the transfer-in event that
+  // originally seeded a position already tracked in Trading/Equity) -- marks it seen without
+  // creating anything, so it stops reappearing on future "check for new activity" runs.
+  async function dismiss(a: SchwabActivity) {
+    setConfirmingId(a.activityId);
+    try {
+      await markImported(a, "dismissed");
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
+  // Dismisses every currently-pending activity at once -- meant for the initial "I already track
+  // all of this by hand, just set today as the starting point" case, not routine use. Skipped
+  // rows aren't silently dropped: this only ever adds to the dedup list, never posts anything, so
+  // it's always safe to re-fetch and individually confirm something dismissed by mistake later
+  // (it just won't reappear on its own -- see the DELETE handler on imported-activities).
+  const [bulkDismissing, setBulkDismissing] = useState(false);
+  async function bulkDismissAll() {
+    if (!pending.length) return;
+    if (!confirm(`Mark all ${pending.length} pending activities as already tracked? None of them will be added to Trading/Equity -- this just stops them from showing up again.`)) return;
+    setBulkDismissing(true);
+    try {
+      for (const a of pending) await markImported(a, "dismissed");
+    } finally {
+      setBulkDismissing(false);
+    }
+  }
 
   // trade / transferIn -> new open Trade lot. transferIn rows are pre-filled but editable
   // (units/price) before confirm -- see the review UI below -- so the cost basis actually gets
@@ -321,6 +361,59 @@ export function SchwabImport({ data, onSave }: Props) {
       };
       const ok = await onSave({ ...data, transactions: [...data.transactions, tx] });
       if (ok) await markImported(a, "dividendInterest");
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
+  // ── Equity (NVDA): match a vest activity to an existing scheduled tranche, or record a new
+  // ESPP purchase. Never a new Trading lot -- Equity report stays the single source of truth for
+  // NVDA regardless of which account (Equity Award Center or, after transfer, Trust) holds it. ─
+  const allGrants = data.equity?.grants ?? [];
+  const allEsppPurchases = data.equity?.esppPurchases ?? [];
+
+  // Every still-open scheduled tranche across every grant, closest-date-first to whichever
+  // activity is being matched -- mirrors the "confirm pending vest" flow already in Equity
+  // report (saveRecordVest/saveVestDay), just entered from a live Schwab activity instead of a
+  // manual click.
+  function pendingVestsNear(activityDate: string): { grant: RsuGrant; vest: RsuVest }[] {
+    const list: { grant: RsuGrant; vest: RsuVest; diff: number }[] = [];
+    for (const g of allGrants) {
+      for (const v of g.vests) {
+        if (!v.pending) continue;
+        list.push({ grant: g, vest: v, diff: Math.abs(new Date(v.vestDate).getTime() - new Date(activityDate).getTime()) });
+      }
+    }
+    return list.sort((a, b) => a.diff - b.diff).map(({ grant, vest }) => ({ grant, vest }));
+  }
+
+  async function confirmVestMatch(a: SchwabActivity, grantId: string, vestId: string, vestPrice: number, sharesHeld: number, taxShares: number) {
+    setConfirmingId(a.activityId);
+    try {
+      const nextGrants = allGrants.map((g) =>
+        g.id !== grantId ? g : {
+          ...g,
+          vests: g.vests.map((v) => (v.id !== vestId ? v : { ...v, vestPrice, sharesHeld: Math.max(0, sharesHeld), taxShares, pending: false })),
+        }
+      );
+      const ok = await onSave({ ...data, equity: { grants: nextGrants, esppPurchases: allEsppPurchases } });
+      if (ok) await markImported(a, "vest");
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
+  async function confirmEsppPurchase(a: SchwabActivity, shares: number, purchasePrice: number, offeringPrice: number, marketPriceAtPurchase: number, purchaseDate: string) {
+    setConfirmingId(a.activityId);
+    try {
+      const inst = primaryInstrument(a);
+      const symbol = inst?.instrument?.uniformSymbol || inst?.instrument?.symbol || "NVDA";
+      const purchase: EsppPurchase = {
+        id: uid(), ticker: symbol, offeringDate: purchaseDate, purchaseDate,
+        shares, offeringPrice, purchasePrice, marketPriceAtPurchase, sharesHeld: shares,
+      };
+      const ok = await onSave({ ...data, equity: { grants: allGrants, esppPurchases: [...allEsppPurchases, purchase] } });
+      if (ok) await markImported(a, "esppPurchase");
     } finally {
       setConfirmingId(null);
     }
@@ -391,10 +484,22 @@ export function SchwabImport({ data, onSave }: Props) {
 
       {activities !== null && (
         <div className="data-panel">
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-            {pending.length} new activit{pending.length === 1 ? "y" : "ies"} since last import
-            ({activities.length} fetched, {activities.length - pending.length} already confirmed).
-          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: 0 }}>
+              {pending.length} new activit{pending.length === 1 ? "y" : "ies"} since last import
+              ({activities.length} fetched, {activities.length - pending.length} already confirmed).
+            </p>
+            {pending.length > 0 && (
+              <button
+                className="tr-refresh-btn"
+                disabled={bulkDismissing}
+                onClick={bulkDismissAll}
+                title="Use this once, right after connecting, to set today as the starting point -- everything currently listed gets marked seen without creating anything, so only genuinely new activity shows up from here on."
+              >
+                {bulkDismissing ? "Dismissing…" : "Dismiss all as already tracked"}
+              </button>
+            )}
+          </div>
 
           {classified.trades.length > 0 && (
             <>
@@ -410,13 +515,18 @@ export function SchwabImport({ data, onSave }: Props) {
                       <strong>{symbol}</strong> {a.netAmount < 0 ? "Buy" : "Sell"} {units} @ ${price.toFixed(2)}
                       <span style={{ opacity: 0.6 }}> — {fmtDate((a.tradeDate || a.time).slice(0, 10))} — {a.description}</span>
                     </span>
-                    <button
-                      className="tr-refresh-btn"
-                      disabled={confirmingId === a.activityId}
-                      onClick={() => confirmTradeOrTransfer(a, units, price, "trade")}
-                    >
-                      {confirmingId === a.activityId ? "Adding…" : "Add to Trading"}
-                    </button>
+                    <span style={{ display: "flex", gap: 6 }}>
+                      <button
+                        className="tr-refresh-btn"
+                        disabled={confirmingId === a.activityId}
+                        onClick={() => confirmTradeOrTransfer(a, units, price, "trade")}
+                      >
+                        {confirmingId === a.activityId ? "Adding…" : "Add to Trading"}
+                      </button>
+                      <button className="tr-refresh-btn" disabled={confirmingId === a.activityId} onClick={() => dismiss(a)}>
+                        Dismiss
+                      </button>
+                    </span>
                   </div>
                 );
               })}
@@ -437,6 +547,29 @@ export function SchwabImport({ data, onSave }: Props) {
                   activity={a}
                   busy={confirmingId === a.activityId}
                   onConfirm={(units, price) => confirmTradeOrTransfer(a, units, price, "transferIn")}
+                  onDismiss={() => dismiss(a)}
+                />
+              ))}
+            </>
+          )}
+
+          {equityOnly.length > 0 && (
+            <>
+              <h4 style={{ margin: "10px 0 6px" }}>Equity (NVDA) ({equityOnly.length})</h4>
+              <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                Never becomes a Trading lot — match a vest to its scheduled tranche in Equity report,
+                record a new ESPP purchase, or dismiss if it's just the account's existing balance
+                (e.g. an old transfer-in from before this sync existed).
+              </p>
+              {equityOnly.map((a) => (
+                <EquityActivityRow
+                  key={a.activityId}
+                  activity={a}
+                  busy={confirmingId === a.activityId}
+                  pendingVests={pendingVestsNear((a.tradeDate || a.time).slice(0, 10))}
+                  onConfirmVest={(grantId, vestId, vestPrice, sharesHeld, taxShares) => confirmVestMatch(a, grantId, vestId, vestPrice, sharesHeld, taxShares)}
+                  onConfirmEspp={(shares, purchasePrice, offeringPrice, marketPrice, purchaseDate) => confirmEsppPurchase(a, shares, purchasePrice, offeringPrice, marketPrice, purchaseDate)}
+                  onDismiss={() => dismiss(a)}
                 />
               ))}
             </>
@@ -493,7 +626,7 @@ export function SchwabImport({ data, onSave }: Props) {
   );
 }
 
-function TransferInRow({ activity, busy, onConfirm }: { activity: SchwabActivity; busy: boolean; onConfirm: (units: number, price: number) => void }) {
+function TransferInRow({ activity, busy, onConfirm, onDismiss }: { activity: SchwabActivity; busy: boolean; onConfirm: (units: number, price: number) => void; onDismiss: () => void }) {
   const inst = primaryInstrument(activity);
   const symbol = inst?.instrument?.uniformSymbol || inst?.instrument?.symbol || "?";
   const [units, setUnits] = useState(String(Math.abs(inst?.amount ?? 0)));
@@ -514,7 +647,103 @@ function TransferInRow({ activity, busy, onConfirm }: { activity: SchwabActivity
         >
           {busy ? "Adding…" : "Confirm cost basis"}
         </button>
+        <button className="tr-refresh-btn" disabled={busy} onClick={onDismiss}>
+          Dismiss
+        </button>
       </span>
+    </div>
+  );
+}
+
+function EquityActivityRow({
+  activity, busy, pendingVests, onConfirmVest, onConfirmEspp, onDismiss,
+}: {
+  activity: SchwabActivity;
+  busy: boolean;
+  pendingVests: { grant: RsuGrant; vest: RsuVest }[];
+  onConfirmVest: (grantId: string, vestId: string, vestPrice: number, sharesHeld: number, taxShares: number) => void;
+  onConfirmEspp: (shares: number, purchasePrice: number, offeringPrice: number, marketPriceAtPurchase: number, purchaseDate: string) => void;
+  onDismiss: () => void;
+}) {
+  const inst = primaryInstrument(activity);
+  const symbol = inst?.instrument?.uniformSymbol || inst?.instrument?.symbol || "?";
+  const activityDate = (activity.tradeDate || activity.time).slice(0, 10);
+  const schwabQty = Math.abs(inst?.amount ?? 0);
+  const schwabPrice = inst?.price ?? 0;
+
+  const [mode, setMode] = useState<"none" | "vest" | "espp">("none");
+  const [vestId, setVestId] = useState<string>(pendingVests[0]?.vest.id ?? "");
+  const selected = pendingVests.find((p) => p.vest.id === vestId);
+  const [vestPrice, setVestPrice] = useState(String(schwabPrice));
+  const [sharesHeld, setSharesHeld] = useState(String(schwabQty));
+  const [taxShares, setTaxShares] = useState(String(Math.max(0, (selected?.vest.shares ?? 0) - schwabQty)));
+
+  const [esppShares, setEsppShares] = useState(String(schwabQty));
+  const [esppPurchasePrice, setEsppPurchasePrice] = useState(String(schwabPrice));
+  const [esppOfferingPrice, setEsppOfferingPrice] = useState("");
+  const [esppMarketPrice, setEsppMarketPrice] = useState(String(schwabPrice));
+
+  function pickVest(id: string) {
+    setVestId(id);
+    const p = pendingVests.find((x) => x.vest.id === id);
+    setTaxShares(String(Math.max(0, (p?.vest.shares ?? 0) - schwabQty)));
+  }
+
+  return (
+    <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "0.6rem 0.8rem", marginBottom: "0.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 13 }}>
+          <strong>{symbol}</strong> {schwabQty} sh @ ${schwabPrice.toFixed(2)}
+          <span style={{ opacity: 0.6 }}> — {fmtDate(activityDate)} — {activity.description}</span>
+        </span>
+        <span style={{ display: "flex", gap: 6 }}>
+          <button className="tr-refresh-btn" disabled={busy || pendingVests.length === 0} onClick={() => setMode(mode === "vest" ? "none" : "vest")}>
+            Match vest {pendingVests.length > 0 ? `(${pendingVests.length} pending)` : "(none pending)"}
+          </button>
+          <button className="tr-refresh-btn" disabled={busy} onClick={() => setMode(mode === "espp" ? "none" : "espp")}>
+            New ESPP purchase
+          </button>
+          <button className="tr-refresh-btn" disabled={busy} onClick={onDismiss}>Dismiss</button>
+        </span>
+      </div>
+
+      {mode === "vest" && (
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e2e8f0", fontSize: 12, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+          <select value={vestId} onChange={(e) => pickVest(e.target.value)}>
+            {pendingVests.map(({ grant, vest }) => (
+              <option key={vest.id} value={vest.id}>
+                {grant.ticker} · {fmtDate(vest.vestDate)} · {vest.shares.toLocaleString()} sh scheduled
+              </option>
+            ))}
+          </select>
+          shares held <input value={sharesHeld} onChange={(e) => setSharesHeld(e.target.value)} style={{ width: 70 }} />
+          tax shares <input value={taxShares} onChange={(e) => setTaxShares(e.target.value)} style={{ width: 70 }} />
+          @$ <input value={vestPrice} onChange={(e) => setVestPrice(e.target.value)} style={{ width: 80 }} />
+          <button
+            className="tr-refresh-btn"
+            disabled={busy || !selected || !Number(vestPrice)}
+            onClick={() => selected && onConfirmVest(selected.grant.id, selected.vest.id, Number(vestPrice), Number(sharesHeld), Number(taxShares))}
+          >
+            {busy ? "Confirming…" : "Confirm vest"}
+          </button>
+        </div>
+      )}
+
+      {mode === "espp" && (
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e2e8f0", fontSize: 12, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+          shares <input value={esppShares} onChange={(e) => setEsppShares(e.target.value)} style={{ width: 70 }} />
+          purchase $ <input value={esppPurchasePrice} onChange={(e) => setEsppPurchasePrice(e.target.value)} style={{ width: 80 }} />
+          offering $ <input value={esppOfferingPrice} onChange={(e) => setEsppOfferingPrice(e.target.value)} style={{ width: 80 }} placeholder="discount price" />
+          market $ <input value={esppMarketPrice} onChange={(e) => setEsppMarketPrice(e.target.value)} style={{ width: 80 }} />
+          <button
+            className="tr-refresh-btn"
+            disabled={busy || !Number(esppShares) || !Number(esppPurchasePrice)}
+            onClick={() => onConfirmEspp(Number(esppShares), Number(esppPurchasePrice), Number(esppOfferingPrice || esppPurchasePrice), Number(esppMarketPrice), activityDate)}
+          >
+            {busy ? "Adding…" : "Confirm ESPP purchase"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
