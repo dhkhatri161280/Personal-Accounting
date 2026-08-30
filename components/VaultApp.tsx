@@ -45,7 +45,7 @@ import { UnlockScreen } from "@/components/vault/UnlockScreen";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
-import { NetWorthReport, equityHoldingsRow } from "@/components/reports/NetWorthReport";
+import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
 import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { EquityReport } from "@/components/reports/EquityReport";
@@ -144,7 +144,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
     [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null),
-    [nvdaHistory, setNvdaHistory] = useState<PricePoint[]>([]);
+    [nvdaHistory, setNvdaHistory] = useState<PricePoint[]>([]),
+    // Live 401(k)/IRA balance from Plaid (Fidelity + Merrill), for Net Worth to value retirement
+    // accounts at real market value instead of the ledger's book value (cumulative payroll
+    // contributions) -- same "live value alongside/instead of book value" idea as heldEquity
+    // below for RSU/ESPP. null = not fetched yet (or fetch failed); Net Worth falls back to the
+    // book-value ledger row in that case rather than silently showing $0.
+    [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null);
 
   async function cacheUnifiedVaultPassword(pw: string) {
     const secret = sessionStorage.getItem(unifiedSecretKey);
@@ -537,6 +543,21 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .catch(() => {});
   }, [data?.equity]);
 
+  // Live 401(k)/IRA balance (Fidelity + Merrill) via the same Plaid Balances product the
+  // Retirement tab uses -- fetched once here too so Net Worth can value retirement accounts at
+  // real market value. book === "india" has no US brokerage connections to fetch.
+  useEffect(() => {
+    if (book === "india") return;
+    fetch("/api/plaid/transactions")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const j = d as { accounts?: { type: string; subtype: string; balances: { current: number | null } }[] };
+        const retirementAccts = (j.accounts ?? []).filter((a) => a.type === "investment" && a.subtype !== "hsa");
+        if (retirementAccts.length) setLiveRetirementBalance(retirementAccts.reduce((s, a) => s + (a.balances?.current ?? 0), 0));
+      })
+      .catch(() => {});
+  }, [book]);
+
   const calc = useMemo(() => {
     const empty = {
       opening: new Map<number, number>(),
@@ -904,8 +925,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     data.equity && balanceEndPrice
       ? computeHeldEquityValueAsOf(data.equity.grants, data.equity.esppPurchases, balanceEnd, balanceEndPrice)
       : { rsuValue: 0, esppValue: 0, totalValue: 0 };
+  // 401(k)/IRA: value at live market balance instead of the ledger's book value (cumulative
+  // payroll contributions never include employer match or investment growth/loss) -- drop the
+  // real "401K Investments" ledger row and substitute a synthetic one at the live figure, same
+  // "book value vs. real value" gap already called out on the Retirement tab. Falls back to the
+  // ledger row as-is if the live balance hasn't loaded (never silently drops the asset to $0).
+  const assetRowsForNetWorth = liveRetirementBalance != null
+    ? assetRows.filter((a) => a.name !== "401K Investments")
+    : assetRows;
+  const netWorthAssetRowsBase =
+    liveRetirementBalance != null
+      ? [...assetRowsForNetWorth, retirementLiveRow("retirement-live", liveRetirementBalance)]
+      : assetRowsForNetWorth;
   const netWorthAssetRows =
-    heldEquity.totalValue > 0 ? [...assetRows, equityHoldingsRow("equity-holdings", heldEquity.totalValue)] : assetRows;
+    heldEquity.totalValue > 0 ? [...netWorthAssetRowsBase, equityHoldingsRow("equity-holdings", heldEquity.totalValue)] : netWorthAssetRowsBase;
   // Trend: each fiscal year-end point is valued at that year's own closing price (not today's),
   // so the chart reflects actual historical equity value, not a flat bump on the latest point.
   const netWorthTrendWithEquity = data.equity
@@ -2676,6 +2709,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 trend={netWorthTrendWithEquity}
                 fmt={fmt}
                 uiTheme={uiTheme}
+                onSelectAccount={(id) => setSelected(id)}
               />
             </>
           )}
