@@ -2559,16 +2559,22 @@ export function PlaidImport({ data, onSave }: Props) {
                       if (g.plaidBal === null) hasNullBalanceByVaultId.set(g.vaultAcct.id, true);
                     }
 
-                    // Fixed display order: BofA → Citi → AMEX → Chase → others; depository before credit within each institution
+                    // Fixed display order: BofA → Citi → AMEX → Chase → Fidelity → Merrill → others;
+                    // depository before credit within each institution, and within Fidelity
+                    // specifically HSA (real ledger, reconciles) before the 401(k) (no vault match,
+                    // valued live elsewhere instead -- see subtypeRank below).
                     const instRank = (inst: string) => {
                       if (/bank.of.america|bofa/i.test(inst)) return 0;
                       if (/citi(?!zen)/i.test(inst)) return 1;
                       if (/american express|amex/i.test(inst)) return 2;
                       if (/chase/i.test(inst)) return 3;
                       if (/wells.fargo/i.test(inst)) return 4;
+                      if (/fidelity/i.test(inst)) return 5;
+                      if (/merrill/i.test(inst)) return 6;
                       return 99;
                     };
                     const typeRank = (t: string) => t === "depository" ? 0 : t === "credit" ? 1 : 2;
+                    const subtypeRank = (t: string) => t === "hsa" ? 0 : t === "401k" ? 1 : t === "ira" ? 2 : 5;
                     groups.sort((a, b) => {
                       const iA = instRank(a.institutions[0] || "");
                       const iB = instRank(b.institutions[0] || "");
@@ -2576,6 +2582,9 @@ export function PlaidImport({ data, onSave }: Props) {
                       const tA = typeRank(a.plaidType);
                       const tB = typeRank(b.plaidType);
                       if (tA !== tB) return tA - tB;
+                      const sA = subtypeRank(a.types[0] || "");
+                      const sB = subtypeRank(b.types[0] || "");
+                      if (sA !== sB) return sA - sB;
                       return (a.vaultAcct?.name || "").localeCompare(b.vaultAcct?.name || "");
                     });
 
