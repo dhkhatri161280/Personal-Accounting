@@ -1984,6 +1984,10 @@ tfoot th {
   box-shadow: 0 7px 22px #23365714;
   transform: translateY(-1px);
 }
+.dashboard-stats button.dashboard-card-open {
+  background: #eef4ff;
+  border-color: #93c5fd;
+}
 .dashboard-stats button span,
 .dashboard-stats button small,
 .dashboard-stats button strong {
@@ -7527,6 +7531,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   transition: box-shadow 0.15s, transform 0.15s;
 }
 .ui-refresh .dashboard-balance-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
+.ui-refresh .dashboard-balance-card.dashboard-card-open {
+  background: #eef4ff !important;
+  border-color: #93c5fd !important;
+}
 .ui-refresh .dashboard-inline-detail { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow); }
 
 /* Income & Expenditure / grouped report sections — same dense collapsible-line structure

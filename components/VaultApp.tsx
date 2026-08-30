@@ -1730,7 +1730,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         <section className="stats dashboard-stats">
           <div className="dashboard-card-slot cash-slot">
             <button
-              className="dashboard-balance-card cash-card"
+              className={`dashboard-balance-card cash-card${dashboardDetail === "cash" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("cash")}
             >
               {uiTheme === "refresh" && <StatIcon kind="cash" color="#1e40af" />}
@@ -1752,7 +1752,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
           <div className="dashboard-card-slot investment-slot">
             <button
-              className="dashboard-balance-card investment-card"
+              className={`dashboard-balance-card investment-card${dashboardDetail === "investments" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("investments")}
             >
               {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
@@ -1774,7 +1774,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
           <div className="dashboard-card-slot capital-slot">
             <button
-              className="dashboard-balance-card capital-card"
+              className={`dashboard-balance-card capital-card${dashboardDetail === "capital" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("capital")}
             >
               {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
@@ -1796,7 +1796,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
           <div className="dashboard-card-slot salary-slot">
             <button
-              className="dashboard-balance-card salary-card"
+              className={`dashboard-balance-card salary-card${dashboardDetail === "salary" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("salary")}
             >
               {uiTheme === "refresh" && <StatIcon kind="wallet" color="#d97706" />}
@@ -1818,7 +1818,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
           <div className="dashboard-card-slot active-slot">
             <button
-              className="dashboard-balance-card dashboard-card-active fixed-assets-card"
+              className={`dashboard-balance-card dashboard-card-active fixed-assets-card${dashboardDetail === "fixedAssets" ? " dashboard-card-open" : ""}`}
               onClick={() =>
                 setDashboardDetail(dashboardDetail === "fixedAssets" ? null : "fixedAssets")
               }
@@ -1902,7 +1902,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {book === "india" && (
             <div className="dashboard-card-slot period-slot">
               <button
-                className="dashboard-card-period"
+                className={`dashboard-card-period${dashboardDetail === "period" ? " dashboard-card-open" : ""}`}
                 onClick={() => toggleDashboardDetail("period")}
               >
                 <span>Period vouchers</span>

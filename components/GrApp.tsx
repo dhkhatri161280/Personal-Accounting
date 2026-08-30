@@ -896,7 +896,7 @@ export function GrApp() {
           {/* Card 1: Cash and Bank */}
           <div className="dashboard-card-slot cash-slot">
             <button
-              className="dashboard-balance-card cash-card"
+              className={`dashboard-balance-card cash-card${dashboardDetail === "cash" ? " dashboard-card-open" : ""}`}
               onClick={() => setDashboardDetail(dashboardDetail === "cash" ? null : "cash")}
             >
               <div className="dashboard-card-main">
@@ -944,7 +944,7 @@ export function GrApp() {
           {/* Card 2: Investments */}
           <div className="dashboard-card-slot investment-slot">
             <button
-              className="dashboard-balance-card investment-card"
+              className={`dashboard-balance-card investment-card${dashboardDetail === "investments" ? " dashboard-card-open" : ""}`}
               onClick={() => setDashboardDetail(dashboardDetail === "investments" ? null : "investments")}
             >
               <div className="dashboard-card-main">
@@ -993,7 +993,7 @@ export function GrApp() {
           {/* Card 3: Fixed Assets */}
           <div className="dashboard-card-slot active-slot">
             <button
-              className="dashboard-balance-card fixed-assets-card"
+              className={`dashboard-balance-card fixed-assets-card${dashboardDetail === "fixedassets" ? " dashboard-card-open" : ""}`}
               onClick={() => setDashboardDetail(dashboardDetail === "fixedassets" ? null : "fixedassets")}
             >
               <div className="dashboard-card-main">
@@ -1043,7 +1043,7 @@ export function GrApp() {
           {/* Card 4: Capital */}
           <div className="dashboard-card-slot capital-slot">
             <button
-              className="dashboard-balance-card capital-card"
+              className={`dashboard-balance-card capital-card${dashboardDetail === "capital" ? " dashboard-card-open" : ""}`}
               onClick={() => setDashboardDetail(dashboardDetail === "capital" ? null : "capital")}
             >
               <div className="dashboard-card-main">
@@ -1092,7 +1092,7 @@ export function GrApp() {
           {/* Card 5: Period Income */}
           <div className="dashboard-card-slot salary-slot">
             <button
-              className="dashboard-balance-card salary-card"
+              className={`dashboard-balance-card salary-card${dashboardDetail === "income" ? " dashboard-card-open" : ""}`}
               onClick={() => setDashboardDetail(dashboardDetail === "income" ? null : "income")}
             >
               <div className="dashboard-card-main">
