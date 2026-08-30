@@ -113,41 +113,47 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
 
       {accounts && accounts.length > 0 && (
         <>
-          <div className="dashboard-stats" style={{ marginBottom: 16 }}>
+          {/* Reuses .dashboard-stats for its button/card chrome (padding, border, typography --
+              all of that is scoped to ".dashboard-stats button", not ".dashboard-balance-card"
+              alone), but that class also carries a FIXED grid-template-areas built for the
+              Dashboard's specific 6 named cards (cash/investment/active/capital/salary/period).
+              An arbitrary/variable number of Retirement cards doesn't match any of those names,
+              so the browser auto-placed them into leftover cells that overlapped the reserved
+              named areas. Overriding grid-template-areas/columns inline (higher specificity than
+              the class rule) keeps the chrome but replaces the fixed layout with a plain
+              auto-fit grid that actually fits this content. */}
+          <div className="stats dashboard-stats" style={{ gridTemplateAreas: "none", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginBottom: 16 }}>
             {grouped.map(([inst, accts]) =>
               accts.map((a) => (
-                <div key={a.account_id} className="dashboard-card-slot">
-                  <div className="dashboard-balance-card" style={{ cursor: "default" }}>
-                    {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
-                    <div className="dashboard-card-main">
-                      <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
-                      <strong>{fmt(a.balances?.current ?? 0)}</strong>
-                      <small>{a.name}</small>
-                    </div>
+                <button key={a.account_id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+                  {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
+                  <div className="dashboard-card-main">
+                    <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
+                    <strong>{fmt(a.balances?.current ?? 0)}</strong>
+                    <small>{a.name}</small>
                   </div>
-                </div>
+                </button>
               ))
             )}
-            <div className="dashboard-card-slot">
-              <div className="dashboard-balance-card" style={{ cursor: "default" }}>
-                {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
-                <div className="dashboard-card-main">
-                  <span>Total retirement</span>
-                  <strong>{fmt(totalBalance)}</strong>
-                  <small>Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}</small>
-                </div>
+            <button type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+              {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
+              <div className="dashboard-card-main">
+                <span>Total retirement</span>
+                <strong>{fmt(totalBalance)}</strong>
+                <small>Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}</small>
               </div>
-            </div>
+            </button>
           </div>
 
           {k401Contributions > 0 && (
             <div className="data-panel" style={{ marginTop: 4 }}>
-              <h4 style={{ margin: "0 0 8px" }}>401(k) contributions vs. real balance</h4>
+              <h4 style={{ margin: "0 0 8px" }}>Retirement contributions vs. real balance</h4>
               <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-                Not a reconciliation — these are two different numbers by design. "Contributed"
-                is your payroll ledger's running total (what's come out of your paycheck);
-                "Current balance" is Fidelity's real number, which also includes employer match
-                and investment growth/loss the ledger never sees.
+                Not a reconciliation — these are two different numbers by design. "Contributed" is
+                your payroll ledger's running total ("401K Investments"), which covers everything
+                that's come out of your paycheck across both the Fidelity 401(k) and the Merrill
+                IRA. "Current balance" is the combined real number from both, which also includes
+                employer match and investment growth/loss the ledger never sees.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
                 <div>
@@ -155,15 +161,13 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
                   <strong className="equity-amt">{fmt(k401Contributions)}</strong>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity)</div>
-                  <strong className="equity-amt">
-                    {fmt((accounts ?? []).filter((a) => a.subtype === "401k").reduce((s, a) => s + (a.balances?.current ?? 0), 0))}
-                  </strong>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity + Merrill)</div>
+                  <strong className="equity-amt">{fmt(totalBalance)}</strong>
                 </div>
                 <div>
                   <div style={{ fontSize: 11, opacity: 0.7 }}>Growth + employer match</div>
                   <strong className="equity-amt" style={{ color: "#16a34a" }}>
-                    {fmt((accounts ?? []).filter((a) => a.subtype === "401k").reduce((s, a) => s + (a.balances?.current ?? 0), 0) - k401Contributions)}
+                    {fmt(totalBalance - k401Contributions)}
                   </strong>
                 </div>
               </div>
