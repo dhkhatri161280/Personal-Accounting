@@ -5,25 +5,37 @@ const MONTHS: Record<string, string> = {
   Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12",
 };
 
-// Only handles the "Mon DD Mon DD" period-label format used by the NVIDIA-era sheets
-// (2024+). Older/prior-employer sheets use inconsistent labels ("Dec 2021", etc.) —
-// those simply fail to parse here and are skipped, which is fine since Plaid's
-// payroll auto-detection is NVIDIA-specific anyway.
+// Handles the "Mon DD Mon DD" period-label format used by the NVIDIA-era sheets (2024+),
+// plus a whole-month "Mon YYYY" format seen on a transition year's leading columns (e.g.
+// the 2022 sheet starts with "Dec 2021", "Jan 2021" before the normal date-range columns
+// begin) -- mapped to that month's 1st through last day. Anything else still fails to
+// parse and is skipped, which is fine since Plaid's payroll auto-detection is NVIDIA-specific
+// anyway.
 export function parsePeriodRange(label: string, year: string): { start: string; end: string } | null {
   // First space is optional (\s* not \s+) -- see matching note in lib/parse-payroll-xlsx.ts.
   // A label that fails this parse is treated elsewhere (normalizePayrollYear) as "this must be
   // the Stocks sub-table, not a real period" -- a single missing space must not trigger that.
   const m = label.match(/^([A-Za-z]{3})\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{1,2})$/);
-  if (!m) return null;
-  const mo1 = MONTHS[m[1]];
-  const mo2 = MONTHS[m[3]];
-  if (!mo1 || !mo2) return null;
-  let endYear = year;
-  if (mo1 === "12" && mo2 === "01") endYear = String(Number(year) + 1);
-  return {
-    start: `${year}-${mo1}-${m[2].padStart(2, "0")}`,
-    end: `${endYear}-${mo2}-${m[4].padStart(2, "0")}`,
-  };
+  if (m) {
+    const mo1 = MONTHS[m[1]];
+    const mo2 = MONTHS[m[3]];
+    if (!mo1 || !mo2) return null;
+    let endYear = year;
+    if (mo1 === "12" && mo2 === "01") endYear = String(Number(year) + 1);
+    return {
+      start: `${year}-${mo1}-${m[2].padStart(2, "0")}`,
+      end: `${endYear}-${mo2}-${m[4].padStart(2, "0")}`,
+    };
+  }
+  const my = label.match(/^([A-Za-z]{3})\s+(\d{4})$/);
+  if (my) {
+    const mo = MONTHS[my[1]];
+    if (!mo) return null;
+    const y = my[2];
+    const lastDay = new Date(Date.UTC(Number(y), Number(mo), 0)).getUTCDate();
+    return { start: `${y}-${mo}-01`, end: `${y}-${mo}-${String(lastDay).padStart(2, "0")}` };
+  }
+  return null;
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -51,6 +63,10 @@ export function normalizePayrollYear(yr: PayrollYear): PayrollYear {
   let splitIdx = yr.periodLabels.length;
   for (let i = 0; i < yr.periodLabels.length; i++) {
     const label = yr.periodLabels[i];
+    // A standalone "Bonus" sub-column (2022 sheet) has no date range and fails parsePeriodRange
+    // like real Stocks-table junk would -- but it's a real mid-year column, not trailing junk.
+    // Skip it rather than treating it as the start of the boundary to trim.
+    if (label && /^bonus$/i.test(label)) continue;
     if (label && !parsePeriodRange(label, yr.year)) { splitIdx = i; break; }
   }
   if (splitIdx === yr.periodLabels.length) return yr; // already clean (new import, or no trailing junk)

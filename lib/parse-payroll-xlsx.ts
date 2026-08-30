@@ -59,11 +59,20 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
   // stops right there and everything after gets misread as the Stocks sub-table, silently
   // dropping the rest of the year's periods.
   const PERIOD_LABEL_RE = /^[A-Za-z]{3}\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{1,2}$/;
+  // A transition year can lead with a whole-month label ("Dec 2021", "Jan 2021") before the
+  // normal bi-monthly date-range columns start (seen in the 2022 sheet). That label doesn't
+  // match PERIOD_LABEL_RE, and since it's the very FIRST column checked -- not a trailing one --
+  // the loop used to break immediately and silently import zero periods for the whole year.
+  const MONTH_YEAR_RE = /^[A-Za-z]{3}\s+\d{4}$/;
+  // A standalone "Bonus" sub-column (e.g. header "4-B" next to period "4") is a real payroll
+  // column with real Gross/Tax/Net figures, just with no date range of its own -- also seen
+  // only on the 2022 sheet. It must not be mistaken for the Stocks sub-table boundary either.
+  const BONUS_LABEL_RE = /^Bonus$/i;
   const periodStartCol = cumulativeCol + 1;
   let lastCol = periodStartCol;
   while (hRow[lastCol] !== undefined && hRow[lastCol] !== null && hRow[lastCol] !== "") {
     const dateLabel = String(dateRow[lastCol] ?? "").trim();
-    if (dateLabel && !PERIOD_LABEL_RE.test(dateLabel)) break;
+    if (dateLabel && !PERIOD_LABEL_RE.test(dateLabel) && !MONTH_YEAR_RE.test(dateLabel) && !BONUS_LABEL_RE.test(dateLabel)) break;
     lastCol++;
   }
 
