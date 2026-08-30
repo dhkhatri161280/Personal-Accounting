@@ -40,6 +40,7 @@ import {
 import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
+import { SchwabImport } from "@/components/vault/SchwabImport";
 import { UnlockScreen } from "@/components/vault/UnlockScreen";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
@@ -1954,6 +1955,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           <PlaidImport
             data={data}
             apiUrl={apiUrl}
+            onSave={(next) => save(next, "bank-import")}
+          />
+        </div>
+      )}
+      {tab === "bank-import" && data && book !== "india" && (
+        <div className="data-panel">
+          <SchwabImport
+            data={data}
             onSave={(next) => save(next, "bank-import")}
           />
         </div>
