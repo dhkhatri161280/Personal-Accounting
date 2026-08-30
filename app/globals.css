@@ -1988,6 +1988,18 @@ tfoot th {
   background: #eef4ff;
   border-color: #93c5fd;
 }
+/* Match each book's own accent color rather than one fixed blue everywhere --
+   amber for India (matches the IN sidebar/badge color), neutral gray for GR. */
+.shell.india-books .dashboard-stats button.dashboard-card-open {
+  /* Deliberately deeper than the India shell's own page background (#fff4df) --
+     the first attempt (#fff1dc) was nearly the same shade and disappeared. */
+  background: #ffe6b8;
+  border-color: #e8a942;
+}
+.shell.gr-books .dashboard-stats button.dashboard-card-open {
+  background: #eaebee;
+  border-color: #b9bcc4;
+}
 .dashboard-stats button span,
 .dashboard-stats button small,
 .dashboard-stats button strong {
@@ -7534,6 +7546,14 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .dashboard-balance-card.dashboard-card-open {
   background: #eef4ff !important;
   border-color: #93c5fd !important;
+}
+.shell.india-books .ui-refresh .dashboard-balance-card.dashboard-card-open {
+  background: #ffe6b8 !important;
+  border-color: #e8a942 !important;
+}
+.shell.gr-books .ui-refresh .dashboard-balance-card.dashboard-card-open {
+  background: #eaebee !important;
+  border-color: #b9bcc4 !important;
 }
 .ui-refresh .dashboard-inline-detail { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow); }
 
