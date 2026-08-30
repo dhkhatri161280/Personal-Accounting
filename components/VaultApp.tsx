@@ -50,6 +50,7 @@ import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { TradingReport } from "@/components/reports/TradingReport";
+import { RetirementReport } from "@/components/reports/RetirementReport";
 import { TaxReport } from "@/components/reports/TaxReport";
 import { IndiaTaxReport } from "@/components/reports/IndiaTaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
@@ -113,7 +114,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [biometricChecked, setBiometricChecked] = useState(false),
     [showPasswordFallback, setShowPasswordFallback] = useState(false),
     [tab, setTab] = useState("dashboard"),
-    [importSource, setImportSource] = useState<"plaid" | "schwab">("plaid"),
+    [importSource, setImportSource] = useState<"plaid" | "schwab" | "retirement">("plaid"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
     [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
@@ -1967,6 +1968,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               >
                 Schwab
               </button>
+              <button
+                className={importSource === "retirement" ? "selected" : ""}
+                onClick={() => setImportSource("retirement")}
+              >
+                Retirement
+              </button>
             </div>
           )}
           {(importSource === "plaid" || book === "india") && (
@@ -1985,6 +1992,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 onSave={(next) => save(next, "bank-import")}
               />
             </div>
+          )}
+          {importSource === "retirement" && book !== "india" && (
+            <RetirementReport data={data} fmt={fmt} uiTheme={uiTheme} />
           )}
         </>
       )}

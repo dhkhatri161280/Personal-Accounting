@@ -1034,6 +1034,14 @@ function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): A
     return findAcct(vaultAccounts, "Citi Credit Card", "Citibank", "Citi");
   if (/wells.fargo/i.test(inst))
     return findAcct(vaultAccounts, "Wells Fargo");
+  // Fidelity: only the HSA has a real Bank-group ledger to reconcile against (see
+  // "HSA Fidelity Account") -- the 401(k) is intentionally NOT tracked as a bank-type account
+  // (its ledger equivalent, "401K Investments", tracks cumulative payroll contributions under the
+  // Retirement group, not a balance meant to match Fidelity's real number). Leaving 401(k) match
+  // undefined here is correct, not an oversight -- it shows up informational-only, no vault
+  // balance/difference column, same as before this HSA rule existed.
+  if (/fidelity/i.test(inst) && plaidAcct.subtype === "hsa")
+    return findAcct(vaultAccounts, "HSA Fidelity Account");
   return undefined;
 }
 
