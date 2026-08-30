@@ -529,6 +529,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const baseRow = row(rows, "Base");
   const telRow = row(rows, "Telephone");
   const medicalRow = row(rows, "Medical");
+  // Only present for a handful of old-employer years (a "no active project" bench
+  // arrangement required paying part of a paycheck back) -- absent everywhere else.
+  const refundRow = row(rows, "Refund");
 
   // 401(k) lifetime contribution history — one row per imported year, self + employer match.
   // Uses each year's cumulative total (not the annual column, which is blank for "401K Emplr"
@@ -1520,7 +1523,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           medical: number; espp: number; base: number; telephone: number;
           isEditing: boolean; onEdit: (() => void) | null; estimated?: boolean;
           isVest?: boolean; shares?: number; onViewShares?: () => void;
-          employer?: string;
+          employer?: string; refund?: number;
         } | null = null;
 
         if (viewPeriod.type === "ytd") {
@@ -1566,7 +1569,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             gross: at(gross, i), federal: at(federal, i), ssn: at(ssn, i), medicare: at(medicare, i),
             stateWH: at(stateWH, i), stateSDI: at(stateSDI, i), totalTax: at(totalTax, i),
             k401: at(k401, i), k401Emplr: at(k401Emplr, i), medical: at(medicalRow, i), espp: at(esppRow, i),
-            base: at(baseRow, i), telephone: at(telRow, i),
+            base: at(baseRow, i), telephone: at(telRow, i), refund: at(refundRow, i),
             isEditing: editingTarget?.id === null && editingTarget?.periodIndex === i,
             onEdit: readOnly ? null : () => startEditExcel(i, lbl),
           };
@@ -1604,7 +1607,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         // silently be missing (a vest event never had one at all) or drift from what's shown.
         const netTakeHome = Math.max(
           0,
-          period.gross - period.federal - period.ssn - period.medicare - period.stateWH - period.stateSDI - period.k401 - period.medical - period.espp
+          period.gross - period.federal - period.ssn - period.medicare - period.stateWH - period.stateSDI - period.k401 - period.medical - period.espp - (period.refund || 0)
         );
         const grid: { label: string; value: number; kind: "in" | "out" }[] = period.isVest
           ? [
@@ -1630,6 +1633,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               { label: "State W/H", value: period.stateWH, kind: "out" },
               { label: "State SDI", value: period.stateSDI, kind: "out" },
               { label: "Total Tax", value: period.totalTax, kind: "out" },
+              // Only shown when non-zero -- specific to a "no active project" bench refund
+              // arrangement at one old employer, absent for everyone else.
+              ...(period.refund ? [{ label: "Refund to Employer", value: period.refund, kind: "out" as const }] : []),
             ];
 
         return (
