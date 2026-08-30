@@ -532,6 +532,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // Only present for a handful of old-employer years (a "no active project" bench
   // arrangement required paying part of a paycheck back) -- absent everywhere else.
   const refundRow = row(rows, "Refund");
+  // Deliberately NOT adjusting for "RSU Excess Tax" here (tried it, reverted it) -- checked
+  // two real vouchers with this credit and found it was entered inconsistently: one voucher's
+  // Tax Deduction line already had the credit baked in, the other didn't. No single formula
+  // predicts the real bank amount for both, so encoding one would be right for one period and
+  // wrong for the next by coincidence. Leave those periods to a manual look instead of guessing.
 
   // 401(k) lifetime contribution history — one row per imported year, self + employer match.
   // Uses each year's cumulative total (not the annual column, which is blank for "401K Emplr"
@@ -1085,10 +1090,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             if (!g && !t && !fed) return null; // skip empty future periods
             const key = `excel-${i}`;
             // A period can legitimately have more than one voucher -- e.g. a referral bonus
-            // paid the same day as the regular paycheck, as its own separate Receipt. Sum all
-            // of them for the tie-out check instead of comparing against just the first.
-            const linkedTxs = label ? findAllPayrollVouchers(transactions, yr.year, label, yr.periodLabels) : [];
-            const linkedTx = linkedTxs[0];
+            // paid the same day as the regular paycheck, as its own separate Receipt. Sum
+            // companions into the tie-out check, but only when they're SAME-DAY as the primary
+            // voucher and not wildly larger -- otherwise this was sweeping in unrelated large
+            // transactions (RSU vest/sale proceeds, etc.) that happen to fall within the same
+            // 15-day matching window and loosely match "salary", producing worse false
+            // mismatches than the single-voucher check it was meant to improve on.
+            const allLinkedTxs = label ? findAllPayrollVouchers(transactions, yr.year, label, yr.periodLabels) : [];
+            const linkedTx = allLinkedTxs[0];
+            const primaryNet = linkedTx ? voucherNetAmount(linkedTx, accounts) : 0;
+            const linkedTxs = linkedTx
+              ? allLinkedTxs.filter((tx) => tx === linkedTx || (tx.date === linkedTx.date && voucherNetAmount(tx, accounts) <= primaryNet * 2))
+              : [];
             const match = yr.matches?.find((mt) => mt.periodIndex === i);
             // A "Refund" (money paid back to the employer separately, e.g. a bench/no-project
             // arrangement) reduces Net Salary but is never netted into the actual paycheck
