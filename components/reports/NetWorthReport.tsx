@@ -10,6 +10,9 @@ interface NWRow {
   parent?: string;
   category?: string;
   closing: number;
+  // Set on synthetic (non-ledger) rows -- where the number actually comes from, so it can link
+  // there instead of a ledger drill-down popup that has no real account behind it.
+  sourceTab?: "retirement" | "equity";
 }
 
 const ASSET_ORDER = ["Bank & Cash", "Investments", "Equity Holdings (RSU/ESPP)", "Fixed Assets", "Other Assets"];
@@ -25,8 +28,8 @@ function assetCategory(parent: string): string {
 /** Synthetic asset row for vested RSU/ESPP shares still held -- these aren't booked as a ledger
  * account (there's nothing to double-entry until sold), so Net Worth adds their live market
  * value as an extra row alongside the real ledger-derived asset rows. */
-export function equityHoldingsRow(id: string, value: number) {
-  return { id, name: "RSU + ESPP (vested, held)", parent: "Equity Holdings (RSU/ESPP)", closing: -value };
+export function equityHoldingsRow(id: string, value: number): NWRow {
+  return { id, name: "RSU + ESPP (vested, held)", parent: "Equity Holdings (RSU/ESPP)", closing: -value, sourceTab: "equity" };
 }
 
 /** Synthetic asset row valuing 401(k)/IRA at real market value (live from Fidelity/Merrill via
@@ -34,8 +37,8 @@ export function equityHoldingsRow(id: string, value: number) {
  * responsible for excluding the real "401K Investments" ledger row from `assets` when using this,
  * same one-or-the-other substitution NetWorthReport does nowhere else (RSU/ESPP above is purely
  * additive since there's no ledger row for it to replace). */
-export function retirementLiveRow(id: string, value: number) {
-  return { id, name: "401(k) + IRA (live, Fidelity + Merrill)", parent: "Investments", closing: -value };
+export function retirementLiveRow(id: string, value: number): NWRow {
+  return { id, name: "401(k) + IRA (live, Fidelity + Merrill)", parent: "Investments", closing: -value, sourceTab: "retirement" };
 }
 
 const LIAB_ORDER = ["Loans", "Credit Cards & Payables", "Other Liabilities"];
@@ -76,6 +79,7 @@ export function NetWorthReport({
   fmt,
   uiTheme,
   onSelectAccount,
+  onNavigateSource,
 }: {
   assets: NWRow[];
   liabilities: NWRow[];
@@ -83,6 +87,7 @@ export function NetWorthReport({
   fmt: (n: number) => string;
   uiTheme?: string;
   onSelectAccount?: (id: number) => void;
+  onNavigateSource?: (tab: "retirement" | "equity") => void;
 }) {
   const totalAssets = assets.reduce((s, a) => s - a.closing, 0);
   const totalLiabilities = liabilities.reduce((s, a) => s + a.closing, 0);
@@ -94,6 +99,25 @@ export function NetWorthReport({
   const liabMembers = groupMembers(liabilities, 1, (r) => liabilityCategory(r.parent || r.category || "", r.name));
   const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
   const [expandedLiab, setExpandedLiab] = useState<string | null>(null);
+
+  // A real ledger row (numeric id) drills into its full ledger via onSelectAccount. A synthetic
+  // row (RSU/ESPP or 401(k)/IRA live value) has no ledger behind it -- it links to the report
+  // that actually produces the number instead, so "where did this come from" always has an
+  // answer rather than a dead-end plain label.
+  const SOURCE_LABEL: Record<"retirement" | "equity", string> = { retirement: "Import › Retirement", equity: "Reports › Equity" };
+  function memberLabel(row: NWRow) {
+    if (typeof row.id === "number" && onSelectAccount) {
+      return <button className="ledger-link" onClick={() => onSelectAccount(row.id as number)}>{row.name}</button>;
+    }
+    if (row.sourceTab && onNavigateSource) {
+      return (
+        <button className="ledger-link" onClick={() => onNavigateSource(row.sourceTab!)} title={`Not in the books -- live from ${SOURCE_LABEL[row.sourceTab]}`}>
+          {row.name} <span style={{ opacity: 0.55, fontWeight: 400 }}>({SOURCE_LABEL[row.sourceTab]})</span>
+        </button>
+      );
+    }
+    return <span>{row.name}</span>;
+  }
 
   const summaryCards: { label: string; value: number; icon: IconKind; color: string; sub: string }[] = [
     { label: "Total Assets", value: totalAssets, icon: "trending-up", color: "#16a34a", sub: "bank, cash, investments, fixed & other assets" },
@@ -220,13 +244,7 @@ export function NetWorthReport({
                       <div style={{ padding: "0 0 8px 18px" }}>
                         {members.map(({ row, amount }) => (
                           <div key={row.id} className="bs-row" style={{ fontSize: 12, opacity: 0.85 }}>
-                            {typeof row.id === "number" && onSelectAccount ? (
-                              <button className="ledger-link" onClick={() => onSelectAccount(row.id as number)}>
-                                {row.name}
-                              </button>
-                            ) : (
-                              <span>{row.name}</span>
-                            )}
+                            {memberLabel(row)}
                             <span style={{ color: "#16a34a" }}>{fmt(amount)}</span>
                           </div>
                         ))}
@@ -262,13 +280,7 @@ export function NetWorthReport({
                         <div style={{ padding: "0 0 8px 18px" }}>
                           {members.map(({ row, amount }) => (
                             <div key={row.id} className="bs-row" style={{ fontSize: 12, opacity: 0.85 }}>
-                              {typeof row.id === "number" && onSelectAccount ? (
-                                <button className="ledger-link" onClick={() => onSelectAccount(row.id as number)}>
-                                  {row.name}
-                                </button>
-                              ) : (
-                                <span>{row.name}</span>
-                              )}
+                              {memberLabel(row)}
                               <span style={{ color: "#dc2626" }}>{fmt(amount)}</span>
                             </div>
                           ))}

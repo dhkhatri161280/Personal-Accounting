@@ -2710,6 +2710,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 fmt={fmt}
                 uiTheme={uiTheme}
                 onSelectAccount={(id) => setSelected(id)}
+                onNavigateSource={(dest) => {
+                  if (dest === "retirement") {
+                    setTab("bank-import");
+                    setImportSource("retirement");
+                  } else {
+                    setTab("reports");
+                    setReport("equity");
+                  }
+                }}
               />
             </>
           )}
