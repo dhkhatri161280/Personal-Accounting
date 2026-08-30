@@ -207,6 +207,23 @@ export function TradingReport({
     closeTradeForm();
   }
 
+  // Real uninvested cash sitting in the Schwab account -- distinct from the "Charles Schwab" GL
+  // ledger (which tracks cumulative dividends/interest received, not current cash; see the
+  // reconciliation discussion this was built for). Fetched once, silently -- errors are ignored
+  // rather than shown, since this is a supplementary line, not something that should block the
+  // rest of the report if Schwab is briefly unreachable.
+  const [schwabCash, setSchwabCash] = useState<number | null>(null);
+  useEffect(() => {
+    fetch("/api/schwab/positions")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const j = d as { accounts?: { cashBalance?: number }[] };
+        const total = (j.accounts ?? []).reduce((s, a) => s + (a.cashBalance ?? 0), 0);
+        if (j.accounts?.length) setSchwabCash(total);
+      })
+      .catch(() => {});
+  }, []);
+
   // ── Layer 1: Live prices with auto-refresh ───────────────────────────────
   const [livePrices, setLivePrices]       = useState<Record<string, { price: number; prevClose: number | null }>>({});
   const [priceLoading, setPriceLoading]   = useState(true);
@@ -1074,14 +1091,38 @@ export function TradingReport({
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr>
-              <th colSpan={5}>Total Open</th>
-              <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
-              <th />
-              <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * curPrice(t), 0))}</th>
-              <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
-              {(() => { const td = open.reduce((s, t) => s + vsToday(t), 0); return <th className={`right trading-amt ${glClass(td)}`}>{td >= 0 ? "+" : ""}{fmt(td)}</th>; })()}
-            </tr></tfoot>
+            <tfoot>
+              <tr>
+                <th colSpan={5}>Total Open</th>
+                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0))}</th>
+                <th />
+                <th className="right trading-amt">{fmt(open.reduce((s, t) => s + t.units * curPrice(t), 0))}</th>
+                <th className={`right trading-amt ${glClass(totalUnrealized)}`}>{fmt(totalUnrealized)}</th>
+                {(() => { const td = open.reduce((s, t) => s + vsToday(t), 0); return <th className={`right trading-amt ${glClass(td)}`}>{td >= 0 ? "+" : ""}{fmt(td)}</th>; })()}
+              </tr>
+              {schwabCash !== null && (
+                <tr style={{ fontWeight: 400 }}>
+                  <th colSpan={5} style={{ textAlign: "left", opacity: 0.75 }} title="Real uninvested cash from Schwab, live -- separate from the 'Charles Schwab' GL ledger, which tracks cumulative dividends/interest received, not current cash">
+                    Cash Balance (Schwab, live)
+                  </th>
+                  <th className="right trading-amt">{fmt(schwabCash)}</th>
+                  <th />
+                  <th />
+                  <th />
+                  <th />
+                </tr>
+              )}
+              {schwabCash !== null && (
+                <tr>
+                  <th colSpan={5} style={{ textAlign: "left" }}>Total Open + Cash</th>
+                  <th className="right trading-amt">{fmt(open.reduce((s, t) => s + costOf(t), 0) + schwabCash)}</th>
+                  <th />
+                  <th />
+                  <th />
+                  <th />
+                </tr>
+              )}
+            </tfoot>
           </table>
         </div>
       )}

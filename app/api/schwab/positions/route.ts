@@ -54,7 +54,9 @@ export async function GET() {
       const text = await resp.text();
       if (!resp.ok) return { accountNumber: h.accountNumber, error: `Positions fetch failed (${resp.status})`, raw: text.slice(0, 500) };
       try {
-        const parsed = JSON.parse(text) as { securitiesAccount?: { positions?: SchwabRawPosition[] } };
+        const parsed = JSON.parse(text) as {
+          securitiesAccount?: { positions?: SchwabRawPosition[]; currentBalances?: { cashBalance?: number } };
+        };
         const raw = parsed.securitiesAccount?.positions ?? [];
         const positions: NormalizedPosition[] = raw
           .filter((p) => p.instrument?.assetType === "EQUITY" && p.instrument?.symbol)
@@ -64,7 +66,11 @@ export async function GET() {
             avgPrice: p.averagePrice ?? 0,
             marketValue: p.marketValue ?? 0,
           }));
-        return { accountNumber: h.accountNumber, positions };
+        // Real uninvested cash sitting in the account -- distinct from the "Charles Schwab" GL
+        // ledger, which tracks cumulative dividends/interest received, not current cash (see
+        // Trading report's Cash Balance line).
+        const cashBalance = parsed.securitiesAccount?.currentBalances?.cashBalance;
+        return { accountNumber: h.accountNumber, positions, cashBalance };
       } catch {
         return { accountNumber: h.accountNumber, error: "Non-JSON or unexpected response", raw: text.slice(0, 500) };
       }
