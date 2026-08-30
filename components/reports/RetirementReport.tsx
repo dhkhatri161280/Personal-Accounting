@@ -39,11 +39,30 @@ function ledgerAccountBalance(data: Ledger, accountName: string): number {
   return -sum;
 }
 
+// Balances are fetched fresh only on explicit Refresh -- switching sub-tabs unmounts/remounts
+// this component (see the importSource conditional in VaultApp.tsx), and re-fetching Plaid every
+// time someone just clicks back into this tab is exactly the multi-second wait the user asked to
+// avoid. Cached in localStorage (not just component state) so it also survives a full page
+// reload, not only tab-switching within the same session.
+const CACHE_KEY = "dk-retirement-balances-cache";
+type Cache = { accounts: PlaidInvestmentAccount[]; fetchedAt: string };
+
+function loadCache(): Cache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Cache) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
-  const [accounts, setAccounts] = useState<PlaidInvestmentAccount[] | null>(null);
+  const cached = useMemo(loadCache, []);
+  const [accounts, setAccounts] = useState<PlaidInvestmentAccount[] | null>(cached?.accounts ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(cached?.fetchedAt ? new Date(cached.fetchedAt) : null);
 
   async function load() {
     setLoading(true);
@@ -52,8 +71,15 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
       const r = await fetch("/api/plaid/transactions");
       const json = (await r.json()) as { accounts?: PlaidInvestmentAccount[]; errors?: string[] };
       if (json.errors?.length) setError(json.errors.join(", "));
-      setAccounts((json.accounts ?? []).filter((a) => a.type === "investment" && !EXCLUDED_SUBTYPES.has(a.subtype)));
-      setFetchedAt(new Date());
+      const filtered = (json.accounts ?? []).filter((a) => a.type === "investment" && !EXCLUDED_SUBTYPES.has(a.subtype));
+      const now = new Date();
+      setAccounts(filtered);
+      setFetchedAt(now);
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ accounts: filtered, fetchedAt: now.toISOString() }));
+      } catch {
+        // Storage full/unavailable (private browsing, etc.) -- not fatal, just no cache next visit.
+      }
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
@@ -61,8 +87,10 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
     }
   }
 
+  // Only auto-fetch the very first time there's nothing cached yet -- every subsequent visit to
+  // this tab shows the cached numbers instantly, and a fresh pull only happens on Refresh.
   useEffect(() => {
-    load();
+    if (!cached) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
