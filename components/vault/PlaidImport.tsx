@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlaidLink, type PlaidLinkOnSuccess, type PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
@@ -78,6 +78,10 @@ interface Props {
   data: Ledger;
   apiUrl: string;
   onSave: (next: Ledger) => Promise<boolean>;
+}
+
+function fmtMoney(n: number): string {
+  return (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
 }
 
 // ── Payroll template constants ─────────────────────────────────────────────────
@@ -1700,6 +1704,74 @@ export function PlaidImport({ data, onSave }: Props) {
     updatePendingRow(rowIdx, { alreadyImported: false, skip: false });
   }
 
+  // ── Balance-inferred adjustment proposals ────────────────────────────────────────────────
+  // Investment-type Plaid accounts (401k/HSA/IRA) never return itemized transactions -- only a
+  // balance (see app/api/plaid/transactions/route.ts: the Investments product, which would carry
+  // real line items, isn't enabled). So a real HSA spend/contribution can never show up as an
+  // importable row here the way a checking-account purchase would. This proposes the accounting
+  // entry implied by the balance GAP instead -- Plaid balance vs. this ledger account's own
+  // running balance -- so the user can confirm it in one click rather than typing a voucher by
+  // hand. Currently scoped to HSA specifically (the one Bank-group, real-ledger-tracked account
+  // among the investment-type ones); 401K/IRA are intentionally excluded, since those are valued
+  // live in Net Worth/Retirement rather than reconciled to a ledger balance at all.
+  const hsaAdjustment = useMemo(() => {
+    const plaidHsa = plaidAccounts.find((a) => /fidelity/i.test(a.institution_name || "") && a.subtype === "hsa");
+    if (!plaidHsa) return null;
+    const vaultAcct = data.accounts.find((a) => a.name === "HSA Fidelity Account");
+    if (!vaultAcct) return null;
+    const plaidBal = plaidHsa.balances?.current ?? null;
+    if (plaidBal == null) return null;
+    let sum = 0;
+    for (const t of data.transactions) {
+      if (t.deleted || t.cancelled) continue;
+      for (const e of t.entries) if (e.accountId === vaultAcct.id) sum += e.amount;
+    }
+    const vaultBal = vaultAcct.openingBalance - sum;
+    const diff = plaidBal - vaultBal;
+    if (Math.abs(diff) < 0.01) return null;
+    return { plaidAcct: plaidHsa, vaultAcct, plaidBal, vaultBal, diff };
+  }, [plaidAccounts, data.accounts, data.transactions]);
+
+  const [hsaOtherAcctId, setHsaOtherAcctId] = useState<number | "">(() => data.accounts.find((a) => /medical exp/i.test(a.name))?.id ?? "");
+  const [hsaPosting, setHsaPosting] = useState(false);
+
+  async function confirmHsaAdjustment() {
+    if (!hsaAdjustment || hsaOtherAcctId === "") return;
+    const otherAcct = data.accounts.find((a) => a.id === hsaOtherAcctId);
+    if (!otherAcct) return;
+    setHsaPosting(true);
+    try {
+      const amt = Math.abs(hsaAdjustment.diff);
+      const spend = hsaAdjustment.diff < 0; // Plaid balance is lower -> money left the account
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const voucherType = spend ? "Payment" : "Contra";
+      const tx: Tx = {
+        id: nextTransactionIds(data.transactions, 1)[0],
+        guid: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        date: todayIso,
+        number: nextVoucherNumber(data, voucherType, todayIso),
+        type: voucherType,
+        narration: `HSA balance adjustment (Plaid ${fmtDate(todayIso)})`,
+        historical: false,
+        cancelled: false,
+        syncStatus: "pending",
+        entries: spend
+          ? [
+              { accountId: otherAcct.id, accountName: otherAcct.name, amount: -amt },
+              { accountId: hsaAdjustment.vaultAcct.id, accountName: hsaAdjustment.vaultAcct.name, amount: amt },
+            ]
+          : [
+              { accountId: hsaAdjustment.vaultAcct.id, accountName: hsaAdjustment.vaultAcct.name, amount: -amt },
+              { accountId: otherAcct.id, accountName: otherAcct.name, amount: amt },
+            ],
+      };
+      await onSave({ ...data, transactions: [...data.transactions, tx] });
+    } finally {
+      setHsaPosting(false);
+    }
+  }
+
   const toImport = rows.filter((r) => !r.skip && !r.alreadyImported);
   const newAcctsNeededCount = Object.values(newAccts).filter(
     (na) =>
@@ -1849,6 +1921,45 @@ export function PlaidImport({ data, onSave }: Props) {
               return `Duplicates${dupeCount > 0 ? ` (${dupeCount})` : ""}`;
             })()}
           </button>
+        </div>
+      )}
+
+      {activeTab === "transactions" && hsaAdjustment && (
+        <div className="data-panel" style={{ marginBottom: 16, border: "1px solid #f0c987", background: "#fffaf0" }}>
+          <h4 style={{ margin: "0 0 6px" }}>HSA balance adjustment</h4>
+          <p style={{ fontSize: 12, opacity: 0.75, margin: "0 0 10px" }}>
+            Fidelity's HSA doesn't send itemized transactions through Plaid (that needs the paid
+            Investments product) -- only a balance. Proposing the entry implied by the gap between
+            Plaid's balance and this ledger account's own running balance.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, marginBottom: 10 }}>
+            <span>Plaid balance: <strong>{fmtMoney(hsaAdjustment.plaidBal)}</strong></span>
+            <span>Vault balance: <strong>{fmtMoney(hsaAdjustment.vaultBal)}</strong></span>
+            <span>Difference: <strong style={{ color: hsaAdjustment.diff < 0 ? "#dc2626" : "#16a34a" }}>{fmtMoney(hsaAdjustment.diff)}</strong></span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, flexWrap: "wrap" }}>
+            {hsaAdjustment.diff < 0 ? (
+              <>
+                <span>Payment — Dr</span>
+                <select value={hsaOtherAcctId} onChange={(e) => setHsaOtherAcctId(e.target.value ? Number(e.target.value) : "")}>
+                  <option value="">— choose expense account —</option>
+                  {data.accounts.filter((a) => a.active !== false).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <span>/ Cr {hsaAdjustment.vaultAcct.name}</span>
+              </>
+            ) : (
+              <>
+                <span>Contra — Dr {hsaAdjustment.vaultAcct.name} / Cr</span>
+                <select value={hsaOtherAcctId} onChange={(e) => setHsaOtherAcctId(e.target.value ? Number(e.target.value) : "")}>
+                  <option value="">— choose funding bank account —</option>
+                  {data.accounts.filter((a) => a.active !== false).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </>
+            )}
+            <button className="tr-refresh-btn" disabled={hsaPosting || hsaOtherAcctId === ""} onClick={confirmHsaAdjustment}>
+              {hsaPosting ? "Posting…" : `Confirm ${fmtMoney(Math.abs(hsaAdjustment.diff))}`}
+            </button>
+          </div>
         </div>
       )}
 
