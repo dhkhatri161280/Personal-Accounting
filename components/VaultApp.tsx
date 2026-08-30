@@ -113,6 +113,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [biometricChecked, setBiometricChecked] = useState(false),
     [showPasswordFallback, setShowPasswordFallback] = useState(false),
     [tab, setTab] = useState("dashboard"),
+    [importSource, setImportSource] = useState<"plaid" | "schwab">("plaid"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
     [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
@@ -1951,21 +1952,41 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </section>
       )}
       {tab === "bank-import" && data && (
-        <div className="data-panel">
-          <PlaidImport
-            data={data}
-            apiUrl={apiUrl}
-            onSave={(next) => save(next, "bank-import")}
-          />
-        </div>
-      )}
-      {tab === "bank-import" && data && book !== "india" && (
-        <div className="data-panel">
-          <SchwabImport
-            data={data}
-            onSave={(next) => save(next, "bank-import")}
-          />
-        </div>
+        <>
+          {book !== "india" && (
+            <div className="report-picker">
+              <button
+                className={importSource === "plaid" ? "selected" : ""}
+                onClick={() => setImportSource("plaid")}
+              >
+                Plaid
+              </button>
+              <button
+                className={importSource === "schwab" ? "selected" : ""}
+                onClick={() => setImportSource("schwab")}
+              >
+                Schwab
+              </button>
+            </div>
+          )}
+          {(importSource === "plaid" || book === "india") && (
+            <div className="data-panel">
+              <PlaidImport
+                data={data}
+                apiUrl={apiUrl}
+                onSave={(next) => save(next, "bank-import")}
+              />
+            </div>
+          )}
+          {importSource === "schwab" && book !== "india" && (
+            <div className="data-panel">
+              <SchwabImport
+                data={data}
+                onSave={(next) => save(next, "bank-import")}
+              />
+            </div>
+          )}
+        </>
       )}
       {tab === "anomalies" && data && (() => {
         const nowMonth = new Date().toISOString().slice(0, 7);
