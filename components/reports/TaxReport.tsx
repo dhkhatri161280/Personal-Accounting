@@ -59,6 +59,16 @@ function voucherNetAmount(tx: Tx, accounts: Account[]): number {
     .reduce((s, e) => s + e.amount, 0);
 }
 
+// Reads the employer straight off the linked voucher's own ledger name ("Salary Income - X")
+// so the period popup can show which job a given paycheck came from -- useful across a job
+// change or an old employer's history, where periods sit side by side with different employers.
+function employerFromVoucher(tx: Tx): string | null {
+  const entry = tx.entries.find((e) => /salary income/i.test(e.accountName || ""));
+  if (!entry) return null;
+  const m = (entry.accountName || "").match(/salary income\s*-\s*(.+)/i);
+  return m ? m[1].trim() : null;
+}
+
 // Fixed color per component (not palette-cycled) so a given slice means the same thing across
 // every paystub you open -- comparing periods side by side relies on Federal always being red,
 // Net always being green, etc. Take-home is computed as the REMAINDER (gross minus every other
@@ -1510,6 +1520,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           medical: number; espp: number; base: number; telephone: number;
           isEditing: boolean; onEdit: (() => void) | null; estimated?: boolean;
           isVest?: boolean; shares?: number; onViewShares?: () => void;
+          employer?: string;
         } | null = null;
 
         if (viewPeriod.type === "ytd") {
@@ -1548,8 +1559,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         } else if (viewPeriod.type === "excel") {
           const i = viewPeriod.index;
           const lbl = yr.periodLabels[i];
+          const linkedTx = lbl ? findPayrollVoucher(transactions, yr.year, lbl, yr.periodLabels) : undefined;
           period = {
             label: lbl ? periodEndLabel(lbl, yr.year) : `Period ${i + 1}`,
+            employer: (linkedTx && employerFromVoucher(linkedTx)) || undefined,
             gross: at(gross, i), federal: at(federal, i), ssn: at(ssn, i), medicare: at(medicare, i),
             stateWH: at(stateWH, i), stateSDI: at(stateSDI, i), totalTax: at(totalTax, i),
             k401: at(k401, i), k401Emplr: at(k401Emplr, i), medical: at(medicalRow, i), espp: at(esppRow, i),
@@ -1560,8 +1573,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         } else {
           const m = allManualPeriods.find((p) => p.id === viewPeriod.id);
           if (m) {
+            const tx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label, yr.periodLabels);
             period = {
               label: periodEndLabel(m.label, yr.year),
+              employer: (tx && employerFromVoucher(tx)) || undefined,
               gross: m.base + m.telephone, federal: m.federal, ssn: m.ssn, medicare: m.medicare,
               stateWH: m.stateWH, stateSDI: m.stateSDI, totalTax: m.totalTax,
               k401: m.k401, k401Emplr: m.k401Emplr ?? 0, medical: m.medical, espp: m.espp ?? 0,
@@ -1618,7 +1633,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             ];
 
         return (
-          <Modal title={`${period.label} — ${yr.year}`} onClose={() => setViewPeriod(null)} wide>
+          <Modal
+            title={
+              <>
+                {period.label} — {yr.year}
+                {period.employer && (
+                  <span style={{ marginLeft: 10, fontSize: 13, fontWeight: 400, opacity: 0.65 }}>{period.employer}</span>
+                )}
+              </>
+            }
+            onClose={() => setViewPeriod(null)}
+            wide
+          >
             {period.isEditing ? (
               <EditFieldsForm
                 form={manualForm}
