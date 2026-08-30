@@ -1086,7 +1086,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const key = `excel-${i}`;
             const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label, yr.periodLabels) : undefined;
             const match = yr.matches?.find((mt) => mt.periodIndex === i);
-            const expectedNet = at(netSalary, i);
+            // A "Refund" (money paid back to the employer separately, e.g. a bench/no-project
+            // arrangement) reduces Net Salary but is never netted into the actual paycheck
+            // deposit -- the voucher's real bank amount reflects the PRE-refund figure. Add it
+            // back so the tie-out check compares against what actually hit the bank. A no-op
+            // everywhere refund is 0 (every employer/year except this one).
+            const expectedNet = at(netSalary, i) + at(refundRow, i);
             const variance = match ? match.depositAmount - expectedNet : 0;
             const varianceFlag = match && Math.abs(variance) > 1;
             const linkedNet = linkedTx ? voucherNetAmount(linkedTx, accounts) : 0;
