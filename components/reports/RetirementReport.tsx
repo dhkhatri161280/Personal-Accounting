@@ -101,13 +101,14 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
   // doesn't record on its own.
   const k401Contributions = useMemo(() => ledgerAccountBalance(data, "401K Investments"), [data]);
 
+  const instRank = (inst: string) => (/fidelity/i.test(inst) ? 0 : /merrill/i.test(inst) ? 1 : 2);
   const grouped = useMemo(() => {
     const byInst = new Map<string, PlaidInvestmentAccount[]>();
     for (const a of accounts ?? []) {
       const key = a.institution_name || "Unknown";
       (byInst.get(key) ?? byInst.set(key, []).get(key)!).push(a);
     }
-    return [...byInst.entries()];
+    return [...byInst.entries()].sort((a, b) => instRank(a[0]) - instRank(b[0]));
   }, [accounts]);
 
   const totalBalance = (accounts ?? []).reduce((s, a) => s + (a.balances?.current ?? 0), 0);
@@ -141,40 +142,8 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
 
       {accounts && accounts.length > 0 && (
         <>
-          {/* Reuses .dashboard-stats for its button/card chrome (padding, border, typography --
-              all of that is scoped to ".dashboard-stats button", not ".dashboard-balance-card"
-              alone), but that class also carries a FIXED grid-template-areas built for the
-              Dashboard's specific 6 named cards (cash/investment/active/capital/salary/period).
-              An arbitrary/variable number of Retirement cards doesn't match any of those names,
-              so the browser auto-placed them into leftover cells that overlapped the reserved
-              named areas. Overriding grid-template-areas/columns inline (higher specificity than
-              the class rule) keeps the chrome but replaces the fixed layout with a plain
-              auto-fit grid that actually fits this content. */}
-          <div className="stats dashboard-stats" style={{ gridTemplateAreas: "none", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginBottom: 16 }}>
-            {grouped.map(([inst, accts]) =>
-              accts.map((a) => (
-                <button key={a.account_id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-                  {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
-                  <div className="dashboard-card-main">
-                    <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
-                    <strong>{fmt(a.balances?.current ?? 0)}</strong>
-                    <small>{a.name}</small>
-                  </div>
-                </button>
-              ))
-            )}
-            <button type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-              {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
-              <div className="dashboard-card-main">
-                <span>Total retirement</span>
-                <strong>{fmt(totalBalance)}</strong>
-                <small>Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}</small>
-              </div>
-            </button>
-          </div>
-
           {k401Contributions > 0 && (
-            <div className="data-panel" style={{ marginTop: 4 }}>
+            <div className="data-panel" style={{ marginBottom: 16 }}>
               <h4 style={{ margin: "0 0 8px" }}>Retirement contributions vs. real balance</h4>
               <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
                 Not a reconciliation — these are two different numbers by design. "Contributed" is
@@ -201,6 +170,38 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
               </div>
             </div>
           )}
+
+          {/* Reuses .dashboard-stats for its button/card chrome (padding, border, typography --
+              all of that is scoped to ".dashboard-stats button", not ".dashboard-balance-card"
+              alone), but that class also carries a FIXED grid-template-areas built for the
+              Dashboard's specific 6 named cards (cash/investment/active/capital/salary/period).
+              An arbitrary/variable number of Retirement cards doesn't match any of those names,
+              so the browser auto-placed them into leftover cells that overlapped the reserved
+              named areas. Overriding grid-template-areas/columns inline (higher specificity than
+              the class rule) keeps the chrome but replaces the fixed layout with a plain
+              auto-fit grid that actually fits this content. */}
+          <div className="stats dashboard-stats" style={{ gridTemplateAreas: "none", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {grouped.map(([inst, accts]) =>
+              accts.map((a) => (
+                <button key={a.account_id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+                  {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
+                  <div className="dashboard-card-main">
+                    <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
+                    <strong>{fmt(a.balances?.current ?? 0)}</strong>
+                    <small>{a.name}</small>
+                  </div>
+                </button>
+              ))
+            )}
+            <button type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+              {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
+              <div className="dashboard-card-main">
+                <span>Total retirement</span>
+                <strong>{fmt(totalBalance)}</strong>
+                <small>Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}</small>
+              </div>
+            </button>
+          </div>
         </>
       )}
     </div>
