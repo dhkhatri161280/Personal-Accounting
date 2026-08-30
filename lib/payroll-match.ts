@@ -95,21 +95,33 @@ export function rowValue(year: PayrollYear, label: string, periodIndex: number, 
 // doesn't matter how it got there) that already accounts for a given pay period, so the Tax tab
 // can link straight to it instead of tracking a separate "confirmed" flag.
 const VOUCHER_WINDOW_DAYS_AFTER = 10;
+// A paycheck is only ever dated AT or shortly AFTER the period it covers -- you can't be paid
+// for days you haven't worked yet. Allowing a small buffer before the period's END (not its
+// START) covers same-day-or-1-day-early direct deposits (NVIDIA's own data: paid 1 day before
+// period end) without accepting a voucher dated mid-period, which is never legitimate and was
+// exactly the bug: a paycheck dated day 6 of a 14-day period got claimed by that period instead
+// of the EARLIER period it was actually the late payment for.
+const VOUCHER_WINDOW_DAYS_BEFORE_END = 5;
+
+function voucherWindow(range: { start: string; end: string }): { from: string; to: string } {
+  const from = new Date(range.end + "T00:00:00Z");
+  from.setUTCDate(from.getUTCDate() - VOUCHER_WINDOW_DAYS_BEFORE_END);
+  const to = new Date(range.end + "T00:00:00Z");
+  to.setUTCDate(to.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
 
 // allPeriodLabels (optional): the full ordered list of period labels for this year, used to
 // stop a period's trailing grace window from stealing a voucher that actually belongs to an
 // EARLIER period. Tightly-spaced historical periods (e.g. an old employer's ~14-day cycles)
-// can have period N+1's own native date range overlap period N's 10-day grace window -- a
-// paycheck landing a few days into period N+1 is almost always the LATE payment for period N
-// (which just ended), not an early one for period N+1 (which hasn't finished yet, so can't
-// have been paid out). Without this, a call made independently per period (as the render loop
+// can have period N+1's own window overlap period N's -- a paycheck landing a few days into
+// period N+1 is almost always the LATE payment for period N (which just ended), not an early
+// one for period N+1. Without this, a call made independently per period (as the render loop
 // does) has no way to know the voucher was already claimed by an earlier period's own lookup.
 export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = []): Tx | undefined {
   const range = parsePeriodRange(periodLabel, year);
   if (!range) return undefined;
-  const endPlus = new Date(range.end + "T00:00:00Z");
-  endPlus.setUTCDate(endPlus.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
-  const endPlusStr = endPlus.toISOString().slice(0, 10);
+  const { from, to } = voucherWindow(range);
   const index = allPeriodLabels.indexOf(periodLabel);
   const earlierRanges = index > 0
     ? allPeriodLabels
@@ -119,12 +131,11 @@ export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel
     : [];
   const claimedByEarlier = (t: Tx) =>
     earlierRanges.some((r) => {
-      const ep = new Date(r.end + "T00:00:00Z");
-      ep.setUTCDate(ep.getUTCDate() + VOUCHER_WINDOW_DAYS_AFTER);
-      return t.date >= r.start && t.date <= ep.toISOString().slice(0, 10);
+      const w = voucherWindow(r);
+      return t.date >= w.from && t.date <= w.to;
     });
   return transactions.find(
-    (t) => isSalaryVoucher(t) && t.date >= range.start && t.date <= endPlusStr && !claimedByEarlier(t)
+    (t) => isSalaryVoucher(t) && t.date >= from && t.date <= to && !claimedByEarlier(t)
   );
 }
 
