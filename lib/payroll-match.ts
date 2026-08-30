@@ -118,9 +118,14 @@ function voucherWindow(range: { start: string; end: string }): { from: string; t
 // period N+1 is almost always the LATE payment for period N (which just ended), not an early
 // one for period N+1. Without this, a call made independently per period (as the render loop
 // does) has no way to know the voucher was already claimed by an earlier period's own lookup.
-export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = []): Tx | undefined {
+//
+// Some periods genuinely have MORE than one voucher (e.g. a referral bonus paid alongside the
+// regular paycheck, same date, as a separate Receipt) -- findAllPayrollVouchers returns every
+// match so a tie-out check can sum them, and findPayrollVoucher (the common case) is just its
+// first result for call sites that only ever expect one.
+export function findAllPayrollVouchers(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = []): Tx[] {
   const range = parsePeriodRange(periodLabel, year);
-  if (!range) return undefined;
+  if (!range) return [];
   const { from, to } = voucherWindow(range);
   const index = allPeriodLabels.indexOf(periodLabel);
   const earlierRanges = index > 0
@@ -134,9 +139,13 @@ export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel
       const w = voucherWindow(r);
       return t.date >= w.from && t.date <= w.to;
     });
-  return transactions.find(
-    (t) => isSalaryVoucher(t) && t.date >= from && t.date <= to && !claimedByEarlier(t)
-  );
+  return transactions
+    .filter((t) => isSalaryVoucher(t) && t.date >= from && t.date <= to && !claimedByEarlier(t))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function findPayrollVoucher(transactions: Tx[], year: string, periodLabel: string, allPeriodLabels: string[] = []): Tx | undefined {
+  return findAllPayrollVouchers(transactions, year, periodLabel, allPeriodLabels)[0];
 }
 
 export function isSalaryVoucher(t: Tx): boolean {

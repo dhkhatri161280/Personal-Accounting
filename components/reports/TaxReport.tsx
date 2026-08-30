@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase, Account } from "@/lib/vault-types";
-import { findPayrollVoucher, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear, matchPayrollPeriod, inferPeriodLabel } from "@/lib/payroll-match";
+import { findPayrollVoucher, findAllPayrollVouchers, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear, matchPayrollPeriod, inferPeriodLabel } from "@/lib/payroll-match";
 import type { ParsedPaystub } from "@/lib/parse-paystub-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { DonutChart, type DonutSegment } from "@/components/DonutChart";
@@ -1084,7 +1084,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const net = at(netSalary, i);
             if (!g && !t && !fed) return null; // skip empty future periods
             const key = `excel-${i}`;
-            const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label, yr.periodLabels) : undefined;
+            // A period can legitimately have more than one voucher -- e.g. a referral bonus
+            // paid the same day as the regular paycheck, as its own separate Receipt. Sum all
+            // of them for the tie-out check instead of comparing against just the first.
+            const linkedTxs = label ? findAllPayrollVouchers(transactions, yr.year, label, yr.periodLabels) : [];
+            const linkedTx = linkedTxs[0];
             const match = yr.matches?.find((mt) => mt.periodIndex === i);
             // A "Refund" (money paid back to the employer separately, e.g. a bench/no-project
             // arrangement) reduces Net Salary but is never netted into the actual paycheck
@@ -1094,9 +1098,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const expectedNet = at(netSalary, i) + at(refundRow, i);
             const variance = match ? match.depositAmount - expectedNet : 0;
             const varianceFlag = match && Math.abs(variance) > 1;
-            const linkedNet = linkedTx ? voucherNetAmount(linkedTx, accounts) : 0;
-            const linkedVariance = linkedTx ? linkedNet - expectedNet : 0;
-            const linkedVarianceFlag = !!linkedTx && Math.abs(linkedVariance) > 1;
+            const linkedNet = linkedTxs.reduce((s, tx) => s + voucherNetAmount(tx, accounts), 0);
+            const linkedVariance = linkedTxs.length ? linkedNet - expectedNet : 0;
+            const linkedVarianceFlag = linkedTxs.length > 0 && Math.abs(linkedVariance) > 1;
             const range = label ? parsePeriodRange(label, yr.year) : null;
             const isPast = range ? range.end < todayIso : false;
             const periodEspp = range ? yearEspp.filter((e) => e.purchaseDate >= range.start && e.purchaseDate <= range.end) : [];
@@ -1131,10 +1135,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                       <button
                         className="tax-voucher-link"
                         onClick={(e) => { e.stopPropagation(); openVoucherModal(linkedTx); }}
-                        title={`${linkedTx.narration || ""}${linkedVarianceFlag ? ` — voucher amount ${fmt(linkedNet)} differs from expected net ${fmt(expectedNet)} by ${fmt(linkedVariance)}` : ""}`}
+                        title={`${linkedTxs.length > 1 ? `${linkedTxs.length} vouchers this period (e.g. regular pay + a bonus), summed for tie-out: ${linkedTxs.map((tx) => `${tx.type} #${tx.number || "—"} ${fmt(voucherNetAmount(tx, accounts))}`).join(", ")}. ` : linkedTx.narration || ""}${linkedVarianceFlag ? ` — combined voucher amount ${fmt(linkedNet)} differs from expected net ${fmt(expectedNet)} by ${fmt(linkedVariance)}` : ""}`}
                         style={{ ...linkBtnStyle, ...(linkedVarianceFlag ? { color: "#dc2626", fontWeight: 600 } : undefined) }}
                       >
                         {linkedVarianceFlag ? "⚠" : "🔗"} {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                        {linkedTxs.length > 1 && ` +${linkedTxs.length - 1} more`}
                       </button>
                     ) : match ? (
                       <span
