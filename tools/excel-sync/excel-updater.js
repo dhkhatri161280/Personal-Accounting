@@ -34,7 +34,10 @@ const EXCEL_TO_VAULT_NAME = {
   'Insurance - Home':   'Home Insurance',
   'Vehicle Maint.':     'Vehicle Maintenance',
   'Electric & Gas':     'Electric & Gas Expenses',
-  'Telephone':          'Telephone Exps',
+  // Telephone (Cash Flow row) intentionally unmapped -- the Telephone Exps GL account only ever
+  // accrues the payroll stipend credit with no offsetting debit, so a live sync would show a
+  // confusing negative balance here. The stipend is represented in Modem / Mobile instead
+  // (see payrollTelephoneForMonth); this row stays manual/blank per the user's own convention.
   'Rent':               'Rent Exps',
   'Internet':           'Internet Exps',
   'Water':              'Water Charges',
@@ -43,13 +46,14 @@ const EXCEL_TO_VAULT_NAME = {
   'Kumon Fee':          'Kumons Fee',
   // Inflow rows (reimbursements / asset recoveries)
   'Insurance - Auto R': 'Vehicle Insurance',
-  'Travelling R':       'Travelling Expenses',
+  // Travelling R handled in EXCEL_TO_MULTI_VAULT_NAMES (includes Air Fare Expense)
   'Electric Goods R':   'Electronic Goods',
   'Furniture R':        'Furniture Purchase',
   'Modem / Mobile':     'Mobile Purchase',
   // More Cash Flow outflow labels
   'Medical Exps':       'Medical Expenses',
   'India Fund Trf':     'India Fund Transfer',
+  'Travelling':         'Travelling Expenses',
   // Insurance - Health handled in EXCEL_TO_MULTI_VAULT_NAMES (includes Legal Plan)
   'Insurance - Auto':   'Vehicle Insurance',
   'Deposit / House':    'Home',
@@ -76,6 +80,9 @@ const EXCEL_TO_MULTI_VAULT_NAMES = {
   'Insurance - Health': ['Health Insurance', 'Legal Plan - Nvidia'],
   // Credit Card Redemption includes Other Income
   'Credit Card Red': ['Credit Card Redemption', 'Other Income'],
+  // Travelling R is a catch-all travel-reimbursement row -- covers both general Travelling
+  // Expenses refunds and Air Fare refunds/credits (e.g. an airline points credit)
+  'Travelling R': ['Travelling Expenses', 'Air Fare'],
 };
 
 // House Hold accounts are named per-month: "House Hold Exps - Jul 26"
@@ -285,7 +292,39 @@ function collectConsolidated(ws, accountByVaultName, balances, changes) {
 
 // ─── CASH FLOW ────────────────────────────────────────────────────────────────
 
-function collectCashFlow(ws, accountByVaultName, monthlyFlows, changes, currentYM) {
+const _MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// NVIDIA's $30/paycheck Telephone stipend never posts a GL voucher of its own (it's payroll
+// metadata only, tracked in vault.payroll for tax reporting) — it rides in the Modem/Mobile
+// Cash Flow row alongside any actual phone-purchase reimbursement, same as a manual entry would.
+// Semi-monthly periods always split cleanly one-to-one into a calendar month, so summing every
+// period whose label starts with that month's abbreviation is exact, no date-range parsing needed.
+function payrollTelephoneForMonth(vault, ym) {
+  const [yearStr, monStr] = ym.split('-');
+  const monAbbr = _MONTH_ABBR[Number(monStr) - 1];
+  const yr = vault.payroll?.years?.find(y => y.year === yearStr);
+  if (!yr) return 0;
+  const telRow = (yr.rows || []).find(r => r.label === 'Telephone');
+  const manualPeriods = yr.manualPeriods || [];
+  const overrideByIndex = new Map(manualPeriods.filter(m => m.periodIndex !== undefined).map(m => [m.periodIndex, m]));
+  const labels = yr.periodLabels || [];
+  let total = 0;
+  for (let i = 0; i < labels.length; i++) {
+    if (!labels[i] || !labels[i].startsWith(monAbbr)) continue;
+    const ov = overrideByIndex.get(i);
+    total += ov ? (ov.telephone || 0) : (telRow?.values?.[i] || 0);
+  }
+  // Voucher-derived periods with no Excel row of their own yet (periodIndex undefined) — posted
+  // straight from a paystub PDF/receipt before the next Excel re-import catches up to them.
+  for (const m of manualPeriods) {
+    if (m.periodIndex !== undefined) continue;
+    if (!m.label || !m.label.startsWith(monAbbr)) continue;
+    total += m.telephone || 0;
+  }
+  return round2(total);
+}
+
+function collectCashFlow(ws, accountByVaultName, monthlyFlows, changes, currentYM, vault) {
   const range = sheetRange(ws);
   const monthColMap = new Map();
 
@@ -318,6 +357,14 @@ function collectCashFlow(ws, accountByVaultName, monthlyFlows, changes, currentY
   for (let r = 11; r < outflowStartRow; r++) {
     const lbl = cellText(ws, r, 0) || cellText(ws, r, 1);
     if (!lbl || isHouseHoldLabel(lbl)) continue;
+    const multiNames = EXCEL_TO_MULTI_VAULT_NAMES[norm(lbl)];
+    if (multiNames) {
+      for (const vname of multiNames) {
+        const a = accountByVaultName.get(vname);
+        if (a) inflowAccountIds.add(a.id);
+      }
+      continue;
+    }
     const a = accountByVaultName.get(excelToVaultName(lbl));
     if (a) inflowAccountIds.add(a.id);
   }
@@ -377,9 +424,12 @@ function collectCashFlow(ws, accountByVaultName, monthlyFlows, changes, currentY
       // Outflow rows: net Dr (outflow - inflow) UNLESS this account also has an inflow row
       // (in which case the Cr is already captured there, so show Dr-only).
       const hasInflowRow = inflowAccountIds.has(acct.id);
-      const val = flows ? (isOutflow
+      let val = flows ? (isOutflow
         ? (hasInflowRow ? flows.outflow : flows.outflow - flows.inflow)
         : flows.inflow) : 0;
+      if (!isOutflow && norm(label) === 'Modem / Mobile') {
+        val = round2(val + payrollTelephoneForMonth(vault, ym));
+      }
       const cell = ws[cellRef(r, col)];
       if (cell && cell.f !== undefined) continue;
       if (val === 0) continue; // never write 0 — leave cell as-is
@@ -606,8 +656,10 @@ function collectBalanceSheet(ws, accountByVaultName, balances, changes, sheetNam
     // ── Cash & Bank (col F) — negate: true ──
     { r: 34, c: 5, negate: true, vaultNames: ['Charles Schwab'] },
     { r: 35, c: 5, negate: true, vaultNames: ['Chase Bank'] },
-    // Credit cards: Cr balance = liability → -raw = negative on asset side
-    { r: 37, c: 5, negate: true, vaultNames: ['AMEX Credit Card', 'Citi Credit Card', 'Credit Card - BOfA'] },
+    // Credit cards: Cr balance = liability → -raw = negative on asset side.
+    // HSA Fidelity Account (a real Dr-normal bank account) rides in this same combined cell
+    // per the user's own manual formula — no separate HSA row on the Balance Sheet yet.
+    { r: 37, c: 5, negate: true, vaultNames: ['AMEX Credit Card', 'Citi Credit Card', 'Credit Card - BOfA', 'Credit Card - BOfA - Hiral', 'HSA Fidelity Account'] },
     { r: 38, c: 5, negate: true, vaultNames: ['Bank Of America', 'Savings Account'] },
   ];
 
@@ -717,9 +769,18 @@ function inspectWorkbook(wb, targetSheet) {
 
     // Determine the current Indian FY (Apr 1 – Mar 31)
     const now = new Date();
-    const fyStartYear = (now.getMonth() + 1) >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+    let fyStartYear = (now.getMonth() + 1) >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+    let currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    // --month=YYYY-MM lets --dry-run recompute an arbitrary historical month for auditing
+    // mappings against already-finalized cells — never honored outside --dry-run, since the
+    // live sync must only ever touch the true current month.
+    const monthArg = args.find(a => a.startsWith('--month='));
+    if (monthArg && dryRun) {
+      currentYM = monthArg.slice('--month='.length);
+      const [my, mm] = currentYM.split('-').map(Number);
+      fyStartYear = mm >= 4 ? my : my - 1;
+    }
     const currentFY = `${fyStartYear}-${String(fyStartYear + 1).slice(-2)}`;
-    const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     console.log(`Current FY: ${currentFY}, Current Month: ${currentYM}`);
 
     for (const sheetName of wb.SheetNames) {
@@ -729,7 +790,7 @@ function inspectWorkbook(wb, targetSheet) {
       if (sheetName === 'Cash Flow') {
         // Primary data store — inflow rows get Cr amounts, outflow rows get Dr amounts.
         // Only the current month column is updated — historical months are never touched.
-        collectCashFlow(ws, accountByVaultName, monthlyFlows, changes, currentYM);
+        collectCashFlow(ws, accountByVaultName, monthlyFlows, changes, currentYM, vault);
       } else if (sheetName === currentFY) {
         collectBalanceSheet(ws, accountByVaultName, balances, changes, sheetName);
         collectCurrentFYPL(ws, fyStartYear, accountByVaultName, monthlyFlows, changes, sheetName, currentYM);
@@ -754,8 +815,8 @@ function inspectWorkbook(wb, targetSheet) {
           console.log(`  ${ch.sheet}!${XLSX.utils.encode_cell({ r: ch.row - 1, c: ch.col - 1 })} = ${ch.value}`);
       }
 
-      // Show ALL changes for current month (July 2026)
-      const curYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      // Show ALL changes for the target month (currentYM, honors --month override in dry-run)
+      const curYM = currentYM;
       const curMonthChanges = changes.filter(ch => ch.sheet === 'Cash Flow' && ch._ym === curYM);
       // Tag changes with YM for filtering (need to re-derive from col)
       // Instead find what col = curYM
