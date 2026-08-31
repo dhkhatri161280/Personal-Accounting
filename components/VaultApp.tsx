@@ -115,6 +115,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [showPasswordFallback, setShowPasswordFallback] = useState(false),
     [tab, setTab] = useState("dashboard"),
     [importSource, setImportSource] = useState<"plaid" | "schwab" | "retirement">("plaid"),
+    [trashSubTab, setTrashSubTab] = useState<"deleted" | "duplicate">("deleted"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
     [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
@@ -2356,64 +2357,181 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               else setStatus("Restore failed.");
             }
 
+            // Same-date, same-accounts, same-amount duplicate detection -- moved here from
+            // Import > Plaid (a duplicate can come from any source, not just a Plaid re-import,
+            // so it belongs alongside Trash's other "vouchers that shouldn't be counted" view
+            // rather than tucked inside one specific import tool).
+            const active = ledger.transactions.filter(v => !v.deleted && !v.cancelled);
+            const dupeMap = new Map<string, typeof active>();
+            for (const v of active) {
+              const dr = v.entries?.find(e => e.amount < 0);
+              const cr = v.entries?.find(e => e.amount > 0);
+              if (!dr || !cr) continue;
+              const key = `${v.date}|${dr.accountId}|${cr.accountId}|${Math.abs(dr.amount).toFixed(2)}`;
+              if (!dupeMap.has(key)) dupeMap.set(key, []);
+              dupeMap.get(key)!.push(v);
+            }
+            const dupeGroups = [...dupeMap.entries()]
+              .filter(([, vs]) => vs.length > 1)
+              .map(([key, vs]) => {
+                const [date, drId, crId, amt] = key.split("|");
+                return {
+                  date,
+                  amount: parseFloat(amt),
+                  drAcct: ledger.accounts.find(a => a.id === +drId),
+                  crAcct: ledger.accounts.find(a => a.id === +crId),
+                  txs: vs.sort((a, b) => a.id - b.id),
+                };
+              })
+              .sort((a, b) => b.date.localeCompare(a.date));
+
+            // A voucher already pushed to Tally (has a tallyGuid/syncFingerprint) needs
+            // syncStatus flagged "pending" on delete so the sync engine actually removes it from
+            // Tally too -- otherwise it vanishes from the app while quietly staying in Tally
+            // forever. One never synced can just be dropped locally.
+            function markDupeDeleted(v: Tx): Tx {
+              if (!v.tallyGuid && !v.syncFingerprint) return { ...v, deleted: true };
+              return { ...v, deleted: true, syncStatus: "pending", lastSyncedAt: undefined };
+            }
+            async function deleteDupeTx(id: number) {
+              const next: Ledger = { ...ledger, transactions: ledger.transactions.map(v => v.id === id ? markDupeDeleted(v) : v) };
+              const ok = await save(next, "trash");
+              if (ok) setStatus(`Voucher #${id} deleted.`);
+              else setStatus("Delete failed.");
+            }
+            async function deleteAllDupeExtras() {
+              const extraIds = new Set(dupeGroups.flatMap(g => g.txs.slice(1).map(v => v.id)));
+              if (!extraIds.size) return;
+              if (!window.confirm(`Delete ${extraIds.size} extra duplicate voucher(s)? The oldest entry in each group will be kept.`)) return;
+              const next: Ledger = { ...ledger, transactions: ledger.transactions.map(v => extraIds.has(v.id) ? markDupeDeleted(v) : v) };
+              const ok = await save(next, "trash");
+              if (ok) setStatus(`${extraIds.size} duplicate(s) deleted.`);
+              else setStatus("Delete failed.");
+            }
+
             return (
               <div className="data-panel trash-panel">
-                <div className="trash-header">
-                  <div>
-                    <h3 style={{ margin: 0 }}>Trash — Deleted Vouchers</h3>
-                    <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "4px 0 0" }}>
-                      All soft-deleted vouchers. Click Restore to bring one back, or Restore All to undo all deletions.
-                      Sorted most-recently-deleted first (highest voucher ID).
-                    </p>
-                  </div>
-                  {deleted.length > 0 && (
-                    <button className="trash-restore-all-btn" onClick={restoreAll}>
-                      Restore All ({deleted.length})
-                    </button>
-                  )}
+                <div className="report-picker" style={{ marginBottom: 12 }}>
+                  <button
+                    className={trashSubTab === "deleted" ? "selected" : ""}
+                    onClick={() => setTrashSubTab("deleted")}
+                  >
+                    Deleted{deleted.length > 0 ? ` (${deleted.length})` : ""}
+                  </button>
+                  <button
+                    className={trashSubTab === "duplicate" ? "selected" : ""}
+                    onClick={() => setTrashSubTab("duplicate")}
+                  >
+                    Duplicate{dupeGroups.length > 0 ? ` (${dupeGroups.length})` : ""}
+                  </button>
                 </div>
-                {deleted.length === 0 ? (
-                  <div className="trash-empty">Trash is empty — no deleted vouchers.</div>
-                ) : (
-                  <table className="trash-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>#</th>
-                        <th>Narration</th>
-                        <th>Debit</th>
-                        <th>Credit</th>
-                        <th className="right">Amount</th>
-                        <th>Sync</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deleted.map(t => {
-                        const dr = t.entries.find(e => e.amount < 0);
-                        const cr = t.entries.find(e => e.amount > 0);
-                        const amt = dr ? Math.abs(dr.amount) : 0;
-                        return (
-                          <tr key={t.guid} className="trash-row">
-                            <td className="trash-date">{fmtDate(t.date)}</td>
-                            <td><span className="pill">{t.type}</span></td>
-                            <td className="trash-num">{t.number || "—"}</td>
-                            <td className="trash-narr">{t.narration || "—"}</td>
-                            <td className="trash-acct">{dr?.accountName || t.entries.map(e => e.accountName).join(", ") || "—"}</td>
-                            <td className="trash-acct">{cr?.accountName || "—"}</td>
-                            <td className="right trash-amt">{fmt(amt)}</td>
-                            <td className="trash-sync">{t.syncStatus || "—"}</td>
-                            <td>
-                              <button className="trash-restore-btn" onClick={() => restoreTx(t.guid)}>
-                                Restore
-                              </button>
-                            </td>
+
+                {trashSubTab === "deleted" && (
+                  <>
+                    <div className="trash-header">
+                      <div>
+                        <h3 style={{ margin: 0 }}>Trash — Deleted Vouchers</h3>
+                        <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "4px 0 0" }}>
+                          All soft-deleted vouchers. Click Restore to bring one back, or Restore All to undo all deletions.
+                          Sorted most-recently-deleted first (highest voucher ID).
+                        </p>
+                      </div>
+                      {deleted.length > 0 && (
+                        <button className="trash-restore-all-btn" onClick={restoreAll}>
+                          Restore All ({deleted.length})
+                        </button>
+                      )}
+                    </div>
+                    {deleted.length === 0 ? (
+                      <div className="trash-empty">Trash is empty — no deleted vouchers.</div>
+                    ) : (
+                      <table className="trash-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>#</th>
+                            <th>Narration</th>
+                            <th>Debit</th>
+                            <th>Credit</th>
+                            <th className="right">Amount</th>
+                            <th>Sync</th>
+                            <th></th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody>
+                          {deleted.map(t => {
+                            const dr = t.entries.find(e => e.amount < 0);
+                            const cr = t.entries.find(e => e.amount > 0);
+                            const amt = dr ? Math.abs(dr.amount) : 0;
+                            return (
+                              <tr key={t.guid} className="trash-row">
+                                <td className="trash-date">{fmtDate(t.date)}</td>
+                                <td><span className="pill">{t.type}</span></td>
+                                <td className="trash-num">{t.number || "—"}</td>
+                                <td className="trash-narr">{t.narration || "—"}</td>
+                                <td className="trash-acct">{dr?.accountName || t.entries.map(e => e.accountName).join(", ") || "—"}</td>
+                                <td className="trash-acct">{cr?.accountName || "—"}</td>
+                                <td className="right trash-amt">{fmt(amt)}</td>
+                                <td className="trash-sync">{t.syncStatus || "—"}</td>
+                                <td>
+                                  <button className="trash-restore-btn" onClick={() => restoreTx(t.guid)}>
+                                    Restore
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </>
+                )}
+
+                {trashSubTab === "duplicate" && (
+                  <div className="plaid-dupe-section">
+                    {dupeGroups.length === 0 ? (
+                      <div className="plaid-dupe-empty">No duplicate transactions found in your vault.</div>
+                    ) : (
+                      <>
+                        <div className="plaid-dupe-summary">
+                          Found <strong>{dupeGroups.length}</strong> duplicate group{dupeGroups.length !== 1 ? "s" : ""} — same date, same accounts, same amount.{" "}
+                          <button className="plaid-dupe-del-all-btn" onClick={deleteAllDupeExtras}>
+                            Delete All Extras ({dupeGroups.reduce((s, g) => s + g.txs.length - 1, 0)})
+                          </button>
+                        </div>
+                        {dupeGroups.map((g, gi) => (
+                          <div key={gi} className="plaid-dupe-group">
+                            <div className="plaid-dupe-header">
+                              <span className="plaid-dupe-date">{fmtDate(g.date)}</span>
+                              <span className="plaid-dupe-amt">${g.amount.toFixed(2)}</span>
+                              <span className="plaid-dupe-accounts">
+                                Dr: <strong>{g.drAcct?.name ?? "—"}</strong>
+                                {" / "}
+                                Cr: <strong>{g.crAcct?.name ?? "—"}</strong>
+                              </span>
+                            </div>
+                            {g.txs.map((v, vi) => (
+                              <div key={v.id} className={`plaid-dupe-row${vi === 0 ? " plaid-dupe-first" : " plaid-dupe-extra"}`}>
+                                <span className="plaid-dupe-id">#{v.id}</span>
+                                <span className="plaid-dupe-type">{v.type}</span>
+                                <span className="plaid-dupe-narr">{v.narration || "—"}</span>
+                                <span className="plaid-dupe-sync">{v.syncStatus || ""}</span>
+                                <button
+                                  className="plaid-dupe-del-btn"
+                                  onClick={() => {
+                                    if (window.confirm(`Delete voucher #${v.id} "${v.narration || ""}"?`)) deleteDupeTx(v.id);
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             );

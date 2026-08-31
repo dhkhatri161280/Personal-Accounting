@@ -1181,7 +1181,7 @@ export function PlaidImport({ data, onSave }: Props) {
   const [saving, setSaving] = useState(false);
   const [pendingTxs, setPendingTxs] = useState<PlaidTxRaw[]>([]);
   const [plaidAccounts, setPlaidAccounts] = useState<PlaidAccount[]>([]);
-  const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances" | "duplicates">("transactions");
+  const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances">("transactions");
   const [pendingRows, setPendingRows] = useState<ImportRow[]>([]);
   const [savingPending, setSavingPending] = useState(false);
   const [expandedReconIdx, setExpandedReconIdx] = useState<number | null>(null);
@@ -1898,28 +1898,6 @@ export function PlaidImport({ data, onSave }: Props) {
             onClick={() => setActiveTab("balances")}
           >
             Balances
-          </button>
-          <button
-            className={`plaid-tab-btn${activeTab === "duplicates" ? " active" : ""}`}
-            onClick={() => setActiveTab("duplicates")}
-          >
-            {(() => {
-              const dupeCount = (() => {
-                const active = data.transactions.filter(v => !v.deleted && !v.cancelled);
-                const seen = new Map<string, number>();
-                let count = 0;
-                for (const v of active) {
-                  const dr = v.entries?.find(e => e.amount < 0);
-                  const cr = v.entries?.find(e => e.amount > 0);
-                  if (!dr || !cr) continue;
-                  const key = `${v.date}|${dr.accountId}|${cr.accountId}|${Math.abs(dr.amount).toFixed(2)}`;
-                  seen.set(key, (seen.get(key) || 0) + 1);
-                  if (seen.get(key) === 2) count++; // count groups, not individual entries
-                }
-                return count;
-              })();
-              return `Duplicates${dupeCount > 0 ? ` (${dupeCount})` : ""}`;
-            })()}
           </button>
         </div>
       )}
@@ -2917,111 +2895,6 @@ export function PlaidImport({ data, onSave }: Props) {
         </div>
       )}
       {/* Duplicates tab */}
-      {activeTab === "duplicates" && (() => {
-        const accts = data.accounts;
-        const active = data.transactions.filter(v => !v.deleted && !v.cancelled);
-        const groups = new Map<string, typeof active>();
-        for (const v of active) {
-          const dr = v.entries?.find(e => e.amount < 0);
-          const cr = v.entries?.find(e => e.amount > 0);
-          if (!dr || !cr) continue;
-          const key = `${v.date}|${dr.accountId}|${cr.accountId}|${Math.abs(dr.amount).toFixed(2)}`;
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key)!.push(v);
-        }
-        const dupeGroups = [...groups.entries()]
-          .filter(([, vs]) => vs.length > 1)
-          .map(([key, vs]) => {
-            const [date, drId, crId, amt] = key.split("|");
-            return {
-              date,
-              amount: parseFloat(amt),
-              drAcct: accts.find(a => a.id === +drId),
-              crAcct: accts.find(a => a.id === +crId),
-              txs: vs.sort((a, b) => a.id - b.id),
-            };
-          })
-          .sort((a, b) => b.date.localeCompare(a.date));
-
-        // A voucher that was already pushed to Tally (has a tallyGuid/syncFingerprint) needs
-        // syncStatus flagged "pending" on delete so the sync engine actually removes it from
-        // Tally too -- otherwise it vanishes from the app while quietly staying in Tally
-        // forever. One never synced can just be dropped locally (same pattern as
-        // VaultApp.tsx's deleteVoucher).
-        function markDeleted(v: Tx): Tx {
-          if (!v.tallyGuid && !v.syncFingerprint) return { ...v, deleted: true };
-          return { ...v, deleted: true, syncStatus: "pending", lastSyncedAt: undefined };
-        }
-
-        async function deleteTx(id: number) {
-          const next: Ledger = {
-            ...data,
-            transactions: data.transactions.map(v => v.id === id ? markDeleted(v) : v),
-          };
-          const ok = await onSave(next);
-          if (ok) setStatus(`Voucher #${id} deleted.`);
-          else setStatus("Delete failed.");
-        }
-
-        async function deleteAllExtras() {
-          const extraIds = new Set(dupeGroups.flatMap(g => g.txs.slice(1).map(v => v.id)));
-          if (!extraIds.size) return;
-          if (!window.confirm(`Delete ${extraIds.size} extra duplicate voucher(s)? The oldest entry in each group will be kept.`)) return;
-          const next: Ledger = {
-            ...data,
-            transactions: data.transactions.map(v => extraIds.has(v.id) ? markDeleted(v) : v),
-          };
-          const ok = await onSave(next);
-          if (ok) setStatus(`${extraIds.size} duplicate(s) deleted.`);
-          else setStatus("Delete failed.");
-        }
-
-        return (
-          <div className="plaid-dupe-section">
-            {dupeGroups.length === 0 ? (
-              <div className="plaid-dupe-empty">No duplicate transactions found in your vault.</div>
-            ) : (
-              <>
-                <div className="plaid-dupe-summary">
-                  Found <strong>{dupeGroups.length}</strong> duplicate group{dupeGroups.length !== 1 ? "s" : ""} — same date, same accounts, same amount.{" "}
-                  <button className="plaid-dupe-del-all-btn" onClick={deleteAllExtras}>
-                    Delete All Extras ({dupeGroups.reduce((s, g) => s + g.txs.length - 1, 0)})
-                  </button>
-                </div>
-                {dupeGroups.map((g, gi) => (
-                  <div key={gi} className="plaid-dupe-group">
-                    <div className="plaid-dupe-header">
-                      <span className="plaid-dupe-date">{fmtDate(g.date)}</span>
-                      <span className="plaid-dupe-amt">${g.amount.toFixed(2)}</span>
-                      <span className="plaid-dupe-accounts">
-                        Dr: <strong>{g.drAcct?.name ?? "—"}</strong>
-                        {" / "}
-                        Cr: <strong>{g.crAcct?.name ?? "—"}</strong>
-                      </span>
-                    </div>
-                    {g.txs.map((v, vi) => (
-                      <div key={v.id} className={`plaid-dupe-row${vi === 0 ? " plaid-dupe-first" : " plaid-dupe-extra"}`}>
-                        <span className="plaid-dupe-id">#{v.id}</span>
-                        <span className="plaid-dupe-type">{v.type}</span>
-                        <span className="plaid-dupe-narr">{v.narration || "—"}</span>
-                        <span className="plaid-dupe-sync">{v.syncStatus || ""}</span>
-                        <button
-                          className="plaid-dupe-del-btn"
-                          onClick={() => {
-                            if (window.confirm(`Delete voucher #${v.id} "${v.narration || ""}"?`)) deleteTx(v.id);
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        );
-      })()}
     </div>
   );
 }
