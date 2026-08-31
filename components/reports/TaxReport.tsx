@@ -417,14 +417,20 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       const yearIdx = years.findIndex((y) => y.year === yr.year);
       const match = matchPayrollPeriod(payroll, parsed.periodEnd);
       const inferredLabel = inferPeriodLabel(parsed.periodEnd);
+      const label = match && match.yearIdx === yearIdx ? (yr.periodLabels[match.periodIndex] || inferredLabel) : inferredLabel;
+      // A manual entry for this exact label always wins, whether it's a voucher-derived
+      // estimate (posted before the real paystub existed -- periodIndex undefined, txGuid set)
+      // or a prior correction (periodIndex set). Checking the Excel column match FIRST used to
+      // ignore an already-linked voucher entirely and create a second, disconnected row with no
+      // voucher link -- exactly the "why two Aug 31 rows" case this was built to fix.
+      const existingManual = (yr.manualPeriods ?? []).find((m) => m.label === label);
       let target: { id: string | null; periodIndex?: number; label: string };
-      if (match && match.yearIdx === yearIdx) {
-        target = { id: null, periodIndex: match.periodIndex, label: yr.periodLabels[match.periodIndex] || inferredLabel };
+      if (existingManual) {
+        target = { id: existingManual.id, periodIndex: existingManual.periodIndex, label };
+      } else if (match && match.yearIdx === yearIdx) {
+        target = { id: null, periodIndex: match.periodIndex, label };
       } else {
-        const existingManual = (yr.manualPeriods ?? []).find((m) => m.label === inferredLabel);
-        target = existingManual
-          ? { id: existingManual.id, periodIndex: existingManual.periodIndex, label: inferredLabel }
-          : { id: null, periodIndex: undefined, label: inferredLabel };
+        target = { id: null, periodIndex: undefined, label };
       }
 
       // Same tie-out comparison as the Pay Periods table, surfaced immediately here instead of
@@ -1211,7 +1217,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const mEsppShares = mEspp.reduce((s, e) => s + e.shares, 0);
             const node = (
               <Fragment key={key}>
-                <tr onClick={() => setViewPeriod({ type: "manual", id: m.id })} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : "#fffbeb" }}>
+                <tr onClick={() => setViewPeriod({ type: "manual", id: m.id })} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : m.estimated ? "#fffbeb" : undefined }}>
                   <td title={`${m.label} — ${isOverride ? "corrected from the Excel import" : "posted in the vault but not yet in the imported Excel file"}`}>
                     {periodEndLabel(m.label, yr.year)} <em style={{ fontSize: 10, opacity: 0.6 }}>{isOverride ? "(edited)" : m.estimated ? "(from voucher, estimated)" : "(from voucher, edited)"}</em>
                   </td>
@@ -1421,8 +1427,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             icon: "shield" as IconKind, color: "#16a34a",
           },
           taxEstimate.refund > 0
-            ? { label: "Estimated Federal Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
-            : { label: "Estimated Federal Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
+            ? { label: "Estimated Federal Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a" }
+            : { label: "Estimated Federal Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626" },
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div
@@ -1433,7 +1439,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
-                <strong className="equity-amt">{fmt(c.value)}</strong>
+                <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
                 <em>{c.sub}</em>
               </div>
             </div>
@@ -1457,15 +1463,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, sub: stateTaxEstimate.mentalHealthTax > 0 ? `incl. ${fmt(stateTaxEstimate.mentalHealthTax)} Mental Health Services Tax` : "brackets only", icon: "receipt" as IconKind, color: "#dc2626" },
           { label: `${stateResidency.code} Withheld`, value: stateTaxEstimate.stateWithheld, sub: "from payroll (State W/H)", icon: "shield" as IconKind, color: "#16a34a" },
           stateTaxEstimate.refund > 0
-            ? { label: `Estimated ${stateResidency.code} Refund`, value: stateTaxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a" }
-            : { label: `Estimated ${stateResidency.code} Balance Due`, value: stateTaxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626" },
+            ? { label: `Estimated ${stateResidency.code} Refund`, value: stateTaxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a" }
+            : { label: `Estimated ${stateResidency.code} Balance Due`, value: stateTaxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626" },
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
               {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
-                <strong className="equity-amt">{fmt(c.value)}</strong>
+                <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
                 <em>{c.sub}</em>
               </div>
             </div>

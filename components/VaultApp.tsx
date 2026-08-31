@@ -2614,7 +2614,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Income &amp; Expenditure — <PeriodSelect />
               </h3>
               <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
-                <div className="equity-summary-col">
+                <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
                     {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
                     <div className="equity-summary-card-body">
@@ -2623,7 +2623,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     </div>
                   </div>
                 </div>
-                <div className="equity-summary-col">
+                <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
                     {uiTheme === "refresh" && <StatIcon kind="receipt" color="#dc2626" />}
                     <div className="equity-summary-card-body">
@@ -2632,7 +2632,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     </div>
                   </div>
                 </div>
-                <div className="equity-summary-col">
+                <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
                     {uiTheme === "refresh" && <StatIcon kind="scale" color={periodSurplus >= 0 ? "#16a34a" : "#dc2626"} />}
                     <div className="equity-summary-card-body">
@@ -2642,23 +2642,27 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     </div>
                   </div>
                 </div>
+                {periodExpense > tol && (() => {
+                  const byCategory = new Map<string, number>();
+                  for (const r of periodExpenseRows) {
+                    const cat = r.parent || r.category || "Other";
+                    byCategory.set(cat, (byCategory.get(cat) || 0) + r.closing);
+                  }
+                  const segments = [...byCategory.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
+                  return (
+                    <div className="equity-summary-col" style={{ flex: "1.4 1 220px" }}>
+                      <div className="equity-summary-card" style={{ alignItems: "center" }}>
+                        <div className="equity-summary-card-body" style={{ width: "100%" }}>
+                          <span>Expense Breakdown</span>
+                          <DonutChart segments={segments} size={110} thickness={16} legend={false} centerLabel="Total" centerValue={fmt(periodExpense)} fmt={fmt} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
-              {periodExpense > tol && (() => {
-                const byCategory = new Map<string, number>();
-                for (const r of periodExpenseRows) {
-                  const cat = r.parent || r.category || "Other";
-                  byCategory.set(cat, (byCategory.get(cat) || 0) + r.closing);
-                }
-                const segments = [...byCategory.entries()]
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([label, value], i) => ({ label, value, color: DONUT_PALETTE[i % DONUT_PALETTE.length] }));
-                return (
-                  <div className="data-panel" style={{ marginBottom: "0.75rem" }}>
-                    <h4 style={{ marginTop: 0 }}>Expense Breakdown</h4>
-                    <DonutChart segments={segments} centerLabel="Total" centerValue={fmt(periodExpense)} fmt={fmt} />
-                  </div>
-                );
-              })()}
               <GroupedReport
                 title1="Expenditure"
                 rows1={periodExpenseRows}
