@@ -2190,6 +2190,10 @@ export function PlaidImport({ data, onSave }: Props) {
               <div className="plaid-queue-toolbar">
                 <span>{pendingRows.filter((r) => !r.alreadyImported && !r.skip).length} to import · {pendingRows.filter((r) => r.alreadyImported).length} saved</span>
                 <label>
+                  <input type="checkbox" checked={hideInVault} onChange={(e) => setHideInVault(e.target.checked)} />
+                  Hide "in vault"
+                </label>
+                <label>
                   <input type="checkbox" onChange={(e) => setPendingRows((rs) => rs.map((r) => ({ ...r, skip: r.alreadyImported ? true : e.target.checked })))} />
                   Skip all
                 </label>
@@ -2201,7 +2205,7 @@ export function PlaidImport({ data, onSave }: Props) {
                 Post pending charges now — edit the voucher if the settled amount differs. BofA checking "Processing" items (Zelle, ACH, payroll) are not returned by Plaid — use the Manual Pending section below.
               </div>
               <div className="plaid-queue">
-                {pendingRows.map((row, idx) => (
+                {pendingRows.map((row, idx) => hideInVault && row.alreadyImported ? null : (
                   <div
                     key={row.plaidTx.transaction_id}
                     className={[
