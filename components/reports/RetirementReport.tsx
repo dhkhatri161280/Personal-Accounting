@@ -131,7 +131,7 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
       </div>
 
       {error && <p style={{ fontSize: 12, color: "#dc2626" }}>Error: {error}</p>}
-      {fetchedAt && <p style={{ fontSize: 11, opacity: 0.55, margin: "0 0 12px" }}>Last fetched {fetchedAt.toLocaleTimeString()}</p>}
+      {fetchedAt && <p style={{ fontSize: 11, opacity: 0.55, margin: "0 0 12px" }}>Last fetched {fetchedAt.toLocaleDateString()} {fetchedAt.toLocaleTimeString()}</p>}
 
       {accounts !== null && accounts.length === 0 && !loading && (
         <p style={{ fontSize: 13, opacity: 0.7 }}>
