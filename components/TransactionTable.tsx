@@ -292,7 +292,7 @@ export function TransactionTable({
                 <td>
                   <span className={`pill ${t.cancelled ? "cancelled" : ""}`}>
                     {t.type}
-                    {t.cancelled ? " - Cancelled" : isClosed(t) ? " - Period closed" : ""}
+                    {t.cancelled ? " - Cancelled" : ""}
                   </span>
                 </td>
                 <td>
