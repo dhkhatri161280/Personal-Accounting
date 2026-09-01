@@ -549,7 +549,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // real market value. book === "india" has no US brokerage connections to fetch.
   useEffect(() => {
     if (book === "india") return;
-    fetch("/api/plaid/transactions")
+    // Scope to only the connections known to carry an investment account -- this effect fires
+    // on every Dashboard load, so an unscoped fetch here silently re-refreshed all 6 connections
+    // (regular banks included) on every visit, not just the 2 that actually matter for this.
+    fetch("/api/plaid/connections")
+      .then((r) => r.json())
+      .then((cs: unknown) => {
+        const conns = cs as { institution_name: string; hasInvestmentAccount?: boolean }[];
+        const names = conns.filter((c) => c.hasInvestmentAccount !== false).map((c) => c.institution_name);
+        const qs = names.length ? `?institution=${names.map(encodeURIComponent).join(",")}` : "";
+        return fetch(`/api/plaid/transactions${qs}`);
+      })
       .then((r) => r.json())
       .then((d: unknown) => {
         const j = d as { accounts?: { type: string; subtype: string; balances: { current: number | null } }[] };

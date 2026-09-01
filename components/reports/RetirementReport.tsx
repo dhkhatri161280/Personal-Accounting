@@ -68,7 +68,19 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
     setLoading(true);
     setError("");
     try {
-      const r = await fetch("/api/plaid/transactions");
+      // Scope the refresh to ONLY the connections that actually have an investment account
+      // (Fidelity, Merrill) -- without this, every Retirement refresh also re-pulls all the
+      // regular banks/cards for no reason, needlessly slowing this down and duplicating what
+      // the Plaid tab's own Fetch already does. hasInvestmentAccount is cached once per
+      // connection server-side (see app/api/plaid/transactions/route.ts); a connection with it
+      // still unknown just gets included, so nothing is silently skipped.
+      const connsRes = await fetch("/api/plaid/connections");
+      const conns = (await connsRes.json()) as { institution_name: string; hasInvestmentAccount?: boolean }[];
+      const investmentInstitutions = conns.filter((c) => c.hasInvestmentAccount !== false).map((c) => c.institution_name);
+      const qs = investmentInstitutions.length
+        ? `?institution=${investmentInstitutions.map(encodeURIComponent).join(",")}`
+        : "";
+      const r = await fetch(`/api/plaid/transactions${qs}`);
       const json = (await r.json()) as { accounts?: PlaidInvestmentAccount[]; errors?: string[] };
       if (json.errors?.length) setError(json.errors.join(", "));
       const filtered = (json.accounts ?? []).filter((a) => a.type === "investment" && !EXCLUDED_SUBTYPES.has(a.subtype));

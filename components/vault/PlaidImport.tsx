@@ -39,6 +39,10 @@ interface Connection {
   institution_name: string;
   institution_id: string;
   connected_at: string;
+  // Cached once per connection (see app/api/plaid/transactions/route.ts) -- lets the default
+  // bank selection below exclude investment accounts without an extra live Plaid call just to
+  // find out which connections have them.
+  hasInvestmentAccount?: boolean;
 }
 
 interface EntryDraft {
@@ -367,6 +371,40 @@ function isCardPayment(tx: PlaidTxRaw): boolean {
 // transfer, not a second real transaction. Force that mirror row to start pre-skipped.
 function isBofaPaymentDuplicate(tx: { institution_name?: string; name: string }): boolean {
   return /bank of america|bofa/i.test(tx.institution_name || "") && /^pending payment$/i.test(tx.name.trim());
+}
+
+// General version of the BofA case above, for any pair of institutions that both independently
+// report the same card-payment transfer (e.g. BofA's "AUTOPAY..." debit + Amex's own "MOBILE
+// PAYMENT..." credit for the identical $ amount) -- these resolve to the identical Contra
+// voucher (same account pair, same amount, same day) from two different banks' feeds, and
+// without this check both stay selectable/importable, letting the user accidentally double-post
+// one real transfer as two vouchers. Mirrors vaultHasDuplicate's matching exactly (same account
+// pair, amount within a few cents, dates within 3 days) so "duplicate" means the same thing at
+// staging time as it does at save time. Marks every row AFTER the first match in each group,
+// keeping the earliest occurrence importable.
+function flagCrossFeedDuplicates(draftRows: ImportRow[]): void {
+  const seen: { drId: number; crId: number; amt: number; ms: number }[] = [];
+  for (const row of draftRows) {
+    if (row.skip) continue;
+    const dr = row.entries.find((e) => e.amount < 0);
+    const cr = row.entries.find((e) => e.amount > 0);
+    if (!dr || !cr) continue;
+    const amt = Math.abs(dr.amount);
+    const ms = new Date(row.plaidTx.date + "T12:00:00Z").getTime();
+    const match = seen.find(
+      (s) =>
+        s.drId === dr.accountId &&
+        s.crId === cr.accountId &&
+        Math.abs(s.amt - amt) < 0.05 &&
+        Math.abs(s.ms - ms) / 86400000 <= 3
+    );
+    if (match) {
+      row.skip = true;
+      row.narration = `Duplicate — matches another pending transaction (${row.narration})`;
+    } else {
+      seen.push({ drId: dr.accountId, crId: cr.accountId, amt, ms });
+    }
+  }
 }
 
 // ── Build draft entries for a Plaid transaction ────────────────────────────────
@@ -1217,7 +1255,17 @@ export function PlaidImport({ data, onSave }: Props) {
           // keep existing selections; auto-select any newly added institution
           const next = new Set(prev);
           list.forEach((c) => { if (!prev.size) next.add(c.item_id); });
-          return next.size ? next : new Set(list.map((c) => c.item_id));
+          if (next.size) return next;
+          // Default selection excludes investment accounts (Fidelity, Merrill) -- they're much
+          // slower to refresh than a regular bank/card and have their own dedicated Retirement
+          // tab already, so bundling them into the everyday transactions Fetch just makes the
+          // common case slow for no benefit. Still fully selectable by hand from the dropdown.
+          // Falls back to "everything" until hasInvestmentAccount is known (first fetch ever).
+          const knowsAnyInvestment = list.some((c) => c.hasInvestmentAccount !== undefined);
+          const defaultIds = knowsAnyInvestment
+            ? list.filter((c) => c.hasInvestmentAccount !== true).map((c) => c.item_id)
+            : list.map((c) => c.item_id);
+          return new Set(defaultIds.length ? defaultIds : list.map((c) => c.item_id));
         });
       })
       .catch(() => {});
@@ -1318,6 +1366,7 @@ export function PlaidImport({ data, onSave }: Props) {
         const imported = alreadyImported(tx, pendingBankTxs, data, confirmedMatches);
         return { plaidTx: tx, skip: imported || isBofaPaymentDuplicate(tx), alreadyImported: imported, ...draft };
       });
+      flagCrossFeedDuplicates(draftPendingRows);
       setPendingRows(draftPendingRows);
       const draftRows: ImportRow[] = pending.map((tx) => {
         const draft = enforceContraType(buildDraft(tx, data, acctsToCreate, historyIndex, plaidAcctMap), data.accounts);
@@ -1329,6 +1378,7 @@ export function PlaidImport({ data, onSave }: Props) {
           ...draft,
         };
       });
+      flagCrossFeedDuplicates(draftRows);
       setRows(draftRows);
     } catch {
       setStatus("Failed to fetch transactions");
