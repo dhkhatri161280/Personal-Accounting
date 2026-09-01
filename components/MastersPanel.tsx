@@ -1,5 +1,5 @@
 ﻿"use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FloatingWindow } from "@/components/FloatingWindow";
 
 export type MasterGroup = {
@@ -111,12 +111,62 @@ function PeriodControlPanel({
   const closedSet = new Set(closedPeriods);
 
   // Chronological list of every period shown, oldest first -- backs the "close through" cutoff
-  // control below (the common "we've closed the books through August" workflow).
+  // control below (the common "we've closed the books through August" workflow). This stays
+  // global (every FY, not just the ones currently expanded below) since "close everything
+  // through a date" is a whole-book action, not tied to what's on screen.
   const allPeriodsAsc = useMemo(
     () => [...fys].sort((a, b) => a - b).flatMap(periodsInFY),
     [fys, fiscalYearStartMonth]
   );
   const [cutoff, setCutoff] = useState(allPeriodsAsc[0] || "");
+
+  // Only the checked fiscal years render their period grid below -- with years of history this
+  // page was showing every single month of every year at once. Defaults to just the current/
+  // most recent FY so it opens compact; older years are one click away via the dropdown.
+  const [selectedFYs, setSelectedFYs] = useState<Set<number>>(() => new Set(fys.length ? [fys[0]] : []));
+  const [fyMenuOpen, setFyMenuOpen] = useState(false);
+  const fyMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!fyMenuOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (fyMenuRef.current && !fyMenuRef.current.contains(e.target as Node)) setFyMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [fyMenuOpen]);
+  function toggleFY(fy: number) {
+    setSelectedFYs((prev) => {
+      const next = new Set(prev);
+      next.has(fy) ? next.delete(fy) : next.add(fy);
+      return next;
+    });
+  }
+
+  // Arbitrary multi-select across whichever periods are currently on screen (any FY, any mix of
+  // months) -- separate from the per-chip single click and the whole-FY "Close all" buttons,
+  // for picking a custom set like "these 3 non-adjacent months" in one bulk action.
+  const [selectedPeriods, setSelectedPeriods] = useState<Set<string>>(new Set());
+  function togglePeriodSelection(period: string) {
+    setSelectedPeriods((prev) => {
+      const next = new Set(prev);
+      next.has(period) ? next.delete(period) : next.add(period);
+      return next;
+    });
+  }
+  function bulkCloseSelected() {
+    const toClose = [...selectedPeriods].filter((p) => !closedSet.has(p));
+    if (!toClose.length) return;
+    if (!confirm(`Close ${toClose.length} selected period(s)? No vouchers dated in any of them can be created, edited, or deleted until reopened.`))
+      return;
+    setBatch(toClose, true, `${toClose.length} period(s) closed.`);
+    setSelectedPeriods(new Set());
+  }
+  function bulkOpenSelected() {
+    const toOpen = [...selectedPeriods].filter((p) => closedSet.has(p));
+    if (!toOpen.length) return;
+    setBatch(toOpen, false, `${toOpen.length} period(s) reopened.`);
+    setSelectedPeriods(new Set());
+  }
 
   function toggle(period: string, isClosed: boolean) {
     const next = isClosed ? closedPeriods.filter((p) => p !== period) : [...closedPeriods, period];
@@ -154,6 +204,35 @@ function PeriodControlPanel({
         a period only blocks new, edited, or deleted vouchers dated within it; viewing and reports
         are never affected.
       </p>
+      <div className="period-fy-picker" ref={fyMenuRef}>
+        <button type="button" className="period-fy-picker-trigger" onClick={() => setFyMenuOpen((o) => !o)}>
+          {selectedFYs.size === 0
+            ? "Select fiscal year(s)"
+            : selectedFYs.size === 1
+              ? `FY ${[...selectedFYs][0]}`
+              : `${selectedFYs.size} fiscal years selected`}
+          {" "}▾
+        </button>
+        {fyMenuOpen && (
+          <div className="period-fy-menu">
+            <label className="period-fy-menu-item period-fy-menu-all">
+              <input
+                type="checkbox"
+                checked={selectedFYs.size === fys.length}
+                onChange={() => setSelectedFYs(selectedFYs.size === fys.length ? new Set() : new Set(fys))}
+              />
+              <span>Select all</span>
+            </label>
+            <div className="period-fy-menu-divider" />
+            {fys.map((fy) => (
+              <label className="period-fy-menu-item" key={fy}>
+                <input type="checkbox" checked={selectedFYs.has(fy)} onChange={() => toggleFY(fy)} />
+                <span>FY {fy}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
       {allPeriodsAsc.length > 0 && (
         <div className="period-cutoff-bar">
           <label>
@@ -171,7 +250,21 @@ function PeriodControlPanel({
           </button>
         </div>
       )}
-      {fys.map((fy) => {
+      {selectedPeriods.size > 0 && (
+        <div className="period-bulk-bar">
+          <span>{selectedPeriods.size} period(s) selected</span>
+          <button type="button" className="primary" onClick={bulkCloseSelected}>
+            Close selected
+          </button>
+          <button type="button" onClick={bulkOpenSelected}>
+            Open selected
+          </button>
+          <button type="button" onClick={() => setSelectedPeriods(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
+      {fys.filter((fy) => selectedFYs.has(fy)).map((fy) => {
         const periods = periodsInFY(fy);
         const allClosed = periods.every((p) => closedSet.has(p));
         const noneClosed = periods.every((p) => !closedSet.has(p));
@@ -205,23 +298,31 @@ function PeriodControlPanel({
               {periods.map((period) => {
                 const isClosed = closedSet.has(period);
                 return (
-                  <button
-                    key={period}
-                    type="button"
-                    className={`period-chip ${isClosed ? "period-closed" : "period-open"}`}
-                    onClick={() => {
-                      if (
-                        isClosed ||
-                        confirm(
-                          `Close ${monthLabel(period)}? No vouchers dated in this period can be created, edited, or deleted until it's reopened.`
+                  <div key={period} className={`period-chip ${isClosed ? "period-closed" : "period-open"}`}>
+                    <input
+                      type="checkbox"
+                      className="period-chip-check"
+                      checked={selectedPeriods.has(period)}
+                      onChange={() => togglePeriodSelection(period)}
+                      aria-label={`Select ${monthLabel(period)}`}
+                    />
+                    <button
+                      type="button"
+                      className="period-chip-btn"
+                      onClick={() => {
+                        if (
+                          isClosed ||
+                          confirm(
+                            `Close ${monthLabel(period)}? No vouchers dated in this period can be created, edited, or deleted until it's reopened.`
+                          )
                         )
-                      )
-                        toggle(period, isClosed);
-                    }}
-                  >
-                    <span className="period-chip-label">{monthLabel(period)}</span>
-                    <span className="period-chip-status">{isClosed ? "Closed" : "Open"}</span>
-                  </button>
+                          toggle(period, isClosed);
+                      }}
+                    >
+                      <span className="period-chip-label">{monthLabel(period)}</span>
+                      <span className="period-chip-status">{isClosed ? "Closed" : "Open"}</span>
+                    </button>
+                  </div>
                 );
               })}
             </div>
