@@ -25,6 +25,7 @@ interface PlaidAccount {
   type: string;     // "credit" | "depository" | "investment" | "loan" | "other"
   subtype: string;  // "credit card" | "checking" | "savings" | etc.
   name: string;
+  mask?: string;    // last 4 digits of the account number, e.g. "3096"
   institution_name?: string; // enriched client-side from transaction data
   balances: {
     current: number | null;
@@ -494,11 +495,18 @@ function buildDraft(
   if (/bank of america|bofa/i.test(instLower) && /payment to acct\s*#?\s*\d+/i.test(tx.name)) {
     // This transaction is on the CHECKING side of the payment -- tx.account_id is the bank
     // account, not the card being paid, so the per-card learned mapping (keyed by the card's
-    // own Plaid account_id) can't be consulted here. There are now two possible BofA card GL
-    // accounts (see BOFA_CARD_GL_BY_NAME); this can't reliably tell which one is being paid
-    // from just the account-number fragment in tx.name (no last-4-digit mapping is stored), so
-    // it stays a lower-confidence guess flagged for review rather than a silent default.
-    const cardAcc = findAcct(accounts, "Credit Card - BofA", "BofA Credit Card");
+    // own Plaid account_id) can't be consulted here. But Plaid embeds the last 4 digits of the
+    // card being paid right in the transaction text ("PAYMENT TO ACCT #3096..."), and Plaid's
+    // own account objects carry that same digit string as `.mask` -- matching the two resolves
+    // which physical card this is deterministically, no guessing needed.
+    const last4 = tx.name.match(/#\s*(\d{4})\b/)?.[1];
+    const matchedCardAcct = last4
+      ? [...plaidAcctMap.values()].find((a) => a.mask === last4)
+      : undefined;
+    const specific = matchedCardAcct ? bofaCardGlAccountName(matchedCardAcct.name) : undefined;
+    const cardAcc = specific
+      ? findAcct(accounts, specific)
+      : findAcct(accounts, "Credit Card - BofA", "BofA Credit Card");
     const bankAcc = findAcct(accounts, "Bank Of America", "Bank of America", tx.institution_name);
     const multipleBofaCards = accounts.filter(
       (a) => a.active !== false && /^credit card - bofa/i.test(a.name)
@@ -510,10 +518,12 @@ function buildDraft(
           { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
         ],
         voucherType: "Contra",
-        narration: multipleBofaCards
-          ? `BofA Credit Card Payment — verify which card (${tx.name})`
-          : "BofA Credit Card Payment",
-        confidence: multipleBofaCards ? 0.4 : 0.85,
+        narration: specific
+          ? "BofA Credit Card Payment"
+          : multipleBofaCards
+            ? `BofA Credit Card Payment — verify which card (${tx.name})`
+            : "BofA Credit Card Payment",
+        confidence: specific ? 0.9 : multipleBofaCards ? 0.4 : 0.85,
         source: "history",
       };
     }
@@ -1053,6 +1063,7 @@ function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): A
 
 function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => void }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linkClient, setLinkClient] = useState<"primary" | "secondary" | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -1061,7 +1072,7 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
     fetch("/api/plaid/link-token", { method: "POST" })
       .then((r) => r.json())
       .then((d: any) => {
-        if (d.link_token) setLinkToken(d.link_token);
+        if (d.link_token) { setLinkToken(d.link_token); setLinkClient(d.client); }
         else setError(d.error_message || d.error_code || "Failed to get link token");
       })
       .catch(() => setError("Network error — check Plaid credentials"))
@@ -1072,16 +1083,18 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
     (publicToken: string | null, metadata: PlaidLinkOnSuccessMetadata) => {
       const name = metadata?.institution?.name || "Bank";
       const id = (metadata?.institution as any)?.institution_id || "";
+      // Must tag the connection with the SAME project that created this link_token -- the
+      // public_token can only be exchanged with that same client_id/secret pair.
       fetch("/api/plaid/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ public_token: publicToken, institution_name: name, institution_id: id }),
+        body: JSON.stringify({ public_token: publicToken, institution_name: name, institution_id: id, client: linkClient }),
       }).then((resp) => {
         if (resp.ok) onConnected(name);
         else setError("Token exchange failed");
       });
     },
-    [onConnected]
+    [onConnected, linkClient]
   );
 
   const { open, ready } = usePlaidLink({ token: linkToken || "", onSuccess });
@@ -1237,12 +1250,19 @@ export function PlaidImport({ data, onSave }: Props) {
     if (!dropdownOpen) return;
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const isDropUp = spaceBelow < 240;
+      const margin = 10;
+      const spaceBelow = window.innerHeight - rect.bottom - margin;
+      const spaceAbove = rect.top - margin;
+      // Pick whichever side has more room, then cap maxHeight to what's ACTUALLY available
+      // there (not just a static CSS value) -- a short browser window can leave less than the
+      // menu's natural content height on either side, and only a viewport-aware inline maxHeight
+      // (which wins over the CSS class's static max-height) makes the internal scroll actually
+      // kick in instead of leaving part of the menu rendered off-screen with nothing to scroll.
+      const isDropUp = spaceBelow < 240 && spaceAbove > spaceBelow;
       setMenuStyle(
         isDropUp
-          ? { position: "fixed", bottom: window.innerHeight - rect.top + 6, left: rect.left, minWidth: rect.width }
-          : { position: "fixed", top: rect.bottom + 6, left: rect.left, minWidth: rect.width }
+          ? { position: "fixed", bottom: window.innerHeight - rect.top + 6, left: rect.left, minWidth: rect.width, maxHeight: Math.max(120, spaceAbove) }
+          : { position: "fixed", top: rect.bottom + 6, left: rect.left, minWidth: rect.width, maxHeight: Math.max(120, spaceBelow) }
       );
     }
     const onOutside = (e: MouseEvent) => {

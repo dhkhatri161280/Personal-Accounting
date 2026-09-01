@@ -293,6 +293,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
       return vs + sold * (v.salePrice ?? v.vestPrice);
     }, 0), 0);
   const summaryEsppValue = cur > 0 ? esppRows.reduce((s, e) => s + e.sharesHeld * cur, 0) : 0;
+  const summaryTotalHoldingsValue = summaryVestedValue + summaryEsppValue;
   const scheduledValue = cur > 0 ? grantRows.reduce((s, g) => s + g.pendingShares * cur, 0) : 0;
   const rsuPendingShares = grantRows.reduce((s, g) => s + g.pendingShares, 0);
 
@@ -507,6 +508,22 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
           </div>
         </div>
         <div className="equity-summary-row">
+          {/* Total Holdings card -- combined current market value of everything you actually
+              hold today (RSU vested + ESPP), the number people actually look for and had to
+              add up themselves from the other cards. */}
+          <div className="equity-summary-col">
+            <div className="equity-summary-card equity-summary-card--current">
+              {uiTheme === "refresh" && <StatIcon kind="wallet" color="#1d4ed8" />}
+              <div className="equity-summary-card-body">
+                <span>Total Holdings</span>
+                <strong className="equity-amt">{fmt(summaryTotalHoldingsValue)}</strong>
+                <em>RSU + ESPP held @ live price</em>
+              </div>
+            </div>
+            <p className="equity-card-count">
+              <strong>{(rsuHeldShares + esppHeldShares).toLocaleString()}</strong> sh held
+            </p>
+          </div>
           {(["vested", "tax", "sold", "espp"] as const).map((key) => {
             const labels = { vested: "Vested Value", tax: "Tax Value", sold: "Sold Value", espp: "ESPP Value" };
             const values = { vested: summaryVestedValue, tax: summaryTaxValue, sold: summarySoldValue, espp: summaryEsppValue };

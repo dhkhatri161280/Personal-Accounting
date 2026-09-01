@@ -1,23 +1,24 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { plaidBase, plaidCreds, type PlaidClientKey } from "@/lib/plaid-client";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
-function plaidBase(b: AppBindings) {
-  return (b.PLAID_ENV || "sandbox") === "production"
-    ? "https://production.plaid.com"
-    : "https://sandbox.plaid.com";
-}
-
 const CONNECTIONS_KEY = "plaid.connections";
 
 export async function GET(request: Request) {
-  const { PLAID_CLIENT_ID, PLAID_SECRET } = bindings;
-  if (!PLAID_CLIENT_ID || !PLAID_SECRET)
+  if (!bindings.PLAID_CLIENT_ID || !bindings.PLAID_SECRET)
     return new Response("Plaid not configured", { status: 503 });
 
-  let connections: Array<{ access_token: string; institution_name: string; item_id: string }> = [];
+  type Conn = {
+    access_token: string;
+    institution_name: string;
+    item_id: string;
+    client?: PlaidClientKey;
+    hasInvestmentAccount?: boolean;
+  };
+  let connections: Conn[] = [];
   try {
     const raw = await bindings.VAULT.get(CONNECTIONS_KEY);
     if (raw) connections = JSON.parse(raw);
@@ -54,24 +55,92 @@ export async function GET(request: Request) {
   // can offer a "Reconnect" button for the specific broken item_id, instead of just displaying
   // text -- see app/api/plaid/link-token/route.ts's update-mode support.
   const itemErrors: { item_id: string; institution_name: string; error_code?: string; error_message?: string }[] = [];
+  const debug = url.searchParams.get("debug") === "1";
+  const debugRefresh: unknown[] = [];
+
+  // Whether a connection has an investment-type account almost never changes once known --
+  // determine it ONCE per connection and cache on the stored record, instead of an extra
+  // /accounts/balance/get round-trip on every single Fetch (that extra call was adding real
+  // latency to every fetch, confirmed directly by the user noticing fetches got slower after
+  // this check was introduced).
+  const unknownFlagConns = activeConnections.filter((c) => c.hasInvestmentAccount === undefined);
+  if (unknownFlagConns.length > 0) {
+    const results = await Promise.all(
+      unknownFlagConns.map(async (conn) => {
+        const { clientId, secret } = plaidCreds(bindings, conn.client);
+        const has = await fetch(`${plaidBase(bindings)}/accounts/balance/get`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: clientId, secret, access_token: conn.access_token }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d: any) => (d?.accounts || []).some((a: any) => a.type === "investment"))
+          .catch(() => false);
+        return { item_id: conn.item_id, has };
+      })
+    );
+    const byId = new Map(results.map((r) => [r.item_id, r.has]));
+    connections = connections.map((c) => (byId.has(c.item_id) ? { ...c, hasInvestmentAccount: byId.get(c.item_id) } : c));
+    activeConnections.forEach((c) => {
+      if (byId.has(c.item_id)) c.hasInvestmentAccount = byId.get(c.item_id);
+    });
+    try {
+      await bindings.VAULT.put(CONNECTIONS_KEY, JSON.stringify(connections));
+    } catch {
+      // Best-effort cache write -- a failure here just means next fetch re-checks these same
+      // connections, not a correctness problem.
+    }
+  }
 
   await Promise.all(
     activeConnections.map(async (conn) => {
+      // Each connection remembers which Plaid project (client_id/secret) created it -- see
+      // app/api/plaid/link-token/route.ts. Using the wrong pair for an access_token fails
+      // outright, so this must be resolved per-connection, not globally.
+      const { clientId: PLAID_CLIENT_ID, secret: PLAID_SECRET } = plaidCreds(bindings, conn.client);
       try {
-        // Ask Plaid to go re-pull fresh transactions from the institution right now —
-        // without this, transactions/get only returns Plaid's last cached sync, which can
-        // lag hours behind what's actually posted at the bank. Best-effort: ignore failures
-        // and give Plaid a moment to complete the refresh before reading.
+        // Ask Plaid to go re-pull fresh data from the institution right now -- without this,
+        // Plaid only returns its last routine sync, which for investment-type accounts
+        // (401k, HSA, IRA) can be a full day or more stale (confirmed directly: Fidelity's own
+        // app showed a 401k balance that only matched Plaid's cached figure once you subtracted
+        // that day's market move). /transactions/refresh only applies to depository/credit
+        // items -- Plaid treats "Investments" as a separate product with its own refresh call.
+        // investments/refresh shares a tight rate-limit quota per item across the WHOLE app
+        // (confirmed directly: INVESTMENTS_REFRESH_LIMIT), so it's only fired for connections
+        // that actually have an investment-type account -- otherwise every plain bank/card
+        // connection burns quota that the accounts which actually need it could have used.
+        // Best-effort: ignore failures and give Plaid a moment to complete before reading.
         try {
-          await fetch(`${plaidBase(bindings)}/transactions/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              client_id: PLAID_CLIENT_ID,
-              secret: PLAID_SECRET,
-              access_token: conn.access_token,
-            }),
-          });
+          const hasInvestmentAccount = conn.hasInvestmentAccount === true;
+
+          await Promise.all([
+            fetch(`${plaidBase(bindings)}/transactions/refresh`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                client_id: PLAID_CLIENT_ID,
+                secret: PLAID_SECRET,
+                access_token: conn.access_token,
+              }),
+            }).catch(() => {}),
+            hasInvestmentAccount
+              ? fetch(`${plaidBase(bindings)}/investments/refresh`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    client_id: PLAID_CLIENT_ID,
+                    secret: PLAID_SECRET,
+                    access_token: conn.access_token,
+                  }),
+                })
+                  .then(async (r) => {
+                    if (debug) debugRefresh.push({ institution: conn.institution_name, item_id: conn.item_id, status: r.status, body: await r.text() });
+                  })
+                  .catch((e) => {
+                    if (debug) debugRefresh.push({ institution: conn.institution_name, item_id: conn.item_id, error: String(e) });
+                  })
+              : Promise.resolve(),
+          ]);
           await new Promise((resolve) => setTimeout(resolve, 3000));
         } catch {}
 
@@ -135,5 +204,11 @@ export async function GET(request: Request) {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
-  return Response.json({ transactions: allTransactions, accounts: allAccounts, errors, itemErrors });
+  return Response.json({
+    transactions: allTransactions,
+    accounts: allAccounts,
+    errors,
+    itemErrors,
+    ...(debug ? { debugRefresh } : {}),
+  });
 }

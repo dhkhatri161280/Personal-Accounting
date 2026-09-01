@@ -1,35 +1,31 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { plaidBase, plaidCreds, type PlaidClientKey } from "@/lib/plaid-client";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
-function plaidBase(b: AppBindings) {
-  return (b.PLAID_ENV || "sandbox") === "production"
-    ? "https://production.plaid.com"
-    : "https://sandbox.plaid.com";
-}
-
 const CONNECTIONS_KEY = "plaid.connections";
 
 export async function POST(request: Request) {
-  const { PLAID_CLIENT_ID, PLAID_SECRET } = bindings;
-  if (!PLAID_CLIENT_ID || !PLAID_SECRET)
-    return new Response("Plaid not configured", { status: 503 });
-
-  let body: { public_token?: string; institution_name?: string; institution_id?: string };
+  let body: { public_token?: string; institution_name?: string; institution_id?: string; client?: PlaidClientKey };
   try {
     body = await request.json();
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
-  const { public_token, institution_name, institution_id } = body;
+  const { public_token, institution_name, institution_id, client } = body;
   if (!public_token) return new Response("Missing public_token", { status: 400 });
+
+  // Must match whichever project's client_id/secret actually created the public_token's
+  // link_token (link-token/route.ts) -- Plaid rejects an exchange from a mismatched pair.
+  const { clientId, secret } = plaidCreds(bindings, client);
+  if (!clientId || !secret) return new Response("Plaid not configured", { status: 503 });
 
   const resp = await fetch(`${plaidBase(bindings)}/item/public_token/exchange`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: PLAID_CLIENT_ID, secret: PLAID_SECRET, public_token }),
+    body: JSON.stringify({ client_id: clientId, secret, public_token }),
   });
   const data = (await resp.json()) as { access_token?: string; item_id?: string; error_message?: string };
   if (!resp.ok || !data.access_token)
@@ -44,6 +40,7 @@ export async function POST(request: Request) {
     institution_name: string;
     institution_id: string;
     connected_at: string;
+    client?: PlaidClientKey;
   }> = [];
   try {
     const raw = await bindings.VAULT.get(CONNECTIONS_KEY);
@@ -60,6 +57,7 @@ export async function POST(request: Request) {
     institution_name: institution_name || "Bank",
     institution_id: institution_id || "",
     connected_at: new Date().toISOString(),
+    client,
   });
 
   try {
