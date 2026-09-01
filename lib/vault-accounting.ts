@@ -123,6 +123,74 @@ export function displayLedgerBalance(
   return -(value || 0);
 }
 
+// Same opening + debit - credit math as VaultApp's `calc`, collapsed to one account and one
+// as-of date instead of a report period range -- used to show a ledger's running balance right
+// in the voucher entry form (Tally-style "current balance" next to the ledger picker), reflecting
+// everything already posted up to and including that date. Excludes deleted/cancelled vouchers,
+// same as every other balance calculation in this app.
+export function ledgerBalanceAsOf(data: Ledger, accountId: number, asOfDate: string): number {
+  const account = data.accounts.find((a) => a.id === accountId);
+  let raw = account?.openingBalance || 0;
+  for (const t of data.transactions) {
+    if (t.deleted || t.cancelled) continue;
+    if (!asOfDate || t.date > asOfDate) continue;
+    for (const e of t.entries) {
+      if (e.accountId === accountId) raw += e.amount;
+    }
+  }
+  return -raw;
+}
+
+export const periodKeyOf = (date: string): string => date.slice(0, 7); // "YYYY-MM"
+
+// Upfront check used to block Edit/Delete before the form even opens (not just at save time) --
+// so a closed-period voucher's Edit/Delete controls stop working the moment the period closes,
+// rather than letting the user go through the whole form only to get rejected at the end.
+export const isPeriodClosed = (closedPeriods: string[] | undefined, date: string): boolean =>
+  !!closedPeriods?.includes(periodKeyOf(date));
+
+// Standard ERP period-close enforcement: blocks a save from creating, editing, or deleting any
+// voucher dated in a closed period. Any combination of periods can be closed independently (not
+// just a rolling cutoff) -- see PeriodControlPanel in MastersPanel.tsx. Compares the full
+// incoming transaction list against what's currently saved (by guid, the one stable identity
+// across an edit -- see `add()` in VaultApp.tsx) rather than trusting the caller to say what
+// changed, so this catches every save path uniformly (manual entry, Trash restore/purge, Plaid/
+// Schwab/Teller import, bulk report posting) without needing each one to individually know about
+// the lock. Returns null when nothing in a closed period actually changed -- most saves never
+// touch a closed period at all and should never be slowed down or blocked by this check.
+export function findClosedPeriodViolations(
+  current: Tx[],
+  next: Tx[],
+  closedPeriods: string[] | undefined
+): { count: number; examplePeriod: string } | null {
+  if (!closedPeriods?.length) return null;
+  const closed = new Set(closedPeriods);
+  const currentByGuid = new Map(current.map((t) => [t.guid, t]));
+  const nextByGuid = new Map(next.map((t) => [t.guid, t]));
+  let count = 0;
+  let examplePeriod = "";
+  const flag = (period: string) => {
+    count++;
+    if (!examplePeriod || period < examplePeriod) examplePeriod = period;
+  };
+  for (const [guid, t] of nextByGuid) {
+    const before = currentByGuid.get(guid);
+    const period = periodKeyOf(t.date);
+    if (!before) {
+      // New voucher.
+      if (closed.has(period)) flag(period);
+    } else if (JSON.stringify(before) !== JSON.stringify(t)) {
+      // Edited -- flagged if it's moving INTO, OUT OF, or staying within a closed period.
+      const beforePeriod = periodKeyOf(before.date);
+      if (closed.has(beforePeriod) || closed.has(period)) flag(closed.has(period) ? period : beforePeriod);
+    }
+  }
+  for (const [guid, t] of currentByGuid) {
+    if (!nextByGuid.has(guid) && closed.has(periodKeyOf(t.date))) flag(periodKeyOf(t.date)); // hard delete
+  }
+  return count > 0 ? { count, examplePeriod } : null;
+}
+
 export const cleanVoucherDisplay = (value: unknown): string =>
   String(value ?? "")
     .replace(/Ã\S*/g, " ")

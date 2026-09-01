@@ -277,6 +277,12 @@ export type Ledger = {
   currencies?: string[];
   voucherTypes?: string[];
   fiscalYearStartMonth?: number;
+  // Standard ERP-style period close: vouchers dated in a closed period ("YYYY-MM" keys, e.g.
+  // "2026-08") cannot be newly created, edited, or deleted (see findClosedPeriodViolations in
+  // lib/vault-accounting.ts). Any combination of periods can be closed independently -- there's
+  // no requirement to close in sequence, so e.g. March can stay open while January is closed.
+  // Undefined/empty = nothing closed. Reads/reports are never affected -- this only gates save().
+  closedPeriods?: string[];
   equity?: EquityData;
   payroll?: PayrollData;
   indiaTax?: IndiaTaxData;

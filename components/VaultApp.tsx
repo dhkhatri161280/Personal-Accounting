@@ -36,6 +36,9 @@ import {
   cleanVoucherDisplay,
   formatVoucherDisplayDate,
   voucherSideLedgerNames,
+  ledgerBalanceAsOf,
+  findClosedPeriodViolations,
+  isPeriodClosed,
 } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
@@ -142,6 +145,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [selectedVoucher, setSelectedVoucher] = useState<Tx | null>(null),
     [inlineLedgerSide, setInlineLedgerSide] = useState<"debit" | "credit" | null>(null),
     [voucherLines, setVoucherLines] = useState<VoucherLineDraft[]>(blankVoucherLines()),
+    // Mirrors the (uncontrolled) voucher-form date input so each ledger line's balance display
+    // can recompute "as of" the date currently entered, Tally-style -- kept separate from the
+    // input's own defaultValue/form submission so the date field itself doesn't need to become
+    // a fully controlled input just for this.
+    [voucherDate, setVoucherDate] = useState<string>(() => new Date().toISOString().slice(0, 10)),
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
     [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null),
@@ -365,6 +373,21 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   }
 
   async function save(next: Ledger, destination = "daybook"): Promise<boolean> {
+    // Period close: blocks a create/edit/delete that touches a voucher dated in a closed period.
+    // Runs here (the one function every save path funnels through) rather than in each
+    // individual caller, so it's enforced uniformly across manual entry, Trash, Plaid/Schwab/
+    // Teller import, and bulk report posting alike. Reads/reports never call save(), so they're
+    // completely unaffected.
+    if (data) {
+      const violation = findClosedPeriodViolations(data.transactions, next.transactions, next.closedPeriods);
+      if (violation) {
+        setStatus(
+          `Blocked: ${violation.count} voucher(s) in closed period ${violation.examplePeriod} would be ` +
+            `created, edited, or deleted. Reopen that period in Masters → Periods to make this change.`
+        );
+        return false;
+      }
+    }
     recomputeVoucherNumbers(next);
     setStatus("Encrypting and saving...");
     const vault = await encryptVault(next, password),
@@ -1066,6 +1089,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   }
 
   function editVoucher(t: Tx) {
+    if (data && isPeriodClosed(data.closedPeriods, t.date)) {
+      setStatus(`This voucher is dated in a closed period (${t.date}) and cannot be edited. Reopen the period in Masters → Periods first.`);
+      return;
+    }
     if (t.cancelled) {
       setStatus("Cancelled vouchers are audit-only and cannot be edited.");
       return;
@@ -1075,6 +1102,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return;
     }
     setVoucherLines(draftLinesFromTx(t));
+    setVoucherDate(t.date);
     setEditTx(t);
     setCopyTx(null);
     setSelected(null);
@@ -1088,6 +1116,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return;
     }
     setVoucherLines(draftLinesFromTx(t));
+    setVoucherDate(t.date);
     setCopyTx(t);
     setEditTx(null);
     setSelected(null);
@@ -1097,23 +1126,31 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     );
   }
 
-  function deleteVoucher(t: Tx) {
+  async function deleteVoucher(t: Tx) {
     if (!data) return;
+    if (isPeriodClosed(data.closedPeriods, t.date)) {
+      setStatus(`This voucher is dated in a closed period (${t.date}) and cannot be deleted. Reopen the period in Masters → Periods first.`);
+      return;
+    }
     if (!confirm(`Permanently delete ${t.type} voucher ${t.number} from both the app and Tally?`))
       return;
     if (!t.tallyGuid && !t.syncFingerprint) {
-      void save({ ...data, transactions: data.transactions.filter((x) => x.guid !== t.guid) });
-      setStatus(`Voucher ${t.number} deleted.`);
+      // save() sets its own status message on failure (including a period-lock block) --
+      // only overwrite it with a success message once the delete actually went through.
+      if (await save({ ...data, transactions: data.transactions.filter((x) => x.guid !== t.guid) }))
+        setStatus(`Voucher ${t.number} deleted.`);
       return;
     }
     const deleted = { ...t, deleted: true, syncStatus: "pending", lastSyncedAt: undefined };
-    void save({
-      ...data,
-      transactions: data.transactions.map((x) => (x.guid === t.guid ? deleted : x)),
-    });
-    setStatus(
-      `Voucher ${t.number} removed from the app. It will be deleted from Tally automatically.`
-    );
+    if (
+      await save({
+        ...data,
+        transactions: data.transactions.map((x) => (x.guid === t.guid ? deleted : x)),
+      })
+    )
+      setStatus(
+        `Voucher ${t.number} removed from the app. It will be deleted from Tally automatically.`
+      );
   }
 
   async function add(e: React.FormEvent<HTMLFormElement>) {
@@ -1439,6 +1476,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setSelectedVoucher(null);
     setNewVoucherType(type || null);
     setNewVoucherMenuOpen(false);
+    setVoucherDate(new Date().toISOString().slice(0, 10));
     setTab("new");
     setStatus("");
   };
@@ -2165,6 +2203,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onCopy={(t) => copyVoucher(t as Tx)}
             onDelete={(t) => deleteVoucher(t as Tx)}
             onClearSearch={() => setQuery("")}
+            closedPeriods={data.closedPeriods}
           />
         </div>
       )}
@@ -2908,6 +2947,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 name="date"
                 type="date"
                 defaultValue={(editTx || copyTx)?.date || new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setVoucherDate(e.target.value)}
                 required
               />
             </label>
@@ -2956,6 +2996,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <span />
               </div>
               {voucherLines.map((line, index) => (
+                <div key={line.id}>
                 <div
                   className={
                     "voucher-line-row" +
@@ -2963,7 +3004,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                       ? " voucher-line-auto"
                       : "")
                   }
-                  key={line.id}
                 >
                   <select
                     value={line.side}
@@ -3020,6 +3060,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   >
                     Remove
                   </button>
+                </div>
+                {line.accountId && (
+                  <div className="voucher-line-balance">
+                    Balance as of {voucherDate}: {fmt(ledgerBalanceAsOf(data, Number(line.accountId), voucherDate))}
+                  </div>
+                )}
                 </div>
               ))}
               <div
@@ -3139,6 +3185,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onEdit={(t) => editVoucher(t as Tx)}
               onCopy={(t) => copyVoucher(t as Tx)}
               onDelete={(t) => deleteVoucher(t as Tx)}
+              closedPeriods={data.closedPeriods}
             />
           </div>
         </FloatingWindow>
@@ -3174,6 +3221,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onEdit={(t) => editVoucher(t as Tx)}
               onCopy={(t) => copyVoucher(t as Tx)}
               onDelete={(t) => deleteVoucher(t as Tx)}
+              closedPeriods={data.closedPeriods}
             />
           </div>
         </FloatingWindow>
@@ -3251,7 +3299,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </table>
             )}
             <div className="voucher-detail-actions">
-              {!selectedVoucher.cancelled && (
+              {!selectedVoucher.cancelled && !isPeriodClosed(data?.closedPeriods, selectedVoucher.date) && (
                 <button
                   className="edit-voucher"
                   onClick={() => {
@@ -3271,15 +3319,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               >
                 Copy
               </button>
-              <button
-                className="delete-voucher"
-                onClick={() => {
-                  setSelectedVoucher(null);
-                  deleteVoucher(selectedVoucher);
-                }}
-              >
-                Delete
-              </button>
+              {!isPeriodClosed(data?.closedPeriods, selectedVoucher.date) && (
+                <button
+                  className="delete-voucher"
+                  onClick={() => {
+                    setSelectedVoucher(null);
+                    deleteVoucher(selectedVoucher);
+                  }}
+                >
+                  Delete
+                </button>
+              )}
+              {isPeriodClosed(data?.closedPeriods, selectedVoucher.date) && (
+                <span className="period-closed-note">Period closed — read-only</span>
+              )}
             </div>
           </div>
         </FloatingWindow>

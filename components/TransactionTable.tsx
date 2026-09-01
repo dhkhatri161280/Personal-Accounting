@@ -63,6 +63,7 @@ export function TransactionTable({
   selectedLedgerName,
   openingBalance,
   onClearSearch,
+  closedPeriods,
 }: {
   transactions: VoucherRow[];
   formatAmount: (n: number) => string;
@@ -73,7 +74,12 @@ export function TransactionTable({
   selectedLedgerName?: string;
   openingBalance?: number;
   onClearSearch?: () => void;
+  // Edit/Delete are hidden (not just blocked at save time) for a voucher dated in one of these
+  // "YYYY-MM" periods -- see isPeriodClosed in lib/vault-accounting.ts, same source of truth
+  // the actual save-time enforcement uses.
+  closedPeriods?: string[];
 }) {
+  const isClosed = (t: VoucherRow) => !!closedPeriods?.includes(t.date.slice(0, 7));
   const [filters, setFilters] = useState<Record<SortKey, string>>({
     date: "",
     type: "",
@@ -286,7 +292,7 @@ export function TransactionTable({
                 <td>
                   <span className={`pill ${t.cancelled ? "cancelled" : ""}`}>
                     {t.type}
-                    {t.cancelled ? " - Cancelled" : ""}
+                    {t.cancelled ? " - Cancelled" : isClosed(t) ? " - Period closed" : ""}
                   </span>
                 </td>
                 <td>
@@ -314,7 +320,7 @@ export function TransactionTable({
                       <i className="dot delete-dot" />
                     </summary>
                     <div className="action-popover">
-                      {!t.cancelled && (
+                      {!t.cancelled && !isClosed(t) && (
                         <button
                           className="edit-voucher"
                           onClick={(e) => {
@@ -338,17 +344,22 @@ export function TransactionTable({
                       >
                         Copy
                       </button>
-                      <button
-                        className="delete-voucher"
-                        onClick={(e) => {
-                          onDelete(t);
-                          (
-                            e.currentTarget.closest("details") as HTMLDetailsElement
-                          )?.removeAttribute("open");
-                        }}
-                      >
-                        Delete
-                      </button>
+                      {!isClosed(t) && (
+                        <button
+                          className="delete-voucher"
+                          onClick={(e) => {
+                            onDelete(t);
+                            (
+                              e.currentTarget.closest("details") as HTMLDetailsElement
+                            )?.removeAttribute("open");
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                      {isClosed(t) && (
+                        <span className="period-closed-note">Period closed — read-only</span>
+                      )}
                     </div>
                   </details>
                 </td>

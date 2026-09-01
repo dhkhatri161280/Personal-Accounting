@@ -2270,6 +2270,7 @@ tfoot th {
   color: #991b1b;
   text-decoration: line-through;
 }
+.period-closed-note { font-size: 10.5px; color: #dc2626; font-weight: 600; padding: 4px 6px; }
 
 .delete-voucher {
   padding: 6px 10px;
@@ -2745,6 +2746,9 @@ aside .install-app span {
 }
 .master-tabs button {
   margin: 0;
+  white-space: nowrap;
+  padding: 11px 6px;
+  font-size: 10.5px;
 }
 .master-tabs button.selected {
   background: #10223f;
@@ -2796,6 +2800,13 @@ aside .install-app span {
   font-size: 10px;
   font-weight: 700;
   color: #53627a;
+}
+.master-form .field-hint {
+  font-weight: 400;
+  font-size: 9.5px;
+  color: #8291a8;
+  text-transform: none;
+  letter-spacing: normal;
 }
 .master-form input,
 .master-form select {
@@ -7731,6 +7742,34 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .voucher-balance-ok { background: #f0fdf4; color: #16a34a; }
 .ui-refresh .voucher-balance-diff { background: #fff5f5; color: #dc2626; }
+.voucher-line-balance { font-size: 10.5px; color: #8291a8; padding: 0 4px 8px; margin-top: -4px; }
+
+.period-control-panel { width: min(760px, 100%); }
+.period-control-hint { margin: 0 0 18px; font-size: 11px; line-height: 1.5; }
+.period-cutoff-bar {
+  display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; margin-bottom: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
+}
+.period-cutoff-bar label { display: grid; gap: 4px; font-size: 10px; font-weight: 700; color: #53627a; }
+.period-cutoff-bar select { border: 1px solid #d8e0eb; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.period-fy-group { margin-bottom: 22px; }
+.period-fy-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.period-fy-head h4 { margin: 0; font-size: 12.5px; color: #33415c; }
+.period-fy-actions { display: flex; gap: 8px; }
+.period-fy-actions button { font-size: 10.5px; padding: 4px 10px; border-radius: 6px; border: 1px solid #d8e0eb; background: #fff; cursor: pointer; }
+.period-fy-actions button:disabled { opacity: 0.4; cursor: default; }
+.period-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.period-chip {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 8px 12px; border-radius: 8px; border: 1px solid #d8e0eb; background: #fff;
+  cursor: pointer; text-align: left; font-size: 11.5px; color: #33415c; transition: border-color 0.15s;
+}
+.period-chip:hover { border-color: #93c5fd; }
+.period-chip-label { font-weight: 700; }
+.period-chip-status { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.period-open .period-chip-status { color: #16a34a; }
+.period-closed { background: #fff5f5; border-color: #fca5a5; }
+.period-closed .period-chip-status { color: #dc2626; }
 .ui-refresh .voucher-ledger-create {
   display: flex;
   gap: 10px;

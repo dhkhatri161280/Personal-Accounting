@@ -36,7 +36,8 @@ export type MasterLedger = {
   currencies?: string[];
   voucherTypes?: string[];
   fiscalYearStartMonth?: number;
-  transactions?: Array<{ entries: Array<{ accountId: number }> }>;
+  closedPeriods?: string[];
+  transactions?: Array<{ date: string; deleted?: boolean; entries: Array<{ accountId: number }> }>;
 };
 
 const standard: MasterGroup[] = [
@@ -62,6 +63,175 @@ const standard: MasterGroup[] = [
 ];
 const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
 
+// Standard ERP-style period control: each calendar month can be closed/reopened independently
+// (not a single rolling cutoff) -- see closedPeriods on Ledger (lib/vault-types.ts) and
+// findClosedPeriodViolations (lib/vault-accounting.ts), which is what actually blocks a save
+// against a closed period. This panel is just the toggle UI; the enforcement lives centrally in
+// save() so every create/edit/delete path is covered uniformly.
+function PeriodControlPanel({
+  fiscalYearStartMonth,
+  transactions,
+  closedPeriods,
+  onToggle,
+}: {
+  fiscalYearStartMonth: number;
+  transactions: Array<{ date: string; deleted?: boolean }>;
+  closedPeriods: string[];
+  onToggle: (next: string[], message: string) => void;
+}) {
+  const monthLabel = (period: string) => {
+    const [y, m] = period.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  };
+  // Fiscal year identified by the calendar year it STARTS in (e.g. a fiscal year starting
+  // April 2026 is "FY 2026", even though it runs into March 2027).
+  const fyOf = (date: string): number => {
+    const [y, m] = date.slice(0, 7).split("-").map(Number);
+    return m >= fiscalYearStartMonth ? y : y - 1;
+  };
+  const periodsInFY = (fy: number): string[] =>
+    Array.from({ length: 12 }, (_, i) => {
+      const offset = fiscalYearStartMonth - 1 + i;
+      const m = (offset % 12) + 1;
+      const y = fy + Math.floor(offset / 12);
+      return `${y}-${String(m).padStart(2, "0")}`;
+    });
+
+  const fys = useMemo(() => {
+    const present = new Set<number>();
+    for (const t of transactions) {
+      if (t.deleted) continue;
+      present.add(fyOf(t.date));
+    }
+    const now = new Date();
+    present.add(fyOf(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`));
+    return [...present].sort((a, b) => b - a);
+  }, [transactions, fiscalYearStartMonth]);
+
+  const closedSet = new Set(closedPeriods);
+
+  // Chronological list of every period shown, oldest first -- backs the "close through" cutoff
+  // control below (the common "we've closed the books through August" workflow).
+  const allPeriodsAsc = useMemo(
+    () => [...fys].sort((a, b) => a - b).flatMap(periodsInFY),
+    [fys, fiscalYearStartMonth]
+  );
+  const [cutoff, setCutoff] = useState(allPeriodsAsc[0] || "");
+
+  function toggle(period: string, isClosed: boolean) {
+    const next = isClosed ? closedPeriods.filter((p) => p !== period) : [...closedPeriods, period];
+    onToggle(
+      next,
+      isClosed
+        ? `${monthLabel(period)} reopened.`
+        : `${monthLabel(period)} closed — vouchers dated in this period can no longer be created, edited, or deleted.`
+    );
+  }
+
+  function setBatch(periods: string[], close: boolean, message: string) {
+    const set = new Set(closedPeriods);
+    for (const p of periods) close ? set.add(p) : set.delete(p);
+    onToggle([...set], message);
+  }
+
+  function closeThrough(cutoffPeriod: string) {
+    const toClose = allPeriodsAsc.filter((p) => p <= cutoffPeriod && !closedSet.has(p));
+    if (!toClose.length) return;
+    if (
+      !confirm(
+        `Close all ${toClose.length} period(s) from ${monthLabel(allPeriodsAsc[0])} through ${monthLabel(cutoffPeriod)}? ` +
+          `No vouchers dated in any of them can be created, edited, or deleted until reopened.`
+      )
+    )
+      return;
+    setBatch(toClose, true, `Closed ${toClose.length} period(s) through ${monthLabel(cutoffPeriod)}.`);
+  }
+
+  return (
+    <div className="period-control-panel">
+      <p className="field-hint period-control-hint">
+        Close any period independently — any combination can stay open or closed at once. Closing
+        a period only blocks new, edited, or deleted vouchers dated within it; viewing and reports
+        are never affected.
+      </p>
+      {allPeriodsAsc.length > 0 && (
+        <div className="period-cutoff-bar">
+          <label>
+            Close everything through
+            <select value={cutoff} onChange={(e) => setCutoff(e.target.value)}>
+              {allPeriodsAsc.map((p) => (
+                <option key={p} value={p}>
+                  {monthLabel(p)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="primary" onClick={() => closeThrough(cutoff)}>
+            Close through this period
+          </button>
+        </div>
+      )}
+      {fys.map((fy) => {
+        const periods = periodsInFY(fy);
+        const allClosed = periods.every((p) => closedSet.has(p));
+        const noneClosed = periods.every((p) => !closedSet.has(p));
+        return (
+          <div className="period-fy-group" key={fy}>
+            <div className="period-fy-head">
+              <h4>
+                FY {fy} ({monthLabel(periods[0])} – {monthLabel(periods[11])})
+              </h4>
+              <div className="period-fy-actions">
+                <button
+                  type="button"
+                  disabled={allClosed}
+                  onClick={() => {
+                    if (confirm(`Close all 12 periods in FY ${fy}? No vouchers dated in this fiscal year can be created, edited, or deleted until reopened.`))
+                      setBatch(periods, true, `FY ${fy} closed (12 period(s)).`);
+                  }}
+                >
+                  Close all
+                </button>
+                <button
+                  type="button"
+                  disabled={noneClosed}
+                  onClick={() => setBatch(periods, false, `FY ${fy} reopened (12 period(s)).`)}
+                >
+                  Open all
+                </button>
+              </div>
+            </div>
+            <div className="period-grid">
+              {periods.map((period) => {
+                const isClosed = closedSet.has(period);
+                return (
+                  <button
+                    key={period}
+                    type="button"
+                    className={`period-chip ${isClosed ? "period-closed" : "period-open"}`}
+                    onClick={() => {
+                      if (
+                        isClosed ||
+                        confirm(
+                          `Close ${monthLabel(period)}? No vouchers dated in this period can be created, edited, or deleted until it's reopened.`
+                        )
+                      )
+                        toggle(period, isClosed);
+                    }}
+                  >
+                    <span className="period-chip-label">{monthLabel(period)}</span>
+                    <span className="period-chip-status">{isClosed ? "Closed" : "Open"}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MastersPanel({
   data,
   onSave,
@@ -69,7 +239,7 @@ export function MastersPanel({
   data: MasterLedger;
   onSave: (next: MasterLedger, message: string) => void;
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "settings">("ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "settings">("ledgers"),
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
     [search, setSearch] = useState("");
@@ -261,10 +431,16 @@ export function MastersPanel({
           Account Groups
         </button>
         <button
+          className={section === "periods" ? "selected" : ""}
+          onClick={() => setSection("periods")}
+        >
+          Periods
+        </button>
+        <button
           className={section === "settings" ? "selected" : ""}
           onClick={() => setSection("settings")}
         >
-          Other Masters
+          Company Settings
         </button>
       </div>
       {section === "ledgers" && (
@@ -387,6 +563,14 @@ export function MastersPanel({
             </tbody>
           </table>
         </>
+      )}
+      {section === "periods" && (
+        <PeriodControlPanel
+          fiscalYearStartMonth={data.fiscalYearStartMonth || 4}
+          transactions={data.transactions || []}
+          closedPeriods={data.closedPeriods || []}
+          onToggle={(next, message) => onSave({ ...data, closedPeriods: next }, message)}
+        />
       )}
       {section === "settings" && (
         <form
