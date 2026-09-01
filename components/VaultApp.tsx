@@ -1783,6 +1783,64 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </label>
           </div>
         )}
+        {(() => {
+          // Compact open/closed summary for whatever's currently selected in the Financial
+          // period dropdown above -- reuses the same "FY starts April" convention that dropdown
+          // itself already hardcodes (years.map above), not fiscalYearStartMonth, so the range
+          // shown here always matches what's actually selected. Collapses to contiguous ranges
+          // ("Sep 2026 – Mar 2027") instead of listing every open month, and caps at 2 ranges
+          // before summarizing the rest, to stay a single compact line regardless of how
+          // fragmented the closures are.
+          let periodKeys: string[] = [];
+          if (/^\d{4}$/.test(year)) {
+            const fy = Number(year);
+            periodKeys = Array.from({ length: 12 }, (_, i) => {
+              const m = ((3 + i) % 12) + 1; // Apr(4) .. Mar(3), 0-indexed offset from Apr=index0
+              const y = fy + (i >= 9 ? 1 : 0); // Jan/Feb/Mar roll into the next calendar year
+              return `${y}-${String(m).padStart(2, "0")}`;
+            });
+          } else if (year === "custom") {
+            let cur = customStart;
+            while (cur <= customEnd) {
+              periodKeys.push(cur);
+              const [y, m] = cur.split("-").map(Number);
+              cur = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+            }
+          } else if (/^\d{4}-\d{2}$/.test(year)) {
+            periodKeys = [year];
+          }
+          if (!periodKeys.length) return null;
+          const closed = new Set(data.closedPeriods || []);
+          const openKeys = periodKeys.filter((k) => !closed.has(k));
+          const fmt = (k: string) => {
+            const [y, m] = k.split("-").map(Number);
+            return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
+          };
+          let label: string;
+          if (openKeys.length === periodKeys.length) label = "All open";
+          else if (openKeys.length === 0) label = "All closed";
+          else {
+            const ranges: string[][] = [];
+            for (const k of openKeys) {
+              const last = ranges[ranges.length - 1];
+              const prevExpected = last
+                ? (() => {
+                    const [y, m] = last[last.length - 1].split("-").map(Number);
+                    return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+                  })()
+                : null;
+              if (last && prevExpected === k) last.push(k);
+              else ranges.push([k]);
+            }
+            const rangeLabels = ranges.map((r) => (r.length === 1 ? fmt(r[0]) : `${fmt(r[0])} – ${fmt(r[r.length - 1])}`));
+            label = rangeLabels.length <= 2 ? rangeLabels.join(", ") : `${rangeLabels[0]}, +${rangeLabels.length - 1} more`;
+          }
+          return (
+            <span className={`period-open-summary ${openKeys.length === 0 ? "period-open-summary--none" : ""}`}>
+              Open: {label}
+            </span>
+          );
+        })()}
         <div className="period-bar-footer">
           <span className="period-bar-note">Opening + period activity = closing</span>
           <div className="new-voucher-fab-wrap" ref={newVoucherMenuRef}>

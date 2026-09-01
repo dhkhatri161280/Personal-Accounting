@@ -57,6 +57,7 @@ export async function GET(request: Request) {
   const itemErrors: { item_id: string; institution_name: string; error_code?: string; error_message?: string }[] = [];
   const debug = url.searchParams.get("debug") === "1";
   const debugRefresh: unknown[] = [];
+  const debugHoldings: unknown[] = [];
 
   // Whether a connection has an investment-type account almost never changes once known --
   // determine it ONCE per connection and cache on the stored record, instead of an extra
@@ -144,6 +145,43 @@ export async function GET(request: Request) {
           await new Promise((resolve) => setTimeout(resolve, 3000));
         } catch {}
 
+        // For investment-type accounts, the balance is only as current as the securities' own
+        // pricing date (mutual funds/401k holdings price once per trading day, well after
+        // market close) -- confirmed directly: a $194,328.82 401k balance matched holdings
+        // priced "as of" the PREVIOUS trading day, not stale data, just normal once-daily NAV
+        // pricing. Surface that date per-account so the UI can show "as of <date>" instead of
+        // implying the number is live. Also prefer the balance nested in THIS SAME holdings
+        // response over /accounts/balance/get's flat cache -- Plaid's balance cache for
+        // investment accounts can lag behind what holdings/get already reflects, and since this
+        // call happens anyway (for the pricing date), reading its balance too costs nothing
+        // extra. holdings/get is a plain read (not the rate-limited investments_refresh action),
+        // so this is safe to call on every fetch, not just debug.
+        const pricingAsOfByAccount = new Map<string, string>();
+        const holdingsBalanceByAccount = new Map<string, number | null>();
+        if (conn.hasInvestmentAccount === true) {
+          try {
+            const holdingsResp = await fetch(`${plaidBase(bindings)}/investments/holdings/get`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ client_id: PLAID_CLIENT_ID, secret: PLAID_SECRET, access_token: conn.access_token }),
+            }).then((r) => (r.ok ? r.json() : null)) as {
+              holdings?: { account_id: string; institution_price_as_of?: string | null }[];
+              accounts?: { account_id: string; balances?: { current: number | null } }[];
+            } | null;
+            for (const h of holdingsResp?.holdings || []) {
+              if (!h.institution_price_as_of) continue;
+              const existing = pricingAsOfByAccount.get(h.account_id);
+              if (!existing || h.institution_price_as_of > existing) pricingAsOfByAccount.set(h.account_id, h.institution_price_as_of);
+            }
+            for (const a of holdingsResp?.accounts || []) {
+              if (a.balances?.current != null) holdingsBalanceByAccount.set(a.account_id, a.balances.current);
+            }
+            if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, holdings: holdingsResp });
+          } catch (e) {
+            if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, error: String(e) });
+          }
+        }
+
         // Fetch transactions and real-time balances in parallel.
         // transactions/get returns cached balances (can be 1-2 days stale).
         // accounts/balance/get makes a live call to the bank for current balances.
@@ -190,9 +228,15 @@ export async function GET(request: Request) {
 
         // Prefer real-time balances; fall back to cached balances from transactions/get
         const accountSource = balData?.accounts ?? txData.accounts ?? [];
-        (accountSource as any[]).forEach((a: any) =>
-          allAccounts.push({ ...a, institution_name: conn.institution_name })
-        );
+        (accountSource as any[]).forEach((a: any) => {
+          const holdingsBal = holdingsBalanceByAccount.get(a.account_id);
+          allAccounts.push({
+            ...a,
+            institution_name: conn.institution_name,
+            ...(holdingsBal != null ? { balances: { ...a.balances, current: holdingsBal } } : {}),
+            ...(pricingAsOfByAccount.has(a.account_id) ? { pricingAsOf: pricingAsOfByAccount.get(a.account_id) } : {}),
+          });
+        });
       } catch (e: any) {
         errors.push(`${conn.institution_name}: ${e.message}`);
       }
@@ -209,6 +253,6 @@ export async function GET(request: Request) {
     accounts: allAccounts,
     errors,
     itemErrors,
-    ...(debug ? { debugRefresh } : {}),
+    ...(debug ? { debugRefresh, debugHoldings } : {}),
   });
 }

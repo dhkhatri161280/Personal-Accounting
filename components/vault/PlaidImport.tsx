@@ -32,6 +32,10 @@ interface PlaidAccount {
     available: number | null;
     limit?: number | null;
   };
+  // Investment-type accounts only: the trading day these holdings were priced as of (mutual
+  // funds/401k price once per day, well after market close -- this is normal, not staleness).
+  // See app/api/plaid/transactions/route.ts.
+  pricingAsOf?: string;
 }
 
 interface Connection {
@@ -2682,6 +2686,11 @@ export function PlaidImport({ data, onSave }: Props) {
                                   return owner ? `${n} - ${owner}` : n;
                                 })
                                 .join(" + ")}
+                              {g.plaidType === "investment" && g.plaidAccts.some((a) => a.pricingAsOf) && (
+                                <div className="plaid-recon-pricing-note">
+                                  Priced as of {g.plaidAccts.find((a) => a.pricingAsOf)?.pricingAsOf}
+                                </div>
+                              )}
                             </td>
                             <td className="plaid-recon-type">{g.types.join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>

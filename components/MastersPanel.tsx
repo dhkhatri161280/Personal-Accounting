@@ -70,24 +70,28 @@ const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
 // save() so every create/edit/delete path is covered uniformly.
 function PeriodControlPanel({
   fiscalYearStartMonth,
-  transactions,
+  fys,
+  selectedFYs,
+  setSelectedFYs,
+  fyMenuOpen,
+  setFyMenuOpen,
+  fyMenuRef,
   closedPeriods,
   onToggle,
 }: {
   fiscalYearStartMonth: number;
-  transactions: Array<{ date: string; deleted?: boolean }>;
+  fys: number[];
+  selectedFYs: Set<number>;
+  setSelectedFYs: (next: Set<number>) => void;
+  fyMenuOpen: boolean;
+  setFyMenuOpen: (fn: (o: boolean) => boolean) => void;
+  fyMenuRef: { current: HTMLDivElement | null };
   closedPeriods: string[];
   onToggle: (next: string[], message: string) => void;
 }) {
   const monthLabel = (period: string) => {
     const [y, m] = period.split("-").map(Number);
     return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
-  };
-  // Fiscal year identified by the calendar year it STARTS in (e.g. a fiscal year starting
-  // April 2026 is "FY 2026", even though it runs into March 2027).
-  const fyOf = (date: string): number => {
-    const [y, m] = date.slice(0, 7).split("-").map(Number);
-    return m >= fiscalYearStartMonth ? y : y - 1;
   };
   const periodsInFY = (fy: number): string[] =>
     Array.from({ length: 12 }, (_, i) => {
@@ -96,17 +100,6 @@ function PeriodControlPanel({
       const y = fy + Math.floor(offset / 12);
       return `${y}-${String(m).padStart(2, "0")}`;
     });
-
-  const fys = useMemo(() => {
-    const present = new Set<number>();
-    for (const t of transactions) {
-      if (t.deleted) continue;
-      present.add(fyOf(t.date));
-    }
-    const now = new Date();
-    present.add(fyOf(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`));
-    return [...present].sort((a, b) => b - a);
-  }, [transactions, fiscalYearStartMonth]);
 
   const closedSet = new Set(closedPeriods);
 
@@ -119,28 +112,6 @@ function PeriodControlPanel({
     [fys, fiscalYearStartMonth]
   );
   const [cutoff, setCutoff] = useState(allPeriodsAsc[0] || "");
-
-  // Only the checked fiscal years render their period grid below -- with years of history this
-  // page was showing every single month of every year at once. Defaults to just the current/
-  // most recent FY so it opens compact; older years are one click away via the dropdown.
-  const [selectedFYs, setSelectedFYs] = useState<Set<number>>(() => new Set(fys.length ? [fys[0]] : []));
-  const [fyMenuOpen, setFyMenuOpen] = useState(false);
-  const fyMenuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!fyMenuOpen) return;
-    const onOutside = (e: MouseEvent) => {
-      if (fyMenuRef.current && !fyMenuRef.current.contains(e.target as Node)) setFyMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onOutside);
-    return () => document.removeEventListener("mousedown", onOutside);
-  }, [fyMenuOpen]);
-  function toggleFY(fy: number) {
-    setSelectedFYs((prev) => {
-      const next = new Set(prev);
-      next.has(fy) ? next.delete(fy) : next.add(fy);
-      return next;
-    });
-  }
 
   // Arbitrary multi-select across whichever periods are currently on screen (any FY, any mix of
   // months) -- separate from the per-chip single click and the whole-FY "Close all" buttons,
@@ -204,35 +175,6 @@ function PeriodControlPanel({
         a period only blocks new, edited, or deleted vouchers dated within it; viewing and reports
         are never affected.
       </p>
-      <div className="period-fy-picker" ref={fyMenuRef}>
-        <button type="button" className="period-fy-picker-trigger" onClick={() => setFyMenuOpen((o) => !o)}>
-          {selectedFYs.size === 0
-            ? "Select fiscal year(s)"
-            : selectedFYs.size === 1
-              ? `FY ${[...selectedFYs][0]}`
-              : `${selectedFYs.size} fiscal years selected`}
-          {" "}▾
-        </button>
-        {fyMenuOpen && (
-          <div className="period-fy-menu">
-            <label className="period-fy-menu-item period-fy-menu-all">
-              <input
-                type="checkbox"
-                checked={selectedFYs.size === fys.length}
-                onChange={() => setSelectedFYs(selectedFYs.size === fys.length ? new Set() : new Set(fys))}
-              />
-              <span>Select all</span>
-            </label>
-            <div className="period-fy-menu-divider" />
-            {fys.map((fy) => (
-              <label className="period-fy-menu-item" key={fy}>
-                <input type="checkbox" checked={selectedFYs.has(fy)} onChange={() => toggleFY(fy)} />
-                <span>FY {fy}</span>
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
       {allPeriodsAsc.length > 0 && (
         <div className="period-cutoff-bar">
           <label>
@@ -248,6 +190,43 @@ function PeriodControlPanel({
           <button type="button" className="primary" onClick={() => closeThrough(cutoff)}>
             Close through this period
           </button>
+          <div className="period-fy-picker" ref={fyMenuRef}>
+            <button type="button" className="period-fy-picker-trigger" onClick={() => setFyMenuOpen((o) => !o)}>
+              {selectedFYs.size === 0
+                ? "Select fiscal year(s)"
+                : selectedFYs.size === 1
+                  ? `FY ${[...selectedFYs][0]}`
+                  : `${selectedFYs.size} fiscal years selected`}
+              {" "}▾
+            </button>
+            {fyMenuOpen && (
+              <div className="period-fy-menu">
+                <label className="period-fy-menu-item period-fy-menu-all">
+                  <input
+                    type="checkbox"
+                    checked={selectedFYs.size === fys.length}
+                    onChange={() => setSelectedFYs(selectedFYs.size === fys.length ? new Set() : new Set(fys))}
+                  />
+                  <span>Select all</span>
+                </label>
+                <div className="period-fy-menu-divider" />
+                {fys.map((fy) => (
+                  <label className="period-fy-menu-item" key={fy}>
+                    <input
+                      type="checkbox"
+                      checked={selectedFYs.has(fy)}
+                      onChange={() => {
+                        const next = new Set(selectedFYs);
+                        next.has(fy) ? next.delete(fy) : next.add(fy);
+                        setSelectedFYs(next);
+                      }}
+                    />
+                    <span>FY {fy}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
       {selectedPeriods.size > 0 && (
@@ -344,6 +323,37 @@ export function MastersPanel({
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
     [search, setSearch] = useState("");
+
+  // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
+  // than kept inside PeriodControlPanel so the picker can render in this same tab row instead of
+  // a whole extra row of its own below it.
+  const fiscalYearStartMonth = data.fiscalYearStartMonth || 4;
+  const fys = useMemo(() => {
+    const fyOf = (date: string) => {
+      const [y, m] = date.slice(0, 7).split("-").map(Number);
+      return m >= fiscalYearStartMonth ? y : y - 1;
+    };
+    const present = new Set<number>();
+    for (const t of data.transactions || []) {
+      if (t.deleted) continue;
+      present.add(fyOf(t.date));
+    }
+    const now = new Date();
+    present.add(fyOf(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`));
+    return [...present].sort((a, b) => b - a);
+  }, [data.transactions, fiscalYearStartMonth]);
+  const [selectedFYs, setSelectedFYs] = useState<Set<number>>(() => new Set(fys.length ? [fys[0]] : []));
+  const [fyMenuOpen, setFyMenuOpen] = useState(false);
+  const fyMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!fyMenuOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (fyMenuRef.current && !fyMenuRef.current.contains(e.target as Node)) setFyMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [fyMenuOpen]);
+
   const groups = useMemo(() => {
     const map = new Map<string, MasterGroup>();
     for (const g of standard) map.set(g.name.toLowerCase(), g);
@@ -667,8 +677,13 @@ export function MastersPanel({
       )}
       {section === "periods" && (
         <PeriodControlPanel
-          fiscalYearStartMonth={data.fiscalYearStartMonth || 4}
-          transactions={data.transactions || []}
+          fiscalYearStartMonth={fiscalYearStartMonth}
+          fys={fys}
+          selectedFYs={selectedFYs}
+          setSelectedFYs={setSelectedFYs}
+          fyMenuOpen={fyMenuOpen}
+          setFyMenuOpen={setFyMenuOpen}
+          fyMenuRef={fyMenuRef}
           closedPeriods={data.closedPeriods || []}
           onToggle={(next, message) => onSave({ ...data, closedPeriods: next }, message)}
         />

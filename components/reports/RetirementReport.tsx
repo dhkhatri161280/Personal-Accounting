@@ -11,6 +11,9 @@ interface PlaidInvestmentAccount {
   subtype: string; // "401k" | "hsa" | "ira" | "403b" | ...
   institution_name?: string;
   balances: { current: number | null; available: number | null; iso_currency_code?: string };
+  // The trading day these holdings were priced as of -- mutual funds/401k price once per day,
+  // well after market close, so this is normal, not staleness. See app/api/plaid/transactions/route.ts.
+  pricingAsOf?: string;
 }
 
 const SUBTYPE_LABEL: Record<string, string> = {
@@ -200,7 +203,7 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
                   <div className="dashboard-card-main">
                     <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
                     <strong>{fmt(a.balances?.current ?? 0)}</strong>
-                    <small>{a.name}</small>
+                    <small>{a.name}{a.pricingAsOf ? ` · priced as of ${a.pricingAsOf}` : ""}</small>
                   </div>
                 </button>
               ))
