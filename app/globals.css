@@ -8185,3 +8185,17 @@ details[open] > .tp-cat-label--collapsible::before { transform: rotate(90deg); }
   font-size: 11px;
   cursor: pointer;
 }
+.columnar-cell-btn {
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.columnar-cell-btn:hover {
+  background: rgba(47, 111, 237, 0.12);
+  text-decoration: underline;
+}

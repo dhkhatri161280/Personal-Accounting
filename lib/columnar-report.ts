@@ -1,35 +1,65 @@
-import type { Ledger } from "./vault-types";
+import type { Ledger, Tx } from "./vault-types";
 
 export type PeriodBoundary = { key: string; label: string; start: string; end: string };
 
-// Same hardcoded-April fiscal year convention as VaultApp.tsx's `calc` (${year}-04-01 through
-// ${year + 1}-03-31) -- not data.fiscalYearStartMonth, which `calc` itself doesn't consume either.
+// Drill-down source for the columnar reports -- every voucher touching any of `accountIds` and
+// dated within [start, end], newest first. Mirrors the inline `calc.period` filters VaultApp.tsx
+// already uses for its own single-period ledger/cash-flow drill-downs, generalized to an
+// arbitrary account set and date range (a columnar cell can represent one ledger, a whole group,
+// or the Total/Closing column spanning every displayed period).
+export function vouchersForAccountsInRange(data: Ledger, accountIds: number[], start: string, end: string): Tx[] {
+  const ids = new Set(accountIds);
+  return data.transactions
+    .filter((t) => !t.deleted && t.date >= start && t.date <= end && t.entries.some((e) => ids.has(e.accountId)))
+    .slice()
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const lastDayOfMonth = (y: number, m: number) => new Date(y, m, 0).getDate();
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-// Offset i=0..11 from April -- calendar (year, month) for the i-th month of fiscal year `fy`.
-function fyMonth(fy: number, i: number): { y: number; m: number } {
-  const m = ((3 + i) % 12) + 1; // i=0 -> April(4)
-  const y = fy + (3 + i >= 12 ? 1 : 0);
-  return { y, m };
+type MonthBoundary = PeriodBoundary & { y: number; m: number };
+
+function monthsBetween(start: string, end: string): MonthBoundary[] {
+  const months: MonthBoundary[] = [];
+  let y = Number(start.slice(0, 4)), m = Number(start.slice(5, 7));
+  const endY = Number(end.slice(0, 4)), endM = Number(end.slice(5, 7));
+  while (y < endY || (y === endY && m <= endM)) {
+    const s = `${y}-${pad2(m)}-01`;
+    const e = `${y}-${pad2(m)}-${pad2(lastDayOfMonth(y, m))}`;
+    months.push({ key: `${y}-${pad2(m)}`, label: `${MONTH_NAMES[m - 1]} ${y}`, start: s, end: e, y, m });
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return months;
 }
 
-export function periodBoundaries(fy: number, granularity: "monthly" | "quarterly"): PeriodBoundary[] {
-  const months: PeriodBoundary[] = Array.from({ length: 12 }, (_, i) => {
-    const { y, m } = fyMonth(fy, i);
-    const start = `${y}-${pad2(m)}-01`;
-    const end = `${y}-${pad2(m)}-${pad2(lastDayOfMonth(y, m))}`;
-    return { key: `${y}-${pad2(m)}`, label: `${MONTH_NAMES[m - 1]} ${y}`, start, end };
-  });
-  if (granularity === "monthly") return months;
-  return [0, 1, 2, 3].map((q) => {
-    const group = months.slice(q * 3, q * 3 + 3);
+// Generates one period per calendar month (or one per fiscal quarter) covering the given
+// [start, end] range -- follows whatever "Financial period" is selected in VaultApp (a fiscal
+// year, a custom month range, or a single month), not just a hardcoded FY. Quarters are still
+// grouped on the app's fixed April-start fiscal-quarter boundaries (Apr–Jun, Jul–Sep, Oct–Dec,
+// Jan–Mar) even for a custom range, so a range that starts/ends mid-quarter yields a shorter
+// "partial quarter" column at that edge rather than misaligned grouping.
+export function periodBoundariesForRange(start: string, end: string, granularity: "monthly" | "quarterly"): PeriodBoundary[] {
+  const months = monthsBetween(start, end);
+  if (granularity === "monthly") return months.map(({ y, m, ...rest }) => rest);
+
+  const quarterOf = (m: number) => Math.floor(((m - 4 + 12) % 12) / 3); // 0..3, Apr-start
+  const fyOf = (y: number, m: number) => (m >= 4 ? y : y - 1);
+  const groups = new Map<string, MonthBoundary[]>();
+  for (const mo of months) {
+    const key = `${fyOf(mo.y, mo.m)}-Q${quarterOf(mo.m) + 1}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(mo);
+  }
+  return [...groups.entries()].map(([key, ms]) => {
+    const first = ms[0], last = ms[ms.length - 1];
+    const qn = key.split("-Q")[1];
     return {
-      key: `${fy}-Q${q + 1}`,
-      label: `Q${q + 1} (${group[0].label.split(" ")[0]}–${group[2].label.split(" ")[0]})`,
-      start: group[0].start,
-      end: group[2].end,
+      key,
+      label: ms.length > 1 ? `Q${qn} (${first.label.split(" ")[0]}–${last.label.split(" ")[0]})` : `Q${qn} (${first.label.split(" ")[0]})`,
+      start: first.start,
+      end: last.end,
     };
   });
 }

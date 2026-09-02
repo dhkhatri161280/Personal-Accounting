@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { periodBoundaries, trimToLatestActivity, buildCashFlowColumns, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
-import { ColumnarSection, ColumnarNetRow, useSyncedScroll } from "@/components/reports/ColumnarSection";
+import { periodBoundariesForRange, trimToLatestActivity, buildCashFlowColumns, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
+import { ColumnarSection, ColumnarNetRow, useSyncedScroll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -10,18 +10,22 @@ const MONEY_OUT = "#dc2626";
 // Tally convention: Inflows on top, Outflows on bottom.
 export function ColumnarCashFlow({
   data,
-  fy,
+  start,
+  end,
   granularity,
   fmt,
   onComputed,
+  onDrilldown,
 }: {
   data: Ledger;
-  fy: number;
+  start: string;
+  end: string;
   granularity: "monthly" | "quarterly";
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], inflowRows: ColumnarRow[], outflowRows: ColumnarRow[]) => void;
+  onDrilldown?: (req: DrilldownRequest) => void;
 }) {
-  const periods = useMemo(() => trimToLatestActivity(periodBoundaries(fy, granularity), data), [fy, granularity, data]);
+  const periods = useMemo(() => trimToLatestActivity(periodBoundariesForRange(start, end, granularity), data), [start, end, granularity, data]);
   const { inflowRows, outflowRows, closingByPeriod } = useMemo(() => buildCashFlowColumns(data, periods), [data, periods]);
 
   useEffect(() => {
@@ -39,8 +43,8 @@ export function ColumnarCashFlow({
 
   return (
     <div className="columnar-report">
-      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} />
-      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} />
+      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} onDrilldown={onDrilldown} />
+      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} onDrilldown={onDrilldown} />
       <ColumnarNetRow
         label="Net increase / (decrease) in cash"
         values={netByPeriod}

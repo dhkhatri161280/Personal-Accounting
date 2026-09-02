@@ -37,6 +37,11 @@ function cell(v: number, fmt: (n: number) => string): string {
   return Math.abs(v) < ZERO_TOL ? "–" : fmt(v);
 }
 
+// What a clicked cell drills down to: the account(s) behind it, a human label for the modal
+// title, and the date range that cell covers (a single period, or the whole displayed range for
+// a Total/Closing column click).
+export type DrilldownRequest = { label: string; accountIds: number[]; start: string; end: string };
+
 // Shared by every columnar (monthly/quarterly) report -- Income & Expenditure, Balance Sheet,
 // Cash Flow -- one collapsible group-by-parent table with a period column per header + Total.
 export function ColumnarSection({
@@ -49,6 +54,7 @@ export function ColumnarSection({
   groupOrder,
   scrollRef,
   onScroll,
+  onDrilldown,
 }: {
   title: string;
   rows: ColumnarRow[];
@@ -59,6 +65,7 @@ export function ColumnarSection({
   groupOrder?: string[];
   scrollRef?: (el: HTMLDivElement | null) => void;
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
+  onDrilldown?: (req: DrilldownRequest) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (k: string) =>
@@ -82,6 +89,27 @@ export function ColumnarSection({
   const totalsByPeriod = (items: ColumnarRow[]) => periods.map((p) => items.reduce((s, r) => s + (r.values[p.key] || 0), 0));
   const grandByPeriod = totalsByPeriod(rows);
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
+  const fullRangeStart = periods[0]?.start, fullRangeEnd = periods[periods.length - 1]?.end;
+
+  const Cell = ({ v, accountIds, label, period }: { v: number; accountIds: number[]; label: string; period?: PeriodBoundary }) =>
+    onDrilldown ? (
+      <button
+        type="button"
+        className="columnar-cell-btn"
+        onClick={() =>
+          onDrilldown({
+            label,
+            accountIds,
+            start: period ? period.start : fullRangeStart,
+            end: period ? period.end : fullRangeEnd,
+          })
+        }
+      >
+        {cell(v, fmt)}
+      </button>
+    ) : (
+      <>{cell(v, fmt)}</>
+    );
 
   return (
     <div className="data-panel grouped-report columnar-report-section">
@@ -104,6 +132,7 @@ export function ColumnarSection({
               const isE = expanded.has(group);
               const groupTotals = totalsByPeriod(items);
               const groupTotal = items.reduce((s, r) => s + r.total, 0);
+              const groupAccountIds = items.map((r) => r.id);
               return (
                 <Fragment key={group}>
                   <tr className="columnar-group-row">
@@ -115,11 +144,13 @@ export function ColumnarSection({
                     </td>
                     {groupTotals.map((v, i) => (
                       <td className="right" key={periods[i].key} style={{ color }}>
-                        {cell(v, fmt)}
+                        <Cell v={v} accountIds={groupAccountIds} label={`${group} — ${periods[i].label}`} period={periods[i]} />
                       </td>
                     ))}
                     <td className="right" style={{ color }}>
-                      <strong>{cell(groupTotal, fmt)}</strong>
+                      <strong>
+                        <Cell v={groupTotal} accountIds={groupAccountIds} label={`${group} — ${totalLabel}`} />
+                      </strong>
                     </td>
                   </tr>
                   {isE &&
@@ -131,11 +162,13 @@ export function ColumnarSection({
                           <td className="columnar-ledger-name">{r.name}</td>
                           {periods.map((p) => (
                             <td className="right" key={p.key}>
-                              {cell(r.values[p.key] || 0, fmt)}
+                              <Cell v={r.values[p.key] || 0} accountIds={[r.id]} label={`${r.name} — ${p.label}`} period={p} />
                             </td>
                           ))}
                           <td className="right">
-                            <strong>{cell(r.total, fmt)}</strong>
+                            <strong>
+                              <Cell v={r.total} accountIds={[r.id]} label={`${r.name} — ${totalLabel}`} />
+                            </strong>
                           </td>
                         </tr>
                       ))}
@@ -148,11 +181,16 @@ export function ColumnarSection({
               <th>Total {title}</th>
               {grandByPeriod.map((v, i) => (
                 <th className="right" key={periods[i].key} style={{ color }}>
-                  {cell(v, fmt)}
+                  <Cell
+                    v={v}
+                    accountIds={rows.map((r) => r.id)}
+                    label={`Total ${title} — ${periods[i].label}`}
+                    period={periods[i]}
+                  />
                 </th>
               ))}
               <th className="right" style={{ color }}>
-                {cell(grandTotal, fmt)}
+                <Cell v={grandTotal} accountIds={rows.map((r) => r.id)} label={`Total ${title} — ${totalLabel}`} />
               </th>
             </tr>
           </tfoot>

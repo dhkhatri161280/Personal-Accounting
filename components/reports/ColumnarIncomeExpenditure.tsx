@@ -1,26 +1,30 @@
 "use client";
 import { useEffect, useMemo } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { periodBoundaries, trimToLatestActivity, buildIncomeExpenseColumns, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
-import { ColumnarSection, ColumnarNetRow, useSyncedScroll } from "@/components/reports/ColumnarSection";
+import { periodBoundariesForRange, trimToLatestActivity, buildIncomeExpenseColumns, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
+import { ColumnarSection, ColumnarNetRow, useSyncedScroll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
 
 export function ColumnarIncomeExpenditure({
   data,
-  fy,
+  start,
+  end,
   granularity,
   fmt,
   onComputed,
+  onDrilldown,
 }: {
   data: Ledger;
-  fy: number;
+  start: string;
+  end: string;
   granularity: "monthly" | "quarterly";
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], incomeRows: ColumnarRow[], expenseRows: ColumnarRow[]) => void;
+  onDrilldown?: (req: DrilldownRequest) => void;
 }) {
-  const periods = useMemo(() => trimToLatestActivity(periodBoundaries(fy, granularity), data), [fy, granularity, data]);
+  const periods = useMemo(() => trimToLatestActivity(periodBoundariesForRange(start, end, granularity), data), [start, end, granularity, data]);
   const { incomeRows, expenseRows } = useMemo(() => buildIncomeExpenseColumns(data, periods), [data, periods]);
 
   useEffect(() => {
@@ -36,8 +40,8 @@ export function ColumnarIncomeExpenditure({
 
   return (
     <div className="columnar-report">
-      <ColumnarSection title="Income" rows={incomeRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIncome.ref} onScroll={sIncome.onScroll} />
-      <ColumnarSection title="Expense" rows={expenseRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sExpense.ref} onScroll={sExpense.onScroll} />
+      <ColumnarSection title="Income" rows={incomeRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIncome.ref} onScroll={sIncome.onScroll} onDrilldown={onDrilldown} />
+      <ColumnarSection title="Expense" rows={expenseRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sExpense.ref} onScroll={sExpense.onScroll} onDrilldown={onDrilldown} />
       <ColumnarNetRow
         label="Surplus / (Deficit)"
         values={surplusByPeriod}

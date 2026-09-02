@@ -2,7 +2,7 @@
 import { useEffect, useMemo } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import {
-  periodBoundaries,
+  periodBoundariesForRange,
   trimToLatestActivity,
   buildBalanceSheetColumns,
   BS_ASSET_ORDER,
@@ -10,7 +10,7 @@ import {
   type ColumnarRow,
   type PeriodBoundary,
 } from "@/lib/columnar-report";
-import { ColumnarSection, ColumnarNetRow, useSyncedScroll } from "@/components/reports/ColumnarSection";
+import { ColumnarSection, ColumnarNetRow, useSyncedScroll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -21,18 +21,22 @@ const MONEY_OUT = "#dc2626";
 // see buildBalanceSheetColumns in lib/columnar-report.ts for why.
 export function ColumnarBalanceSheet({
   data,
-  fy,
+  start,
+  end,
   granularity,
   fmt,
   onComputed,
+  onDrilldown,
 }: {
   data: Ledger;
-  fy: number;
+  start: string;
+  end: string;
   granularity: "monthly" | "quarterly";
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], assetRows: ColumnarRow[], liabilityRows: ColumnarRow[]) => void;
+  onDrilldown?: (req: DrilldownRequest) => void;
 }) {
-  const periods = useMemo(() => trimToLatestActivity(periodBoundaries(fy, granularity), data), [fy, granularity, data]);
+  const periods = useMemo(() => trimToLatestActivity(periodBoundariesForRange(start, end, granularity), data), [start, end, granularity, data]);
   const { assetRows, liabilityRows } = useMemo(() => buildBalanceSheetColumns(data, periods), [data, periods]);
 
   useEffect(() => {
@@ -58,6 +62,7 @@ export function ColumnarBalanceSheet({
         groupOrder={BS_ASSET_ORDER}
         scrollRef={sAsset.ref}
         onScroll={sAsset.onScroll}
+        onDrilldown={onDrilldown}
       />
       <ColumnarSection
         title="Liabilities & Equity"
@@ -69,6 +74,7 @@ export function ColumnarBalanceSheet({
         groupOrder={BS_LIABILITY_ORDER}
         scrollRef={sLiab.ref}
         onScroll={sLiab.onScroll}
+        onDrilldown={onDrilldown}
       />
       <ColumnarNetRow
         label="Balance check (Assets − Liabilities & Equity)"

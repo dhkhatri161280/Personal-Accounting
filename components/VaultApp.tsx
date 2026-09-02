@@ -49,7 +49,8 @@ import { GroupedReport } from "@/components/reports/GroupedReport";
 import { ColumnarIncomeExpenditure } from "@/components/reports/ColumnarIncomeExpenditure";
 import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet";
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
-import type { ColumnarRow, PeriodBoundary } from "@/lib/columnar-report";
+import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
+import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
@@ -152,6 +153,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "period" | null
     >(null),
     [cashFlowDetail, setCashFlowDetail] = useState<{ group: string; ledger?: string } | null>(null),
+    [columnarDrilldown, setColumnarDrilldown] = useState<DrilldownRequest | null>(null),
     [selected, setSelected] = useState<number | null>(null),
     [selectedVoucher, setSelectedVoucher] = useState<Tx | null>(null),
     [inlineLedgerSide, setInlineLedgerSide] = useState<"debit" | "credit" | null>(null),
@@ -1431,7 +1433,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             })
           : `FY ${year} (Apr ${year} - Mar ${Number(year) + 1})`;
 
-  const columnarViewAvailable = /^\d{4}$/.test(year);
+  // Monthly/Quarterly columns follow whatever "Financial period" is currently selected -- a
+  // fiscal year, a custom month range, or a single month -- not just a hardcoded FY. Only "all
+  // periods" is excluded, since that range is unbounded and can't be split into finite columns.
+  const columnarViewAvailable = year !== "all";
+  const columnarStart =
+    year === "custom" ? `${customStart}-01` : year.length === 7 ? `${year}-01` : `${year}-04-01`;
+  const columnarEnd =
+    year === "custom" ? `${customEnd}-31` : year.length === 7 ? `${year}-31` : `${Number(year) + 1}-03-31`;
+  const columnarRangeLabel =
+    year === "custom" ? `${customStart} to ${customEnd}` : year.length === 7 ? year : `FY ${year}`;
 
   // Mirrors the proven pattern in IndiaTaxReport.tsx's exportPayrollReconciliation -- dynamic
   // xlsx import, aoa_to_sheet, one workbook, save via writeFile. Exports whichever view is
@@ -1486,9 +1497,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           surplusRow,
         ]);
         ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
-        XLSX.utils.book_append_sheet(wb, ws, `FY ${year} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`);
+        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
       }
-      XLSX.writeFile(wb, `Income & Expenditure${year !== "all" && year !== "custom" ? ` — FY ${year}` : ""}.xlsx`);
+      XLSX.writeFile(wb, `Income & Expenditure${year !== "all" ? ` — ${columnarRangeLabel}` : ""}.xlsx`);
     } finally {
       setExportingIncomeExpenditure(false);
     }
@@ -1546,9 +1557,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         ];
         const ws = XLSX.utils.aoa_to_sheet([header, ...sheetRows("Assets", aRows), ...sheetRows("Liabilities & Equity", lRows), balanceCheckRow]);
         ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
-        XLSX.utils.book_append_sheet(wb, ws, `FY ${year} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`);
+        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
       }
-      XLSX.writeFile(wb, `Balance Sheet${year !== "all" && year !== "custom" ? ` — FY ${year}` : ""}.xlsx`);
+      XLSX.writeFile(wb, `Balance Sheet${year !== "all" ? ` — ${columnarRangeLabel}` : ""}.xlsx`);
     } finally {
       setExportingBalanceSheet(false);
     }
@@ -1599,9 +1610,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         ];
         const ws = XLSX.utils.aoa_to_sheet([header, ...sheetRows("Inflows", inflowRows), ...sheetRows("Outflows", outflowRows), netRow]);
         ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
-        XLSX.utils.book_append_sheet(wb, ws, `FY ${year} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`);
+        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
       }
-      XLSX.writeFile(wb, `Cash Flow${year !== "all" && year !== "custom" ? ` — FY ${year}` : ""}.xlsx`);
+      XLSX.writeFile(wb, `Cash Flow${year !== "all" ? ` — ${columnarRangeLabel}` : ""}.xlsx`);
     } finally {
       setExportingCashFlow(false);
     }
@@ -1617,7 +1628,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           type="button"
           className={reportView === "monthly" ? "selected" : ""}
           disabled={!columnarViewAvailable}
-          title={!columnarViewAvailable ? "Select a specific fiscal year to view monthly columns" : undefined}
+          title={!columnarViewAvailable ? "Select a specific period (not \"All periods\") to view monthly columns" : undefined}
           onClick={() => setReportView("monthly")}
         >
           Monthly
@@ -1626,7 +1637,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           type="button"
           className={reportView === "quarterly" ? "selected" : ""}
           disabled={!columnarViewAvailable}
-          title={!columnarViewAvailable ? "Select a specific fiscal year to view quarterly columns" : undefined}
+          title={!columnarViewAvailable ? "Select a specific period (not \"All periods\") to view quarterly columns" : undefined}
           onClick={() => setReportView("quarterly")}
         >
           Quarterly
@@ -3003,10 +3014,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               ) : (
                 <ColumnarIncomeExpenditure
                   data={data}
-                  fy={Number(year)}
+                  start={columnarStart}
+                  end={columnarEnd}
                   granularity={reportView}
                   fmt={fmt}
                   onComputed={(periods, incomeRows, expenseRows) => setColumnarData({ periods, incomeRows, expenseRows })}
+                  onDrilldown={setColumnarDrilldown}
                 />
               )}
             </>
@@ -3031,10 +3044,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               ) : (
                 <ColumnarBalanceSheet
                   data={data}
-                  fy={Number(year)}
+                  start={columnarStart}
+                  end={columnarEnd}
                   granularity={reportView}
                   fmt={fmt}
                   onComputed={(periods, assetRows, liabilityRows) => setColumnarBSData({ periods, assetRows, liabilityRows })}
+                  onDrilldown={setColumnarDrilldown}
                 />
               )}
             </>
@@ -3048,10 +3063,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               {reportView !== "single" && columnarViewAvailable && (
                 <ColumnarCashFlow
                   data={data}
-                  fy={Number(year)}
+                  start={columnarStart}
+                  end={columnarEnd}
                   granularity={reportView}
                   fmt={fmt}
                   onComputed={(periods, inflowRows, outflowRows) => setColumnarCFData({ periods, inflowRows, outflowRows })}
+                  onDrilldown={setColumnarDrilldown}
                 />
               )}
               {(reportView === "single" || !columnarViewAvailable) && (
@@ -3492,6 +3509,24 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 .slice()
                 .reverse()
                 .map((x) => x.t)}
+              formatAmount={fmt}
+              onView={(t) => setSelectedVoucher(t as Tx)}
+              onEdit={(t) => editVoucher(t as Tx)}
+              onCopy={(t) => copyVoucher(t as Tx)}
+              onDelete={(t) => deleteVoucher(t as Tx)}
+              closedPeriods={data.closedPeriods}
+            />
+          </div>
+        </FloatingWindow>
+      )}
+      {columnarDrilldown && (
+        <FloatingWindow title={columnarDrilldown.label} onClose={() => setColumnarDrilldown(null)} wide initialWidth={1100} initialHeight={700}>
+          <div className="ledger-drill-panel">
+            <p>
+              {fmtDate(columnarDrilldown.start)} – {fmtDate(columnarDrilldown.end)}
+            </p>
+            <TransactionTable
+              transactions={vouchersForAccountsInRange(data, columnarDrilldown.accountIds, columnarDrilldown.start, columnarDrilldown.end)}
               formatAmount={fmt}
               onView={(t) => setSelectedVoucher(t as Tx)}
               onEdit={(t) => editVoucher(t as Tx)}
