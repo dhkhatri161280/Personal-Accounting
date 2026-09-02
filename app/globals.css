@@ -7782,6 +7782,13 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .period-fy-actions button { font-size: 10.5px; padding: 4px 10px; border-radius: 6px; border: 1px solid #d8e0eb; background: #fff; cursor: pointer; }
 .period-fy-actions button:disabled { opacity: 0.4; cursor: default; }
 .period-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.period-quarter-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.period-quarter-label { flex: 0 0 24px; font-size: 11px; font-weight: 800; color: #64748b; }
+.period-grid-quarter { flex: 1; grid-template-columns: repeat(3, minmax(140px, 1fr)); }
+@media (max-width: 700px) {
+  .period-quarter-row { flex-direction: column; align-items: stretch; gap: 4px; }
+  .period-quarter-label { flex: none; }
+}
 .period-bulk-bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 10px 14px; margin-bottom: 16px; background: #eff6ff; border: 1px solid #93c5fd; border-radius: 10px;
@@ -8084,3 +8091,97 @@ details[open] > .tp-cat-label--collapsible::before { transform: rotate(90deg); }
 }
 .ui-refresh .action-popover { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow-hover); }
 .ui-refresh .action-popover button { font-size: 12px; padding: 8px 12px; border-radius: 8px; }
+
+/* Columnar (monthly/quarterly) Income & Expenditure view toggle + table -- Tally-style report
+   with a period column per month/quarter, Income stacked above Expense. */
+.report-view-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 0.75rem;
+}
+.report-view-toggle {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.report-view-toggle button {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #1e40af;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.report-view-toggle button + button {
+  border-left: 1px solid #cbd5e1;
+}
+.report-view-toggle button.selected {
+  background: #2f6fed;
+  color: #fff;
+}
+.report-view-toggle button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.columnar-report-section {
+  margin-bottom: 15px;
+}
+.columnar-report-section > h3 {
+  margin: 0 0 8px;
+  text-align: center;
+}
+.columnar-report-scroll {
+  overflow-x: auto;
+}
+.columnar-report-table {
+  width: auto;
+  margin: 0 auto;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11px;
+}
+.columnar-report-table th,
+.columnar-report-table td {
+  padding: 6px 10px;
+  white-space: nowrap;
+  width: 110px;
+}
+.columnar-report-table th:first-child,
+.columnar-report-table td:first-child {
+  width: 220px;
+  white-space: normal;
+}
+.columnar-report-table thead th {
+  font-size: 10px;
+  color: #64748b;
+  border-bottom: 1px solid #dce2eb;
+}
+.columnar-report-table tbody tr {
+  border-bottom: 1px solid #edf0f4;
+}
+.columnar-report-table .columnar-ledger-name {
+  padding-left: 26px;
+  opacity: 0.85;
+}
+.columnar-report-table tfoot th {
+  border-top: 2px solid #dce2eb;
+  font-size: 11px;
+  padding-top: 8px;
+}
+.columnar-report-table .group-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  cursor: pointer;
+}

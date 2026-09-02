@@ -20,6 +20,18 @@ interface PlaidTxRaw {
   personal_finance_category?: { primary: string; detailed: string };
 }
 
+// Plaid's /investments/transactions/get -- fetched every time for investment-type connections
+// (see app/api/plaid/transactions/route.ts), used to tell "settled per Plaid" from "only in the
+// vault so far" for accounts like HSA where Plaid has no pending-transaction concept at all.
+interface PlaidInvestmentTx {
+  investment_transaction_id: string;
+  account_id: string;
+  date: string;
+  name: string;
+  amount: number; // Plaid: positive = money OUT (withdrawal/buy), negative = money IN
+  institution_name: string;
+}
+
 interface PlaidAccount {
   account_id: string;
   type: string;     // "credit" | "depository" | "investment" | "loan" | "other"
@@ -905,6 +917,21 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
     if (confirmedMatches.some((m) => m.confirmed_tx_ids.includes(tx.transaction_id))) return true;
     const amt = Math.abs(tx.amount);
     const txMs = new Date(tx.date + "T12:00:00Z").getTime();
+    // Plaid can reissue a NEW transaction_id for a still-pending item on a later fetch (seen with
+    // BofA Zelle/ACH "Processing" entries) — the exact-tx_id check above then silently stops
+    // matching even though the user already confirmed it once. Fall back to the specific voucher
+    // that was confirmed: if any past confirmation points at a vault voucher with the same amount
+    // within a few days of this pending date, treat it as the same real-world item. Deliberately
+    // keyed to a specific already-confirmed vault_voucher_id (not a general merchant+amount
+    // pattern) so it doesn't reintroduce the "two separate $4 coffees" false-positive risk the
+    // comment above warns about.
+    if (confirmedMatches.some((m) => {
+      if (Math.abs(m.amount - amt) >= 0.05) return false;
+      const v = ledger.transactions.find((vv) => vv.id === m.vault_voucher_id);
+      if (!v || v.deleted || v.cancelled) return false;
+      const daysDiff = Math.abs(txMs - new Date(v.date + "T12:00:00Z").getTime()) / 86400000;
+      return daysDiff <= 3;
+    })) return true;
     const vDebit = (v: { entries: { amount: number }[] }) =>
       v.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0);
     return ledger.transactions.some((v) => {
@@ -1249,6 +1276,7 @@ export function PlaidImport({ data, onSave }: Props) {
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingTxs, setPendingTxs] = useState<PlaidTxRaw[]>([]);
+  const [investmentTxs, setInvestmentTxs] = useState<PlaidInvestmentTx[]>([]);
   const [plaidAccounts, setPlaidAccounts] = useState<PlaidAccount[]>([]);
   const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances">("transactions");
   const [pendingRows, setPendingRows] = useState<ImportRow[]>([]);
@@ -1342,15 +1370,17 @@ export function PlaidImport({ data, onSave }: Props) {
         ? ""
         : `?institution=${selectedConns.map((c) => encodeURIComponent(c.institution_name)).join(",")}`;
       const r = await fetch(`/api/plaid/transactions${qs}`);
-      const { transactions, accounts: rawPlaidAccts, errors, itemErrors } = (await r.json()) as {
+      const { transactions, accounts: rawPlaidAccts, investmentTransactions, errors, itemErrors } = (await r.json()) as {
         transactions: PlaidTxRaw[];
         accounts: PlaidAccount[];
+        investmentTransactions?: PlaidInvestmentTx[];
         errors: string[];
         itemErrors?: { item_id: string; institution_name: string; error_code?: string; error_message?: string }[];
       };
       if (errors?.length) setStatus(`Partial fetch — ${errors.join(", ")}`);
       else setStatus("");
       setBrokenItems(itemErrors ?? []);
+      setInvestmentTxs(investmentTransactions ?? []);
       // Enrich each account with its institution_name inferred from transactions
       const acctToInst = new Map<string, string>();
       for (const tx of transactions) {
@@ -2581,11 +2611,16 @@ export function PlaidImport({ data, onSave }: Props) {
                       // Vault entries for this account (last 90 days to cover Plaid window) --
                       // shown in full on every row sharing this GL account, since there's no real
                       // per-transaction split (the Vault Balance above is an allocated estimate,
-                      // not a claim about which specific entries belong to this card).
+                      // not a claim about which specific entries belong to this card). Excludes
+                      // one-time "balance sync"/opening-load vouchers -- these represent a starting
+                      // balance, not a real transaction, so they will NEVER have a matching Plaid
+                      // entry no matter how long the reconciliation waits; without this they'd
+                      // permanently show as an unexplained "Uncleared"/"no Plaid match" gap.
                       const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0];
+                      const isBalanceSyncNarration = (n: string) => /balance\s*sync/i.test(n);
                       const recentVaultEntries = g.vaultAcct
                         ? data.transactions
-                            .filter((v) => !v.deleted && !v.cancelled && v.date >= cutoff90)
+                            .filter((v) => !v.deleted && !v.cancelled && v.date >= cutoff90 && !isBalanceSyncNarration(v.narration || ""))
                             .flatMap((v) =>
                               v.entries
                                 .filter((e) => e.accountId === g.vaultAcct!.id)
@@ -2618,7 +2653,38 @@ export function PlaidImport({ data, onSave }: Props) {
 
                       // Unmatched settled transactions — Plaid pending are shown in Uncleared column, not here
                       const notInVault = plaidTxsForGroup.filter((r) => !r.alreadyImported && !r.plaidTx.pending);
-                      const onlyInVault = recentVaultEntries.filter((_, vi) => !matchedVaultIdx.has(vi));
+
+                      // Investment accounts (401k/HSA/IRA) — Plaid has no "pending" concept here at
+                      // all (confirmed directly: a Fidelity debit-card charge still "Processing"
+                      // simply never appears in /investments/transactions/get), so plaidTxsForGroup
+                      // is always empty for these and the credit-card matching above can't run.
+                      // Match vault entries against Plaid's investment transaction feed instead —
+                      // same amount/date matching as above, just a separate list and no negation
+                      // needed (Plaid's investment amount sign already matches the vault's stored
+                      // sign: a withdrawal is positive on both sides).
+                      const investmentTxsForGroup = investmentTxs.filter((t) => acctIdSet.has(t.account_id));
+                      const matchedAgainstInvestment = new Set<number>();
+                      if (g.plaidType === "investment") {
+                        const usedInvestmentTxIdx = new Set<number>();
+                        recentVaultEntries.forEach((ve, vi) => {
+                          const vMs = new Date(ve.date + "T12:00:00Z").getTime();
+                          const ti = investmentTxsForGroup.findIndex(
+                            (t, idx) =>
+                              !usedInvestmentTxIdx.has(idx) &&
+                              Math.abs(new Date(t.date + "T12:00:00Z").getTime() - vMs) / 86400000 <= 5 &&
+                              Math.abs(t.amount - ve.amount) < 0.05
+                          );
+                          if (ti !== -1) {
+                            matchedAgainstInvestment.add(vi);
+                            usedInvestmentTxIdx.add(ti);
+                          }
+                        });
+                      }
+                      // Drilldown display only -- combines both matching passes so this panel
+                      // agrees with whichever one actually ran for this account's Plaid type.
+                      const onlyInVault = recentVaultEntries.filter(
+                        (_, vi) => !matchedVaultIdx.has(vi) && !matchedAgainstInvestment.has(vi)
+                      );
 
                       // Credit cards — Plaid current balance behaviour. Everything pending that Plaid's
                       // current balance hasn't caught up on yet folds into ONE "Uncleared" figure, per
@@ -2636,23 +2702,36 @@ export function PlaidImport({ data, onSave }: Props) {
                         matchedPairs.map(({ pi }) => plaidTxsForGroup[pi].plaidTx.transaction_id)
                       );
                       type UnclearedItem = { date: string; name: string; amount: number; matched: boolean };
-                      const unclearedItems: UnclearedItem[] = g.plaidType !== "credit" ? [] : [
-                        ...matchedPairs
-                          .filter(({ pi }) => plaidTxsForGroup[pi].plaidTx.pending)
-                          .map(({ vi, pi }) => ({
-                            date: plaidTxsForGroup[pi].plaidTx.date,
-                            name: plaidTxsForGroup[pi].plaidTx.name,
-                            amount: recentVaultEntries[vi].amount,
-                            matched: true,
-                          })),
-                        ...pendingTxs
-                          .filter((tx) =>
-                            acctIdSet.has(tx.account_id) &&
-                            !matchedTxIds.has(tx.transaction_id) &&
-                            (tx.amount > 0 || !isCardPayment(tx))
-                          )
-                          .map((tx) => ({ date: tx.date, name: tx.name, amount: tx.amount, matched: false })),
-                      ];
+                      const unclearedItems: UnclearedItem[] =
+                        g.plaidType === "credit"
+                          ? [
+                              ...matchedPairs
+                                .filter(({ pi }) => plaidTxsForGroup[pi].plaidTx.pending)
+                                .map(({ vi, pi }) => ({
+                                  date: plaidTxsForGroup[pi].plaidTx.date,
+                                  name: plaidTxsForGroup[pi].plaidTx.name,
+                                  amount: recentVaultEntries[vi].amount,
+                                  matched: true,
+                                })),
+                              ...pendingTxs
+                                .filter((tx) =>
+                                  acctIdSet.has(tx.account_id) &&
+                                  !matchedTxIds.has(tx.transaction_id) &&
+                                  (tx.amount > 0 || !isCardPayment(tx))
+                                )
+                                .map((tx) => ({ date: tx.date, name: tx.name, amount: tx.amount, matched: false })),
+                            ]
+                          : g.plaidType === "investment"
+                            ? recentVaultEntries
+                                .map((ve, vi) => ({ ve, vi }))
+                                .filter(({ vi }) => !matchedAgainstInvestment.has(vi))
+                                // Negated: the vault already reflects this decrease (an asset account,
+                                // opposite convention from a credit card's balance-owed), so Plaid − Vault
+                                // alone already shows the full gap -- subtracting it back out here (a
+                                // negative Uncleared contribution) is what brings diff to ~0 once Plaid
+                                // catches up, instead of double-counting it.
+                                .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true }))
+                            : [];
                       const uncleared = unclearedItems.reduce((s, u) => s + u.amount, 0);
                       const diff = g.plaidBal !== null && vaultBal !== null
                         ? g.plaidBal - vaultBal + uncleared

@@ -16,6 +16,7 @@ import { estimateNjStateTax, computeNjPropertyTaxDeduction } from "@/lib/tax-nj-
 import { estimateAzStateTax, computeAzItemizedDeduction } from "@/lib/tax-az-engine";
 import { resolveStateResidency } from "@/lib/tax-state-residency";
 import { computeTaxPlanningScenarios } from "@/lib/tax-planning";
+import { compute401kByYear } from "@/lib/payroll-401k";
 import { fmtDate } from "@/lib/format-date";
 
 interface TaxReportProps {
@@ -568,17 +569,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // wrong for the next by coincidence. Leave those periods to a manual look instead of guessing.
 
   // 401(k) lifetime contribution history — one row per imported year, self + employer match.
-  // Uses each year's cumulative total (not the annual column, which is blank for "401K Emplr"
-  // in the source sheet) so this also works for a year still in progress.
-  const k401ByYear = years
-    .slice()
-    .sort((a, b) => a.year.localeCompare(b.year))
-    .map((y) => ({
-      year: y.year,
-      self: row(y.rows, "401K")?.cumulative ?? 0,
-      employer: row(y.rows, "401K Emplr")?.cumulative ?? 0,
-    }))
-    .filter((r) => r.self > 0.005 || r.employer > 0.005);
+  // Also reused by RetirementReport.tsx (see lib/payroll-401k.ts) for the Retirement tab's
+  // employee/employer split.
+  const k401ByYear = compute401kByYear(payroll);
   const k401LifetimeSelf = k401ByYear.reduce((s, r) => s + r.self, 0);
   const k401LifetimeEmployer = k401ByYear.reduce((s, r) => s + r.employer, 0);
 

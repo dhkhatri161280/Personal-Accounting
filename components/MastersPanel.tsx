@@ -127,8 +127,6 @@ function PeriodControlPanel({
   function bulkCloseSelected() {
     const toClose = [...selectedPeriods].filter((p) => !closedSet.has(p));
     if (!toClose.length) return;
-    if (!confirm(`Close ${toClose.length} selected period(s)? No vouchers dated in any of them can be created, edited, or deleted until reopened.`))
-      return;
     setBatch(toClose, true, `${toClose.length} period(s) closed.`);
     setSelectedPeriods(new Set());
   }
@@ -158,13 +156,6 @@ function PeriodControlPanel({
   function closeThrough(cutoffPeriod: string) {
     const toClose = allPeriodsAsc.filter((p) => p <= cutoffPeriod && !closedSet.has(p));
     if (!toClose.length) return;
-    if (
-      !confirm(
-        `Close all ${toClose.length} period(s) from ${monthLabel(allPeriodsAsc[0])} through ${monthLabel(cutoffPeriod)}? ` +
-          `No vouchers dated in any of them can be created, edited, or deleted until reopened.`
-      )
-    )
-      return;
     setBatch(toClose, true, `Closed ${toClose.length} period(s) through ${monthLabel(cutoffPeriod)}.`);
   }
 
@@ -257,10 +248,7 @@ function PeriodControlPanel({
                 <button
                   type="button"
                   disabled={allClosed}
-                  onClick={() => {
-                    if (confirm(`Close all 12 periods in FY ${fy}? No vouchers dated in this fiscal year can be created, edited, or deleted until reopened.`))
-                      setBatch(periods, true, `FY ${fy} closed (12 period(s)).`);
-                  }}
+                  onClick={() => setBatch(periods, true, `FY ${fy} closed (12 period(s)).`)}
                 >
                   Close all
                 </button>
@@ -273,38 +261,35 @@ function PeriodControlPanel({
                 </button>
               </div>
             </div>
-            <div className="period-grid">
-              {periods.map((period) => {
-                const isClosed = closedSet.has(period);
-                return (
-                  <div key={period} className={`period-chip ${isClosed ? "period-closed" : "period-open"}`}>
-                    <input
-                      type="checkbox"
-                      className="period-chip-check"
-                      checked={selectedPeriods.has(period)}
-                      onChange={() => togglePeriodSelection(period)}
-                      aria-label={`Select ${monthLabel(period)}`}
-                    />
-                    <button
-                      type="button"
-                      className="period-chip-btn"
-                      onClick={() => {
-                        if (
-                          isClosed ||
-                          confirm(
-                            `Close ${monthLabel(period)}? No vouchers dated in this period can be created, edited, or deleted until it's reopened.`
-                          )
-                        )
-                          toggle(period, isClosed);
-                      }}
-                    >
-                      <span className="period-chip-label">{monthLabel(period)}</span>
-                      <span className="period-chip-status">{isClosed ? "Closed" : "Open"}</span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+            {[0, 1, 2, 3].map((q) => (
+              <div className="period-quarter-row" key={q}>
+                <span className="period-quarter-label">Q{q + 1}</span>
+                <div className="period-grid period-grid-quarter">
+                  {periods.slice(q * 3, q * 3 + 3).map((period) => {
+                    const isClosed = closedSet.has(period);
+                    return (
+                      <div key={period} className={`period-chip ${isClosed ? "period-closed" : "period-open"}`}>
+                        <input
+                          type="checkbox"
+                          className="period-chip-check"
+                          checked={selectedPeriods.has(period)}
+                          onChange={() => togglePeriodSelection(period)}
+                          aria-label={`Select ${monthLabel(period)}`}
+                        />
+                        <button
+                          type="button"
+                          className="period-chip-btn"
+                          onClick={() => toggle(period, isClosed)}
+                        >
+                          <span className="period-chip-label">{monthLabel(period)}</span>
+                          <span className="period-chip-status">{isClosed ? "Closed" : "Open"}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         );
       })}

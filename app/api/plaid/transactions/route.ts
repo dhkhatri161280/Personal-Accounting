@@ -50,6 +50,7 @@ export async function GET(request: Request) {
 
   const allTransactions: unknown[] = [];
   const allAccounts: unknown[] = [];
+  const allInvestmentTransactions: unknown[] = [];
   const errors: string[] = [];
   // Structured alongside `errors` (kept as plain strings for the status banner) so the client
   // can offer a "Reconnect" button for the specific broken item_id, instead of just displaying
@@ -180,6 +181,32 @@ export async function GET(request: Request) {
           } catch (e) {
             if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, error: String(e) });
           }
+
+          // Investment accounts (401k/HSA/IRA) have no "pending" concept in Plaid's data at all --
+          // confirmed directly: a debit-card charge Fidelity itself shows as "Processing" simply
+          // doesn't appear here yet, unlike /transactions/get's pending=true rows for bank/card
+          // accounts. So the client can't show an "Uncleared" figure for these accounts the same
+          // way it does for credit cards; instead it flags a vault entry as uncleared when it has
+          // no match in this list at all (see the Balances tab in PlaidImport.tsx). A plain read,
+          // same as holdings/get above -- safe on every fetch, not just debug.
+          try {
+            const txResp = (await fetch(`${plaidBase(bindings)}/investments/transactions/get`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                client_id: PLAID_CLIENT_ID,
+                secret: PLAID_SECRET,
+                access_token: conn.access_token,
+                start_date: startDate,
+                end_date: endDate,
+              }),
+            }).then((r) => (r.ok ? r.json() : null))) as { investment_transactions?: unknown[] } | null;
+            for (const t of txResp?.investment_transactions || [])
+              allInvestmentTransactions.push({ ...(t as object), institution_name: conn.institution_name });
+            if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, investmentsTransactionsGet: txResp });
+          } catch (e) {
+            if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, investmentsTransactionsGetError: String(e) });
+          }
         }
 
         // Fetch transactions and real-time balances in parallel.
@@ -251,6 +278,7 @@ export async function GET(request: Request) {
   return Response.json({
     transactions: allTransactions,
     accounts: allAccounts,
+    investmentTransactions: allInvestmentTransactions,
     errors,
     itemErrors,
     ...(debug ? { debugRefresh, debugHoldings } : {}),

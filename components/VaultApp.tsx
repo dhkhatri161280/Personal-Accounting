@@ -46,6 +46,10 @@ import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
 import { UnlockScreen } from "@/components/vault/UnlockScreen";
 import { GroupedReport } from "@/components/reports/GroupedReport";
+import { ColumnarIncomeExpenditure } from "@/components/reports/ColumnarIncomeExpenditure";
+import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet";
+import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
+import type { ColumnarRow, PeriodBoundary } from "@/lib/columnar-report";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
@@ -124,6 +128,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
     ),
     [report, setReport] = useState("trial"),
+    [reportView, setReportView] = useState<"single" | "monthly" | "quarterly">("single"),
+    [columnarData, setColumnarData] = useState<{ periods: PeriodBoundary[]; incomeRows: ColumnarRow[]; expenseRows: ColumnarRow[] } | null>(null),
+    [exportingIncomeExpenditure, setExportingIncomeExpenditure] = useState(false),
+    [columnarBSData, setColumnarBSData] = useState<{ periods: PeriodBoundary[]; assetRows: ColumnarRow[]; liabilityRows: ColumnarRow[] } | null>(null),
+    [exportingBalanceSheet, setExportingBalanceSheet] = useState(false),
+    [columnarCFData, setColumnarCFData] = useState<{ periods: PeriodBoundary[]; inflowRows: ColumnarRow[]; outflowRows: ColumnarRow[] } | null>(null),
+    [exportingCashFlow, setExportingCashFlow] = useState(false),
     [year, setYear] = useState("all"),
     [customStart, setCustomStart] = useState("2026-04"),
     [customEnd, setCustomEnd] = useState("2026-06"),
@@ -1420,6 +1431,213 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             })
           : `FY ${year} (Apr ${year} - Mar ${Number(year) + 1})`;
 
+  const columnarViewAvailable = /^\d{4}$/.test(year);
+
+  // Mirrors the proven pattern in IndiaTaxReport.tsx's exportPayrollReconciliation -- dynamic
+  // xlsx import, aoa_to_sheet, one workbook, save via writeFile. Exports whichever view is
+  // currently on screen: a flat 2-column sheet for the single-period view (same rows as the
+  // GroupedReport columns), or one row per ledger with one column per period + Total for the
+  // monthly/quarterly columnar view.
+  async function exportIncomeExpenditure() {
+    setExportingIncomeExpenditure(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      if (reportView === "single" || !columnarData) {
+        const header = ["Expenditure", "Amount", "", "Income", "Amount"];
+        const rowCount = Math.max(periodExpenseRows.length, periodIncomeRows.length);
+        const rows = Array.from({ length: rowCount }, (_, i) => [
+          periodExpenseRows[i]?.name ?? "",
+          periodExpenseRows[i] ? periodExpenseRows[i].closing : "",
+          "",
+          periodIncomeRows[i]?.name ?? "",
+          periodIncomeRows[i] ? periodIncomeRows[i].closing : "",
+        ]);
+        const totalsRow = ["Total", periodExpense, "", "Total", periodIncome];
+        const ws = XLSX.utils.aoa_to_sheet([header, ...rows, totalsRow]);
+        ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
+        XLSX.utils.book_append_sheet(wb, ws, "Income & Expenditure");
+      } else {
+        const { periods, incomeRows, expenseRows } = columnarData;
+        const header = ["Ledger", ...periods.map((p) => p.label), "Total"];
+        const sheetRows = (kind: "Income" | "Expense", rows: ColumnarRow[]) => {
+          const sorted = rows.slice().sort((a, b) => (a.parent || "").localeCompare(b.parent || "") || a.name.localeCompare(b.name));
+          const dataRows = sorted.map((r) => [r.name, ...periods.map((p) => r.values[p.key] || 0), r.total]);
+          const totalsRow = [
+            `Total ${kind}`,
+            ...periods.map((p) => rows.reduce((s, r) => s + (r.values[p.key] || 0), 0)),
+            rows.reduce((s, r) => s + r.total, 0),
+          ];
+          return [...dataRows, totalsRow, []];
+        };
+        const surplusRow = [
+          "Surplus / (Deficit)",
+          ...periods.map(
+            (p) =>
+              incomeRows.reduce((s, r) => s + (r.values[p.key] || 0), 0) -
+              expenseRows.reduce((s, r) => s + (r.values[p.key] || 0), 0)
+          ),
+          incomeRows.reduce((s, r) => s + r.total, 0) - expenseRows.reduce((s, r) => s + r.total, 0),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet([
+          header,
+          ...sheetRows("Income", incomeRows),
+          ...sheetRows("Expense", expenseRows),
+          surplusRow,
+        ]);
+        ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
+        XLSX.utils.book_append_sheet(wb, ws, `FY ${year} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`);
+      }
+      XLSX.writeFile(wb, `Income & Expenditure${year !== "all" && year !== "custom" ? ` — FY ${year}` : ""}.xlsx`);
+    } finally {
+      setExportingIncomeExpenditure(false);
+    }
+  }
+
+  async function exportBalanceSheet() {
+    setExportingBalanceSheet(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      if (reportView === "single" || !columnarBSData) {
+        const header = ["Liabilities & Equity", "Amount", "", "Assets", "Amount"];
+        const liabDisplay = liabilityRows.map((a) => ({ name: a.name, value: a.closing }));
+        if (Math.abs(capitalTransfer) > tol) liabDisplay.push({ name: "Profit & Loss A/c", value: capitalTransfer });
+        const assetDisplay = assetRows.map((a) => ({ name: a.name, value: -a.closing }));
+        const rowCount = Math.max(liabDisplay.length, assetDisplay.length);
+        const rows = Array.from({ length: rowCount }, (_, i) => [
+          liabDisplay[i]?.name ?? "",
+          liabDisplay[i] ? liabDisplay[i].value : "",
+          "",
+          assetDisplay[i]?.name ?? "",
+          assetDisplay[i] ? assetDisplay[i].value : "",
+        ]);
+        const totalsRow = [
+          "Total",
+          liabDisplay.reduce((s, a) => s + a.value, 0),
+          "",
+          "Total",
+          assetDisplay.reduce((s, a) => s + a.value, 0),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet([header, ...rows, totalsRow]);
+        ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
+        XLSX.utils.book_append_sheet(wb, ws, "Balance Sheet");
+      } else {
+        const { periods, assetRows: aRows, liabilityRows: lRows } = columnarBSData;
+        const lastKey = periods[periods.length - 1].key;
+        const header = ["Ledger", ...periods.map((p) => p.label), "Closing"];
+        const sheetRows = (kind: string, rows: ColumnarRow[]) => {
+          const sorted = rows.slice().sort((a, b) => (a.parent || "").localeCompare(b.parent || "") || a.name.localeCompare(b.name));
+          const dataRows = sorted.map((r) => [r.name, ...periods.map((p) => r.values[p.key] || 0), r.total]);
+          const totalsRow = [
+            `Total ${kind}`,
+            ...periods.map((p) => rows.reduce((s, r) => s + (r.values[p.key] || 0), 0)),
+            rows.reduce((s, r) => s + (r.values[lastKey] || 0), 0),
+          ];
+          return [...dataRows, totalsRow, []];
+        };
+        const balanceCheckRow = [
+          "Balance check (Assets − Liabilities & Equity)",
+          ...periods.map(
+            (p) =>
+              aRows.reduce((s, r) => s + (r.values[p.key] || 0), 0) - lRows.reduce((s, r) => s + (r.values[p.key] || 0), 0)
+          ),
+          aRows.reduce((s, r) => s + (r.values[lastKey] || 0), 0) - lRows.reduce((s, r) => s + (r.values[lastKey] || 0), 0),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet([header, ...sheetRows("Assets", aRows), ...sheetRows("Liabilities & Equity", lRows), balanceCheckRow]);
+        ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
+        XLSX.utils.book_append_sheet(wb, ws, `FY ${year} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`);
+      }
+      XLSX.writeFile(wb, `Balance Sheet${year !== "all" && year !== "custom" ? ` — FY ${year}` : ""}.xlsx`);
+    } finally {
+      setExportingBalanceSheet(false);
+    }
+  }
+
+  async function exportCashFlow() {
+    setExportingCashFlow(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      if (reportView === "single" || !columnarCFData) {
+        const inflowDisplay = cashFlowGroups.flatMap((g) => g.inflowLedgers.map((l) => ({ name: l.name, value: l.amount })));
+        const outflowDisplay = cashFlowGroups.flatMap((g) => g.outflowLedgers.map((l) => ({ name: l.name, value: l.amount })));
+        const header = ["Cash Inflows", "Amount", "", "Cash Outflows", "Amount"];
+        const rowCount = Math.max(inflowDisplay.length, outflowDisplay.length);
+        const rows = Array.from({ length: rowCount }, (_, i) => [
+          inflowDisplay[i]?.name ?? "",
+          inflowDisplay[i] ? inflowDisplay[i].value : "",
+          "",
+          outflowDisplay[i]?.name ?? "",
+          outflowDisplay[i] ? outflowDisplay[i].value : "",
+        ]);
+        const totalsRow = ["Total", cashInflows, "", "Total", cashOutflows];
+        const ws = XLSX.utils.aoa_to_sheet([header, ...rows, totalsRow]);
+        ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
+        XLSX.utils.book_append_sheet(wb, ws, "Cash Flow");
+      } else {
+        const { periods, inflowRows, outflowRows } = columnarCFData;
+        const header = ["Ledger", ...periods.map((p) => p.label), "Total"];
+        const sheetRows = (kind: string, rows: ColumnarRow[]) => {
+          const sorted = rows.slice().sort((a, b) => (a.parent || "").localeCompare(b.parent || "") || a.name.localeCompare(b.name));
+          const dataRows = sorted.map((r) => [r.name, ...periods.map((p) => r.values[p.key] || 0), r.total]);
+          const totalsRow = [
+            `Total ${kind}`,
+            ...periods.map((p) => rows.reduce((s, r) => s + (r.values[p.key] || 0), 0)),
+            rows.reduce((s, r) => s + r.total, 0),
+          ];
+          return [...dataRows, totalsRow, []];
+        };
+        const netRow = [
+          "Net increase / (decrease) in cash",
+          ...periods.map(
+            (p) =>
+              inflowRows.reduce((s, r) => s + (r.values[p.key] || 0), 0) -
+              outflowRows.reduce((s, r) => s + (r.values[p.key] || 0), 0)
+          ),
+          inflowRows.reduce((s, r) => s + r.total, 0) - outflowRows.reduce((s, r) => s + r.total, 0),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet([header, ...sheetRows("Inflows", inflowRows), ...sheetRows("Outflows", outflowRows), netRow]);
+        ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
+        XLSX.utils.book_append_sheet(wb, ws, `FY ${year} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`);
+      }
+      XLSX.writeFile(wb, `Cash Flow${year !== "all" && year !== "custom" ? ` — FY ${year}` : ""}.xlsx`);
+    } finally {
+      setExportingCashFlow(false);
+    }
+  }
+
+  const ReportViewToggle = ({ exporting, onExport }: { exporting: boolean; onExport: () => void }) => (
+    <div className="report-view-toggle-row">
+      <span className="report-view-toggle" role="group" aria-label="Report view">
+        <button type="button" className={reportView === "single" ? "selected" : ""} onClick={() => setReportView("single")}>
+          Single Period
+        </button>
+        <button
+          type="button"
+          className={reportView === "monthly" ? "selected" : ""}
+          disabled={!columnarViewAvailable}
+          title={!columnarViewAvailable ? "Select a specific fiscal year to view monthly columns" : undefined}
+          onClick={() => setReportView("monthly")}
+        >
+          Monthly
+        </button>
+        <button
+          type="button"
+          className={reportView === "quarterly" ? "selected" : ""}
+          disabled={!columnarViewAvailable}
+          title={!columnarViewAvailable ? "Select a specific fiscal year to view quarterly columns" : undefined}
+          onClick={() => setReportView("quarterly")}
+        >
+          Quarterly
+        </button>
+      </span>
+      <button type="button" className="tr-refresh-btn" disabled={exporting} onClick={onExport}>
+        {exporting ? "Exporting…" : "⬇ Export to Excel"}
+      </button>
+    </div>
+  );
+
   const PeriodSelect = () => (
     <span className="period-select-inline">
       <select value={year} onChange={(e) => setYear(e.target.value)}>
@@ -2134,7 +2352,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </div>
           )}
           {importSource === "retirement" && book !== "india" && (
-            <RetirementReport data={data} fmt={fmt} uiTheme={uiTheme} />
+            <RetirementReport data={data} fmt={fmt} uiTheme={uiTheme} onSave={(next) => save(next, "bank-import")} />
           )}
         </>
       )}
@@ -2720,6 +2938,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <h3 className="report-inline-heading">
                 Income &amp; Expenditure — <PeriodSelect />
               </h3>
+              <ReportViewToggle exporting={exportingIncomeExpenditure} onExport={exportIncomeExpenditure} />
+              {(reportView === "single" || !columnarViewAvailable) && (
               <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
                 <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
@@ -2770,14 +2990,25 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   );
                 })()}
               </div>
-              <GroupedReport
-                title1="Expenditure"
-                rows1={periodExpenseRows}
-                title2="Income"
-                rows2={periodIncomeRows}
-                link={(a) => <LedgerLink a={a} />}
-                fmt={fmt}
-              />
+              )}
+              {reportView === "single" || !columnarViewAvailable ? (
+                <GroupedReport
+                  title1="Expenditure"
+                  rows1={periodExpenseRows}
+                  title2="Income"
+                  rows2={periodIncomeRows}
+                  link={(a) => <LedgerLink a={a} />}
+                  fmt={fmt}
+                />
+              ) : (
+                <ColumnarIncomeExpenditure
+                  data={data}
+                  fy={Number(year)}
+                  granularity={reportView}
+                  fmt={fmt}
+                  onComputed={(periods, incomeRows, expenseRows) => setColumnarData({ periods, incomeRows, expenseRows })}
+                />
+              )}
             </>
           )}{" "}
           {report === "balance" && (
@@ -2785,16 +3016,27 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <h3 className="report-inline-heading">
                 Balance Sheet — <PeriodSelect />
               </h3>
-              <BalanceSheetReport
-                assets={assetRows}
-                liabilities={liabilityRows}
-                capitalTransfer={capitalTransfer}
-                plRows={rows.filter(isProfitLoss)}
-                tol={tol}
-                link={(a) => <LedgerLink a={a} />}
-                fmt={fmt}
-                onNavigateToIE={() => setReport("income")}
-              />
+              <ReportViewToggle exporting={exportingBalanceSheet} onExport={exportBalanceSheet} />
+              {reportView === "single" || !columnarViewAvailable ? (
+                <BalanceSheetReport
+                  assets={assetRows}
+                  liabilities={liabilityRows}
+                  capitalTransfer={capitalTransfer}
+                  plRows={rows.filter(isProfitLoss)}
+                  tol={tol}
+                  link={(a) => <LedgerLink a={a} />}
+                  fmt={fmt}
+                  onNavigateToIE={() => setReport("income")}
+                />
+              ) : (
+                <ColumnarBalanceSheet
+                  data={data}
+                  fy={Number(year)}
+                  granularity={reportView}
+                  fmt={fmt}
+                  onComputed={(periods, assetRows, liabilityRows) => setColumnarBSData({ periods, assetRows, liabilityRows })}
+                />
+              )}
             </>
           )}{" "}
           {report === "cashflow" && (
@@ -2802,6 +3044,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <h3 className="report-inline-heading">
                 Cash Flow — <PeriodSelect />
               </h3>
+              <ReportViewToggle exporting={exportingCashFlow} onExport={exportCashFlow} />
+              {reportView !== "single" && columnarViewAvailable && (
+                <ColumnarCashFlow
+                  data={data}
+                  fy={Number(year)}
+                  granularity={reportView}
+                  fmt={fmt}
+                  onComputed={(periods, inflowRows, outflowRows) => setColumnarCFData({ periods, inflowRows, outflowRows })}
+                />
+              )}
+              {(reportView === "single" || !columnarViewAvailable) && (
               <CashFlowReport
                 periodLabel={periodLabel}
                 cashOpening={cashOpening}
@@ -2817,6 +3070,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 onLedger={(group, ledger) => setCashFlowDetail({ group, ledger })}
                 uiTheme={uiTheme}
               />
+              )}
             </>
           )}{" "}
           {report === "cash" && (() => {

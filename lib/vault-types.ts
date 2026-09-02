@@ -288,6 +288,13 @@ export type Ledger = {
   indiaTax?: IndiaTaxData;
   tallyLedgerSnapshot?: TallyLedgerSnapshot;
   trades?: Trade[];
+  // Retirement money moved into a private/illiquid investment that Plaid can't see (e.g. a
+  // portion of a Merrill IRA put into a private deal) -- manually entered and updated on the
+  // Retirement tab, added into "Current balance" alongside the live Fidelity/Merrill figures.
+  // Deliberately NOT tied to any ledger account balance: the account holding this money (if one
+  // exists) may also contain non-retirement capital, so only the user-entered retirement portion
+  // counts here.
+  retirementOtherInvestments?: { id: string; label: string; amount: number }[];
 };
 
 export type Vault = {

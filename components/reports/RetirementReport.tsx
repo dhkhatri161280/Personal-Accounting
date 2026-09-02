@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { StatIcon } from "@/components/Icon";
+import { compute401kLifetimeTotals } from "@/lib/payroll-401k";
 
 interface PlaidInvestmentAccount {
   account_id: string;
@@ -28,20 +29,6 @@ const SUBTYPE_LABEL: Record<string, string> = {
 // 401K's fundamentally different "don't expect these to match" framing.
 const EXCLUDED_SUBTYPES = new Set(["hsa"]);
 
-// Sums every posted entry against a specific account name -- the account's own running balance,
-// same asset sign convention used throughout this app (entries store debit-negative/credit-
-// positive; an asset's real value is the negated sum). Deliberately NOT scoped to the dashboard's
-// selected financial period: contribution tracking is a running total across all time, same as
-// any other balance-sheet account, not something that resets or restarts per FY.
-function ledgerAccountBalance(data: Ledger, accountName: string): number {
-  let sum = 0;
-  for (const t of data.transactions) {
-    if (t.deleted || t.cancelled) continue;
-    for (const e of t.entries) if (e.accountName === accountName) sum += e.amount;
-  }
-  return -sum;
-}
-
 // Balances are fetched fresh only on explicit Refresh -- switching sub-tabs unmounts/remounts
 // this component (see the importSource conditional in VaultApp.tsx), and re-fetching Plaid every
 // time someone just clicks back into this tab is exactly the multi-second wait the user asked to
@@ -60,7 +47,17 @@ function loadCache(): Cache | null {
   }
 }
 
-export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
+export function RetirementReport({
+  data,
+  fmt,
+  uiTheme,
+  onSave,
+}: {
+  data: Ledger;
+  fmt: (n: number) => string;
+  uiTheme?: "classic" | "refresh";
+  onSave?: (next: Ledger) => Promise<boolean | void>;
+}) {
   const cached = useMemo(loadCache, []);
   const [accounts, setAccounts] = useState<PlaidInvestmentAccount[] | null>(cached?.accounts ?? null);
   const [loading, setLoading] = useState(false);
@@ -109,12 +106,13 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cumulative payroll contributions already tracked in the ledger (the existing "401K
-  // Investments" account, also shown as a Dashboard highlight) -- a genuinely different number
-  // from Fidelity's real balance below, not something that should ever be expected to match it.
-  // The gap between them is investment growth/loss plus any employer match, which the ledger
-  // doesn't record on its own.
-  const k401Contributions = useMemo(() => ledgerAccountBalance(data, "401K Investments"), [data]);
+  // Lifetime employee vs. employer 401(k) contributions, sourced from imported payroll data
+  // (same figures as TaxReport.tsx's "401(k) Contributions by Year" drilldown -- see
+  // lib/payroll-401k.ts) rather than the single combined ledger-posting total this used to show,
+  // which couldn't separate the two. The gap vs. Fidelity's real balance below is investment
+  // growth/loss, plus any period not covered by an imported paystub/Excel.
+  const { self: k401Self, employer: k401Employer } = useMemo(() => compute401kLifetimeTotals(data.payroll), [data.payroll]);
+  const k401Contributions = k401Self + k401Employer;
 
   const instRank = (inst: string) => (/fidelity/i.test(inst) ? 0 : /merrill/i.test(inst) ? 1 : 2);
   const grouped = useMemo(() => {
@@ -126,7 +124,43 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
     return [...byInst.entries()].sort((a, b) => instRank(a[0]) - instRank(b[0]));
   }, [accounts]);
 
-  const totalBalance = (accounts ?? []).reduce((s, a) => s + (a.balances?.current ?? 0), 0);
+  const plaidBalance = (accounts ?? []).reduce((s, a) => s + (a.balances?.current ?? 0), 0);
+
+  // Retirement money in a private/illiquid investment Plaid can't see (e.g. Merrill IRA funds
+  // moved into a private deal) -- manually entered here since the holding account, if any, may
+  // also contain non-retirement capital, so only the user-entered retirement portion counts.
+  const otherInvestments = data.retirementOtherInvestments ?? [];
+  const otherInvestmentsTotal = otherInvestments.reduce((s, r) => s + r.amount, 0);
+  const totalBalance = plaidBalance + otherInvestmentsTotal;
+
+  const [newOtherLabel, setNewOtherLabel] = useState("");
+  const [newOtherAmount, setNewOtherAmount] = useState("");
+  const [savingOther, setSavingOther] = useState(false);
+
+  async function saveOtherInvestments(next: { id: string; label: string; amount: number }[]) {
+    if (!onSave) return;
+    setSavingOther(true);
+    try {
+      await onSave({ ...data, retirementOtherInvestments: next });
+    } finally {
+      setSavingOther(false);
+    }
+  }
+
+  async function addOtherInvestment() {
+    const amount = Number(newOtherAmount);
+    if (!newOtherLabel.trim() || !amount) return;
+    await saveOtherInvestments([
+      ...otherInvestments,
+      { id: crypto.randomUUID(), label: newOtherLabel.trim(), amount },
+    ]);
+    setNewOtherLabel("");
+    setNewOtherAmount("");
+  }
+
+  async function removeOtherInvestment(id: string) {
+    await saveOtherInvestments(otherInvestments.filter((r) => r.id !== id));
+  }
 
   return (
     <div className="data-panel">
@@ -161,30 +195,82 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
             <div className="data-panel" style={{ marginBottom: 16 }}>
               <h4 style={{ margin: "0 0 8px" }}>Retirement contributions vs. real balance</h4>
               <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-                Not a reconciliation — these are two different numbers by design. "Contributed" is
-                your payroll ledger's running total ("401K Investments"), which covers everything
-                that's come out of your paycheck across both the Fidelity 401(k) and the Merrill
-                IRA. "Current balance" is the combined real number from both, which also includes
-                employer match and investment growth/loss the ledger never sees.
+                Not a reconciliation — these are different numbers by design. "Employee" and
+                "Employer Match" come from your imported paystubs/payroll Excel (same source as
+                Reports &gt; Tax &gt; 401(k) Contributions by Year), covering both the Fidelity
+                401(k) and the Merrill IRA. "Current balance" is the combined real number from
+                both, which also includes investment growth/loss the payroll data never sees.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Contributed (payroll ledger)</div>
-                  <strong className="equity-amt">{fmt(k401Contributions)}</strong>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Employee (payroll deduction)</div>
+                  <strong className="equity-amt">{fmt(k401Self)}</strong>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity + Merrill)</div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Employer Match</div>
+                  <strong className="equity-amt">{fmt(k401Employer)}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity + Merrill{otherInvestmentsTotal > 0 ? " + Other" : ""})</div>
                   <strong className="equity-amt">{fmt(totalBalance)}</strong>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Growth + employer match</div>
-                  <strong className="equity-amt" style={{ color: "#16a34a" }}>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Growth / (loss)</div>
+                  <strong className="equity-amt" style={{ color: totalBalance - k401Contributions >= 0 ? "#16a34a" : "#dc2626" }}>
                     {fmt(totalBalance - k401Contributions)}
                   </strong>
                 </div>
               </div>
             </div>
           )}
+
+          <div className="data-panel" style={{ marginBottom: 16 }}>
+            <h4 style={{ margin: "0 0 8px" }}>Other retirement investments (not visible via Plaid)</h4>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
+              Retirement money moved into a private or illiquid investment Plaid can't see (e.g. a
+              portion of a Merrill IRA put into a private deal). Enter only the retirement portion
+              — if the holding account also has non-retirement capital, don't add the full balance.
+            </p>
+            {otherInvestments.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {otherInvestments.map((r) => (
+                  <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #edf0f4", fontSize: 13 }}>
+                    <span>{r.label}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <strong className="equity-amt">{fmt(r.amount)}</strong>
+                      <button
+                        type="button"
+                        className="tr-refresh-btn"
+                        disabled={savingOther}
+                        onClick={() => removeOtherInvestment(r.id)}
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Label (e.g. Canyon Investment)"
+                value={newOtherLabel}
+                onChange={(e) => setNewOtherLabel(e.target.value)}
+                style={{ flex: "1 1 220px" }}
+              />
+              <input
+                type="number"
+                placeholder="Amount"
+                value={newOtherAmount}
+                onChange={(e) => setNewOtherAmount(e.target.value)}
+                style={{ width: 140 }}
+              />
+              <button type="button" className="tr-refresh-btn" disabled={savingOther || !newOtherLabel.trim() || !Number(newOtherAmount)} onClick={addOtherInvestment}>
+                {savingOther ? "Saving…" : "+ Add"}
+              </button>
+            </div>
+          </div>
 
           {/* Reuses .dashboard-stats for its button/card chrome (padding, border, typography --
               all of that is scoped to ".dashboard-stats button", not ".dashboard-balance-card"
@@ -208,12 +294,25 @@ export function RetirementReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n
                 </button>
               ))
             )}
+            {otherInvestments.map((r) => (
+              <button key={r.id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+                {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
+                <div className="dashboard-card-main">
+                  <span>{r.label}</span>
+                  <strong>{fmt(r.amount)}</strong>
+                  <small>Not tracked via Plaid</small>
+                </div>
+              </button>
+            ))}
             <button type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
               {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
               <div className="dashboard-card-main">
                 <span>Total retirement</span>
                 <strong>{fmt(totalBalance)}</strong>
-                <small>Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}</small>
+                <small>
+                  Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}
+                  {otherInvestments.length > 0 ? ` + ${otherInvestments.length} other` : ""}
+                </small>
               </div>
             </button>
           </div>
