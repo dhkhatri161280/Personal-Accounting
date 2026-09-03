@@ -121,6 +121,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   // Only the next (soonest) date is shown by default — the full list stretches out to every
   // future quarter for years and is only actually needed once that quarter arrives.
   const [showAllVestDays, setShowAllVestDays] = useState(false);
+  const [showScheduled, setShowScheduled] = useState(false);
 
   // ── Inline edit state (Mark Sold) ─────────────────────────────────────────
   const [editVest, setEditVest] = useState<{ grantId: string; vestId: string } | null>(null);
@@ -360,6 +361,31 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   const pendingEsppTotalShares = pendingEsppRows.reduce((s, c) => s + c.estimatedShares, 0);
   const scheduledSharesWithEspp = rsuPendingShares + pendingEsppTotalShares;
   const scheduledValueWithEspp = scheduledValue + (cur > 0 ? pendingEsppTotalShares * cur : 0);
+
+  // Date-wise Scheduled breakdown (RSU pending vests + ESPP pending cycles), for the Scheduled popup
+  const pendingEsppByDate = pendingEsppRows.reduce((map, c) => {
+    const list = map.get(c.purchaseDate) ?? [];
+    list.push(c);
+    map.set(c.purchaseDate, list);
+    return map;
+  }, new Map<string, typeof pendingEsppRows>());
+  const scheduledRows = [
+    ...pendingVestDays.map((d) => {
+      const awardValue = d.items.reduce((s, it) => s + it.vest.shares * it.grant.grantPrice, 0);
+      const marketValue = d.totalShares * cur;
+      return { date: d.date, type: "RSU" as const, shares: d.totalShares, awardValue, marketValue, gain: marketValue - awardValue };
+    }),
+    ...Array.from(pendingEsppByDate.entries()).map(([date, items]) => {
+      const shares = items.reduce((s, c) => s + c.estimatedShares, 0);
+      const awardValue = items.reduce((s, c) => s + c.projectedContribution, 0);
+      const marketValue = shares * cur;
+      return { date, type: "ESPP" as const, shares, awardValue, marketValue, gain: marketValue - awardValue };
+    }),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  const scheduledTotals = scheduledRows.reduce(
+    (t, r) => ({ shares: t.shares + r.shares, awardValue: t.awardValue + r.awardValue, marketValue: t.marketValue + r.marketValue, gain: t.gain + r.gain }),
+    { shares: 0, awardValue: 0, marketValue: 0, gain: 0 }
+  );
 
   // ── Save helpers ──────────────────────────────────────────────────────────
   async function doSave(g: RsuGrant[], e: EsppPurchase[]) {
@@ -712,14 +738,14 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           })}
           {/* Scheduled Value card */}
           <div className="equity-summary-col">
-            <div className="equity-summary-card equity-scheduled-card">
+            <button className="equity-summary-card equity-summary-stat equity-scheduled-card" onClick={() => setShowScheduled(true)}>
               {uiTheme === "refresh" && <StatIcon kind="calendar" color="#0891b2" />}
               <div className="equity-summary-card-body">
-                <span>Scheduled Value</span>
+                <span>Scheduled</span>
                 <strong className="equity-amt">{fmt(scheduledValueWithEspp)}</strong>
                 <em>{scheduledSharesWithEspp.toLocaleString()} future vest/ESPP sh @ live price</em>
               </div>
-            </div>
+            </button>
             <p className="equity-card-count"><strong>{(rsuUnvestedShares + pendingEsppTotalShares).toLocaleString()}</strong> sh scheduled</p>
           </div>
           {/* Daily G/(L) card */}
@@ -985,6 +1011,44 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           )}
         </div>
       </div>
+
+      {showScheduled && (
+        <Modal title="Scheduled — Date-Wise Breakdown (RSU + ESPP)" onClose={() => setShowScheduled(false)} wide>
+          <table className="equity-table" style={{ width: "100%" }}>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th className="right"># Shares</th>
+                <th className="right">Award Value</th>
+                <th className="right">Market Value</th>
+                <th className="right">Gain</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scheduledRows.map((r) => (
+                <tr key={`${r.date}-${r.type}`}>
+                  <td>{fmtDate(r.date)}</td>
+                  <td>{r.type}</td>
+                  <td className="right">{r.shares.toLocaleString()}</td>
+                  <td className="right">{fmt(r.awardValue)}</td>
+                  <td className="right">{fmt(r.marketValue)}</td>
+                  <td className="right">{fmt(r.gain)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={2}><strong>Total</strong></td>
+                <td className="right"><strong>{scheduledTotals.shares.toLocaleString()}</strong></td>
+                <td className="right"><strong>{fmt(scheduledTotals.awardValue)}</strong></td>
+                <td className="right"><strong>{fmt(scheduledTotals.marketValue)}</strong></td>
+                <td className="right"><strong>{fmt(scheduledTotals.gain)}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </Modal>
+      )}
 
       {vestDayFor && (() => {
         const items = pendingVestDays.find((d) => d.date === vestDayFor)?.items ?? [];
