@@ -51,6 +51,7 @@ import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet"
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
+import { computePendingEsppCycles } from "@/lib/payroll-401k";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
@@ -977,9 +978,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // real "401K Investments" ledger row and substitute a synthetic one at the live figure, same
   // "book value vs. real value" gap already called out on the Retirement tab. Falls back to the
   // ledger row as-is if the live balance hasn't loaded (never silently drops the asset to $0).
-  const assetRowsForNetWorth = liveRetirementBalance != null
-    ? assetRows.filter((a) => a.name !== "401K Investments")
-    : assetRows;
+  // "ESPP Deduction" gets the same treatment but with no replacement row needed -- its live
+  // market-value equivalent is already added below as `equity-holdings` (heldEquity.totalValue
+  // covers held ESPP shares too, not just RSU), so keeping the book-value ledger row as well
+  // would double-count it. Only dropped when that live row is actually present, same
+  // never-silently-drop-to-$0 safeguard as 401(k) above.
+  const assetRowsForNetWorth = assetRows.filter((a) => {
+    if (a.name === "401K Investments" && liveRetirementBalance != null) return false;
+    if (a.name === "ESPP Deduction" && heldEquity.totalValue > 0) return false;
+    return true;
+  });
   const netWorthAssetRowsBase =
     liveRetirementBalance != null
       ? [...assetRowsForNetWorth, retirementLiveRow("retirement-live", liveRetirementBalance)]
@@ -1292,6 +1300,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     .map(a => ({ label: a.name, value: a.incomeAmt }));
 
   const cur = nvdaPrice ?? 0;
+  // Pending ESPP (all 4 projected cycles) via the same shared projection Reports > Equity uses --
+  // see lib/payroll-401k.ts's computePendingEsppCycles for why this must be the single source of
+  // truth instead of a second copy of the logic here. Computed up front since both the headline
+  // Equity market-value figure below AND the Scheduled chip need it.
+  const equityPendingEsppShares = computePendingEsppCycles(data?.equity?.esppPurchases ?? [], data?.payroll, todayStr).reduce(
+    (s, c) => s + c.estimatedShares,
+    0
+  );
+  const equityRsuHeldShares = (data?.equity?.grants ?? []).reduce(
+    (s, g) => s + g.vests.filter(v => !v.pending).reduce((vs, v) => vs + v.sharesHeld, 0),
+    0
+  );
   const equityRsuMktValue = (data?.equity?.grants ?? []).reduce((s, g) => {
     const actualVested = g.vests.filter(v => !v.pending);
     const pendingVests = g.vests.filter(v => v.pending);
@@ -1300,11 +1320,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const unvested = Math.max(0, g.totalShares - vestedTotal - pendingShares);
     return s + actualVested.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + (pendingShares + unvested) * cur;
   }, 0);
-  const equityEsppMktValue = (data?.equity?.esppPurchases ?? []).reduce(
-    (s, e) => s + (e.sharesHeld || e.shares) * cur,
-    0
-  );
+  const equityEsppHeldShares = (data?.equity?.esppPurchases ?? []).reduce((s, e) => s + (e.sharesHeld || e.shares), 0);
+  // Held ESPP shares + the projected pending-cycle shares, same "counts toward the headline
+  // total" treatment equityRsuMktValue already gives RSU's pending/unvested shares above --
+  // without this, ESPP's pending position silently never moved this number at all.
+  const equityEsppMktValue = (equityEsppHeldShares + equityPendingEsppShares) * cur;
   const equityMktValue = equityRsuMktValue + equityEsppMktValue;
+  const equityTotalShares = equityRsuHeldShares + equityEsppHeldShares + (data?.equity?.grants ?? []).reduce((s, g) => {
+    const vestedTotal = g.vests.filter(v => !v.pending).reduce((vs, v) => vs + v.shares, 0);
+    const pendingShares = g.vests.filter(v => v.pending).reduce((vs, v) => vs + v.shares, 0);
+    return s + pendingShares + Math.max(0, g.totalShares - vestedTotal - pendingShares);
+  }, 0) + equityPendingEsppShares;
   // Held vested RSU at live price (excludes scheduled/unvested)
   const equityRsuVestedValue = (data?.equity?.grants ?? []).reduce(
     (s, g) => s + g.vests.filter(v => !v.pending).reduce((vs, v) => vs + v.sharesHeld * cur, 0),
@@ -1317,7 +1343,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return { grantDate: g.grantDate, scheduledShares: sh };
     })
     .filter(g => g.scheduledShares > 0);
-  const equityScheduledShares = equityScheduledGrants.reduce((s, g) => s + g.scheduledShares, 0);
+  const equityRsuScheduledShares = equityScheduledGrants.reduce((s, g) => s + g.scheduledShares, 0);
+  const equityScheduledShares = equityRsuScheduledShares + equityPendingEsppShares;
   const equityScheduledValue = equityScheduledShares * cur;
   // Daily G/(L): held (non-pending) RSU + ESPP shares × (live − prev close)
   const equityDailyHeld = (data?.equity?.grants ?? []).reduce(
@@ -2293,6 +2320,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
                 <strong>{fmt(equityMktValue)}</strong>
+                <small className="equity-price-note">{equityTotalShares.toLocaleString()} sh (held + scheduled)</small>
                 <small className="equity-price-note">{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</small>
               </div>
               <div className="dashboard-card-highlights">
@@ -3149,6 +3177,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <EquityReport
               grants={data.equity?.grants ?? []}
               esppPurchases={data.equity?.esppPurchases ?? []}
+              payroll={data.payroll}
               onSave={async (grants, esppPurchases) => {
                 await save({ ...data, equity: { grants, esppPurchases } }, "reports");
               }}

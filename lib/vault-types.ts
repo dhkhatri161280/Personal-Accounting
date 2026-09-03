@@ -68,6 +68,11 @@ export type EsppPurchase = {
   purchasePrice: number;
   marketPriceAtPurchase: number;
   sharesHeld: number;
+  // true = an enrolled offering period whose purchase date hasn't happened yet -- shares/
+  // purchasePrice/marketPriceAtPurchase are unset (0) until confirmed, since neither is knowable
+  // before the actual purchase date (unlike an RSU's pending vest, where share count is fixed at
+  // grant time). See RsuVest.pending for the analogous RSU flag.
+  pending?: boolean;
 };
 
 // A single brokerage trade — open if saleDate is unset, closed once it is. marketOrSalePrice

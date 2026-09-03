@@ -6844,6 +6844,8 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .di-status { font-size: 10px; font-weight: 700; color: #64748b; white-space: nowrap; }
 .di-vault .di-status { color: #16a34a; }
 .di-missing .di-status { color: #ea580c; }
+.plaid-recon-reject-btn { font-size: 10px; font-weight: 600; padding: 2px 7px; border: 1px solid #fca5a5; border-radius: 5px; background: #fef2f2; color: #b91c1c; cursor: pointer; white-space: nowrap; justify-self: end; }
+.plaid-recon-reject-btn:hover { background: #fee2e2; }
 /* Duplicates tab */
 .plaid-dupe-section { padding: 16px; }
 .plaid-dupe-empty { color: #16a34a; font-weight: 600; padding: 24px; text-align: center; }
@@ -7206,6 +7208,9 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-scheduled-card span { color: #4f46e5; }
 .equity-scheduled-card strong { color: #3730a3; }
 .equity-scheduled-card em { color: #818cf8; }
+
+.equity-pending-cycle-row td:first-child { color: #4f46e5; }
+.equity-pending-cycle-row em { color: #818cf8; font-style: normal; font-size: 10.5px; }
 
 .equity-pending-vest-row td { color: #94a3b8; font-style: italic; background: #f9fafb; }
 .equity-pending-due td { background: #fffbeb !important; color: #92400e; font-style: normal; }

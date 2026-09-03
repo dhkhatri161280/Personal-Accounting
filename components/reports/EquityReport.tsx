@@ -1,10 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
+import type { RsuGrant, RsuVest, EsppPurchase, PayrollData } from "@/lib/vault-types";
 import type { ParsedGrant, ParsedVest } from "@/lib/parse-grant-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
+import { mostRecentEsppPerPeriod, computePendingEsppCycles } from "@/lib/payroll-401k";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -59,10 +60,13 @@ const BLANK_ESPP = {
   marketPriceAtPurchase: "",
   sharesHeld: "",
 };
+const BLANK_PENDING_ESPP = { ticker: "NVDA", offeringDate: "", purchaseDate: "", offeringPrice: "" };
+const BLANK_CONFIRM_ESPP = { shares: "", purchasePrice: "", marketPriceAtPurchase: "" };
 
 interface EquityReportProps {
   grants: RsuGrant[];
   esppPurchases: EsppPurchase[];
+  payroll?: PayrollData;
   onSave: (grants: RsuGrant[], espp: EsppPurchase[]) => Promise<void>;
   fmt: (n: number) => string;
   readOnly?: boolean;
@@ -76,12 +80,13 @@ const SUMMARY_ICON: Record<"vested" | "tax" | "sold" | "espp", { icon: IconKind;
   espp: { icon: "tag", color: "#d97706" },
 };
 
-export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiTheme }: EquityReportProps) {
+export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, readOnly, uiTheme }: EquityReportProps) {
   const [price, setPrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
   const [priceErr, setPriceErr] = useState("");
   const [priceLoading, setPriceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const [showAddGrant, setShowAddGrant] = useState(false);
@@ -93,6 +98,11 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
 
   const [showAddEspp, setShowAddEspp] = useState(false);
   const [esppForm, setEsppForm] = useState(BLANK_ESPP);
+
+  const [showAddPendingEspp, setShowAddPendingEspp] = useState(false);
+  const [pendingEsppForm, setPendingEsppForm] = useState(BLANK_PENDING_ESPP);
+  const [confirmEsppId, setConfirmEsppId] = useState<string | null>(null);
+  const [confirmEsppForm, setConfirmEsppForm] = useState(BLANK_CONFIRM_ESPP);
 
   const [summaryFilter, setSummaryFilter] = useState<"vested" | "tax" | "sold" | "espp" | null>(null);
   const [grantFilter, setGrantFilter] = useState<string | null>(null);
@@ -256,7 +266,10 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
   const rsuUnvestedShares = grantRows.reduce((s, g) => s + g.unvestedShares + g.pendingShares, 0);
 
   // ── ESPP computations ─────────────────────────────────────────────────────
-  const esppRows = esppPurchases.map((e) => {
+  // Pending purchases (offering enrolled, purchase date not yet reached) are excluded from every
+  // real ESPP row/total below -- they have no real shares/price yet, only an estimate (see the
+  // Pending ESPP Purchase card), and must not be double-counted once confirmed into a real row.
+  const esppRows = esppPurchases.filter((e) => !e.pending).map((e) => {
     const held = e.sharesHeld || e.shares;
     const sold = e.shares - held;
     const saleVal = sold * ((e as { salePrice?: number }).salePrice ?? e.marketPriceAtPurchase);
@@ -326,6 +339,27 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
       totalCurrent: rows.reduce((s, r) => s + r.currentValue, 0),
       totalGain: rows.reduce((s, r) => s + r.gain, 0),
     }));
+
+  // ── Pending ESPP (offering enrolled, purchase date not yet reached) ────────
+  // Neither share count nor purchase price is knowable in advance (unlike an RSU's pending
+  // vest, where shares are fixed at grant time) -- only the Subscription (offering) Price acts as
+  // a ceiling on the purchase price (85% of the LOWER of subscription price or the purchase-date
+  // closing price). The IRS/plan $25,000 purchase limit (= $21,250 contribution cap after the
+  // 15% discount) resets every Sep 1 -- a 423(b) plan attributes the limit to the calendar year
+  // the OFFERING PERIOD begins, not the year contributions are withheld, so with offerings
+  // starting Sep/Mar the real "plan year" is Sep 1-Aug 31, shared by that Sep-Feb cycle and the
+  // following Mar-Aug cycle. simulateEsppCycleContributions replays actual payroll deductions
+  // where they exist and holds the last known per-period rate constant for the rest, correctly
+  // pausing/resetting at the cap.
+  const PROJECTED_ESPP_CYCLES = 4;
+  const ANNUAL_ESPP_CAP = 21250;
+  const esppPerPeriod = mostRecentEsppPerPeriod(payroll);
+  const pendingEsppRows = computePendingEsppCycles(esppPurchases, payroll, today, PROJECTED_ESPP_CYCLES, ANNUAL_ESPP_CAP);
+  // All 4 projected cycles count as Pending and roll into Scheduled Value -- not just the
+  // currently-enrolled one.
+  const pendingEsppTotalShares = pendingEsppRows.reduce((s, c) => s + c.estimatedShares, 0);
+  const scheduledSharesWithEspp = rsuPendingShares + pendingEsppTotalShares;
+  const scheduledValueWithEspp = scheduledValue + (cur > 0 ? pendingEsppTotalShares * cur : 0);
 
   // ── Save helpers ──────────────────────────────────────────────────────────
   async function doSave(g: RsuGrant[], e: EsppPurchase[]) {
@@ -488,6 +522,122 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
     await doSave(grants, esppPurchases.filter((e) => e.id !== id));
   }
 
+  async function savePendingEspp() {
+    const e: EsppPurchase = {
+      id: uid(),
+      ticker: pendingEsppForm.ticker || "NVDA",
+      offeringDate: pendingEsppForm.offeringDate,
+      purchaseDate: pendingEsppForm.purchaseDate,
+      shares: 0,
+      offeringPrice: Number(pendingEsppForm.offeringPrice),
+      purchasePrice: 0,
+      marketPriceAtPurchase: 0,
+      sharesHeld: 0,
+      pending: true,
+    };
+    const next = [...esppPurchases, e];
+    await doSave(grants, next);
+    setShowAddPendingEspp(false);
+    setPendingEsppForm(BLANK_PENDING_ESPP);
+  }
+
+  // Turns a pending offering into a real completed purchase once its purchase date has arrived
+  // and the Schwab statement has the real numbers -- same "confirm" flow as saveRecordVest for
+  // RSU, just filling shares/purchasePrice/marketPriceAtPurchase instead of vestPrice.
+  async function confirmEsppPurchase() {
+    if (!confirmEsppId) return;
+    const shares = Number(confirmEsppForm.shares);
+    const purchasePrice = Number(confirmEsppForm.purchasePrice);
+    if (!shares || !purchasePrice) return;
+    const next = esppPurchases.map((e) =>
+      e.id !== confirmEsppId
+        ? e
+        : {
+            ...e,
+            shares,
+            purchasePrice,
+            marketPriceAtPurchase: Number(confirmEsppForm.marketPriceAtPurchase) || purchasePrice,
+            sharesHeld: shares,
+            pending: false,
+          }
+    );
+    await doSave(grants, next.sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate)));
+    setConfirmEsppId(null);
+    setConfirmEsppForm(BLANK_CONFIRM_ESPP);
+  }
+
+  // Mirrors the proven pattern in IndiaTaxReport.tsx/VaultApp.tsx's other exports -- dynamic
+  // xlsx import, aoa_to_sheet per sheet, one workbook. Two sheets: every RSU vest (with its
+  // Vested/Pending status and the tax-withheld/sold/held breakdown), and every ESPP purchase
+  // (with its Purchased/Pending status) -- this is the flat, row-per-lot detail a reconciliation
+  // against outside records (Schwab, tax forms) actually needs, vs. the app's own grouped/
+  // collapsed on-screen view.
+  async function exportEquityExcel() {
+    setExportingExcel(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+
+      const rsuHeader = [
+        "Grant Date", "Grant Price", "Vest Date", "Status", "Scheduled Shares", "Tax Shares Withheld",
+        "Shares Held", "Shares Sold", "Vest $/sh", "Sale $/sh", "Vest Value", "Tax Value", "Sale Value", "Market Value",
+      ];
+      const rsuRows = grants.flatMap((g) =>
+        g.vests
+          .slice()
+          .sort((a, b) => a.vestDate.localeCompare(b.vestDate))
+          .map((v) => {
+            const tax = v.taxShares ?? 0;
+            const sold = v.pending ? 0 : Math.max(0, v.shares - tax - v.sharesHeld);
+            const salePrice = v.salePrice ?? v.vestPrice;
+            return [
+              g.grantDate, g.grantPrice, v.vestDate, v.pending ? "Pending" : "Vested",
+              v.shares, tax, v.pending ? 0 : v.sharesHeld, sold,
+              v.pending ? "" : v.vestPrice, v.pending || !sold ? "" : salePrice,
+              v.pending ? "" : v.shares * v.vestPrice,
+              v.pending ? "" : tax * v.vestPrice,
+              v.pending || !sold ? "" : sold * salePrice,
+              v.pending ? "" : v.sharesHeld * cur,
+            ];
+          })
+      );
+      const rsuWs = XLSX.utils.aoa_to_sheet([rsuHeader, ...rsuRows]);
+      rsuWs["!cols"] = rsuHeader.map((h) => ({ wch: Math.max(12, h.length) }));
+      XLSX.utils.book_append_sheet(wb, rsuWs, "RSU Vests");
+
+      const esppHeader = [
+        "Offering Date", "Purchase Date", "Status", "Shares", "Offering (Subscription) Price", "Purchase Price",
+        "FMV at Purchase", "Shares Held", "Shares Sold", "Purchase Value", "Sale Value", "Market Value", "Gain",
+      ];
+      const esppRealRows = esppPurchases
+        .filter((e) => !e.pending)
+        .slice()
+        .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate))
+        .map((e) => {
+          const held = e.sharesHeld || e.shares;
+          const sold = e.shares - held;
+          const saleVal = sold * ((e as { salePrice?: number }).salePrice ?? e.marketPriceAtPurchase);
+          const purchaseValue = e.shares * e.offeringPrice;
+          const mktVal = held * cur;
+          return [
+            e.offeringDate, e.purchaseDate, "Purchased", e.shares, e.offeringPrice, e.purchasePrice,
+            e.marketPriceAtPurchase, held, sold, purchaseValue, sold ? saleVal : "", mktVal, saleVal + mktVal - purchaseValue,
+          ];
+        });
+      const esppPendingRows = pendingEsppRows.map((c) => [
+        c.offeringDate, c.purchaseDate, "Pending", c.estimatedShares,
+        c.offeringPrice, c.estimatedPurchasePrice, "", "", "", c.projectedContribution, "", "", "",
+      ]);
+      const esppWs = XLSX.utils.aoa_to_sheet([esppHeader, ...esppRealRows, ...esppPendingRows]);
+      esppWs["!cols"] = esppHeader.map((h) => ({ wch: Math.max(12, h.length) }));
+      XLSX.utils.book_append_sheet(wb, esppWs, "ESPP Purchases");
+
+      XLSX.writeFile(wb, "Equity Holdings — RSU & ESPP.xlsx");
+    } finally {
+      setExportingExcel(false);
+    }
+  }
+
   return (
     <div className="data-panel equity-report">
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -504,6 +654,9 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
             {!priceLoading && priceErr && <span className="equity-price-err">{priceErr}</span>}
             <button className="equity-refresh" onClick={fetchPrice} disabled={priceLoading}>
               ↻ Refresh price
+            </button>
+            <button className="equity-refresh" onClick={exportEquityExcel} disabled={exportingExcel}>
+              {exportingExcel ? "Exporting…" : "⬇ Export to Excel"}
             </button>
           </div>
         </div>
@@ -563,11 +716,11 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
               {uiTheme === "refresh" && <StatIcon kind="calendar" color="#0891b2" />}
               <div className="equity-summary-card-body">
                 <span>Scheduled Value</span>
-                <strong className="equity-amt">{fmt(scheduledValue)}</strong>
-                <em>{rsuPendingShares.toLocaleString()} future vest sh @ live price</em>
+                <strong className="equity-amt">{fmt(scheduledValueWithEspp)}</strong>
+                <em>{scheduledSharesWithEspp.toLocaleString()} future vest/ESPP sh @ live price</em>
               </div>
             </div>
-            <p className="equity-card-count"><strong>{rsuUnvestedShares.toLocaleString()}</strong> sh scheduled</p>
+            <p className="equity-card-count"><strong>{(rsuUnvestedShares + pendingEsppTotalShares).toLocaleString()}</strong> sh scheduled</p>
           </div>
           {/* Daily G/(L) card */}
           <div className="equity-summary-col">
@@ -1415,8 +1568,108 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
       {/* ── ESPP Purchases ─────────────────────────────────────────────── */}
       <div className="equity-section-head" style={{ marginTop: "2rem" }}>
         <h4>ESPP Purchases</h4>
-        {!readOnly && <button onClick={() => setShowAddEspp(true)}>+ Add Purchase</button>}
+        {!readOnly && (
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button onClick={() => setShowAddPendingEspp(true)}>+ Add Pending Purchase</button>
+            <button onClick={() => setShowAddEspp(true)}>+ Add Purchase</button>
+          </div>
+        )}
       </div>
+
+      {showAddPendingEspp && (
+        <div className="equity-form">
+          <h5>New Pending ESPP Purchase</h5>
+          <div className="equity-form-grid">
+            <label>
+              Subscription (Offering) Date
+              <input
+                type="date"
+                value={pendingEsppForm.offeringDate}
+                onChange={(e) => setPendingEsppForm((f) => ({ ...f, offeringDate: e.target.value }))}
+              />
+            </label>
+            <label>
+              Expected Purchase Date
+              <input
+                type="date"
+                value={pendingEsppForm.purchaseDate}
+                onChange={(e) => setPendingEsppForm((f) => ({ ...f, purchaseDate: e.target.value }))}
+              />
+            </label>
+            <label>
+              Subscription FMV (price ceiling)
+              <input
+                type="number"
+                value={pendingEsppForm.offeringPrice}
+                onChange={(e) => setPendingEsppForm((f) => ({ ...f, offeringPrice: e.target.value }))}
+                step="0.01"
+              />
+            </label>
+            <label>
+              Ticker
+              <input
+                value={pendingEsppForm.ticker}
+                onChange={(e) => setPendingEsppForm((f) => ({ ...f, ticker: e.target.value }))}
+              />
+            </label>
+          </div>
+          <div className="equity-form-actions">
+            <button
+              onClick={savePendingEspp}
+              disabled={saving || !pendingEsppForm.offeringDate || !pendingEsppForm.purchaseDate || !pendingEsppForm.offeringPrice}
+            >
+              {saving ? "Saving…" : "Save Pending Purchase"}
+            </button>
+            <button onClick={() => setShowAddPendingEspp(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {confirmEsppId && (() => {
+        const e = pendingEsppRows.find((p) => p.sourceId === confirmEsppId && p.isReal);
+        if (!e) return null;
+        return (
+          <Modal title={`Confirm ESPP Purchase — ${fmtDate(e.purchaseDate)}`} onClose={() => setConfirmEsppId(null)}>
+            <p className="equity-pdf-note">Enter the real numbers from your Schwab ESPP Purchase Confirmation Statement.</p>
+            <div className="equity-form-grid">
+              <label>
+                Shares Purchased
+                <input
+                  type="number"
+                  value={confirmEsppForm.shares}
+                  onChange={(ev) => setConfirmEsppForm((f) => ({ ...f, shares: ev.target.value }))}
+                  autoFocus
+                />
+              </label>
+              <label>
+                Purchase Price (price you paid)
+                <input
+                  type="number"
+                  value={confirmEsppForm.purchasePrice}
+                  onChange={(ev) => setConfirmEsppForm((f) => ({ ...f, purchasePrice: ev.target.value }))}
+                  step="0.01"
+                  placeholder={e.estimatedPurchasePrice.toFixed(2)}
+                />
+              </label>
+              <label>
+                NVDA FMV at Purchase Date
+                <input
+                  type="number"
+                  value={confirmEsppForm.marketPriceAtPurchase}
+                  onChange={(ev) => setConfirmEsppForm((f) => ({ ...f, marketPriceAtPurchase: ev.target.value }))}
+                  step="0.01"
+                />
+              </label>
+            </div>
+            <div className="equity-form-actions">
+              <button onClick={confirmEsppPurchase} disabled={saving || !confirmEsppForm.shares || !confirmEsppForm.purchasePrice}>
+                {saving ? "Saving…" : "Confirm Purchase"}
+              </button>
+              <button onClick={() => setConfirmEsppId(null)}>Cancel</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {showAddEspp && (
         <div className="equity-form">
@@ -1513,7 +1766,7 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
         <p className="equity-empty">No ESPP purchases yet. Click "+ Add Purchase" to begin.</p>
       )}
 
-      {esppCycles.length > 0 && (
+      {(esppCycles.length > 0 || pendingEsppRows.length > 0) && (
         <table className="equity-espp-table">
           <thead>
             <tr>
@@ -1613,6 +1866,67 @@ export function EquityReport({ grants, esppPurchases, onSave, fmt, readOnly, uiT
                 : []),
               ]; // end return
             })}
+            {pendingEsppRows.length > 0 && [
+              <tr key="pending-hdr" className="equity-cycle-row equity-pending-cycle-row" onClick={() => toggle("espp-pending")}>
+                <td>
+                  <span className="equity-arr">{expanded.has("espp-pending") ? "−" : "+"}</span>
+                  {" "}Pending — <strong>{PROJECTED_ESPP_CYCLES} cycles projected</strong>
+                  <em>
+                    {" "}— @ ~${(pendingEsppRows[0]?.estimatedPurchasePrice ?? 0).toFixed(2)}/sh, capped at {fmt(ANNUAL_ESPP_CAP)}/plan year (Sep–Aug)
+                    (last known rate {fmt(esppPerPeriod)}/period)
+                  </em>
+                </td>
+                <td className="right">~{pendingEsppTotalShares.toLocaleString()}</td>
+                <td className="right">—</td>
+                <td className="right">—</td>
+                <td className="right">—</td>
+                <td className="right">—</td>
+                <td className="right">—</td>
+                <td className="right">—</td>
+                <td className="right">—</td>
+                <td className="right">—</td>
+                <td />
+              </tr>,
+              ...(expanded.has("espp-pending")
+                ? pendingEsppRows.map((c) => (
+                    <tr key={c.key} className={`equity-cycle-detail equity-pending-vest-row${c.dueForConfirm ? " equity-pending-due" : ""}`}>
+                      <td className="equity-cycle-indent">
+                        {fmtDate(c.purchaseDate)}
+                        {c.dueForConfirm && <span className="equity-due-badge">DUE</span>}
+                      </td>
+                      <td className="right">~{c.estimatedShares.toLocaleString()}</td>
+                      <td className="right">${c.estimatedPurchasePrice.toFixed(2)}</td>
+                      <td className="right">—</td>
+                      <td className="right">—</td>
+                      <td className="right">~{c.estimatedShares.toLocaleString()}</td>
+                      <td className="right equity-amt">{fmt(c.projectedContribution)}</td>
+                      <td className="right">—</td>
+                      <td className="right">—</td>
+                      <td className="right">—</td>
+                      <td>
+                        {c.isReal && !readOnly && (
+                          <>
+                            {c.dueForConfirm && (
+                              <button
+                                className="equity-record-vest-btn"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setConfirmEsppId(c.sourceId);
+                                  setConfirmEsppForm(BLANK_CONFIRM_ESPP);
+                                }}
+                              >
+                                Confirm
+                              </button>
+                            )}
+                            {" "}
+                            <button className="equity-del-btn" onClick={(ev) => { ev.stopPropagation(); deleteEspp(c.sourceId); }}>✕</button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                : []),
+            ]}
           </tbody>
           <tfoot>
             <tr>

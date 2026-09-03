@@ -1277,6 +1277,29 @@ export function PlaidImport({ data, onSave }: Props) {
   const [saving, setSaving] = useState(false);
   const [pendingTxs, setPendingTxs] = useState<PlaidTxRaw[]>([]);
   const [investmentTxs, setInvestmentTxs] = useState<PlaidInvestmentTx[]>([]);
+  // Vault voucher guids the user has explicitly said "this is NOT the same charge as that Plaid
+  // transaction" for -- persisted server-side (see app/api/plaid/investment-match-overrides) so
+  // the correction sticks across fetches/sessions instead of needing to be redone every time.
+  const [investmentMatchOverrides, setInvestmentMatchOverrides] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetch("/api/plaid/investment-match-overrides")
+      .then((r) => r.json() as Promise<string[]>)
+      .then((guids) => setInvestmentMatchOverrides(new Set(guids)))
+      .catch(() => {});
+  }, []);
+  async function rejectInvestmentMatch(guid: string) {
+    setInvestmentMatchOverrides((prev) => new Set(prev).add(guid));
+    try {
+      await fetch("/api/plaid/investment-match-overrides", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voucher_guid: guid }),
+      });
+    } catch {
+      // Best-effort -- the local state update already reflects it for this session even if the
+      // persisted write fails; next load will just re-prompt if it never saved.
+    }
+  }
   const [plaidAccounts, setPlaidAccounts] = useState<PlaidAccount[]>([]);
   const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances">("transactions");
   const [pendingRows, setPendingRows] = useState<ImportRow[]>([]);
@@ -2624,7 +2647,7 @@ export function PlaidImport({ data, onSave }: Props) {
                             .flatMap((v) =>
                               v.entries
                                 .filter((e) => e.accountId === g.vaultAcct!.id)
-                                .map((e) => ({ date: v.date, narration: v.narration ?? "", type: v.type, amount: e.amount }))
+                                .map((e) => ({ date: v.date, narration: v.narration ?? "", type: v.type, amount: e.amount, guid: v.guid }))
                             )
                             .sort((a, b) => b.date.localeCompare(a.date))
                         : [];
@@ -2667,6 +2690,11 @@ export function PlaidImport({ data, onSave }: Props) {
                       if (g.plaidType === "investment") {
                         const usedInvestmentTxIdx = new Set<number>();
                         recentVaultEntries.forEach((ve, vi) => {
+                          // A user-rejected match always stays uncleared, regardless of what the
+                          // amount/date heuristic below would otherwise conclude -- see
+                          // investmentMatchOverrides for why (same-amount coincidences at
+                          // recurring merchants like a pharmacy can false-positive).
+                          if (investmentMatchOverrides.has(ve.guid)) return;
                           const vMs = new Date(ve.date + "T12:00:00Z").getTime();
                           const ti = investmentTxsForGroup.findIndex(
                             (t, idx) =>
@@ -2732,6 +2760,17 @@ export function PlaidImport({ data, onSave }: Props) {
                                 // catches up, instead of double-counting it.
                                 .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true }))
                             : [];
+                      // Investment entries the amount/date heuristic auto-matched to a settled Plaid
+                      // transaction -- shown separately (not folded into Uncleared) with a one-click
+                      // way to reject a wrong match, since there's no stronger signal available to
+                      // tell two same-amount charges at a recurring merchant apart automatically.
+                      const investmentMatchedEntries =
+                        g.plaidType === "investment"
+                          ? recentVaultEntries
+                              .map((ve, vi) => ({ ve, vi }))
+                              .filter(({ vi }) => matchedAgainstInvestment.has(vi))
+                              .map(({ ve }) => ve)
+                          : [];
                       const uncleared = unclearedItems.reduce((s, u) => s + u.amount, 0);
                       const diff = g.plaidBal !== null && vaultBal !== null
                         ? g.plaidBal - vaultBal + uncleared
@@ -2774,13 +2813,15 @@ export function PlaidImport({ data, onSave }: Props) {
                             <td className="plaid-recon-type">{g.types.join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
                             <td
-                              className={`plaid-recon-pending${unclearedItems.length > 0 ? " plaid-recon-clickable" : ""}`}
-                              onClick={() => unclearedItems.length > 0 && setExpandedUnclearedIdx(isUnclearedExpanded ? null : i)}
+                              className={`plaid-recon-pending${unclearedItems.length > 0 || investmentMatchedEntries.length > 0 ? " plaid-recon-clickable" : ""}`}
+                              onClick={() => (unclearedItems.length > 0 || investmentMatchedEntries.length > 0) && setExpandedUnclearedIdx(isUnclearedExpanded ? null : i)}
                               title={pendingClearingTotal > 0 ? `Net of ${unclearedItems.length} pending transaction(s) — $${pendingClearingTotal.toFixed(2)} gross before refunds/credits` : undefined}
                             >
                               {unclearedItems.length > 0
                                 ? <>{`${uncleared >= 0 ? "+" : ""}$${uncleared.toFixed(2)}`}<span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
-                                : <span className="plaid-recon-zero">—</span>}
+                                : investmentMatchedEntries.length > 0
+                                  ? <><span className="plaid-recon-zero">$0.00</span><span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
+                                  : <span className="plaid-recon-zero">—</span>}
                             </td>
                             <td className="plaid-recon-amt">{vaultBal !== null ? `$${vaultBal.toFixed(2)}` : <span className="plaid-recon-nomatch">no match</span>}</td>
                             <td className={`plaid-recon-diff${diff !== null ? (balanced ? " good" : " bad") : ""}`}>
@@ -2817,6 +2858,35 @@ export function PlaidImport({ data, onSave }: Props) {
                                           ))
                                     }
                                   </div>
+                                  {investmentMatchedEntries.length > 0 && (
+                                    <div className="plaid-recon-detail-col">
+                                      <div className="plaid-recon-detail-title">
+                                        Matched to Plaid — {investmentMatchedEntries.length} entr{investmentMatchedEntries.length !== 1 ? "ies" : "y"}
+                                      </div>
+                                      <p className="field-hint" style={{ margin: "0 0 6px" }}>
+                                        Auto-matched by amount + date. Same-amount coincidence at a recurring
+                                        merchant can false-positive — click ✕ if this isn't really the same charge.
+                                      </p>
+                                      {investmentMatchedEntries.map((ve, j) => (
+                                        <div key={j} className="plaid-recon-detail-item">
+                                          <span className="di-date">{fmtDate(ve.date)}</span>
+                                          <span className="di-name">{ve.narration || ve.type}</span>
+                                          <span className="di-amt debit">${Math.abs(ve.amount).toFixed(2)}</span>
+                                          <button
+                                            type="button"
+                                            className="plaid-recon-reject-btn"
+                                            title="Not the same charge — mark as still pending"
+                                            onClick={(ev) => {
+                                              ev.stopPropagation();
+                                              rejectInvestmentMatch(ve.guid);
+                                            }}
+                                          >
+                                            ✕ Not a match
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               </td>
                             </tr>

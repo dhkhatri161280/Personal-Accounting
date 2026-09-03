@@ -13,7 +13,7 @@ import {
   type GrAccount,
 } from "@/lib/gr-consolidation";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
-import { NetWorthReport, equityHoldingsRow } from "@/components/reports/NetWorthReport";
+import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { EquityReport } from "@/components/reports/EquityReport";
@@ -178,6 +178,7 @@ export function GrApp() {
   const [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
   const [nvdaHistory, setNvdaHistory] = useState<PricePoint[]>([]);
   const [equityData, setEquityData] = useState<EquityData | null>(null);
+  const [liveRetirementBalanceUsd, setLiveRetirementBalanceUsd] = useState<number | null>(null);
 
   const togglePrivacy = () =>
     setPrivacyMode((p) => {
@@ -217,6 +218,21 @@ export function GrApp() {
       })
       .catch(() => {});
   }, [equityData]);
+
+  // Live 401(k)/IRA balance (Fidelity + Merrill), same idea as VaultApp.tsx's US-book Net Worth --
+  // GR's own worker (fintech-by-dk-generic) has no Plaid/KV bindings of its own, so this reaches
+  // across to the US-book worker's already-public Plaid endpoint directly (see the CORS allowance
+  // added there for this exact origin, in app/api/plaid/transactions/route.ts).
+  useEffect(() => {
+    fetch("https://personal-ledger-dk.digneshkhatri.workers.dev/api/plaid/transactions?institution=Merrill,Fidelity")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const j = d as { accounts?: { type: string; subtype: string; balances: { current: number | null } }[] };
+        const retirementAccts = (j.accounts ?? []).filter((a) => a.type === "investment" && a.subtype !== "hsa");
+        if (retirementAccts.length) setLiveRetirementBalanceUsd(retirementAccts.reduce((s, a) => s + (a.balances?.current ?? 0), 0));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (loadedRef.current) return;
@@ -1579,7 +1595,23 @@ export function GrApp() {
               so switching years on the chart reflects what the equity was actually worth then. */}
           {report === "networth" && (() => {
             const equityValueInr = equityRsuInr + equityEsppInr;
-            const nwAssets = equityValueInr > 0 ? [...bsAssets, equityHoldingsRow("equity-holdings", equityValueInr)] : bsAssets;
+            // Same book-value-vs-live-value swap as VaultApp.tsx's US-book Net Worth: drop the
+            // ledger's book-value "401K Investments" row in favor of the live Fidelity+Merrill
+            // balance (converted to INR at the latest FX rate), and drop "ESPP Deduction" entirely
+            // once its live equivalent (equityValueInr, which already covers ESPP) is present --
+            // keeping both would double-count. Each swap only fires once its live replacement is
+            // actually available, so neither ever silently drops an asset to zero.
+            const liveRetirementInr = liveRetirementBalanceUsd != null ? liveRetirementBalanceUsd * latestFxRate : null;
+            const bsAssetsForNetWorth = bsAssets.filter((a) => {
+              if (a.name === "401K Investments" && liveRetirementInr != null) return false;
+              if (a.name === "ESPP Deduction" && equityValueInr > 0) return false;
+              return true;
+            });
+            const nwAssets = [
+              ...bsAssetsForNetWorth,
+              ...(equityValueInr > 0 ? [equityHoldingsRow("equity-holdings", equityValueInr)] : []),
+              ...(liveRetirementInr != null ? [retirementLiveRow("retirement-live", liveRetirementInr)] : []),
+            ];
             const todayStr = new Date().toISOString().slice(0, 10);
             const nwTrend = equityData
               ? netWorthTrend.map((p) => {

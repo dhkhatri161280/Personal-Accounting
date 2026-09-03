@@ -7,9 +7,17 @@ export const dynamic = "force-dynamic";
 
 const CONNECTIONS_KEY = "plaid.connections";
 
+// GR Book (fintech-by-dk-generic) is a separate Cloudflare Worker deployment with no Plaid/KV
+// bindings of its own -- it reads this US-book worker's live 401(k)/IRA balance via a direct
+// cross-origin GET from the browser (see components/GrApp.tsx). This route otherwise has no auth
+// of its own (relies on the worker's own obscurity/domain, same as every other Plaid route in
+// this app), so scoping the CORS allowance to that one specific known origin rather than "*"
+// keeps this from being readable by an arbitrary third-party site.
+const CORS_HEADERS = { "Access-Control-Allow-Origin": "https://fintech-by-dk-generic.digneshkhatri.workers.dev" };
+
 export async function GET(request: Request) {
   if (!bindings.PLAID_CLIENT_ID || !bindings.PLAID_SECRET)
-    return new Response("Plaid not configured", { status: 503 });
+    return new Response("Plaid not configured", { status: 503, headers: CORS_HEADERS });
 
   type Conn = {
     access_token: string;
@@ -28,12 +36,12 @@ export async function GET(request: Request) {
     // connected, which is the single worst failure mode for a transaction sync endpoint.
     return Response.json(
       { transactions: [], accounts: [], errors: ["Storage unavailable: " + (e?.message || "read failed")], itemErrors: [] },
-      { status: 503 }
+      { status: 503, headers: CORS_HEADERS }
     );
   }
 
   if (connections.length === 0)
-    return Response.json({ transactions: [], accounts: [], errors: [], itemErrors: [] });
+    return Response.json({ transactions: [], accounts: [], errors: [], itemErrors: [] }, { headers: CORS_HEADERS });
 
   const url = new URL(request.url);
   const endDate = url.searchParams.get("end") || new Date().toISOString().slice(0, 10);
@@ -275,12 +283,15 @@ export async function GET(request: Request) {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 
-  return Response.json({
-    transactions: allTransactions,
-    accounts: allAccounts,
-    investmentTransactions: allInvestmentTransactions,
-    errors,
-    itemErrors,
-    ...(debug ? { debugRefresh, debugHoldings } : {}),
-  });
+  return Response.json(
+    {
+      transactions: allTransactions,
+      accounts: allAccounts,
+      investmentTransactions: allInvestmentTransactions,
+      errors,
+      itemErrors,
+      ...(debug ? { debugRefresh, debugHoldings } : {}),
+    },
+    { headers: CORS_HEADERS }
+  );
 }
