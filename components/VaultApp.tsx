@@ -41,6 +41,7 @@ import {
   isPeriodClosed,
   ensureHouseHoldAccountsForFiscalYears,
   buildFiscalYearCloseVoucher,
+  isProfitAndLossAccountName,
 } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
@@ -153,7 +154,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [newVoucherType, setNewVoucherType] = useState<string | null>(null),
     [newVoucherMenuOpen, setNewVoucherMenuOpen] = useState(false),
     [dashboardDetail, setDashboardDetail] = useState<
-      "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "period" | null
+      "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "period" | "attention" | null
     >(null),
     [cashFlowDetail, setCashFlowDetail] = useState<{ group: string; ledger?: string } | null>(null),
     [columnarDrilldown, setColumnarDrilldown] = useState<DrilldownRequest | null>(null),
@@ -1386,6 +1387,42 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const equityDailyGL = (cur > 0 && nvdaPrevClose !== null) ? equityDailyHeld * (cur - nvdaPrevClose) : null;
   const fmtGrantDate = (iso: string) => { const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : iso; };
 
+  // "Needs Attention" dashboard card — glanceable list of things that need a human decision,
+  // pulled from data already computed elsewhere rather than re-derived: pending ESPP purchases
+  // past their purchase date, RSU vests past their vest date (both still awaiting confirmation
+  // in Reports → Equity), and whether the fiscal-year-close voucher's account setup is currently
+  // ambiguous (checked well before March, not just at close time). Reconciliation diffs from
+  // Import → Balances aren't included yet -- that logic lives deep in PlaidImport.tsx's matching
+  // engine and isn't safely reusable here without extracting it first.
+  const attentionItems: { label: string; detail: string }[] = [];
+  if (data?.equity) {
+    for (const c of computePendingEsppCycles(data.equity.esppPurchases ?? [], data.payroll, todayStr)) {
+      if (c.dueForConfirm) {
+        attentionItems.push({
+          label: "ESPP purchase due",
+          detail: `Purchase cycle ending ${c.purchaseDate} is ready to confirm in Reports → Equity.`,
+        });
+      }
+    }
+    for (const g of data.equity.grants ?? []) {
+      for (const v of g.vests) {
+        if (v.pending && v.vestDate <= todayStr) {
+          attentionItems.push({
+            label: "RSU vest due",
+            detail: `${g.ticker} grant ${fmtGrantDate(g.grantDate)} vested ${fmtGrantDate(v.vestDate)} — confirm in Reports → Equity.`,
+          });
+        }
+      }
+    }
+  }
+  const fyCloseCheck = data ? buildFiscalYearCloseVoucher(data, fiscalYearOf(todayStr)) : null;
+  if (fyCloseCheck?.status === "error") {
+    attentionItems.push({
+      label: "FY close not ready",
+      detail: `Fiscal-year closing voucher can't auto-post yet (${fyCloseCheck.message}) — fix the ledger setup in Masters → Ledgers before March.`,
+    });
+  }
+
   const filteredActive = active
     .filter(
       (a) =>
@@ -2380,6 +2417,43 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </div>
             </button>
           </div>}
+          <div className="dashboard-card-slot attention-slot">
+            <button
+              className={`dashboard-balance-card attention-card${attentionItems.length > 0 ? " attention-card--flagged" : ""}${dashboardDetail === "attention" ? " dashboard-card-open" : ""}`}
+              onClick={() => setDashboardDetail(dashboardDetail === "attention" ? null : "attention")}
+            >
+              {uiTheme === "refresh" && (
+                <StatIcon kind="shield" color={attentionItems.length > 0 ? "#dc2626" : "#16a34a"} />
+              )}
+              <div className="dashboard-card-main">
+                <span>Needs Attention</span>
+                <strong>{attentionItems.length > 0 ? attentionItems.length : "All clear"}</strong>
+                <small>{attentionItems.length > 0 ? "Tap to view" : "Nothing pending"}</small>
+              </div>
+            </button>
+            {dashboardDetail === "attention" && (
+              <div className="dashboard-inline-detail">
+                <div className="dashboard-inline-heading">
+                  <div>
+                    <strong>Needs Attention</strong>
+                    <small>Tap card again to close</small>
+                  </div>
+                </div>
+                {attentionItems.length === 0 ? (
+                  <p className="dashboard-inline-empty">Nothing needs your attention right now.</p>
+                ) : (
+                  attentionItems.map((item, i) => (
+                    <div className="dashboard-inline-row" key={i}>
+                      <span>
+                        {item.label}
+                        <small>{item.detail}</small>
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </section>
       )}
       {tab === "bank-import" && data && (
@@ -2712,6 +2786,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onClick={() => setReport("cash")}
             >
               Cash and Bank
+            </button>
+            <button
+              className={report === "fyclose" ? "selected" : ""}
+              onClick={() => setReport("fyclose")}
+            >
+              FY Close
             </button>
             <button
               className={report === "networth" ? "selected" : ""}
@@ -3231,6 +3311,66 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   <span>Total cash and bank</span>
                   <strong>{fmt(cashBank)}</strong>
                 </div>
+              </div>
+            );
+          })()}
+          {report === "fyclose" && data && (() => {
+            const currentFY = fiscalYearOf(todayStr);
+            const preview = buildFiscalYearCloseVoucher(data, currentFY);
+            const closingVouchers = data.transactions
+              .filter((t) => !t.deleted && !t.cancelled && t.type.toLowerCase() === "journal")
+              .filter((t) => t.entries.some((e) => isProfitAndLossAccountName(e.accountName)))
+              .slice()
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map((t) => {
+                const plEntry = t.entries.find((e) => isProfitAndLossAccountName(e.accountName));
+                return { tx: t, fy: fiscalYearOf(t.date), amount: plEntry ? plEntry.amount : 0 };
+              });
+            return (
+              <div className="data-panel">
+                <h3>Fiscal Year Close</h3>
+                <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      {uiTheme === "refresh" && <StatIcon kind="calendar" color="#0891b2" />}
+                      <div className="equity-summary-card-body">
+                        <span>Current FY ({currentFY}-{String(currentFY + 1).slice(-2)})</span>
+                        <strong className="equity-amt">
+                          {preview.status === "created"
+                            ? fmt(preview.tx.entries.find((e) => isProfitAndLossAccountName(e.accountName))?.amount ?? 0)
+                            : preview.status === "no-op"
+                              ? "Already closed / no activity yet"
+                              : "Not ready"}
+                        </strong>
+                        <em>
+                          {preview.status === "created" && "Net P&L so far — updates as the year continues"}
+                          {preview.status === "no-op" && "No closing voucher pending for this FY yet"}
+                          {preview.status === "error" && `Setup issue: ${preview.message}`}
+                        </em>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p className="field-hint" style={{ margin: "0 0 12px" }}>
+                  The year-end closing voucher (P&L A/c to Capital) auto-posts the moment you close
+                  March in Masters → Periods for a fiscal year — nothing to do here manually. This
+                  panel just shows current-FY readiness and every closing voucher posted so far.
+                </p>
+                <h4 style={{ margin: "0 0 8px" }}>Closing History</h4>
+                {closingVouchers.length === 0 ? (
+                  <p className="dashboard-inline-empty">No fiscal year has been closed yet.</p>
+                ) : (
+                  closingVouchers.map(({ tx, fy, amount }) => (
+                    <div className="report-line" key={tx.guid}>
+                      <span>
+                        FY {fy}-{String(fy + 1).slice(-2)} — closed {fmtDate(tx.date)}
+                        <br />
+                        <small>Voucher #{tx.number}</small>
+                      </span>
+                      <strong>{fmt(Math.abs(amount))}</strong>
+                    </div>
+                  ))
+                )}
               </div>
             );
           })()}

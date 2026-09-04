@@ -1976,6 +1976,26 @@ tfoot th {
 .equity-slot {
   grid-area: period;
 }
+/* Needs Attention: spans the full row width instead of taking a named grid-area slot, so it
+   reads as a summary banner below the stat cards rather than a square tile with dead space next
+   to it -- and since "1 / -1" is relative to however many columns are active, this stays correct
+   at every responsive breakpoint (3-col desktop, 2-col tablet, 1-col mobile) with no extra
+   per-breakpoint override needed. */
+.attention-slot {
+  grid-column: 1 / -1;
+}
+.attention-card--flagged {
+  border-color: #f3c6c6 !important;
+  background: #fff6f6 !important;
+}
+.attention-card--flagged:hover {
+  border-color: #e59a9a !important;
+}
+.dashboard-inline-empty {
+  padding: 12px 4px;
+  color: #5c6b82;
+  font-size: 13px;
+}
 .dashboard-stats button {
   margin: 0;
   padding: 16px;

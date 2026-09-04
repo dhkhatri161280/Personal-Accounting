@@ -284,21 +284,27 @@ const RULES_BY_YEAR: Record<string, Record<UsFilingStatus, UsTaxRules>> = {
       longTermHoldingDays: 365,
     },
   },
+  // Confirmed against the IRS's own published 2026 inflation adjustments (Rev. Proc. 2025-32,
+  // reflecting One Big Beautiful Bill Act amendments), fetched directly from irs.gov on
+  // 2026-09-04 -- these replace an earlier pre-release "projected" estimate that undershot the
+  // real numbers (OBBBA's adjustment came in higher than a standard inflation projection would
+  // predict). Long-term capital-gains brackets are NOT part of that IRS press release and remain
+  // this file's own projection -- update those separately if/when a confirmed source is found.
   "2026": {
     single: {
       taxYear: "2026",
-      ruleVersion: "US Federal 2026 single (projected)",
+      ruleVersion: "US Federal 2026 single (IRS Rev. Proc. 2025-32, confirmed)",
       filingStatus: "single",
       federalBrackets: [
         { upTo: 12_400, rate: 0.10 },
         { upTo: 50_400, rate: 0.12 },
         { upTo: 105_700, rate: 0.22 },
-        { upTo: 201_050, rate: 0.24 },
-        { upTo: 255_000, rate: 0.32 },
+        { upTo: 201_775, rate: 0.24 },
+        { upTo: 256_225, rate: 0.32 },
         { upTo: 640_600, rate: 0.35 },
         { upTo: null, rate: 0.37 },
       ],
-      standardDeduction: 15_750,
+      standardDeduction: 16_100,
       longTermCapGainBrackets: [
         { upTo: 49_450, rate: 0 },
         { upTo: 545_500, rate: 0.15 },
@@ -308,18 +314,18 @@ const RULES_BY_YEAR: Record<string, Record<UsFilingStatus, UsTaxRules>> = {
     },
     mfj: {
       taxYear: "2026",
-      ruleVersion: "US Federal 2026 MFJ (projected)",
+      ruleVersion: "US Federal 2026 MFJ (IRS Rev. Proc. 2025-32, confirmed)",
       filingStatus: "mfj",
       federalBrackets: [
         { upTo: 24_800, rate: 0.10 },
         { upTo: 100_800, rate: 0.12 },
         { upTo: 211_400, rate: 0.22 },
-        { upTo: 402_100, rate: 0.24 },
-        { upTo: 510_000, rate: 0.32 },
+        { upTo: 403_550, rate: 0.24 },
+        { upTo: 512_450, rate: 0.32 },
         { upTo: 768_700, rate: 0.35 },
         { upTo: null, rate: 0.37 },
       ],
-      standardDeduction: 31_500,
+      standardDeduction: 32_200,
       longTermCapGainBrackets: [
         { upTo: 98_900, rate: 0 },
         { upTo: 613_700, rate: 0.15 },
