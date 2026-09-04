@@ -4,7 +4,7 @@ import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 export const dynamic = "force-dynamic";
 export default function Vault() {
   return (
-    <main className="shell">
+    <main className="shell us-books">
       <Nav />
       <section className="workspace">
         <AppErrorBoundary>

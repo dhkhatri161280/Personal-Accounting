@@ -2765,14 +2765,42 @@ export function PlaidImport({ data, onSave }: Props) {
                       const unclearedItems: UnclearedItem[] =
                         g.plaidType === "credit"
                           ? [
-                              ...matchedPairs
-                                .filter(({ pi }) => plaidTxsForGroup[pi].plaidTx.pending)
-                                .map(({ vi, pi }) => ({
-                                  date: plaidTxsForGroup[pi].plaidTx.date,
-                                  name: plaidTxsForGroup[pi].plaidTx.name,
-                                  amount: recentVaultEntries[vi].amount,
-                                  matched: true,
-                                })),
+                              ...(() => {
+                                const pendingMatches = matchedPairs.filter(({ pi }) => plaidTxsForGroup[pi].plaidTx.pending);
+                                // Whether a pending bill PAYMENT is already reflected in the issuer's running
+                                // "current balance" or not is genuinely issuer-dependent -- confirmed directly
+                                // both ways on the same day (Citi: balance already dropped by the full payment
+                                // while the transaction still said pending; AMEX: name/category matched
+                                // isCardPayment's loose heuristic on what was actually a regular +$51 CHARGE --
+                                // a real bill payment can only ever be a Dr/balance-reducing entry in this
+                                // app's sign convention, never a Cr, so that alone was a false positive). So
+                                // this can't be a blanket rule; only genuine Dr candidates (isCardPayment AND
+                                // balance-reducing) are even considered, and each is kept out of Uncleared only
+                                // if doing so actually brings this group's own diff closer to zero -- an
+                                // empirical, per-item decision, not a name/category guess.
+                                const chargeItems = pendingMatches
+                                  .filter(({ vi, pi }) => !(isCardPayment(plaidTxsForGroup[pi].plaidTx) && recentVaultEntries[vi].amount < 0))
+                                  .map(({ vi, pi }) => ({
+                                    date: plaidTxsForGroup[pi].plaidTx.date,
+                                    name: plaidTxsForGroup[pi].plaidTx.name,
+                                    amount: recentVaultEntries[vi].amount,
+                                    matched: true,
+                                  }));
+                                const paymentCandidates = pendingMatches.filter(
+                                  ({ vi, pi }) => isCardPayment(plaidTxsForGroup[pi].plaidTx) && recentVaultEntries[vi].amount < 0
+                                );
+                                const rawGap = (g.plaidBal ?? 0) - (vaultBal ?? 0);
+                                const baseline = rawGap + chargeItems.reduce((s, u) => s + u.amount, 0);
+                                const includedPayments = paymentCandidates
+                                  .filter(({ vi }) => Math.abs(baseline + recentVaultEntries[vi].amount) < Math.abs(baseline))
+                                  .map(({ vi, pi }) => ({
+                                    date: plaidTxsForGroup[pi].plaidTx.date,
+                                    name: plaidTxsForGroup[pi].plaidTx.name,
+                                    amount: recentVaultEntries[vi].amount,
+                                    matched: true,
+                                  }));
+                                return [...chargeItems, ...includedPayments];
+                              })(),
                               ...pendingTxs
                                 .filter((tx) =>
                                   acctIdSet.has(tx.account_id) &&
@@ -2791,7 +2819,24 @@ export function PlaidImport({ data, onSave }: Props) {
                                 // negative Uncleared contribution) is what brings diff to ~0 once Plaid
                                 // catches up, instead of double-counting it.
                                 .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true }))
-                            : [];
+                            : g.plaidType === "depository"
+                              ? (() => {
+                                  // A bank→credit-card payment isn't instant -- the bank doesn't actually
+                                  // debit checking for 1-3 business days, so Plaid's `available` balance
+                                  // correctly still includes it while the vault (correctly) already recorded
+                                  // the Contra voucher on the day it was initiated. Plaid exposes no
+                                  // "pending withdrawal" signal for this the way it does for card charges
+                                  // (same BofA limitation as the Manual Pending section), so the vault's own
+                                  // Contra voucher is the only available signal. Capped to 7 days so a
+                                  // still-unmatched Contra past that window surfaces as a real diff to
+                                  // investigate instead of being silently absorbed forever.
+                                  const contraCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+                                  return recentVaultEntries
+                                    .map((ve, vi) => ({ ve, vi }))
+                                    .filter(({ ve, vi }) => !matchedVaultIdx.has(vi) && ve.type.toLowerCase() === "contra" && ve.date >= contraCutoff)
+                                    .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true }));
+                                })()
+                              : [];
                       // Investment entries the amount/date heuristic auto-matched to a settled Plaid
                       // transaction -- shown separately (not folded into Uncleared) with a one-click
                       // way to reject a wrong match, since there's no stronger signal available to

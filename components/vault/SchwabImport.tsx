@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import type { Ledger, Tx, Trade, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
-import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
+import { nextVoucherNumber, nextTransactionIds, ledgerBalanceAsOf } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import {
   classifySchwabActivity,
@@ -9,10 +9,14 @@ import {
   activityNarration,
   type SchwabActivity,
 } from "@/lib/parse-schwab-transactions";
-import { TRADING_SEED } from "@/components/reports/TradingReport";
+import { TRADING_SEED, SCHWAB_BROKER_CODES } from "@/components/reports/TradingReport";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function fmtMoney(n: number): string {
+  return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
 }
 
 // Schwab's OAuth connection only covers one linked account, which matches the "CST" broker label
@@ -329,20 +333,49 @@ export function SchwabImport({ data, onSave }: Props) {
   const [divDebitAcctId, setDivDebitAcctId] = useState<number | "">("");
   const [divCreditAcctId, setDivCreditAcctId] = useState<number | "">("");
   useEffect(() => {
-    setDivDebitAcctId((cur) => cur !== "" ? cur : (data.accounts.find((acc) => acc.active !== false && /schwab/i.test(acc.name))?.id ?? ""));
+    setDivDebitAcctId((cur) => {
+      if (cur !== "") return cur;
+      const active = data.accounts.filter((acc) => acc.active !== false);
+      // Prefer an EXACT "Charles Schwab" match over a loose /schwab/i substring match -- the
+      // vault can also have "Charles Schwab (CST)"/"(CSS)" trading cost-basis accounts (much
+      // larger balances, a different purpose entirely), and a substring match's .find() would
+      // silently grab whichever one happens to sort first, not necessarily the dividend ledger.
+      const exact = active.find((acc) => /^charles schwab$/i.test(acc.name.trim()));
+      return exact?.id ?? active.find((acc) => /schwab/i.test(acc.name))?.id ?? "";
+    });
     setDivCreditAcctId((cur) => cur !== "" ? cur : (data.accounts.find((acc) => acc.active !== false && /other income/i.test(acc.name))?.id ?? data.accounts.find((acc) => acc.active !== false && /dividend/i.test(acc.name))?.id ?? ""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.accounts]);
 
+  // ── Review-before-post: clicking "Add voucher" opens an inline, editable preview (narration,
+  // Dr/Cr account, amount) instead of posting immediately -- the shared Debit/Credit dropdowns
+  // above only set the DEFAULT for new reviews, they don't post anything by themselves.
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [reviewNarration, setReviewNarration] = useState("");
+  const [reviewDebitId, setReviewDebitId] = useState<number | "">("");
+  const [reviewCreditId, setReviewCreditId] = useState<number | "">("");
+  const [reviewAmount, setReviewAmount] = useState("");
+
+  function openReview(a: SchwabActivity, defaultNarration: string) {
+    setReviewingId(a.activityId);
+    setReviewNarration(`${defaultNarration} (${fmtDate(a.time.slice(0, 10))})`);
+    setReviewDebitId(divDebitAcctId);
+    setReviewCreditId(divCreditAcctId);
+    setReviewAmount(Math.abs(a.netAmount).toFixed(2));
+  }
+  function cancelReview() {
+    setReviewingId(null);
+  }
+
   async function confirmIncome(a: SchwabActivity) {
-    if (divDebitAcctId === "" || divCreditAcctId === "") return;
-    const debitAcct = data.accounts.find((acc) => acc.id === divDebitAcctId);
-    const creditAcct = data.accounts.find((acc) => acc.id === divCreditAcctId);
-    if (!debitAcct || !creditAcct) return;
+    if (reviewDebitId === "" || reviewCreditId === "") return;
+    const debitAcct = data.accounts.find((acc) => acc.id === reviewDebitId);
+    const creditAcct = data.accounts.find((acc) => acc.id === reviewCreditId);
+    const amt = Math.abs(Number(reviewAmount) || 0);
+    if (!debitAcct || !creditAcct || amt <= 0) return;
     setConfirmingId(a.activityId);
     try {
       const todayIso = new Date().toISOString().slice(0, 10);
-      const amt = Math.abs(a.netAmount);
       const tx: Tx = {
         id: nextTransactionIds(data.transactions, 1)[0],
         guid: crypto.randomUUID(),
@@ -350,7 +383,7 @@ export function SchwabImport({ data, onSave }: Props) {
         date: todayIso, // catch-up entry posted today, not backdated -- same convention as the CSV tool
         number: nextVoucherNumber(data, "Receipt", todayIso),
         type: "Receipt",
-        narration: `${activityNarration(a)} (${fmtDate(a.time.slice(0, 10))})`,
+        narration: reviewNarration || `${activityNarration(a)} (${fmtDate(a.time.slice(0, 10))})`,
         historical: false,
         cancelled: false,
         syncStatus: "pending",
@@ -360,11 +393,73 @@ export function SchwabImport({ data, onSave }: Props) {
         ],
       };
       const ok = await onSave({ ...data, transactions: [...data.transactions, tx] });
-      if (ok) await markImported(a, "dividendInterest");
+      if (ok) {
+        await markImported(a, "dividendInterest");
+        setReviewingId(null);
+      }
     } finally {
       setConfirmingId(null);
     }
   }
+
+  // ── Reconciliation: Schwab cost basis + live cash vs. the vault's Schwab ledger balance.
+  // Confirmed directly against real numbers that the vault's "Charles Schwab" GL account is NOT
+  // a dividends-only ledger -- it carries the account's full value (stock cost basis + cash +
+  // dividends together), matching Trading's own "Total Open + Cash" figure almost exactly (off by
+  // precisely the one pending, not-yet-posted dividend). So the comparable figure is the same one
+  // Trading's own CSV-based reconciliation tool already uses -- open-position cost basis (CST +
+  // CSS, excl. NVDA) plus Schwab's live uninvested cash balance -- just sourced from live data
+  // here instead of a manually uploaded CSV.
+  const [schwabCashBalance, setSchwabCashBalance] = useState<number | null>(null);
+  useEffect(() => {
+    fetch("/api/schwab/positions")
+      .then((r) => r.json())
+      .then((d: unknown) => {
+        const j = d as { accounts?: { cashBalance?: number }[] };
+        if (j.accounts?.length) setSchwabCashBalance(j.accounts.reduce((s, a) => s + (a.cashBalance ?? 0), 0));
+      })
+      .catch(() => {});
+  }, []);
+  const openCostBasis = useMemo(
+    () => effectiveTrades
+      .filter((t) => !t.saleDate && SCHWAB_BROKER_CODES.has(t.broker) && !SCHWAB_SYNC_EXCLUDE.has(t.symbol))
+      .reduce((s, t) => s + t.units * t.costPerSh, 0),
+    [effectiveTrades]
+  );
+  const expectedVaultBalance = schwabCashBalance !== null ? openCostBasis + schwabCashBalance : null;
+  const vaultSchwabBalance = divDebitAcctId !== ""
+    ? ledgerBalanceAsOf(data, divDebitAcctId, new Date().toISOString().slice(0, 10))
+    : null;
+  const schwabVaultDiff = expectedVaultBalance !== null && vaultSchwabBalance !== null ? expectedVaultBalance - vaultSchwabBalance : null;
+
+  // Possible unlabeled dividend/interest: a JOURNAL-type activity (Schwab's generic "cash moved"
+  // type, covering both real income credits and internal sweeps) with money coming IN and no
+  // same-day offsetting activity elsewhere -- a same-day opposite-sign match means it's just an
+  // internal sweep leg (e.g. Equity account -> Trust), not new income. Surfaced for manual
+  // per-item review/confirm, never auto-posted -- most JOURNAL entries genuinely aren't income,
+  // so a blanket rule here would invent fake income on the ones that are just transfers.
+  const possibleIncome = useMemo(() => {
+    // One-to-one pairing, not "does ANY opposite-sign match exist" -- the latter let a single
+    // -$X sweep leg cancel out every +$X candidate that happened to share its day/magnitude
+    // (confirmed directly: one -$82.70 sweep spuriously canceled BOTH a real +$82.70 sweep pair
+    // AND a genuine +$82.70 dividend that coincidentally matched the same amount). Each negative
+    // can only consume one positive.
+    const journalActivities = classified.other.filter((a) => a.type === "JOURNAL");
+    const positives = journalActivities.filter((a) => a.netAmount > 0.005);
+    const negatives = journalActivities.filter((a) => a.netAmount < -0.005);
+    const usedNegativeIds = new Set<number>();
+    return positives.filter((pos) => {
+      const day = pos.time.slice(0, 10);
+      const match = negatives.find(
+        (neg) => !usedNegativeIds.has(neg.activityId) && neg.time.slice(0, 10) === day && Math.abs(neg.netAmount + pos.netAmount) < 0.01
+      );
+      if (match) {
+        usedNegativeIds.add(match.activityId);
+        return false;
+      }
+      return true;
+    });
+  }, [classified.other]);
 
   // ── Equity (NVDA): match a vest activity to an existing scheduled tranche, or record a new
   // ESPP purchase. Never a new Trading lot -- Equity report stays the single source of truth for
@@ -575,6 +670,67 @@ export function SchwabImport({ data, onSave }: Props) {
             </>
           )}
 
+          <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "0.6rem 0.8rem", marginBottom: "0.8rem" }}>
+            <h4 style={{ margin: "0 0 6px" }}>Schwab (cost basis + cash) vs. Vault</h4>
+            <div style={{ display: "flex", gap: "1.4rem", fontSize: 13, flexWrap: "wrap" }}>
+              <span>Open cost basis (CST+CSS, excl. NVDA): <strong>{fmtMoney(openCostBasis)}</strong></span>
+              <span>+ Live cash: <strong>{schwabCashBalance !== null ? fmtMoney(schwabCashBalance) : "—"}</strong></span>
+              <span>= Expected: <strong>{expectedVaultBalance !== null ? fmtMoney(expectedVaultBalance) : "—"}</strong></span>
+              <span>Vault balance: <strong>{vaultSchwabBalance !== null ? fmtMoney(vaultSchwabBalance) : "select an account below"}</strong></span>
+              <span>
+                Difference:{" "}
+                <strong style={{ color: schwabVaultDiff === null ? undefined : Math.abs(schwabVaultDiff) < 0.5 ? "#16a34a" : "#dc2626" }}>
+                  {schwabVaultDiff !== null ? fmtMoney(schwabVaultDiff) : "—"}
+                </strong>
+              </span>
+            </div>
+            <p style={{ fontSize: 11, opacity: 0.6, margin: "6px 0 0" }}>
+              Your "Charles Schwab" ledger tracks the account's full value (cost basis + cash + dividends together),
+              not just dividend income -- so this compares against the same "cost basis + cash" figure Trading's own
+              GL-comparison tool uses, just from live data instead of an uploaded CSV. A remaining difference usually
+              means an activity below (like a pending dividend) hasn't been posted yet.
+            </p>
+          </div>
+
+          {possibleIncome.length > 0 && (
+            <>
+              <h4 style={{ margin: "10px 0 6px", color: "#b45309" }}>Possible dividend/interest — review ({possibleIncome.length})</h4>
+              <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                A JOURNAL-type activity with money coming in and no matching same-day sweep-out elsewhere -- may be
+                unlabeled income Schwab didn't tag as a dividend/interest. Review before adding; not auto-posted.
+              </p>
+              {possibleIncome.map((a) =>
+                reviewingId === a.activityId ? (
+                  <IncomeReviewRow
+                    key={a.activityId}
+                    accounts={data.accounts}
+                    narration={reviewNarration}
+                    setNarration={setReviewNarration}
+                    debitId={reviewDebitId}
+                    setDebitId={setReviewDebitId}
+                    creditId={reviewCreditId}
+                    setCreditId={setReviewCreditId}
+                    amount={reviewAmount}
+                    setAmount={setReviewAmount}
+                    busy={confirmingId === a.activityId}
+                    onConfirm={() => confirmIncome(a)}
+                    onCancel={cancelReview}
+                  />
+                ) : (
+                  <div key={a.activityId} style={{ border: "1px solid #fde68a", background: "#fffbeb", borderRadius: 8, padding: "0.6rem 0.8rem", marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13 }}>
+                      {a.description || a.type} — ${Math.abs(a.netAmount).toFixed(2)}
+                      <span style={{ opacity: 0.6 }}> — {fmtDate(a.time.slice(0, 10))}</span>
+                    </span>
+                    <button className="tr-refresh-btn" onClick={() => openReview(a, a.description || a.type)}>
+                      Add as dividend/interest
+                    </button>
+                  </div>
+                )
+              )}
+            </>
+          )}
+
           {classified.dividendsInterest.length > 0 && (
             <>
               <h4 style={{ margin: "10px 0 6px" }}>Dividends / interest ({classified.dividendsInterest.length})</h4>
@@ -590,28 +746,44 @@ export function SchwabImport({ data, onSave }: Props) {
                   {data.accounts.filter((acc) => acc.active !== false).map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
                 </select>
               </div>
-              {classified.dividendsInterest.map((a) => (
-                <div key={a.activityId} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "0.6rem 0.8rem", marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13 }}>
-                    {activityNarration(a)} — ${Math.abs(a.netAmount).toFixed(2)}
-                    <span style={{ opacity: 0.6 }}> — {fmtDate(a.time.slice(0, 10))}</span>
-                  </span>
-                  <button
-                    className="tr-refresh-btn"
-                    disabled={confirmingId === a.activityId || divDebitAcctId === "" || divCreditAcctId === ""}
-                    onClick={() => confirmIncome(a)}
-                  >
-                    {confirmingId === a.activityId ? "Adding…" : "Add voucher"}
-                  </button>
-                </div>
-              ))}
+              {classified.dividendsInterest.map((a) =>
+                reviewingId === a.activityId ? (
+                  <IncomeReviewRow
+                    key={a.activityId}
+                    accounts={data.accounts}
+                    narration={reviewNarration}
+                    setNarration={setReviewNarration}
+                    debitId={reviewDebitId}
+                    setDebitId={setReviewDebitId}
+                    creditId={reviewCreditId}
+                    setCreditId={setReviewCreditId}
+                    amount={reviewAmount}
+                    setAmount={setReviewAmount}
+                    busy={confirmingId === a.activityId}
+                    onConfirm={() => confirmIncome(a)}
+                    onCancel={cancelReview}
+                  />
+                ) : (
+                  <div key={a.activityId} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "0.6rem 0.8rem", marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13 }}>
+                      {activityNarration(a)} — ${Math.abs(a.netAmount).toFixed(2)}
+                      <span style={{ opacity: 0.6 }}> — {fmtDate(a.time.slice(0, 10))}</span>
+                    </span>
+                    <button className="tr-refresh-btn" onClick={() => openReview(a, activityNarration(a))}>
+                      Add voucher
+                    </button>
+                  </div>
+                )
+              )}
             </>
           )}
 
-          {classified.other.length > 0 && (
+          {classified.other.filter((a) => !possibleIncome.includes(a)).length > 0 && (
             <>
-              <h4 style={{ margin: "10px 0 6px", opacity: 0.6 }}>Other / not actionable ({classified.other.length})</h4>
-              {classified.other.map((a) => (
+              <h4 style={{ margin: "10px 0 6px", opacity: 0.6 }}>
+                Other / not actionable ({classified.other.filter((a) => !possibleIncome.includes(a)).length})
+              </h4>
+              {classified.other.filter((a) => !possibleIncome.includes(a)).map((a) => (
                 <div key={a.activityId} style={{ fontSize: 12, opacity: 0.55, padding: "0.3rem 0" }}>
                   {a.type} — {a.description} — {fmtDate(a.time.slice(0, 10))} — ${a.netAmount.toFixed(2)}
                 </div>
@@ -622,6 +794,67 @@ export function SchwabImport({ data, onSave }: Props) {
           {pending.length === 0 && <p style={{ fontSize: 13, opacity: 0.6 }}>Nothing new to review.</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+// Inline, editable preview of the proposed Receipt voucher (narration, Dr/Cr account, amount)
+// shown before anything is actually posted -- opened by "Add voucher"/"Add as dividend/interest"
+// instead of posting immediately on click, so a wrong default account or an amount that needs
+// adjusting can be caught before it becomes a real vault entry.
+function IncomeReviewRow({
+  accounts, narration, setNarration, debitId, setDebitId, creditId, setCreditId, amount, setAmount, busy, onConfirm, onCancel,
+}: {
+  accounts: { id: number; name: string; active?: boolean }[];
+  narration: string;
+  setNarration: (v: string) => void;
+  debitId: number | "";
+  setDebitId: (v: number | "") => void;
+  creditId: number | "";
+  setCreditId: (v: number | "") => void;
+  amount: string;
+  setAmount: (v: string) => void;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const active = accounts.filter((acc) => acc.active !== false);
+  return (
+    <div style={{ border: "1px solid #93c5fd", background: "#eff6ff", borderRadius: 8, padding: "0.7rem 0.8rem", marginBottom: "0.5rem" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+        <label>
+          Narration
+          <input type="text" value={narration} onChange={(e) => setNarration(e.target.value)} style={{ width: "100%", marginTop: 2 }} />
+        </label>
+        <div style={{ display: "flex", gap: "0.8rem", flexWrap: "wrap", alignItems: "center" }}>
+          <label>
+            Dr{" "}
+            <select value={debitId} onChange={(e) => setDebitId(e.target.value ? Number(e.target.value) : "")}>
+              <option value="">— choose —</option>
+              {active.map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Cr{" "}
+            <select value={creditId} onChange={(e) => setCreditId(e.target.value ? Number(e.target.value) : "")}>
+              <option value="">— choose —</option>
+              {active.map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Amount{" "}
+            <input type="number" step="0.01" min="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: 100 }} />
+          </label>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem", marginTop: 8 }}>
+        <button className="tr-refresh-btn" disabled={busy || debitId === "" || creditId === ""} onClick={onConfirm}>
+          {busy ? "Posting…" : "Post voucher"}
+        </button>
+        <button className="tr-refresh-btn" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

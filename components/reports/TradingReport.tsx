@@ -61,7 +61,7 @@ const SCHWAB_SYNC_EXCLUDE = new Set(["NVDA"]);
 // Both "CST" and "CSS" broker labels represent the SAME real Schwab account -- CSS is just how
 // closed lots were historically entered by hand. Used by the CSV reconcile tool below, which
 // covers full history (including closed trades, commonly under CSS).
-const SCHWAB_BROKER_CODES = new Set<Trade["broker"]>(["CST", "CSS"]);
+export const SCHWAB_BROKER_CODES = new Set<Trade["broker"]>(["CST", "CSS"]);
 
 // Position sync (comparing Schwab's real positions against tracked trades) and the OAuth
 // connect/status controls now live in components/vault/SchwabImport.tsx, under the Import tab --

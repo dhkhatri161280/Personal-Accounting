@@ -1984,9 +1984,12 @@ tfoot th {
 .attention-slot {
   grid-column: 1 / -1;
 }
+/* Deliberately more saturated than the US book's own light-red card tint (#fff6f6) below, so
+   the "something needs attention" signal still reads as distinct on the US book, not just a
+   slightly different shade of the same base color. */
 .attention-card--flagged {
-  border-color: #f3c6c6 !important;
-  background: #fff6f6 !important;
+  border-color: #e8a9a9 !important;
+  background: #ffe9e9 !important;
 }
 .attention-card--flagged:hover {
   border-color: #e59a9a !important;
@@ -7587,6 +7590,13 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   box-shadow: var(--ref-shadow);
   background: #fff !important;
   transition: box-shadow 0.15s, transform 0.15s;
+}
+/* Higher specificity than .ui-refresh .dashboard-balance-card (2 classes) is required here --
+   .attention-card--flagged alone (1 class) would lose to it despite both using !important,
+   since !important only breaks ties on EQUAL specificity, not lower. */
+.ui-refresh .dashboard-balance-card.attention-card--flagged {
+  background: #ffe9e9 !important;
+  border-color: #e8a9a9 !important;
 }
 .ui-refresh .dashboard-balance-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
 .ui-refresh .dashboard-balance-card.dashboard-card-open {
