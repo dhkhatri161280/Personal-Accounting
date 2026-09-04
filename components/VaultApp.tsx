@@ -39,6 +39,8 @@ import {
   ledgerBalanceAsOf,
   findClosedPeriodViolations,
   isPeriodClosed,
+  ensureHouseHoldAccountsForFiscalYears,
+  buildFiscalYearCloseVoucher,
 } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
@@ -208,8 +210,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const raw = await response.text(),
       etag = await contentEtag(raw),
       v = JSON.parse(raw) as Vault,
-      decrypted = await decryptVault(v, pw),
-      repaired = recomputeVoucherNumbers(decrypted);
+      decryptedRaw = await decryptVault(v, pw);
+    // Provision the CURRENT real-world fiscal year's House Hold Exps accounts here, on open,
+    // rather than waiting for a voucher already dated into that FY -- a voucher can't select an
+    // account that doesn't exist yet, so provisioning off an already-saved voucher's own date
+    // is one save too late. This is what makes "starts the new FY without asking" actually work
+    // for the voucher-entry flow, not just for imports (which save() alone already covers).
+    const today = new Date().toISOString().slice(0, 10);
+    const decrypted = ensureHouseHoldAccountsForFiscalYears(decryptedRaw, [fiscalYearOf(today)]);
+    const newAccountCount = decrypted.accounts.length - decryptedRaw.accounts.length;
+    const repaired = recomputeVoucherNumbers(decrypted);
     setVaultEtag(etag);
     setPassword(pw);
     setData(decrypted);
@@ -220,8 +230,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     sessionStorage.setItem(sessionKey, pw);
     await cacheUnifiedVaultPassword(pw).catch(() => {});
     setLastSynced(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    if (repaired) {
-      setStatus("Correcting duplicate voucher number and saving securely...");
+    if (repaired || newAccountCount > 0) {
+      setStatus(
+        repaired
+          ? "Correcting duplicate voucher number and saving securely..."
+          : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
+      );
       const corrected = await encryptVault(decrypted, pw),
         saved = await fetch(apiUrl, {
           method: "PUT",
@@ -231,7 +245,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       if (!saved.ok) throw Error();
       const repairedSave = (await saved.json().catch(() => null)) as { etag?: string } | null;
       if (repairedSave?.etag) setVaultEtag(repairedSave.etag);
-      const infoMsg = "Auto-fixed a duplicate voucher number — no action needed.";
+      const infoMsg = repaired
+        ? "Auto-fixed a duplicate voucher number — no action needed."
+        : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
       setStatus(infoMsg);
       setTimeout(() => setStatus((s) => (s === infoMsg ? "" : s)), 5000);
     } else setStatus("");
@@ -386,14 +402,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setPassword("");
   }
 
-  async function save(next: Ledger, destination = "daybook"): Promise<boolean> {
+  async function save(
+    next: Ledger,
+    destination = "daybook",
+    exemptFromPeriodCheck?: Set<string>
+  ): Promise<boolean> {
     // Period close: blocks a create/edit/delete that touches a voucher dated in a closed period.
     // Runs here (the one function every save path funnels through) rather than in each
     // individual caller, so it's enforced uniformly across manual entry, Trash, Plaid/Schwab/
     // Teller import, and bulk report posting alike. Reads/reports never call save(), so they're
-    // completely unaffected.
+    // completely unaffected. `exemptFromPeriodCheck` carves out one specific exception: the
+    // fiscal-year-close voucher itself is deliberately dated inside the very period this same
+    // save() call is closing -- see the MastersPanel onSave wrapper below.
     if (data) {
-      const violation = findClosedPeriodViolations(data.transactions, next.transactions, next.closedPeriods);
+      const violation = findClosedPeriodViolations(data.transactions, next.transactions, next.closedPeriods, exemptFromPeriodCheck);
       if (violation) {
         setStatus(
           `Blocked: ${violation.count} voucher(s) in closed period ${violation.examplePeriod} would be ` +
@@ -402,6 +424,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         return false;
       }
     }
+    // Silently provisions next FY's 12 monthly House Hold Exps accounts the moment a voucher
+    // dated into that FY is first saved -- see ensureHouseHoldAccountsForFiscalYears for why
+    // this runs on every save() rather than needing a separate "start new year" step.
+    const withHouseHoldAccounts = ensureHouseHoldAccountsForFiscalYears(next);
+    const newAccountCount = withHouseHoldAccounts.accounts.length - next.accounts.length;
+    next = withHouseHoldAccounts;
+
     recomputeVoucherNumbers(next);
     setStatus("Encrypting and saving...");
     const vault = await encryptVault(next, password),
@@ -433,7 +462,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (saved?.etag) setVaultEtag(saved.etag);
     setData(next);
     setLastSynced(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    setStatus("Encrypted save complete");
+    setStatus(
+      newAccountCount > 0
+        ? `Encrypted save complete — created ${newAccountCount} new House Hold Exps account(s) for the new fiscal year`
+        : "Encrypted save complete"
+    );
     setTab(destination);
     scheduleAutoSyncTrigger();
     return true;
@@ -2613,8 +2646,36 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           <MastersPanel
             data={data}
             onSave={(next, message) => {
-              setStatus(message);
-              void save(next as Ledger, "masters");
+              const nextLedger = next as Ledger;
+              // Auto-post the fiscal-year-close voucher (P&L A/c to Capital) the moment the
+              // user closes March -- the last month of a FY -- not on any other period close,
+              // and not automatically on FY open. Mirrors what the user already does by hand
+              // in Tally every year (confirmed against a real example voucher), so future years
+              // no longer need to be typed in manually. Detected by comparing against the PRIOR
+              // closedPeriods so this only fires on the actual open→closed transition, not on
+              // every re-save while March is already closed.
+              const prevClosed = new Set(data.closedPeriods || []);
+              const newlyClosedMarch = (nextLedger.closedPeriods || []).filter(
+                (p) => /-03$/.test(p) && !prevClosed.has(p)
+              );
+              let finalLedger = nextLedger;
+              const notes: string[] = [];
+              const exemptGuids = new Set<string>();
+              for (const marchPeriod of newlyClosedMarch) {
+                const fy = fiscalYearOf(`${marchPeriod}-15`);
+                const result = buildFiscalYearCloseVoucher(finalLedger, fy);
+                if (result.status === "created") {
+                  finalLedger = { ...finalLedger, transactions: [...finalLedger.transactions, result.tx] };
+                  exemptGuids.add(result.tx.guid);
+                  notes.push(
+                    `Posted FY${fy} closing voucher ($${Math.abs(result.tx.entries[0].amount).toFixed(2)}) — P&L to Capital.`
+                  );
+                } else if (result.status === "error") {
+                  notes.push(`FY${fy} closing voucher NOT auto-posted (${result.message}) — post it manually.`);
+                }
+              }
+              setStatus(notes.length ? `${message} ${notes.join(" ")}` : message);
+              void save(finalLedger, "masters", exemptGuids);
             }}
           />
         </div>

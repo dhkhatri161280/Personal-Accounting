@@ -224,6 +224,10 @@ const GENERIC_FINANCE_WORDS = new Set([
   "credit", "debit", "payment", "pay", "card", "charge", "purchase", "platinum", "gold",
   "signature", "rewards", "reward", "points", "point", "statement", "adjustment", "adj",
   "thank", "you", "auto", "autopay", "online", "mobile", "web", "des", "ach", "pmt", "ppd",
+  // Bank/institution-name boilerplate that shows up inside Plaid's own transaction description
+  // template (e.g. "ACH CREDIT Bank of America CASHREWARD...") -- these identify who's reporting
+  // the transaction, not what it's for, so they must not be treated as a merchant-matching signal.
+  "bank", "america", "banking", "national",
 ]);
 
 function tokenise(text: string): string[] {
@@ -887,6 +891,28 @@ function buildDraft(
     }
   }
 
+  // ── No match — deposit landed in a known bank account, default Dr to that account ──
+  // Plaid already tells us which institution/account the money hit (tx.institution_name); no
+  // reason to leave this blank and make the user pick it manually when that much is knowable.
+  // Credit side (what the deposit was FOR) is genuinely unknown, so it defaults to a generic
+  // income account pending user review -- deliberately low confidence, no "auto" badge.
+  if (tx.amount < 0) {
+    const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "Chase Bank", "Chase");
+    const incomeAcc = findAcct(accounts, "Other Income", "Misc Income");
+    if (bankAcc && incomeAcc) {
+      return {
+        entries: [
+          { accountId: bankAcc.id, accountName: bankAcc.name, amount: -netDeposit },
+          { accountId: incomeAcc.id, accountName: incomeAcc.name, amount: netDeposit },
+        ],
+        voucherType: "Receipt",
+        narration: tx.merchant_name || tx.name,
+        confidence: 0.35,
+        source: "history",
+      };
+    }
+  }
+
   // ── Still no match — empty scaffold ──
   return {
     entries: [],
@@ -1277,23 +1303,26 @@ export function PlaidImport({ data, onSave }: Props) {
   const [saving, setSaving] = useState(false);
   const [pendingTxs, setPendingTxs] = useState<PlaidTxRaw[]>([]);
   const [investmentTxs, setInvestmentTxs] = useState<PlaidInvestmentTx[]>([]);
-  // Vault voucher guids the user has explicitly said "this is NOT the same charge as that Plaid
-  // transaction" for -- persisted server-side (see app/api/plaid/investment-match-overrides) so
-  // the correction sticks across fetches/sessions instead of needing to be redone every time.
+  // Specific (voucher, Plaid transaction) pairings the user has explicitly said "this is NOT the
+  // same charge" for -- keyed as `${voucher_guid}|${plaid_transaction_id}`, persisted server-side
+  // (see app/api/plaid/investment-match-overrides) so the correction sticks across fetches/sessions.
+  // Scoped to the specific pairing, not the whole voucher: a recurring merchant means a later,
+  // genuinely-matching Plaid transaction can still arrive for the same voucher and must still be
+  // allowed to match then.
   const [investmentMatchOverrides, setInvestmentMatchOverrides] = useState<Set<string>>(new Set());
   useEffect(() => {
     fetch("/api/plaid/investment-match-overrides")
-      .then((r) => r.json() as Promise<string[]>)
-      .then((guids) => setInvestmentMatchOverrides(new Set(guids)))
+      .then((r) => r.json() as Promise<{ voucher_guid: string; plaid_transaction_id: string }[]>)
+      .then((pairs) => setInvestmentMatchOverrides(new Set(pairs.map((p) => `${p.voucher_guid}|${p.plaid_transaction_id}`))))
       .catch(() => {});
   }, []);
-  async function rejectInvestmentMatch(guid: string) {
-    setInvestmentMatchOverrides((prev) => new Set(prev).add(guid));
+  async function rejectInvestmentMatch(guid: string, plaidTransactionId: string) {
+    setInvestmentMatchOverrides((prev) => new Set(prev).add(`${guid}|${plaidTransactionId}`));
     try {
       await fetch("/api/plaid/investment-match-overrides", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voucher_guid: guid }),
+        body: JSON.stringify({ voucher_guid: guid, plaid_transaction_id: plaidTransactionId }),
       });
     } catch {
       // Best-effort -- the local state update already reflects it for this session even if the
@@ -2687,23 +2716,26 @@ export function PlaidImport({ data, onSave }: Props) {
                       // sign: a withdrawal is positive on both sides).
                       const investmentTxsForGroup = investmentTxs.filter((t) => acctIdSet.has(t.account_id));
                       const matchedAgainstInvestment = new Set<number>();
+                      const matchedInvestmentTxId = new Map<number, string>();
                       if (g.plaidType === "investment") {
                         const usedInvestmentTxIdx = new Set<number>();
                         recentVaultEntries.forEach((ve, vi) => {
-                          // A user-rejected match always stays uncleared, regardless of what the
-                          // amount/date heuristic below would otherwise conclude -- see
-                          // investmentMatchOverrides for why (same-amount coincidences at
-                          // recurring merchants like a pharmacy can false-positive).
-                          if (investmentMatchOverrides.has(ve.guid)) return;
                           const vMs = new Date(ve.date + "T12:00:00Z").getTime();
                           const ti = investmentTxsForGroup.findIndex(
                             (t, idx) =>
                               !usedInvestmentTxIdx.has(idx) &&
                               Math.abs(new Date(t.date + "T12:00:00Z").getTime() - vMs) / 86400000 <= 5 &&
-                              Math.abs(t.amount - ve.amount) < 0.05
+                              Math.abs(t.amount - ve.amount) < 0.05 &&
+                              // A user-rejected pairing always stays uncleared, regardless of what the
+                              // amount/date heuristic would otherwise conclude for THIS Plaid transaction
+                              // -- see investmentMatchOverrides for why (same-amount coincidences at
+                              // recurring merchants like a pharmacy can false-positive). A different,
+                              // later Plaid transaction for the same voucher can still match.
+                              !investmentMatchOverrides.has(`${ve.guid}|${t.investment_transaction_id}`)
                           );
                           if (ti !== -1) {
                             matchedAgainstInvestment.add(vi);
+                            matchedInvestmentTxId.set(vi, investmentTxsForGroup[ti].investment_transaction_id);
                             usedInvestmentTxIdx.add(ti);
                           }
                         });
@@ -2769,7 +2801,7 @@ export function PlaidImport({ data, onSave }: Props) {
                           ? recentVaultEntries
                               .map((ve, vi) => ({ ve, vi }))
                               .filter(({ vi }) => matchedAgainstInvestment.has(vi))
-                              .map(({ ve }) => ve)
+                              .map(({ ve, vi }) => ({ ve, plaidTxId: matchedInvestmentTxId.get(vi)! }))
                           : [];
                       const uncleared = unclearedItems.reduce((s, u) => s + u.amount, 0);
                       const diff = g.plaidBal !== null && vaultBal !== null
@@ -2867,7 +2899,7 @@ export function PlaidImport({ data, onSave }: Props) {
                                         Auto-matched by amount + date. Same-amount coincidence at a recurring
                                         merchant can false-positive — click ✕ if this isn't really the same charge.
                                       </p>
-                                      {investmentMatchedEntries.map((ve, j) => (
+                                      {investmentMatchedEntries.map(({ ve, plaidTxId }, j) => (
                                         <div key={j} className="plaid-recon-detail-item">
                                           <span className="di-date">{fmtDate(ve.date)}</span>
                                           <span className="di-name">{ve.narration || ve.type}</span>
@@ -2878,7 +2910,7 @@ export function PlaidImport({ data, onSave }: Props) {
                                             title="Not the same charge — mark as still pending"
                                             onClick={(ev) => {
                                               ev.stopPropagation();
-                                              rejectInvestmentMatch(ve.guid);
+                                              rejectInvestmentMatch(ve.guid, plaidTxId);
                                             }}
                                           >
                                             ✕ Not a match
