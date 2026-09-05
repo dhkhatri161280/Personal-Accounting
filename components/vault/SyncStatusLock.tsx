@@ -1,37 +1,22 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { SyncHealth } from "@/lib/vault-types";
 
 export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClick: () => void }) {
-  const [health, setHealth] = useState<SyncHealth | null>(null);
-  const [fetchError, setFetchError] = useState(false);
   const [triggerState, setTriggerState] = useState<"idle" | "sending" | "sent">("idle");
 
-  useEffect(() => {
-    let dead = false;
-    async function load() {
-      try {
-        const r = await fetch(`/api/sync-status?book=${book}`, { cache: "no-store" });
-        if (!r.ok) {
-          if (!dead) setFetchError(true);
-          return;
-        }
-        const h = (await r.json()) as SyncHealth;
-        if (!dead) {
-          setHealth(h);
-          setFetchError(false);
-        }
-      } catch {
-        if (!dead) setFetchError(true);
-      }
-    }
-    load();
-    const id = setInterval(load, 120000);
-    return () => {
-      dead = true;
-      clearInterval(id);
-    };
-  }, [book]);
+  const { data: health, isError: fetchError } = useQuery({
+    queryKey: ["sync-status", book],
+    queryFn: async (): Promise<SyncHealth> => {
+      const r = await fetch(`/api/sync-status?book=${book}`, { cache: "no-store" });
+      if (!r.ok) throw new Error(`sync-status ${r.status}`);
+      return r.json();
+    },
+    refetchInterval: 120000,
+    refetchIntervalInBackground: true,
+    staleTime: 60000,
+  });
 
   async function handleSyncNow() {
     if (triggerState !== "idle") return;
@@ -61,7 +46,7 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
   const hasLargeBacklog = pendingCount >= LARGE_BACKLOG_THRESHOLD;
   const tone = fetchError
     ? "error"
-    : health === null
+    : health === undefined
       ? "pending"
       : health.status === "error" || issueCount > 0
         ? "error"
@@ -77,7 +62,7 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
       : tone === "backlog"
         ? `${pendingCount} items pending — sync in small batches to avoid a stuck backlog`
         : tone === "pending"
-          ? health === null
+          ? health === undefined
             ? "Checking sync status…"
             : `${pendingCount || 1} item${(pendingCount || 1) === 1 ? "" : "s"} pending sync`
           : "Sync successful";
