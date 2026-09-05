@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ThemeProvider } from "@mui/material/styles";
+import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import { appMuiTheme } from "@/lib/mui-theme";
 import { TransactionTable } from "@/components/TransactionTable";
 import { MastersPanel, type MasterGroup } from "@/components/MastersPanel";
 import { validateVoucher } from "@/lib/voucher-validation";
@@ -2661,61 +2664,82 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 }),
                 { opening: 0, debit: 0, credit: 0, closing: 0 }
               );
+            const gridRows = ledgerRows.map((a) => ({
+                id: a.id,
+                account: a,
+                name: a.name,
+                group: a.parent || a.category,
+                opening: displayLedgerBalance(a, a.opening),
+                debit: a.debit,
+                credit: a.credit,
+                closing: displayLedgerBalance(a, a.closing),
+              })),
+              money = (v: number) => (Math.abs(v) > tol ? fmt(v) : "-"),
+              columns: GridColDef<(typeof gridRows)[number]>[] = [
+                {
+                  field: "name",
+                  headerName: "Ledger",
+                  flex: 1.4,
+                  minWidth: 160,
+                  renderCell: (params) => <LedgerLink a={params.row.account} />,
+                },
+                { field: "group", headerName: "Group", flex: 1, minWidth: 140 },
+                {
+                  field: "opening",
+                  headerName: "Opening",
+                  type: "number",
+                  flex: 1,
+                  minWidth: 110,
+                  valueFormatter: (value: number) => money(value),
+                },
+                {
+                  field: "debit",
+                  headerName: "Period Dr",
+                  type: "number",
+                  flex: 1,
+                  minWidth: 110,
+                  valueFormatter: (value: number) => money(value),
+                },
+                {
+                  field: "credit",
+                  headerName: "Period Cr",
+                  type: "number",
+                  flex: 1,
+                  minWidth: 110,
+                  valueFormatter: (value: number) => money(value),
+                },
+                {
+                  field: "closing",
+                  headerName: "Closing",
+                  type: "number",
+                  flex: 1,
+                  minWidth: 110,
+                  valueFormatter: (value: number) => money(value),
+                },
+              ];
             return (
-              <table>
-                <thead>
-                  <tr>
-                    <SortHead field="name">Ledger</SortHead>
-                    <SortHead field="group">Group</SortHead>
-                    <SortHead field="opening" right>
-                      Opening
-                    </SortHead>
-                    <SortHead field="debit" right>
-                      Period Dr
-                    </SortHead>
-                    <SortHead field="credit" right>
-                      Period Cr
-                    </SortHead>
-                    <SortHead field="closing" right>
-                      Closing
-                    </SortHead>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledgerRows.map((a) => (
-                    <tr key={a.id}>
-                      <td>
-                        <LedgerLink a={a} />
-                      </td>
-                      <td>{a.parent || a.category}</td>
-                      <td className="right">
-                        {Math.abs(a.opening) > tol ? fmt(displayLedgerBalance(a, a.opening)) : "-"}
-                      </td>
-                      <td className="right">{a.debit ? fmt(a.debit) : "-"}</td>
-                      <td className="right">{a.credit ? fmt(a.credit) : "-"}</td>
-                      <td className="right">
-                        {Math.abs(a.closing) > tol ? fmt(displayLedgerBalance(a, a.closing)) : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <th>Total</th>
-                    <th></th>
-                    <th className="right">
-                      {Math.abs(ledgerTotals.opening) > tol ? fmt(ledgerTotals.opening) : "-"}
-                    </th>
-                    <th className="right">{ledgerTotals.debit ? fmt(ledgerTotals.debit) : "-"}</th>
-                    <th className="right">
-                      {ledgerTotals.credit ? fmt(ledgerTotals.credit) : "-"}
-                    </th>
-                    <th className="right">
-                      {Math.abs(ledgerTotals.closing) > tol ? fmt(ledgerTotals.closing) : "-"}
-                    </th>
-                  </tr>
-                </tfoot>
-              </table>
+              <ThemeProvider theme={appMuiTheme}>
+                <DataGrid
+                  rows={gridRows}
+                  columns={columns}
+                  density="compact"
+                  disableRowSelectionOnClick
+                  hideFooterSelectedRowCount
+                  initialState={{ sorting: { sortModel: [{ field: "name", sort: "asc" }] } }}
+                  slots={{
+                    footer: () => (
+                      <div className="ledger-grid-totals">
+                        <strong>Total</strong>
+                        <span>Opening {money(ledgerTotals.opening)}</span>
+                        <span>Dr {ledgerTotals.debit ? fmt(ledgerTotals.debit) : "-"}</span>
+                        <span>Cr {ledgerTotals.credit ? fmt(ledgerTotals.credit) : "-"}</span>
+                        <span>Closing {money(ledgerTotals.closing)}</span>
+                      </div>
+                    ),
+                  }}
+                  autoHeight
+                />
+              </ThemeProvider>
             );
           })()}
         </div>

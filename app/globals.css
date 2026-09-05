@@ -1113,6 +1113,24 @@ a.action {
   font-size: 14px;
   margin: 0 0 16px;
 }
+.ledger-grid-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: center;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #34445e;
+}
+.ledger-grid-totals strong {
+  color: #0f1b2d;
+}
+@media (max-width: 720px) {
+  .ledger-grid-totals {
+    font-size: 11px;
+    padding: 8px 10px;
+  }
+}
 table {
   width: 100%;
   border-collapse: collapse;
