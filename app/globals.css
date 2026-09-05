@@ -2856,6 +2856,13 @@ aside .install-app span {
   text-transform: none;
   letter-spacing: normal;
 }
+.master-form .field-error {
+  font-weight: 600;
+  font-size: 9.5px;
+  color: #dc2626;
+  text-transform: none;
+  letter-spacing: normal;
+}
 .master-form input,
 .master-form select {
   width: 100%;

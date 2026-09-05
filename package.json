@@ -21,6 +21,7 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
+    "@hookform/resolvers": "^5.9.1",
     "@mui/material": "^9.4.0",
     "@mui/x-data-grid": "^9.13.0",
     "@simplewebauthn/server": "^13.3.2",
@@ -29,8 +30,10 @@
     "pdfjs-dist": "^6.2.108",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "react-hook-form": "^7.87.0",
     "react-plaid-link": "^5.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",

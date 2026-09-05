@@ -286,7 +286,7 @@ export default function Home() {
                 </label>
                 <label className="wide">
                   Tally backup folder path
-                  <input name="backupPath" placeholder="G:\My Drive\Tally App\Data\10010" />
+                  <input name="backupPath" placeholder="G:\\My Drive\\Tally App\\Data\\10010" />
                 </label>
                 <label>
                   Currency

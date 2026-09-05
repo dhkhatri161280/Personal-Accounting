@@ -1,6 +1,9 @@
 ﻿"use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
+import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
 
 export type MasterGroup = {
   name: string;
@@ -297,6 +300,89 @@ function PeriodControlPanel({
   );
 }
 
+function AccountForm({
+  account,
+  accountId,
+  groups,
+  data,
+  onSave,
+  onCancel,
+}: {
+  account?: MasterAccount;
+  accountId: number | null;
+  groups: MasterGroup[];
+  data: MasterLedger;
+  onSave: (values: AccountFormValues) => void;
+  onCancel: () => void;
+}) {
+  const existingNames = data.accounts.filter((a) => a.id !== accountId).map((a) => a.name);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<AccountFormValues>({
+    resolver: zodResolver(accountFormSchema(existingNames)),
+    defaultValues: {
+      name: account?.name || "",
+      parent: account?.parent || groups[0]?.name || "",
+      currency: account?.currency || data.currency,
+      opening: Math.abs(account?.openingBalance || 0),
+      side: (account?.openingBalance || 0) <= 0 ? "Dr" : "Cr",
+      active: account?.active !== false,
+    },
+  });
+  return (
+    <form className="master-form" onSubmit={handleSubmit(onSave)}>
+      <label>
+        Ledger name
+        <input {...register("name")} autoFocus />
+        {errors.name && <span className="field-error">{errors.name.message}</span>}
+      </label>
+      <label>
+        Account group
+        <select {...register("parent")}>
+          {groups
+            .filter((g) => g.active !== false)
+            .map((g) => (
+              <option key={g.name}>{g.name}</option>
+            ))}
+        </select>
+      </label>
+      <label>
+        Currency
+        <select {...register("currency")}>
+          {[...new Set([data.currency, ...(data.currencies || [])])].map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      </label>
+      <div className="opening-fields">
+        <label>
+          Opening balance
+          <input {...register("opening", { valueAsNumber: true })} type="number" step="0.01" min="0" />
+          {errors.opening && <span className="field-error">{errors.opening.message}</span>}
+        </label>
+        <label>
+          Balance side
+          <select {...register("side")}>
+            <option>Dr</option>
+            <option>Cr</option>
+          </select>
+        </label>
+      </div>
+      <label className="check-label">
+        <input {...register("active")} type="checkbox" /> Active ledger
+      </label>
+      <div>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="primary">Save ledger</button>
+      </div>
+    </form>
+  );
+}
+
 export function MastersPanel({
   data,
   onSave,
@@ -351,21 +437,13 @@ export function MastersPanel({
   const accounts = data.accounts
     .filter((a) => !search || `${a.name} ${a.parent}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const saveAccount = (form: FormData) => {
-    const name = normalize(String(form.get("name") || "")),
-      parent = String(form.get("parent") || ""),
-      currency = String(form.get("currency") || data.currency),
-      amount = Math.abs(Number(form.get("opening") || 0)),
-      side = String(form.get("side") || "Dr"),
-      active = form.get("active") === "on";
-    if (!name || !parent) return;
-    const duplicate = data.accounts.some(
-      (a) => a.id !== accountId && a.name.toLowerCase() === name.toLowerCase()
-    );
-    if (duplicate) {
-      alert("A ledger with this name already exists.");
-      return;
-    }
+  const saveAccount = (values: AccountFormValues) => {
+    const name = normalize(values.name),
+      parent = values.parent,
+      currency = values.currency,
+      amount = Math.abs(values.opening),
+      side = values.side,
+      active = values.active;
     const existing = data.accounts.find((a) => a.id === accountId),
       account: MasterAccount = {
         id: existing?.id || Math.max(0, ...data.accounts.map((a) => a.id)) + 1,
@@ -731,68 +809,14 @@ export function MastersPanel({
       )}
       {accountId !== null && (
         <FloatingWindow title={`${account ? "Edit" : "Create"} Ledger Account`} onClose={() => setAccountId(null)}>
-          <form
-            className="master-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              saveAccount(new FormData(e.currentTarget));
-            }}
-          >
-            <label>
-              Ledger name
-              <input name="name" defaultValue={account?.name} required autoFocus />
-            </label>
-            <label>
-              Account group
-              <select name="parent" defaultValue={account?.parent || groups[0]?.name}>
-                {groups
-                  .filter((g) => g.active !== false)
-                  .map((g) => (
-                    <option key={g.name}>{g.name}</option>
-                  ))}
-              </select>
-            </label>
-            <label>
-              Currency
-              <select name="currency" defaultValue={account?.currency || data.currency}>
-                {[...new Set([data.currency, ...(data.currencies || [])])].map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            </label>
-            <div className="opening-fields">
-              <label>
-                Opening balance
-                <input
-                  name="opening"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  defaultValue={Math.abs(account?.openingBalance || 0)}
-                />
-              </label>
-              <label>
-                Balance side
-                <select
-                  name="side"
-                  defaultValue={(account?.openingBalance || 0) <= 0 ? "Dr" : "Cr"}
-                >
-                  <option>Dr</option>
-                  <option>Cr</option>
-                </select>
-              </label>
-            </div>
-            <label className="check-label">
-              <input name="active" type="checkbox" defaultChecked={account?.active !== false} />{" "}
-              Active ledger
-            </label>
-            <div>
-              <button type="button" onClick={() => setAccountId(null)}>
-                Cancel
-              </button>
-              <button className="primary">Save ledger</button>
-            </div>
-          </form>
+          <AccountForm
+            account={account}
+            accountId={accountId}
+            groups={groups}
+            data={data}
+            onSave={saveAccount}
+            onCancel={() => setAccountId(null)}
+          />
         </FloatingWindow>
       )}
       {groupName !== null && (
