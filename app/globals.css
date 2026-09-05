@@ -2856,7 +2856,7 @@ aside .install-app span {
   text-transform: none;
   letter-spacing: normal;
 }
-.master-form .field-error {
+.field-error {
   font-weight: 600;
   font-size: 9.5px;
   color: #dc2626;

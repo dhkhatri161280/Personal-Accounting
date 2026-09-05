@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { ThemeProvider } from "@mui/material/styles";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
+import { voucherEntrySchema, type VoucherEntryFormValues } from "@/lib/voucher-entry-schema";
 import { TransactionTable } from "@/components/TransactionTable";
 import { MastersPanel, type MasterGroup } from "@/components/MastersPanel";
 import { validateVoucher } from "@/lib/voucher-validation";
@@ -180,6 +183,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // below for RSU/ESPP. null = not fetched yet (or fetch failed); Net Worth falls back to the
     // book-value ledger row in that case rather than silently showing $0.
     [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null);
+
+  // Voucher entry form's scalar fields (type/date/narration) only -- see lib/voucher-entry-schema.ts
+  // for why the debit/credit line array is deliberately excluded from this.
+  const voucherForm = useForm<VoucherEntryFormValues>({
+    resolver: zodResolver(
+      voucherEntrySchema(data?.voucherTypes || ["Payment", "Receipt", "Contra", "Journal"])
+    ),
+    defaultValues: { type: "Payment", date: new Date().toISOString().slice(0, 10), narration: "" },
+  });
 
   async function cacheUnifiedVaultPassword(pw: string) {
     const secret = sessionStorage.getItem(unifiedSecretKey);
@@ -1165,6 +1177,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     }
     setVoucherLines(draftLinesFromTx(t));
     setVoucherDate(t.date);
+    voucherForm.reset({ type: t.type, date: t.date, narration: cleanText(t.narration || "") });
     setEditTx(t);
     setCopyTx(null);
     setSelected(null);
@@ -1181,6 +1194,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     }
     setVoucherLines(draftLinesFromTx(t));
     setVoucherDate(t.date);
+    voucherForm.reset({ type: t.type, date: t.date, narration: cleanText(t.narration || "") });
     setCopyTx(t);
     setEditTx(null);
     setSelected(null);
@@ -1218,11 +1232,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       );
   }
 
-  async function add(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function add(values: VoucherEntryFormValues) {
     if (!data) return;
-    const f = new FormData(e.currentTarget),
-      byId = new Map(data.accounts.map((a) => [a.id, a.name])),
+    const byId = new Map(data.accounts.map((a) => [a.id, a.name])),
       entries = voucherLines
         .map((line) => {
           const accountId = Number(line.accountId),
@@ -1248,8 +1260,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       setStatus("Debit total and credit total must be equal.");
       return;
     }
-    const type = String(f.get("type")),
-      date = String(f.get("date"));
+    const type = values.type,
+      date = values.date;
     const tx: Tx = {
       id: editTx?.id || nextTransactionIds(data.transactions, 1)[0],
       guid: editTx?.guid || crypto.randomUUID(),
@@ -1268,7 +1280,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           ? editTx.number
           : nextVoucherNumber(data, type, date, editTx?.guid),
       type,
-      narration: String(f.get("narration") || ""),
+      narration: values.narration,
       historical: editTx?.historical || false,
       cancelled: editTx?.cancelled || false,
       entries,
@@ -1812,7 +1824,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setSelectedVoucher(null);
     setNewVoucherType(type || null);
     setNewVoucherMenuOpen(false);
-    setVoucherDate(new Date().toISOString().slice(0, 10));
+    const today = new Date().toISOString().slice(0, 10);
+    setVoucherDate(today);
+    voucherForm.reset({ type: type || "Payment", date: today, narration: "" });
     setTab("new");
     setStatus("");
   };
@@ -3519,25 +3533,28 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             ref={entryFormRef}
             key={editTx?.guid || copyTx?.guid || newVoucherType || "new"}
             className="entry-form voucher-lines-form"
-            onSubmit={add}
+            onSubmit={voucherForm.handleSubmit(add)}
           >
             <label>
               Voucher type
-              <select name="type" defaultValue={(editTx || copyTx)?.type || newVoucherType || "Payment"}>
+              <select {...voucherForm.register("type")}>
                 {(data.voucherTypes || ["Payment", "Receipt", "Contra", "Journal"]).map((v) => (
                   <option key={v}>{v}</option>
                 ))}
               </select>
+              {voucherForm.formState.errors.type && (
+                <span className="field-error">{voucherForm.formState.errors.type.message}</span>
+              )}
             </label>
             <label>
               Date
               <input
-                name="date"
                 type="date"
-                defaultValue={(editTx || copyTx)?.date || new Date().toISOString().slice(0, 10)}
-                onChange={(e) => setVoucherDate(e.target.value)}
-                required
+                {...voucherForm.register("date", { onChange: (e) => setVoucherDate(e.target.value) })}
               />
+              {voucherForm.formState.errors.date && (
+                <span className="field-error">{voucherForm.formState.errors.date.message}</span>
+              )}
             </label>
             <label>
               Voucher number
@@ -3677,11 +3694,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </section>
             <label className="wide">
               Narration
-              <textarea
-                name="narration"
-                rows={3}
-                defaultValue={cleanText((editTx || copyTx)?.narration || "")}
-              />
+              <textarea rows={3} {...voucherForm.register("narration")} />
             </label>
             <button className="primary wide">
               {editTx
