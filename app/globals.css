@@ -7179,6 +7179,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.65rem; }
 .equity-form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 11px; font-weight: 700; color: #374151; }
 .equity-form-grid input { font-size: 13px; padding: 5px 8px; border: 1px solid var(--border, #e2e8f0); border-radius: 5px; width: 100%; box-sizing: border-box; }
+.equity-form-grid input:disabled { background: #f3f5f9; color: #475569; font-weight: 700; }
 .equity-form-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 .equity-vest-form { margin-top: 0.75rem; }
 

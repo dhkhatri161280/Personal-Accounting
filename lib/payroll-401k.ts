@@ -98,6 +98,14 @@ function semiMonthlyPeriods(startYear: number, startMonth: number, endYear: numb
   return periods;
 }
 
+// NVIDIA's ESPP discount: 15% off the lower of the offering-period-start FMV or the
+// purchase-date FMV (a "lookback" plan) -- never an independently chosen number, so the actual
+// purchase price is always derivable from those two and shouldn't be entered by hand.
+export const ESPP_DISCOUNT_RATE = 0.85;
+export function esppPurchasePrice(offeringPrice: number, marketPriceAtPurchase: number): number {
+  return Math.min(offeringPrice, marketPriceAtPurchase) * ESPP_DISCOUNT_RATE;
+}
+
 export type EsppCycleWindow = { key: string; start: string; end: string; purchaseDate: string };
 
 // NVIDIA's two ESPP offering windows: Sep 1-end of Feb, and Mar 1-Aug 31. Generates `count`
@@ -202,7 +210,7 @@ export function computePendingEsppCycles(
     .flatMap((e) => {
       const windows = generateEsppCycleWindows(e.offeringDate, projectedCycles);
       const contributionByCycle = simulateEsppCycleContributions(payroll, esppPerPeriod, windows, annualCap);
-      const estimatedPurchasePrice = e.offeringPrice * 0.85;
+      const estimatedPurchasePrice = e.offeringPrice * ESPP_DISCOUNT_RATE;
       return windows.map((w, i) => {
         const projectedContribution = contributionByCycle.get(w.key) ?? 0;
         const estimatedShares = estimatedPurchasePrice > 0 ? Math.floor(projectedContribution / estimatedPurchasePrice) : 0;

@@ -5,7 +5,7 @@ import type { ParsedGrant, ParsedVest } from "@/lib/parse-grant-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { fmtDate } from "@/lib/format-date";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
-import { mostRecentEsppPerPeriod, computePendingEsppCycles } from "@/lib/payroll-401k";
+import { mostRecentEsppPerPeriod, computePendingEsppCycles, esppPurchasePrice, ESPP_DISCOUNT_RATE } from "@/lib/payroll-401k";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -56,12 +56,11 @@ const BLANK_ESPP = {
   purchaseDate: "",
   shares: "",
   offeringPrice: "",
-  purchasePrice: "",
   marketPriceAtPurchase: "",
   sharesHeld: "",
 };
 const BLANK_PENDING_ESPP = { ticker: "NVDA", offeringDate: "", purchaseDate: "", offeringPrice: "" };
-const BLANK_CONFIRM_ESPP = { shares: "", purchasePrice: "", marketPriceAtPurchase: "" };
+const BLANK_CONFIRM_ESPP = { shares: "", marketPriceAtPurchase: "" };
 
 interface EquityReportProps {
   grants: RsuGrant[];
@@ -275,7 +274,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
     const sold = e.shares - held;
     const saleVal = sold * ((e as { salePrice?: number }).salePrice ?? e.marketPriceAtPurchase);
     const mktVal = held * cur;
-    const purchaseValue = e.shares * e.offeringPrice;
+    const purchaseValue = e.shares * e.purchasePrice;
     const gain = saleVal + mktVal - purchaseValue;
     return {
       ...e,
@@ -526,15 +525,17 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   }
 
   async function saveEspp() {
+    const offeringPrice = Number(esppForm.offeringPrice),
+      marketPriceAtPurchase = Number(esppForm.marketPriceAtPurchase);
     const e: EsppPurchase = {
       id: uid(),
       ticker: esppForm.ticker || "NVDA",
       offeringDate: esppForm.offeringDate,
       purchaseDate: esppForm.purchaseDate,
       shares: Number(esppForm.shares),
-      offeringPrice: Number(esppForm.offeringPrice),
-      purchasePrice: Number(esppForm.purchasePrice),
-      marketPriceAtPurchase: Number(esppForm.marketPriceAtPurchase),
+      offeringPrice,
+      purchasePrice: esppPurchasePrice(offeringPrice, marketPriceAtPurchase),
+      marketPriceAtPurchase,
       sharesHeld: esppForm.sharesHeld !== "" ? Number(esppForm.sharesHeld) : Number(esppForm.shares),
     };
     const next = [...esppPurchases, e].sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
@@ -573,16 +574,16 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   async function confirmEsppPurchase() {
     if (!confirmEsppId) return;
     const shares = Number(confirmEsppForm.shares);
-    const purchasePrice = Number(confirmEsppForm.purchasePrice);
-    if (!shares || !purchasePrice) return;
+    const marketPriceAtPurchase = Number(confirmEsppForm.marketPriceAtPurchase);
+    if (!shares || !marketPriceAtPurchase) return;
     const next = esppPurchases.map((e) =>
       e.id !== confirmEsppId
         ? e
         : {
             ...e,
             shares,
-            purchasePrice,
-            marketPriceAtPurchase: Number(confirmEsppForm.marketPriceAtPurchase) || purchasePrice,
+            purchasePrice: esppPurchasePrice(e.offeringPrice, marketPriceAtPurchase),
+            marketPriceAtPurchase,
             sharesHeld: shares,
             pending: false,
           }
@@ -643,7 +644,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           const held = e.sharesHeld || e.shares;
           const sold = e.shares - held;
           const saleVal = sold * ((e as { salePrice?: number }).salePrice ?? e.marketPriceAtPurchase);
-          const purchaseValue = e.shares * e.offeringPrice;
+          const purchaseValue = e.shares * e.purchasePrice;
           const mktVal = held * cur;
           return [
             e.offeringDate, e.purchaseDate, "Purchased", e.shares, e.offeringPrice, e.purchasePrice,
@@ -1692,6 +1693,8 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
       {confirmEsppId && (() => {
         const e = pendingEsppRows.find((p) => p.sourceId === confirmEsppId && p.isReal);
         if (!e) return null;
+        const marketPriceAtPurchase = Number(confirmEsppForm.marketPriceAtPurchase);
+        const computedPurchasePrice = marketPriceAtPurchase > 0 ? esppPurchasePrice(e.offeringPrice, marketPriceAtPurchase) : null;
         return (
           <Modal title={`Confirm ESPP Purchase — ${fmtDate(e.purchaseDate)}`} onClose={() => setConfirmEsppId(null)}>
             <p className="equity-pdf-note">Enter the real numbers from your Schwab ESPP Purchase Confirmation Statement.</p>
@@ -1706,16 +1709,6 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 />
               </label>
               <label>
-                Purchase Price (price you paid)
-                <input
-                  type="number"
-                  value={confirmEsppForm.purchasePrice}
-                  onChange={(ev) => setConfirmEsppForm((f) => ({ ...f, purchasePrice: ev.target.value }))}
-                  step="0.01"
-                  placeholder={e.estimatedPurchasePrice.toFixed(2)}
-                />
-              </label>
-              <label>
                 NVDA FMV at Purchase Date
                 <input
                   type="number"
@@ -1724,9 +1717,13 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   step="0.01"
                 />
               </label>
+              <label>
+                Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off the lower of Offering ${e.offeringPrice.toFixed(2)} / Market FMV)
+                <input type="text" value={computedPurchasePrice !== null ? `$${computedPurchasePrice.toFixed(2)}` : ""} readOnly disabled />
+              </label>
             </div>
             <div className="equity-form-actions">
-              <button onClick={confirmEsppPurchase} disabled={saving || !confirmEsppForm.shares || !confirmEsppForm.purchasePrice}>
+              <button onClick={confirmEsppPurchase} disabled={saving || !confirmEsppForm.shares || !marketPriceAtPurchase}>
                 {saving ? "Saving…" : "Confirm Purchase"}
               </button>
               <button onClick={() => setConfirmEsppId(null)}>Cancel</button>
@@ -1773,15 +1770,6 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               />
             </label>
             <label>
-              Purchase Price (price you paid)
-              <input
-                type="number"
-                value={esppForm.purchasePrice}
-                onChange={(e) => setEsppForm((f) => ({ ...f, purchasePrice: e.target.value }))}
-                step="0.01"
-              />
-            </label>
-            <label>
               NVDA FMV at Purchase Date
               <input
                 type="number"
@@ -1790,6 +1778,19 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   setEsppForm((f) => ({ ...f, marketPriceAtPurchase: e.target.value }))
                 }
                 step="0.01"
+              />
+            </label>
+            <label>
+              Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off the lower of Offering / Market FMV)
+              <input
+                type="text"
+                value={
+                  esppForm.offeringPrice && esppForm.marketPriceAtPurchase
+                    ? `$${esppPurchasePrice(Number(esppForm.offeringPrice), Number(esppForm.marketPriceAtPurchase)).toFixed(2)}`
+                    : ""
+                }
+                readOnly
+                disabled
               />
             </label>
             <label>
@@ -1816,7 +1817,8 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 !esppForm.offeringDate ||
                 !esppForm.purchaseDate ||
                 !esppForm.shares ||
-                !esppForm.purchasePrice
+                !esppForm.offeringPrice ||
+                !esppForm.marketPriceAtPurchase
               }
             >
               {saving ? "Saving…" : "Save Purchase"}
@@ -1849,7 +1851,10 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           </thead>
           <tbody>
             {esppCycles.flatMap((cycle) => {
-              const cyclePurchasePrice = cycle.offeringPrice;
+              // Actual $/sh paid (post-discount) -- weighted average in the rare case a cycle
+              // groups purchases at slightly different purchase prices, not the pre-discount
+              // offering price the cycle is labeled by.
+              const cyclePurchasePrice = cycle.totalShares > 0 ? cycle.totalPurchaseValue / cycle.totalShares : 0;
               const cycleFMV = cycle.rows[0]?.marketPriceAtPurchase ?? 0;
               return [
               <tr
@@ -1907,7 +1912,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       <tr key={e.id} className="equity-cycle-detail">
                         <td className="equity-cycle-indent">{fmtDate(e.purchaseDate)}</td>
                         <td className="right">{e.shares.toLocaleString()}</td>
-                        <td className="right">${e.offeringPrice.toFixed(2)}</td>
+                        <td className="right">${e.purchasePrice.toFixed(2)}</td>
                         <td className="right">${e.marketPriceAtPurchase.toFixed(2)}</td>
                         <td className="right">{eSold > 0 ? <span className="equity-sold-badge">{eSold.toLocaleString()}</span> : <span className="equity-neutral">—</span>}</td>
                         <td className="right"><span className="equity-kept-badge">{e.sharesHeld.toLocaleString()}</span></td>
@@ -2031,7 +2036,14 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
             </div>
             <div className="equity-grand-col equity-grand-col--gain">
               <span>Total Gain</span>
-              <strong className="equity-amt">{fmt((rsuCurrent + esppCurrent) - (rsuAward + esppAward))}</strong>
+              {/* RSU gain is measured against award (grant-price) value since no cash was paid for
+                  those shares; ESPP gain must instead net against the real amount paid
+                  (purchasePrice, post-discount) -- esppAward (offeringPrice, pre-discount) is a
+                  different "award" concept, not ESPP's cost basis. Matches the per-row/per-cycle
+                  Gain column above. */}
+              <strong className="equity-amt">
+                {fmt((rsuCurrent - rsuAward) + esppRows.reduce((s, e) => s + e.gain, 0))}
+              </strong>
             </div>
           </div>
         </div>
