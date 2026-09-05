@@ -4,6 +4,12 @@ import { usePlaidLink, type PlaidLinkOnSuccess, type PlaidLinkOnSuccessMetadata 
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
 import { matchPayrollPeriod, rowValue } from "@/lib/payroll-match";
+import {
+  MORTGAGE_STANDARD_PAYMENT,
+  MORTGAGE_HOME_ACCOUNT_NAMES,
+  MORTGAGE_INTEREST_ACCOUNT_NAMES,
+  computeMortgagePaymentSplit,
+} from "@/lib/mortgage-amortization";
 import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -533,6 +539,42 @@ function buildDraft(
         ...(secondaryBankAcc ? [{ accountId: secondaryBankAcc.id, accountName: secondaryBankAcc.name, amount: -secondaryAmount }] : []),
       ];
       return { entries, voucherType: "Receipt", narration: "Salary Income - Semi Monthly", confidence: matched ? 0.98 : 0.9, source: "payroll" };
+    }
+  }
+
+  // ── Mortgage payment (BofA checking -> Home principal + Interest on Home Loan) ─────────────
+  // Recognized by amount match (institution=BofA, close to the known standard P&I payment) --
+  // the raw Plaid/bank text for this bill-pay transfer is a generic, unhelpful template fragment
+  // with no distinguishing payee text to match on instead (confirmed directly: "Ch. No. :").
+  // Interest is recalculated every month (see lib/mortgage-amortization.ts) since it genuinely
+  // isn't constant -- confidence is deliberately capped below the "auto" badge threshold (0.8),
+  // since this is a CALCULATED estimate that should be glanced at before posting, not trusted
+  // blindly every month, and drops further once the loan's rate-lock period has passed (a
+  // real reset date this app has no way to know the new rate for).
+  if (/bank.of.america|bofa/i.test((tx.institution_name || "").toLowerCase()) && tx.amount > 0) {
+    const homeAcc = findAcct(accounts, ...MORTGAGE_HOME_ACCOUNT_NAMES);
+    const interestAcc = findAcct(accounts, ...MORTGAGE_INTEREST_ACCOUNT_NAMES);
+    const bankAcc = findAcct(accounts, "Bank Of America", "Bank of America", tx.institution_name);
+    if (homeAcc && interestAcc && bankAcc && Math.abs(tx.amount - MORTGAGE_STANDARD_PAYMENT) < 5) {
+      const split = computeMortgagePaymentSplit(ledger, tx.date);
+      // Principal is derived from the REAL observed payment amount, not the fixed standard
+      // payment constant, so the voucher always balances even if the total drifts slightly
+      // (e.g. an escrow adjustment) from what MORTGAGE_STANDARD_PAYMENT currently assumes.
+      const principal = netDeposit - split.interest;
+      const monthLabel = new Date(tx.date + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+      return {
+        entries: [
+          { accountId: homeAcc.id, accountName: homeAcc.name, amount: -principal },
+          { accountId: interestAcc.id, accountName: interestAcc.name, amount: -split.interest },
+          { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
+        ],
+        voucherType: "Payment",
+        narration: split.rateStale
+          ? `Mortgage Payment (${monthLabel}) — rate lock period has passed, verify interest before posting`
+          : `Mortgage Payment (${monthLabel})`,
+        confidence: split.rateStale ? 0.35 : 0.75,
+        source: "history",
+      };
     }
   }
 
