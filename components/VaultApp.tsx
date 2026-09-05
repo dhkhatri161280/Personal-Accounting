@@ -1143,18 +1143,22 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     ]);
   }
 
-  function editVoucher(t: Tx) {
+  // Returns whether the edit form actually opened -- callers (the voucher detail popup) must
+  // check this before closing themselves. Previously the popup closed unconditionally on click,
+  // so any of the guards below returning early left the user looking at whatever was behind the
+  // popup with no visible explanation of why nothing happened.
+  function editVoucher(t: Tx): boolean {
     if (data && isPeriodClosed(data.closedPeriods, t.date)) {
       setStatus(`This voucher is dated in a closed period (${t.date}) and cannot be edited. Reopen the period in Masters → Periods first.`);
-      return;
+      return false;
     }
     if (t.cancelled) {
       setStatus("Cancelled vouchers are audit-only and cannot be edited.");
-      return;
+      return false;
     }
     if (!t.entries.some((e) => e.amount < 0) || !t.entries.some((e) => e.amount > 0)) {
       setStatus("This voucher does not contain both debit and credit lines.");
-      return;
+      return false;
     }
     setVoucherLines(draftLinesFromTx(t));
     setVoucherDate(t.date);
@@ -1163,12 +1167,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setSelected(null);
     setTab("new");
     setStatus("Editing existing voucher. Review changes carefully before updating.");
+    return true;
   }
 
-  function copyVoucher(t: Tx) {
+  // Same "caller must check the return value before closing" contract as editVoucher above.
+  function copyVoucher(t: Tx): boolean {
     if (!t.entries.some((e) => e.amount < 0) || !t.entries.some((e) => e.amount > 0)) {
       setStatus("This voucher does not contain both debit and credit lines.");
-      return;
+      return false;
     }
     setVoucherLines(draftLinesFromTx(t));
     setVoucherDate(t.date);
@@ -1179,6 +1185,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setStatus(
       "Voucher copied with all ledger lines. Change any field, then save as a new voucher."
     );
+    return true;
   }
 
   async function deleteVoucher(t: Tx) {
@@ -2169,6 +2176,41 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         })()}
         <div className="period-bar-footer">
           <span className="period-bar-note">Opening + period activity = closing</span>
+          <div className="attention-bell-wrap">
+            <button
+              type="button"
+              className={`attention-bell ${attentionItems.length > 0 ? "attention-bell--flagged" : ""} ${dashboardDetail === "attention" ? "menu-open" : ""}`}
+              onClick={() => setDashboardDetail(dashboardDetail === "attention" ? null : "attention")}
+              title="Needs Attention"
+              aria-label="Needs Attention"
+            >
+              {uiTheme === "refresh" ? <StatIcon kind="shield" color="#fff" /> : "!"}
+              {attentionItems.length > 0 && <span className="attention-bell-badge">{attentionItems.length}</span>}
+            </button>
+            {dashboardDetail === "attention" && (
+              <>
+                <div className="new-voucher-fab-backdrop" onClick={() => setDashboardDetail(null)} />
+                <div className="attention-popover">
+                  <div className="attention-popover-heading">
+                    <strong>Needs Attention</strong>
+                    <button type="button" onClick={() => setDashboardDetail(null)} aria-label="Close">✕</button>
+                  </div>
+                  {attentionItems.length === 0 ? (
+                    <p className="dashboard-inline-empty">Nothing needs your attention right now.</p>
+                  ) : (
+                    attentionItems.map((item, i) => (
+                      <div className="dashboard-inline-row" key={i}>
+                        <span>
+                          {item.label}
+                          <small>{item.detail}</small>
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
           <div className="new-voucher-fab-wrap" ref={newVoucherMenuRef}>
             <button
               type="button"
@@ -2417,43 +2459,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </div>
             </button>
           </div>}
-          <div className="dashboard-card-slot attention-slot">
-            <button
-              className={`dashboard-balance-card attention-card${attentionItems.length > 0 ? " attention-card--flagged" : ""}${dashboardDetail === "attention" ? " dashboard-card-open" : ""}`}
-              onClick={() => setDashboardDetail(dashboardDetail === "attention" ? null : "attention")}
-            >
-              {uiTheme === "refresh" && (
-                <StatIcon kind="shield" color={attentionItems.length > 0 ? "#dc2626" : "#16a34a"} />
-              )}
-              <div className="dashboard-card-main">
-                <span>Needs Attention</span>
-                <strong>{attentionItems.length > 0 ? attentionItems.length : "All clear"}</strong>
-                <small>{attentionItems.length > 0 ? "Tap to view" : "Nothing pending"}</small>
-              </div>
-            </button>
-            {dashboardDetail === "attention" && (
-              <div className="dashboard-inline-detail">
-                <div className="dashboard-inline-heading">
-                  <div>
-                    <strong>Needs Attention</strong>
-                    <small>Tap card again to close</small>
-                  </div>
-                </div>
-                {attentionItems.length === 0 ? (
-                  <p className="dashboard-inline-empty">Nothing needs your attention right now.</p>
-                ) : (
-                  attentionItems.map((item, i) => (
-                    <div className="dashboard-inline-row" key={i}>
-                      <span>
-                        {item.label}
-                        <small>{item.detail}</small>
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
         </section>
       )}
       {tab === "bank-import" && data && (
@@ -3880,8 +3885,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <button
                   className="edit-voucher"
                   onClick={() => {
-                    setSelectedVoucher(null);
-                    editVoucher(selectedVoucher);
+                    if (editVoucher(selectedVoucher)) setSelectedVoucher(null);
                   }}
                 >
                   Edit
@@ -3890,8 +3894,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <button
                 className="copy-voucher"
                 onClick={() => {
-                  setSelectedVoucher(null);
-                  copyVoucher(selectedVoucher);
+                  if (copyVoucher(selectedVoucher)) setSelectedVoucher(null);
                 }}
               >
                 Copy

@@ -1976,24 +1976,6 @@ tfoot th {
 .equity-slot {
   grid-area: period;
 }
-/* Needs Attention: spans the full row width instead of taking a named grid-area slot, so it
-   reads as a summary banner below the stat cards rather than a square tile with dead space next
-   to it -- and since "1 / -1" is relative to however many columns are active, this stays correct
-   at every responsive breakpoint (3-col desktop, 2-col tablet, 1-col mobile) with no extra
-   per-breakpoint override needed. */
-.attention-slot {
-  grid-column: 1 / -1;
-}
-/* Deliberately more saturated than the US book's own light-red card tint (#fff6f6) below, so
-   the "something needs attention" signal still reads as distinct on the US book, not just a
-   slightly different shade of the same base color. */
-.attention-card--flagged {
-  border-color: #e8a9a9 !important;
-  background: #ffe9e9 !important;
-}
-.attention-card--flagged:hover {
-  border-color: #e59a9a !important;
-}
 .dashboard-inline-empty {
   padding: 12px 4px;
   color: #5c6b82;
@@ -3425,6 +3407,85 @@ aside .install-options .install-app {
 .new-voucher-fab-india:hover,
 .new-voucher-fab-india.selected {
   background: #c97800;
+}
+/* Needs Attention: a small icon in the period bar (visible on every tab, not just Dashboard)
+   instead of a full-width card -- same relative/absolute popover pattern as the new-voucher FAB
+   above, so it inherits the same proven mobile/tablet behavior (period-bar-footer already wraps
+   to full-width flex on small screens; this is just one more compact icon within that row, not a
+   new breakpoint to maintain). */
+.attention-bell-wrap {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.attention-bell {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #16a34a;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(16, 34, 63, 0.32);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.attention-bell:hover {
+  box-shadow: 0 8px 22px rgba(16, 34, 63, 0.4);
+  transform: scale(1.06);
+}
+.attention-bell--flagged {
+  background: #dc2626;
+}
+.attention-bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #fff;
+  color: #dc2626;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #dc2626;
+}
+.attention-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 50;
+  width: min(340px, 88vw);
+  max-height: 60vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(16, 34, 63, 0.22);
+  padding: 12px 14px;
+}
+.attention-popover-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.attention-popover-heading button {
+  border: none;
+  background: transparent;
+  color: #69778e;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
 }
 .new-voucher-fab-backdrop {
   position: fixed;
@@ -6841,6 +6902,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-recon-pending { text-align: right; font-variant-numeric: tabular-nums; color: #b45309; font-weight: 600; }
 .plaid-recon-zero { color: #cbd5e1; }
 .plaid-recon-note { font-size: 11px; color: #64748b; padding: 4px 2px; }
+.plaid-recon-grand-total td { border-top: 2px solid #dbeafe; border-bottom: none; background: #f8faff; padding-top: 12px; padding-bottom: 12px; }
 .plaid-recon-clickable { cursor: pointer; }
 .plaid-recon-clickable:hover td { background: #f0f6ff; }
 .plaid-recon-expand-icon { font-size: 10px; color: #93c5fd; margin-left: 4px; }
@@ -7590,13 +7652,6 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   box-shadow: var(--ref-shadow);
   background: #fff !important;
   transition: box-shadow 0.15s, transform 0.15s;
-}
-/* Higher specificity than .ui-refresh .dashboard-balance-card (2 classes) is required here --
-   .attention-card--flagged alone (1 class) would lose to it despite both using !important,
-   since !important only breaks ties on EQUAL specificity, not lower. */
-.ui-refresh .dashboard-balance-card.attention-card--flagged {
-  background: #ffe9e9 !important;
-  border-color: #e8a9a9 !important;
 }
 .ui-refresh .dashboard-balance-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
 .ui-refresh .dashboard-balance-card.dashboard-card-open {

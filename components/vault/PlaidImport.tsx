@@ -363,7 +363,17 @@ function isBankAcct(a: { name: string; parent?: string }): boolean {
 // This is the correct Contra definition: funds transfer between Bank↔Bank or Bank↔CreditCard.
 // Any entry with an expense/income account disqualifies the transaction.
 // Override voucherType to "Contra" when ALL draft entries are bank/CC accounts.
-function enforceContraType<T extends { voucherType: string; entries: { accountId: number }[] }>(
+//
+// A card-payment Contra promoted here (as opposed to one built by a dedicated branch like the
+// BofA-branded "PAYMENT TO ACCT #..." case above, which already sets its own clean narration)
+// otherwise keeps whatever raw text the bank/Plaid reported for the underlying transaction --
+// confirmed directly to sometimes be a genuinely unhelpful bill-pay template fragment like
+// "Ch. No. :" (a check-number field left blank because the payment was electronic, not by
+// check). Rather than special-casing each issuer's own raw-text quirks one at a time, this
+// uniformly relabels ANY newly-promoted bank<->card Contra as "{Card} Payment" whenever the
+// existing narration doesn't already read like a real payment description -- so every card
+// issuer gets the same clean treatment BofA's own branded case already gets, not just BofA.
+function enforceContraType<T extends { voucherType: string; narration: string; entries: { accountId: number; accountName: string }[] }>(
   result: T,
   accounts: { id: number; name: string; parent?: string }[]
 ): T {
@@ -373,7 +383,18 @@ function enforceContraType<T extends { voucherType: string; entries: { accountId
     const a = accounts.find((ac) => ac.id === e.accountId);
     return a && (isCcAcct(a) || isBankAcct(a));
   });
-  return allFinancial ? { ...result, voucherType: "Contra" } : result;
+  if (!allFinancial) return result;
+  if (/payment/i.test(result.narration)) return { ...result, voucherType: "Contra" };
+  const cardEntry = result.entries.find((e) => {
+    const a = accounts.find((ac) => ac.id === e.accountId);
+    return a && isCcAcct(a);
+  });
+  const cardName = cardEntry ? accounts.find((ac) => ac.id === cardEntry.accountId)?.name : undefined;
+  return {
+    ...result,
+    voucherType: "Contra",
+    narration: cardName ? `${cardName} Payment` : result.narration,
+  };
 }
 
 // A pending negative-amount (money-in) transaction that is actually a card bill payment,
@@ -2630,6 +2651,12 @@ export function PlaidImport({ data, onSave }: Props) {
                     // per-card figures (refunds/credits netted against charges exactly the same
                     // way every other card's own row already computes it) for shared GL accounts.
                     const rowSummaries: Array<{ vaultAcctId: number | undefined; plaidBal: number | null; uncleared: number }> = [];
+                    // Column totals for the footer row -- "liquidity coming through Plaid" at a
+                    // glance. Vault Balance mirrors the Plaid balance for accounts with no vault
+                    // ledger match (401k/IRA tracked live via Plaid only, never booked as vault
+                    // vouchers) so the total isn't silently missing real liquidity just because
+                    // there's nothing to reconcile it against.
+                    const columnTotals = { plaid: 0, uncleared: 0, vault: 0 };
                     const realRows = groups.map((g, i) => {
                       // Shared: >1 physical Plaid account posts to this same GL account. There's
                       // no per-transaction attribution (see the comment on plaidBalSumByVaultId
@@ -2867,6 +2894,14 @@ export function PlaidImport({ data, onSave }: Props) {
                       const vaultOnlyNet = onlyInVault.reduce((s, ve) => s + ve.amount, 0);
                       const rawGap = g.plaidBal !== null && vaultBal !== null ? g.plaidBal - vaultBal : null;
 
+                      // No-vault-match display balance: mirrors Plaid's balance for the Vault
+                      // Balance column/total only -- diff/reconciliation logic above is untouched
+                      // and still correctly treats this as "nothing to reconcile", not a match.
+                      const displayVaultBal = vaultBal !== null ? vaultBal : g.plaidBal;
+                      if (g.plaidBal !== null) columnTotals.plaid += g.plaidBal;
+                      if (unclearedItems.length > 0) columnTotals.uncleared += uncleared;
+                      if (displayVaultBal !== null) columnTotals.vault += displayVaultBal;
+
                       return (
                         <React.Fragment key={i}>
                           <tr
@@ -2900,7 +2935,17 @@ export function PlaidImport({ data, onSave }: Props) {
                                   ? <><span className="plaid-recon-zero">$0.00</span><span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
                                   : <span className="plaid-recon-zero">—</span>}
                             </td>
-                            <td className="plaid-recon-amt">{vaultBal !== null ? `$${vaultBal.toFixed(2)}` : <span className="plaid-recon-nomatch">no match</span>}</td>
+                            <td className="plaid-recon-amt">
+                              {vaultBal !== null ? (
+                                `$${vaultBal.toFixed(2)}`
+                              ) : displayVaultBal !== null ? (
+                                <span className="plaid-recon-nomatch" title="No vault ledger for this account -- showing Plaid balance">
+                                  ${displayVaultBal.toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="plaid-recon-nomatch">no match</span>
+                              )}
+                            </td>
                             <td className={`plaid-recon-diff${diff !== null ? (balanced ? " good" : " bad") : ""}`}>
                               {diff !== null ? `${diff >= 0 ? "+" : ""}$${diff.toFixed(2)}` : "—"}
                               {!balanced && diff !== null && <span className="plaid-recon-expand-icon">{isExpanded ? " ▲" : " ▼"}</span>}
@@ -3081,6 +3126,15 @@ export function PlaidImport({ data, onSave }: Props) {
                         </tr>
                       );
                     });
+                    finalRows.push(
+                      <tr key="grand-total" className="plaid-recon-row plaid-recon-total-row plaid-recon-grand-total">
+                        <td colSpan={3}><strong>Total liquidity (Plaid)</strong></td>
+                        <td className="plaid-recon-amt"><strong>${columnTotals.plaid.toFixed(2)}</strong></td>
+                        <td className="plaid-recon-amt"><strong>{columnTotals.uncleared >= 0 ? "+" : ""}${columnTotals.uncleared.toFixed(2)}</strong></td>
+                        <td className="plaid-recon-amt"><strong>${columnTotals.vault.toFixed(2)}</strong></td>
+                        <td></td>
+                      </tr>
+                    );
                     return finalRows;
                   })()}
                 </tbody>
