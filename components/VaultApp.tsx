@@ -3541,7 +3541,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </div>
       )}
       {cashFlowDetail && (
-        <FloatingWindow title={cashFlowDetail?.ledger ?? cashFlowDetail?.group ?? ""} onClose={() => setCashFlowDetail(null)} wide initialWidth={1100} initialHeight={700}>
+        <FloatingWindow title={cashFlowDetail?.ledger ?? cashFlowDetail?.group ?? ""} onClose={() => setCashFlowDetail(null)} wide initialWidth={1300} initialHeight={700}>
           <div className="ledger-drill-panel">
             <p>
               Cash Flow | <PeriodSelect />
@@ -3567,7 +3567,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </FloatingWindow>
       )}
       {columnarDrilldown && (
-        <FloatingWindow title={columnarDrilldown.label} onClose={() => setColumnarDrilldown(null)} wide initialWidth={1100} initialHeight={700}>
+        <FloatingWindow title={columnarDrilldown.label} onClose={() => setColumnarDrilldown(null)} wide initialWidth={1300} initialHeight={700}>
           <div className="ledger-drill-panel">
             <p>
               {fmtDate(columnarDrilldown.start)} – {fmtDate(columnarDrilldown.end)}
@@ -3585,7 +3585,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </FloatingWindow>
       )}
       {selectedRow && (
-        <FloatingWindow title={selectedRow.name} onClose={() => setSelected(null)} wide initialWidth={1100} initialHeight={700}>
+        <FloatingWindow title={selectedRow.name} onClose={() => setSelected(null)} wide initialWidth={1300} initialHeight={700}>
           <div className="ledger-drill-panel">
             <p>
               {selectedRow.parent || selectedRow.category} | <PeriodSelect />

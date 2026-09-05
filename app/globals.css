@@ -1873,6 +1873,32 @@ tfoot th {
   font-size: 9px;
   color: #6f7d92;
 }
+/* Each label's width is set inline (matches the DataGrid column's own width exactly -- see
+   COLUMN_WIDTHS in TransactionTable.tsx), so this variant drops the base rule's gap/padding/
+   min-width, which would otherwise push the filter row out of alignment with the grid below. */
+.grid-aligned-filters {
+  gap: 0;
+  padding: 0;
+  margin-bottom: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.grid-aligned-filters label {
+  flex-shrink: 0;
+  padding: 6px 4px 6px 8px;
+  gap: 3px;
+}
+.grid-aligned-filters input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: 6px;
+  padding: 6px 7px;
+  font-size: 11px;
+}
 .sortable {
   padding: 0;
 }

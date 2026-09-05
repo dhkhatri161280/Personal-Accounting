@@ -18,6 +18,21 @@ export type VoucherRow = {
 };
 type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount";
 
+// Shared between the DataGrid's column widths and the filter-input row above it, so the two
+// rows always line up -- fixed (not flex) widths are what make that possible; a flex column's
+// rendered width depends on available space, which a static filter input can never track.
+const COLUMN_WIDTHS: Record<SortKey, number> = {
+  date: 100,
+  type: 120,
+  number: 64,
+  debit: 170,
+  credit: 170,
+  narration: 220,
+  amount: 120,
+};
+const BALANCE_COL_WIDTH = 120;
+const ACTION_COL_WIDTH = 84;
+
 // Tally's own Day Book order within a date: Contra, Payment, Receipt, Journal -- fixed, never
 // reversed even when the date sort direction is descending (only the date itself, and voucher
 // number within a type, follow the chosen direction). Each voucher type has its own independent
@@ -280,7 +295,7 @@ export function TransactionTable({
   );
 
   const filterField = (key: SortKey, label: string, placeholder: string) => (
-    <label key={key}>
+    <label key={key} style={{ width: COLUMN_WIDTHS[key] }}>
       {label}
       <input
         aria-label={`Filter ${placeholder}`}
@@ -295,13 +310,13 @@ export function TransactionTable({
     {
       field: "date",
       headerName: "Date",
-      width: 100,
+      width: COLUMN_WIDTHS.date,
       valueFormatter: (v: string) => v.split("-").reverse().join("-"),
     },
     {
       field: "type",
       headerName: "Type",
-      width: 130,
+      width: COLUMN_WIDTHS.type,
       renderCell: (params) => (
         <span className={`pill ${params.row.voucher.cancelled ? "cancelled" : ""}`}>
           {params.row.type}
@@ -312,21 +327,21 @@ export function TransactionTable({
     {
       field: "number",
       headerName: "#",
-      width: 70,
+      width: COLUMN_WIDTHS.number,
       renderCell: (params) => (
         <button className="voucher-reference" onClick={() => onView(params.row.voucher)}>
           {params.row.number || "-"}
         </button>
       ),
     },
-    { field: "debit", headerName: "Debit Ledger", flex: 1.1, minWidth: 140 },
-    { field: "credit", headerName: "Credit Ledger", flex: 1.1, minWidth: 140 },
-    { field: "narration", headerName: "Narration", flex: 1.6, minWidth: 180 },
+    { field: "debit", headerName: "Debit Ledger", width: COLUMN_WIDTHS.debit },
+    { field: "credit", headerName: "Credit Ledger", width: COLUMN_WIDTHS.credit },
+    { field: "narration", headerName: "Narration", width: COLUMN_WIDTHS.narration },
     {
       field: "amount",
       headerName: "Amount",
       type: "number",
-      width: 130,
+      width: COLUMN_WIDTHS.amount,
       valueFormatter: (v: number) => formatAmount(v),
     },
     ...(balanceMap
@@ -335,7 +350,7 @@ export function TransactionTable({
             field: "balance",
             headerName: "Balance",
             type: "number",
-            width: 130,
+            width: BALANCE_COL_WIDTH,
             valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),
           },
         ] as GridColDef<(typeof gridRows)[number]>[])
@@ -343,7 +358,7 @@ export function TransactionTable({
     {
       field: "action",
       headerName: "Action",
-      width: 90,
+      width: ACTION_COL_WIDTH,
       sortable: false,
       filterable: false,
       disableColumnMenu: true,
@@ -377,7 +392,7 @@ export function TransactionTable({
           Clear all filters
         </button>
       </div>
-      <div className="table-filters">
+      <div className="table-filters grid-aligned-filters">
         {filterField("date", "Date", "date")}
         {filterField("type", "Type", "voucher type")}
         {filterField("number", "#", "voucher number")}
