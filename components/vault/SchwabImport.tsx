@@ -5,6 +5,7 @@ import { nextVoucherNumber, nextTransactionIds, ledgerBalanceAsOf } from "@/lib/
 import { fmtDate } from "@/lib/format-date";
 import {
   classifySchwabActivity,
+  findUnpairedPositiveJournalActivities,
   primaryInstrument,
   activityNarration,
   type SchwabActivity,
@@ -432,34 +433,14 @@ export function SchwabImport({ data, onSave }: Props) {
     : null;
   const schwabVaultDiff = expectedVaultBalance !== null && vaultSchwabBalance !== null ? expectedVaultBalance - vaultSchwabBalance : null;
 
-  // Possible unlabeled dividend/interest: a JOURNAL-type activity (Schwab's generic "cash moved"
-  // type, covering both real income credits and internal sweeps) with money coming IN and no
-  // same-day offsetting activity elsewhere -- a same-day opposite-sign match means it's just an
-  // internal sweep leg (e.g. Equity account -> Trust), not new income. Surfaced for manual
-  // per-item review/confirm, never auto-posted -- most JOURNAL entries genuinely aren't income,
-  // so a blanket rule here would invent fake income on the ones that are just transfers.
-  const possibleIncome = useMemo(() => {
-    // One-to-one pairing, not "does ANY opposite-sign match exist" -- the latter let a single
-    // -$X sweep leg cancel out every +$X candidate that happened to share its day/magnitude
-    // (confirmed directly: one -$82.70 sweep spuriously canceled BOTH a real +$82.70 sweep pair
-    // AND a genuine +$82.70 dividend that coincidentally matched the same amount). Each negative
-    // can only consume one positive.
-    const journalActivities = classified.other.filter((a) => a.type === "JOURNAL");
-    const positives = journalActivities.filter((a) => a.netAmount > 0.005);
-    const negatives = journalActivities.filter((a) => a.netAmount < -0.005);
-    const usedNegativeIds = new Set<number>();
-    return positives.filter((pos) => {
-      const day = pos.time.slice(0, 10);
-      const match = negatives.find(
-        (neg) => !usedNegativeIds.has(neg.activityId) && neg.time.slice(0, 10) === day && Math.abs(neg.netAmount + pos.netAmount) < 0.01
-      );
-      if (match) {
-        usedNegativeIds.add(match.activityId);
-        return false;
-      }
-      return true;
-    });
-  }, [classified.other]);
+  // Surfaced for manual per-item review/confirm, never auto-posted -- most JOURNAL entries
+  // genuinely aren't income, so a blanket rule here would invent fake income on the ones that
+  // are just transfers. Pairing logic lives in lib/parse-schwab-transactions.ts so it's
+  // unit-testable (see findUnpairedPositiveJournalActivities's own comment for why).
+  const possibleIncome = useMemo(
+    () => findUnpairedPositiveJournalActivities(classified.other),
+    [classified.other]
+  );
 
   // ── Equity (NVDA): match a vest activity to an existing scheduled tranche, or record a new
   // ESPP purchase. Never a new Trading lot -- Equity report stays the single source of truth for

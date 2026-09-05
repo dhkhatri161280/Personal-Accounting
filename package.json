@@ -13,6 +13,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test:unit": "tsc --noEmit -p tsconfig.test.json && node --test tests/*.test.ts",
+    "seed:local": "node scripts/seed-local-vault.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

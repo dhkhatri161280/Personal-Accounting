@@ -14,6 +14,10 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
+  // Local-only KV namespace so `vinext dev` can read/write the encrypted vault
+  // via the same VAULT binding production uses (see app/api/vault/route.ts).
+  // Miniflare persists this under .wrangler/state, isolated from production KV.
+  kv_namespaces: [{ binding: "VAULT", id: "local-vault-kv" }],
   d1_databases: d1
     ? [
         {
