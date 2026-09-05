@@ -2697,11 +2697,30 @@ aside .install-app span {
   background: #eef4ff;
   border-color: #9dbcf6;
 }
-.action-menu .dot {
+.action-menu .dot,
+.action-menu-trigger .dot {
   display: block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
+}
+.action-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #d6deea;
+  border-radius: 16px;
+  background: #fff;
+  cursor: pointer;
+}
+.action-menu-trigger:hover {
+  background: #eef4ff;
+  border-color: #9dbcf6;
 }
 .edit-dot {
   background: #e5a62d;

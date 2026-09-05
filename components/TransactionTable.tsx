@@ -1,5 +1,10 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { ThemeProvider } from "@mui/material/styles";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import { DataGrid, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
+import { appMuiTheme } from "@/lib/mui-theme";
 
 type Entry = { accountName: string; amount: number };
 export type VoucherRow = {
@@ -53,6 +58,74 @@ const ledgerSignedAmount = (t: VoucherRow, selectedLedgerName?: string) => {
   return amount(t);
 };
 
+// Rendered inside a DataGrid cell (overflow: hidden), so the popover must be a portal-based
+// MUI Menu rather than the app's usual <details>/<summary> dropdown -- that pattern relies on
+// overflowing its container, which a grid cell clips.
+function ActionMenuCell({
+  t,
+  closed,
+  onEdit,
+  onCopy,
+  onDelete,
+}: {
+  t: VoucherRow;
+  closed: boolean;
+  onEdit: (t: VoucherRow) => void;
+  onCopy: (t: VoucherRow) => void;
+  onDelete: (t: VoucherRow) => void;
+}) {
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const close = () => setAnchorEl(null);
+  return (
+    <>
+      <button
+        className="action-menu-trigger"
+        aria-label={`Actions for ${t.type} voucher ${t.number}`}
+        title="Voucher actions"
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+      >
+        <i className="dot edit-dot" />
+        <i className="dot copy-dot" />
+        <i className="dot delete-dot" />
+      </button>
+      <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={close}>
+        {!t.cancelled && !closed && (
+          <MenuItem
+            className="edit-voucher"
+            onClick={() => {
+              onEdit(t);
+              close();
+            }}
+          >
+            Edit
+          </MenuItem>
+        )}
+        <MenuItem
+          className="copy-voucher"
+          onClick={() => {
+            onCopy(t);
+            close();
+          }}
+        >
+          Copy
+        </MenuItem>
+        {!closed && (
+          <MenuItem
+            className="delete-voucher"
+            onClick={() => {
+              onDelete(t);
+              close();
+            }}
+          >
+            Delete
+          </MenuItem>
+        )}
+        {closed && <MenuItem disabled className="period-closed-note">Period closed — read-only</MenuItem>}
+      </Menu>
+    </>
+  );
+}
+
 export function TransactionTable({
   transactions,
   formatAmount,
@@ -93,16 +166,6 @@ export function TransactionTable({
     key: "date",
     direction: "desc",
   });
-  const topScroll = useRef<HTMLDivElement>(null),
-    bottomScroll = useRef<HTMLDivElement>(null);
-  const [tableWidth, setTableWidth] = useState(980);
-  useEffect(() => {
-    const update = () => setTableWidth(bottomScroll.current?.scrollWidth || 980);
-    update();
-    const observer = new ResizeObserver(update);
-    if (bottomScroll.current) observer.observe(bottomScroll.current);
-    return () => observer.disconnect();
-  }, [transactions]);
   const value = (t: VoucherRow, key: SortKey): string | number =>
     key === "debit"
       ? debit(t)
@@ -198,34 +261,106 @@ export function TransactionTable({
     }
     return map;
   }, [rows, transactions, openingBalance, selectedLedgerName, sort]);
-  const heading = (key: SortKey, label: string, right = false) => (
-    <th className={right ? "right" : ""}>
-      <button
-        className="column-sort"
-        onClick={() =>
-          setSort((current) => ({
-            key,
-            direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
-          }))
-        }
-      >
-        {label}
-        <span
-          className="sort-mark"
-          data-direction={sort.key === key ? sort.direction : "none"}
-          aria-hidden="true"
+
+  const gridRows = useMemo(
+    () =>
+      rows.map((t) => ({
+        id: t.guid,
+        voucher: t,
+        date: t.date,
+        type: t.type,
+        number: t.number,
+        debit: debit(t),
+        credit: credit(t),
+        narration: text(t.narration) || "-",
+        amount: ledgerSignedAmount(t, selectedLedgerName),
+        balance: balanceMap?.get(t.guid) ?? null,
+      })),
+    [rows, selectedLedgerName, balanceMap]
+  );
+
+  const filterField = (key: SortKey, label: string, placeholder: string) => (
+    <label key={key}>
+      {label}
+      <input
+        aria-label={`Filter ${placeholder}`}
+        value={filters[key]}
+        onChange={(e) => setFilters((current) => ({ ...current, [key]: e.target.value }))}
+        placeholder="All"
+      />
+    </label>
+  );
+
+  const columns: GridColDef<(typeof gridRows)[number]>[] = [
+    {
+      field: "date",
+      headerName: "Date",
+      width: 100,
+      valueFormatter: (v: string) => v.split("-").reverse().join("-"),
+    },
+    {
+      field: "type",
+      headerName: "Type",
+      width: 130,
+      renderCell: (params) => (
+        <span className={`pill ${params.row.voucher.cancelled ? "cancelled" : ""}`}>
+          {params.row.type}
+          {params.row.voucher.cancelled ? " - Cancelled" : ""}
+        </span>
+      ),
+    },
+    {
+      field: "number",
+      headerName: "#",
+      width: 70,
+      renderCell: (params) => (
+        <button className="voucher-reference" onClick={() => onView(params.row.voucher)}>
+          {params.row.number || "-"}
+        </button>
+      ),
+    },
+    { field: "debit", headerName: "Debit Ledger", flex: 1.1, minWidth: 140 },
+    { field: "credit", headerName: "Credit Ledger", flex: 1.1, minWidth: 140 },
+    { field: "narration", headerName: "Narration", flex: 1.6, minWidth: 180 },
+    {
+      field: "amount",
+      headerName: "Amount",
+      type: "number",
+      width: 130,
+      valueFormatter: (v: number) => formatAmount(v),
+    },
+    ...(balanceMap
+      ? ([
+          {
+            field: "balance",
+            headerName: "Balance",
+            type: "number",
+            width: 130,
+            valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),
+          },
+        ] as GridColDef<(typeof gridRows)[number]>[])
+      : []),
+    {
+      field: "action",
+      headerName: "Action",
+      width: 90,
+      sortable: false,
+      filterable: false,
+      disableColumnMenu: true,
+      renderCell: (params) => (
+        <ActionMenuCell
+          t={params.row.voucher}
+          closed={isClosed(params.row.voucher)}
+          onEdit={onEdit}
+          onCopy={onCopy}
+          onDelete={onDelete}
         />
-      </button>
-    </th>
-  );
-  const filter = (key: SortKey, placeholder: string) => (
-    <input
-      aria-label={`Filter ${placeholder}`}
-      value={filters[key]}
-      onChange={(e) => setFilters((current) => ({ ...current, [key]: e.target.value }))}
-      placeholder="All"
-    />
-  );
+      ),
+    },
+  ];
+
+  const sortModel: GridSortModel = [{ field: sort.key, sort: sort.direction }];
+
   return (
     <div className="excel-table">
       <div className="excel-toolbar">
@@ -242,140 +377,42 @@ export function TransactionTable({
           Clear all filters
         </button>
       </div>
-      <div
-        className="table-scroll top-scroll"
-        ref={topScroll}
-        onScroll={(e) => {
-          if (bottomScroll.current) bottomScroll.current.scrollLeft = e.currentTarget.scrollLeft;
-        }}
-      >
-        <div style={{ width: tableWidth }} />
+      <div className="table-filters">
+        {filterField("date", "Date", "date")}
+        {filterField("type", "Type", "voucher type")}
+        {filterField("number", "#", "voucher number")}
+        {filterField("debit", "Debit Ledger", "debit ledger")}
+        {filterField("credit", "Credit Ledger", "credit ledger")}
+        {filterField("narration", "Narration", "narration")}
+        {filterField("amount", "Amount", "amount")}
       </div>
-      <div
-        className="table-scroll"
-        ref={bottomScroll}
-        onScroll={(e) => {
-          if (topScroll.current) topScroll.current.scrollLeft = e.currentTarget.scrollLeft;
-        }}
-      >
-        <table className="transaction-table">
-          <thead>
-            <tr>
-              {heading("date", "Date")}
-              {heading("type", "Type")}
-              {heading("number", "#")}
-              {heading("debit", "Debit Ledger")}
-              {heading("credit", "Credit Ledger")}
-              {heading("narration", "Narration")}
-              {heading("amount", "Amount", true)}
-              {balanceMap && <th className="right balance-col">Balance</th>}
-              <th>
-                <span className="column-sort column-sort--static">Action</span>
-              </th>
-            </tr>
-            <tr className="column-filters">
-              <th>{filter("date", "date")}</th>
-              <th>{filter("type", "voucher type")}</th>
-              <th>{filter("number", "voucher number")}</th>
-              <th>{filter("debit", "debit ledger")}</th>
-              <th>{filter("credit", "credit ledger")}</th>
-              <th>{filter("narration", "narration")}</th>
-              <th>{filter("amount", "amount")}</th>
-              {balanceMap && <th className="balance-col" />}
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((t) => (
-              <tr key={t.guid}>
-                <td className="date-cell">{t.date.split("-").reverse().join("-")}</td>
-                <td>
-                  <span className={`pill ${t.cancelled ? "cancelled" : ""}`}>
-                    {t.type}
-                    {t.cancelled ? " - Cancelled" : ""}
-                  </span>
-                </td>
-                <td>
-                  <button className="voucher-reference" onClick={() => onView(t)}>
-                    {t.number || "-"}
-                  </button>
-                </td>
-                <td>{debit(t)}</td>
-                <td>{credit(t)}</td>
-                <td>{text(t.narration) || "-"}</td>
-                <td className="right">{formatAmount(ledgerSignedAmount(t, selectedLedgerName))}</td>
-                {balanceMap && (
-                  <td className="right balance-col balance-running">
-                    {formatAmount(balanceMap.get(t.guid) ?? 0)}
-                  </td>
-                )}
-                <td>
-                  <details className="action-menu">
-                    <summary
-                      aria-label={`Actions for ${t.type} voucher ${t.number}`}
-                      title="Voucher actions"
-                    >
-                      <i className="dot edit-dot" />
-                      <i className="dot copy-dot" />
-                      <i className="dot delete-dot" />
-                    </summary>
-                    <div className="action-popover">
-                      {!t.cancelled && !isClosed(t) && (
-                        <button
-                          className="edit-voucher"
-                          onClick={(e) => {
-                            onEdit(t);
-                            (
-                              e.currentTarget.closest("details") as HTMLDetailsElement
-                            )?.removeAttribute("open");
-                          }}
-                        >
-                          Edit
-                        </button>
-                      )}
-                      <button
-                        className="copy-voucher"
-                        onClick={(e) => {
-                          onCopy(t);
-                          (
-                            e.currentTarget.closest("details") as HTMLDetailsElement
-                          )?.removeAttribute("open");
-                        }}
-                      >
-                        Copy
-                      </button>
-                      {!isClosed(t) && (
-                        <button
-                          className="delete-voucher"
-                          onClick={(e) => {
-                            onDelete(t);
-                            (
-                              e.currentTarget.closest("details") as HTMLDetailsElement
-                            )?.removeAttribute("open");
-                          }}
-                        >
-                          Delete
-                        </button>
-                      )}
-                      {isClosed(t) && (
-                        <span className="period-closed-note">Period closed — read-only</span>
-                      )}
-                    </div>
-                  </details>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th colSpan={6}>Displayed voucher total</th>
-              <th className="right">{formatAmount(filteredTotal)}</th>
-              {balanceMap && <th className="balance-col" />}
-              <th />
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      <ThemeProvider theme={appMuiTheme}>
+        <DataGrid
+          rows={gridRows}
+          columns={columns}
+          density="compact"
+          disableRowSelectionOnClick
+          disableColumnFilter
+          hideFooterSelectedRowCount
+          sortingMode="server"
+          sortingOrder={["asc", "desc"]}
+          sortModel={sortModel}
+          onSortModelChange={(model) => {
+            const next = model[0];
+            if (!next?.sort) return;
+            setSort({ key: next.field as SortKey, direction: next.sort });
+          }}
+          slots={{
+            footer: () => (
+              <div className="ledger-grid-totals">
+                <strong>Displayed voucher total</strong>
+                <span>{formatAmount(filteredTotal)}</span>
+              </div>
+            ),
+          }}
+          autoHeight
+        />
+      </ThemeProvider>
     </div>
   );
 }
