@@ -534,7 +534,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
       purchaseDate: esppForm.purchaseDate,
       shares: Number(esppForm.shares),
       offeringPrice,
-      purchasePrice: esppPurchasePrice(offeringPrice, marketPriceAtPurchase),
+      purchasePrice: esppPurchasePrice(marketPriceAtPurchase),
       marketPriceAtPurchase,
       sharesHeld: esppForm.sharesHeld !== "" ? Number(esppForm.sharesHeld) : Number(esppForm.shares),
     };
@@ -582,7 +582,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
         : {
             ...e,
             shares,
-            purchasePrice: esppPurchasePrice(e.offeringPrice, marketPriceAtPurchase),
+            purchasePrice: esppPurchasePrice(marketPriceAtPurchase),
             marketPriceAtPurchase,
             sharesHeld: shares,
             pending: false,
@@ -1694,7 +1694,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
         const e = pendingEsppRows.find((p) => p.sourceId === confirmEsppId && p.isReal);
         if (!e) return null;
         const marketPriceAtPurchase = Number(confirmEsppForm.marketPriceAtPurchase);
-        const computedPurchasePrice = marketPriceAtPurchase > 0 ? esppPurchasePrice(e.offeringPrice, marketPriceAtPurchase) : null;
+        const computedPurchasePrice = marketPriceAtPurchase > 0 ? esppPurchasePrice(marketPriceAtPurchase) : null;
         return (
           <Modal title={`Confirm ESPP Purchase — ${fmtDate(e.purchaseDate)}`} onClose={() => setConfirmEsppId(null)}>
             <p className="equity-pdf-note">Enter the real numbers from your Schwab ESPP Purchase Confirmation Statement.</p>
@@ -1718,7 +1718,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 />
               </label>
               <label>
-                Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off the lower of Offering ${e.offeringPrice.toFixed(2)} / Market FMV)
+                Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off Market FMV at purchase)
                 <input type="text" value={computedPurchasePrice !== null ? `$${computedPurchasePrice.toFixed(2)}` : ""} readOnly disabled />
               </label>
             </div>
@@ -1781,12 +1781,12 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               />
             </label>
             <label>
-              Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off the lower of Offering / Market FMV)
+              Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off Market FMV at purchase)
               <input
                 type="text"
                 value={
-                  esppForm.offeringPrice && esppForm.marketPriceAtPurchase
-                    ? `$${esppPurchasePrice(Number(esppForm.offeringPrice), Number(esppForm.marketPriceAtPurchase)).toFixed(2)}`
+                  esppForm.marketPriceAtPurchase
+                    ? `$${esppPurchasePrice(Number(esppForm.marketPriceAtPurchase)).toFixed(2)}`
                     : ""
                 }
                 readOnly

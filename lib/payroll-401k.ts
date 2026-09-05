@@ -98,12 +98,12 @@ function semiMonthlyPeriods(startYear: number, startMonth: number, endYear: numb
   return periods;
 }
 
-// NVIDIA's ESPP discount: 15% off the lower of the offering-period-start FMV or the
-// purchase-date FMV (a "lookback" plan) -- never an independently chosen number, so the actual
-// purchase price is always derivable from those two and shouldn't be entered by hand.
+// This ESPP plan has no lookback provision -- the purchase price is always exactly 15% off the
+// FMV on the purchase date itself (the Offering Price field is not part of the discount formula
+// at all), so it's never an independently chosen number and shouldn't be entered by hand.
 export const ESPP_DISCOUNT_RATE = 0.85;
-export function esppPurchasePrice(offeringPrice: number, marketPriceAtPurchase: number): number {
-  return Math.min(offeringPrice, marketPriceAtPurchase) * ESPP_DISCOUNT_RATE;
+export function esppPurchasePrice(marketPriceAtPurchase: number): number {
+  return marketPriceAtPurchase * ESPP_DISCOUNT_RATE;
 }
 
 export type EsppCycleWindow = { key: string; start: string; end: string; purchaseDate: string };
