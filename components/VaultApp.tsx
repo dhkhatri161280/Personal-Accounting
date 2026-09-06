@@ -101,6 +101,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [tab, setTab] = useState("dashboard"),
     [importSource, setImportSource] = useState<"plaid" | "schwab" | "retirement">("plaid"),
     [trashSubTab, setTrashSubTab] = useState<"deleted" | "duplicate">("deleted"),
+    // Which Masters sub-tab to land on next time it mounts -- lets the Dashboard's period-open
+    // badge jump straight to Periods instead of always defaulting to Ledgers.
+    [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "settings">("ledgers"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
     [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
@@ -1868,7 +1871,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
           Reports
         </button>
-        <button className={tab === "masters" ? "selected" : ""} onClick={() => setTab("masters")}>
+        <button
+          className={tab === "masters" ? "selected" : ""}
+          onClick={() => {
+            setMastersSection("ledgers");
+            setTab("masters");
+          }}
+        >
           Masters
         </button>
         <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")}>
@@ -1975,9 +1984,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             label = rangeLabels.length <= 2 ? rangeLabels.join(", ") : `${rangeLabels[0]}, +${rangeLabels.length - 1} more`;
           }
           return (
-            <span className={`period-open-summary ${openKeys.length === 0 ? "period-open-summary--none" : ""}`}>
+            <button
+              type="button"
+              className={`period-open-summary ${openKeys.length === 0 ? "period-open-summary--none" : ""}`}
+              title="Open period controls in Masters"
+              onClick={() => {
+                setMastersSection("periods");
+                setTab("masters");
+              }}
+            >
               Open: {label}
-            </span>
+            </button>
           );
         })()}
         <div className="period-bar-footer">
@@ -2550,7 +2567,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       {tab === "masters" && (
         <div className="data-panel">
           <MastersPanel
+            key={mastersSection}
             data={data}
+            initialSection={mastersSection}
             onSave={(next, message) => {
               const nextLedger = next as Ledger;
               // Auto-post the fiscal-year-close voucher (P&L A/c to Capital) the moment the

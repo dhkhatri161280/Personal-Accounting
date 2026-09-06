@@ -386,11 +386,17 @@ function AccountForm({
 export function MastersPanel({
   data,
   onSave,
+  initialSection,
 }: {
   data: MasterLedger;
   onSave: (next: MasterLedger, message: string) => void;
+  // Lets a caller deep-link straight into a sub-tab (e.g. the Dashboard's period-open badge
+  // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
+  // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
+  // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
+  initialSection?: "ledgers" | "groups" | "periods" | "settings";
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "settings">("ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "settings">(initialSection ?? "ledgers"),
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
     [search, setSearch] = useState("");
