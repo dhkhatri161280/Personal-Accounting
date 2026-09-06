@@ -1148,6 +1148,17 @@ function bofaCardOwnerLabel(plaidAcctName: string): string | undefined {
   return BOFA_CARD_OWNER_BY_NAME[(plaidAcctName || "").toLowerCase().trim()];
 }
 
+// Plaid's account subtype strings are lowercase ("hsa", "401k", "ira", "credit card", ...).
+// CSS text-transform:capitalize only capitalizes the first letter of each word, which is right
+// for "Credit Card"/"Checking" but wrong for acronyms -- "401k" stays "401k", not "401K". Format
+// those explicitly instead of relying on capitalize for every subtype.
+const ACCOUNT_SUBTYPE_LABELS: Record<string, string> = { hsa: "HSA", "401k": "401K", ira: "IRA" };
+function formatAcctSubtype(subtype: string): string {
+  const s = (subtype || "").toLowerCase().trim();
+  if (ACCOUNT_SUBTYPE_LABELS[s]) return ACCOUNT_SUBTYPE_LABELS[s];
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): Account | undefined {
   const inst = (plaidAcct.institution_name || "").toLowerCase();
   const isCreditAcct = plaidAcct.type === "credit";
@@ -2915,7 +2926,7 @@ export function PlaidImport({ data, onSave }: Props) {
                                 </div>
                               )}
                             </td>
-                            <td className="plaid-recon-type">{g.types.join(" / ")}</td>
+                            <td className="plaid-recon-type">{g.types.map(formatAcctSubtype).join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
                             <td
                               className={`plaid-recon-pending${unclearedItems.length > 0 || investmentMatchedEntries.length > 0 ? " plaid-recon-clickable" : ""}`}
