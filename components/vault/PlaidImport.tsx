@@ -106,6 +106,9 @@ interface Props {
   data: Ledger;
   apiUrl: string;
   onSave: (next: Ledger) => Promise<boolean>;
+  // Lets a caller (the search palette) deep-link straight into Transactions/Pending/Balances --
+  // read once on mount, same pattern as MastersPanel's initialSection.
+  initialTab?: "transactions" | "pending" | "balances";
 }
 
 function fmtMoney(n: number): string {
@@ -1305,7 +1308,7 @@ function PlaidReconnectButton({
 
 // ── Main PlaidImport component ─────────────────────────────────────────────────
 
-export function PlaidImport({ data, onSave }: Props) {
+export function PlaidImport({ data, onSave, initialTab }: Props) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -1355,7 +1358,7 @@ export function PlaidImport({ data, onSave }: Props) {
     }
   }
   const [plaidAccounts, setPlaidAccounts] = useState<PlaidAccount[]>([]);
-  const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances">("transactions");
+  const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances">(initialTab ?? "transactions");
   const [pendingRows, setPendingRows] = useState<ImportRow[]>([]);
   const [savingPending, setSavingPending] = useState(false);
   const [expandedReconIdx, setExpandedReconIdx] = useState<number | null>(null);

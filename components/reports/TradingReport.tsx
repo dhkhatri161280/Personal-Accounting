@@ -89,7 +89,7 @@ function daysBetween(d1: string, d2: string) {
   return Math.round((new Date(d2).getTime() - new Date(d1).getTime()) / 86400000);
 }
 export function TradingReport({
-  fmt, uiTheme, trades, onSave, data, onSaveLedger,
+  fmt, uiTheme, trades, onSave, data, onSaveLedger, initialTab,
 }: {
   fmt: (n: number) => string;
   uiTheme?: "classic" | "refresh";
@@ -99,8 +99,11 @@ export function TradingReport({
   // posting + comparing Trading's own cost basis against the real GL account balance).
   data?: Ledger;
   onSaveLedger?: (next: Ledger) => Promise<boolean>;
+  // Lets a caller (the search palette) deep-link straight into Open/Closed/Watchlist -- read
+  // once on mount, same pattern as MastersPanel's initialSection.
+  initialTab?: "open" | "closed" | "watchlist";
 }) {
-  const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">("open");
+  const [activeTab, setActiveTab]     = useState<"open" | "closed" | "watchlist">(initialTab ?? "open");
   // Click-any-column-header sorting, Excel-style: null = default order, otherwise sort by that
   // column's key, toggling direction on repeated clicks. Open and Closed tables sort independently.
   const [openSort, setOpenSort]     = useState<{ key: string; dir: 1 | -1 } | null>(null);

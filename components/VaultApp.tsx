@@ -106,6 +106,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "settings">("ledgers"),
     [searchOpen, setSearchOpen] = useState(false),
     [searchQuery, setSearchQuery] = useState(""),
+    // Deep-link targets for report components with their own internal sub-tabs, set by the
+    // search palette so e.g. "watchlist" or "pending transactions" lands on the right sub-view
+    // instead of just the report's default. Read once on each component's mount (see each
+    // component's own initialTab/initialViewMode prop) -- forcing a remount via `key` is what
+    // makes this take effect even when the target report is already mounted (see mastersSection
+    // for the same pattern, and why it needs the key).
+    [plaidImportTab, setPlaidImportTab] = useState<"transactions" | "pending" | "balances">("transactions"),
+    [tradingTab, setTradingTab] = useState<"open" | "closed" | "watchlist">("open"),
+    [taxViewMode, setTaxViewMode] = useState<"yearly" | "all">("yearly"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
     [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
@@ -1276,7 +1285,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "ledgers-tab", label: "Ledgers", group: "", keywords: ["trial", "balances", "accounts"], go: () => setTab("ledgers") },
     ...(book !== "india"
       ? [
-          { id: "import-plaid", label: "Plaid Import", group: "Import", keywords: ["bank", "plaid", "credit card", "checking"], go: () => { setImportSource("plaid"); setTab("bank-import"); } },
+          { id: "import-plaid", label: "Plaid Import", group: "Import", keywords: ["bank", "plaid", "credit card", "checking"], go: () => { setImportSource("plaid"); setPlaidImportTab("transactions"); setTab("bank-import"); } },
+          { id: "import-plaid-pending", label: "Plaid — Pending Transactions", group: "Import", keywords: ["pending", "unconfirmed"], go: () => { setImportSource("plaid"); setPlaidImportTab("pending"); setTab("bank-import"); } },
+          { id: "import-plaid-balances", label: "Plaid — Balances", group: "Import", keywords: ["balances", "account balance", "reconcile balance"], go: () => { setImportSource("plaid"); setPlaidImportTab("balances"); setTab("bank-import"); } },
           { id: "import-schwab", label: "Schwab Import", group: "Import", keywords: ["schwab", "dividend", "brokerage", "interest"], go: () => { setImportSource("schwab"); setTab("bank-import"); } },
           { id: "import-retirement", label: "Retirement Import", group: "Import", keywords: ["retirement", "401k", "ira", "hsa"], go: () => { setImportSource("retirement"); setTab("bank-import"); } },
         ]
@@ -1289,10 +1300,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-fyclose", label: "FY Close", group: "Reports", keywords: ["fiscal year", "year end", "closing"], go: () => { setReport("fyclose"); setTab("reports"); } },
     { id: "report-networth", label: "Net Worth", group: "Reports", keywords: ["networth"], go: () => { setReport("networth"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
-    { id: "report-trading", label: "Trading", group: "Reports", keywords: ["stocks", "broker", "trades", "portfolio"], go: () => { setReport("trading"); setTab("reports"); } },
-    { id: "report-tax", label: "Tax", group: "Reports", keywords: ["paystub", "payroll", "w2", "withholding", "bracket"], go: () => { setReport("tax"); setTab("reports"); } },
+    ...(book !== "india"
+      ? [
+          { id: "report-trading", label: "Trading", group: "Reports", keywords: ["stocks", "broker", "trades", "portfolio", "open positions"], go: () => { setTradingTab("open"); setReport("trading"); setTab("reports"); } },
+          { id: "report-trading-closed", label: "Trading — Closed Positions", group: "Reports", keywords: ["closed positions", "sold trades", "realized"], go: () => { setTradingTab("closed"); setReport("trading"); setTab("reports"); } },
+          { id: "report-trading-watchlist", label: "Trading — Watchlist", group: "Reports", keywords: ["watchlist", "stocks to buy", "buy list"], go: () => { setTradingTab("watchlist"); setReport("trading"); setTab("reports"); } },
+        ]
+      : []),
+    { id: "report-tax", label: "Tax", group: "Reports", keywords: ["paystub", "payroll", "w2", "withholding", "bracket"], go: () => { setTaxViewMode("yearly"); setReport("tax"); setTab("reports"); } },
+    ...(book === "india"
+      ? [
+          { id: "report-tax-all-years", label: "Tax — All Years", group: "Reports", keywords: ["all years", "multi year", "history", "payroll history"], go: () => { setTaxViewMode("all"); setReport("tax"); setTab("reports"); } },
+        ]
+      : []),
     { id: "report-recon", label: "Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
-    { id: "report-trash", label: "Trash", group: "Reports", keywords: ["deleted", "duplicate"], go: () => { setReport("trash"); setTab("reports"); } },
+    { id: "report-trash", label: "Trash", group: "Reports", keywords: [], go: () => { setReport("trash"); setTab("reports"); } },
+    { id: "report-trash-deleted", label: "Trash — Deleted", group: "Reports", keywords: ["deleted"], go: () => { setTrashSubTab("deleted"); setReport("trash"); setTab("reports"); } },
+    { id: "report-trash-duplicate", label: "Trash — Duplicate", group: "Reports", keywords: ["duplicate", "duplicates"], go: () => { setTrashSubTab("duplicate"); setReport("trash"); setTab("reports"); } },
     { id: "masters-ledgers", label: "Ledger Accounts", group: "Masters", keywords: ["chart of accounts", "new ledger", "edit ledger"], go: () => { setMastersSection("ledgers"); setTab("masters"); } },
     { id: "masters-groups", label: "Account Groups", group: "Masters", keywords: ["groups"], go: () => { setMastersSection("groups"); setTab("masters"); } },
     { id: "masters-periods", label: "Periods", group: "Masters", keywords: ["close period", "open period", "fiscal year"], go: () => { setMastersSection("periods"); setTab("masters"); } },
@@ -1934,7 +1958,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           Day Book
         </button>
         {book !== "india" && (
-          <button className={tab === "bank-import" ? "selected" : ""} onClick={() => setTab("bank-import")}>
+          <button
+            className={tab === "bank-import" ? "selected" : ""}
+            onClick={() => {
+              setPlaidImportTab("transactions");
+              setTab("bank-import");
+            }}
+          >
             Import
           </button>
         )}
@@ -2419,8 +2449,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {(importSource === "plaid" || book === "india") && (
             <div className="data-panel">
               <PlaidImport
+                key={plaidImportTab}
                 data={data}
                 apiUrl={apiUrl}
+                initialTab={plaidImportTab}
                 onSave={(next) => save(next, "bank-import")}
               />
             </div>
@@ -2769,14 +2801,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             {book !== "india" && (
               <button
                 className={report === "trading" ? "selected" : ""}
-                onClick={() => setReport("trading")}
+                onClick={() => {
+                  setTradingTab("open");
+                  setReport("trading");
+                }}
               >
                 Trading
               </button>
             )}
             <button
               className={report === "tax" ? "selected" : ""}
-              onClick={() => setReport("tax")}
+              onClick={() => {
+                setTaxViewMode("yearly");
+                setReport("tax");
+              }}
             >
               Tax
             </button>
@@ -3347,6 +3385,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "trading" && data && (
             <TradingReport
+              key={tradingTab}
               fmt={fmt}
               uiTheme={uiTheme}
               trades={data.trades}
@@ -3355,10 +3394,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               }}
               data={data}
               onSaveLedger={(next) => save(next, "reports")}
+              initialTab={tradingTab}
             />
           )}
           {report === "tax" && data && book === "india" && (
             <IndiaTaxReport
+              key={taxViewMode}
               indiaTax={data.indiaTax}
               onSave={async (indiaTax) => {
                 await save({ ...data, indiaTax }, "reports");
@@ -3367,6 +3408,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               uiTheme={uiTheme}
               transactions={data.transactions}
               accounts={data.accounts}
+              initialViewMode={taxViewMode}
             />
           )}
           {report === "tax" && data && book !== "india" && (

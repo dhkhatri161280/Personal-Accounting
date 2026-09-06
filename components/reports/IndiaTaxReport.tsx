@@ -172,9 +172,12 @@ interface IndiaTaxReportProps {
   // confirms rather than a silent auto-fill. Optional since not every caller has ledger data.
   transactions?: Tx[];
   accounts?: Account[];
+  // Lets a caller (the search palette) deep-link straight into Yearly/All Years -- read once on
+  // mount, same pattern as MastersPanel's initialSection.
+  initialViewMode?: "yearly" | "all";
 }
 
-export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, accounts }: IndiaTaxReportProps) {
+export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, accounts, initialViewMode }: IndiaTaxReportProps) {
   const payslipFileInputRef = useRef<HTMLInputElement>(null);
   const itrFileInputRef = useRef<HTMLInputElement>(null);
   const [payslipPassword, setPayslipPassword] = useState("");
@@ -182,7 +185,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
   const [payslipImportErrors, setPayslipImportErrors] = useState<string[]>([]);
   const [payslipImportProgress, setPayslipImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [selectedFy, setSelectedFy] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"yearly" | "all">("yearly");
+  const [viewMode, setViewMode] = useState<"yearly" | "all">(initialViewMode ?? "yearly");
   const [exportingReconciliation, setExportingReconciliation] = useState(false);
   const [exportingAllYearsReconciliation, setExportingAllYearsReconciliation] = useState(false);
   const [allYearsTab, setAllYearsTab] = useState<"payroll" | "tax" | "detail">("payroll");
