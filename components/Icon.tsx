@@ -2,7 +2,7 @@
 
 export type IconKind =
   | "cash" | "bank" | "trending-up" | "receipt" | "stock"
-  | "shield" | "tag" | "wallet" | "scale" | "calendar";
+  | "shield" | "tag" | "wallet" | "scale" | "calendar" | "search";
 
 const PATHS: Record<IconKind, React.ReactNode> = {
   cash: (
@@ -64,6 +64,12 @@ const PATHS: Record<IconKind, React.ReactNode> = {
     <>
       <rect x="3" y="5" width="18" height="16" rx="2" />
       <path d="M16 3v4M8 3v4M3 10h18" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
     </>
   ),
 };

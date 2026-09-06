@@ -63,7 +63,7 @@ import { RetirementReport } from "@/components/reports/RetirementReport";
 import { TaxReport } from "@/components/reports/TaxReport";
 import { IndiaTaxReport } from "@/components/reports/IndiaTaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
-import { StatIcon } from "@/components/Icon";
+import { StatIcon, Icon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -104,6 +104,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // Which Masters sub-tab to land on next time it mounts -- lets the Dashboard's period-open
     // badge jump straight to Periods instead of always defaulting to Ledgers.
     [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "settings">("ledgers"),
+    [searchOpen, setSearchOpen] = useState(false),
+    [searchQuery, setSearchQuery] = useState(""),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
     [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
@@ -604,6 +606,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       })
       .catch(() => {});
   }, [data?.equity]);
+
+  // Ctrl/Cmd+K opens the search palette from anywhere -- a bonus for keyboard users on top of
+  // the visible search icon, which stays the primary (and only, on touch devices) entry point.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Live 401(k)/IRA balance (Fidelity + Merrill) via the same Plaid Balances product the
   // Retirement tab uses -- fetched once here too so Net Worth can value retirement accounts at
@@ -1250,6 +1265,61 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       detail: `Fiscal-year closing voucher can't auto-post yet (${fyCloseCheck.message}) — fix the ledger setup in Masters → Ledgers before March.`,
     });
   }
+
+  // Command-palette destinations: every report/masters/import sub-tab plus the top-level tabs,
+  // searchable by extra keywords/aliases beyond their on-screen label (e.g. "ESPP"/"RSU"/"vest"
+  // all resolve to the Equity report, since that's where that data actually lives).
+  type SearchDest = { id: string; label: string; group: string; keywords: string[]; go: () => void };
+  const searchDestinations: SearchDest[] = [
+    { id: "dashboard", label: "Dashboard", group: "", keywords: [], go: () => setTab("dashboard") },
+    { id: "daybook", label: "Day Book", group: "", keywords: ["vouchers", "transactions", "journal"], go: () => setTab("daybook") },
+    { id: "ledgers-tab", label: "Ledgers", group: "", keywords: ["trial", "balances", "accounts"], go: () => setTab("ledgers") },
+    ...(book !== "india"
+      ? [
+          { id: "import-plaid", label: "Plaid Import", group: "Import", keywords: ["bank", "plaid", "credit card", "checking"], go: () => { setImportSource("plaid"); setTab("bank-import"); } },
+          { id: "import-schwab", label: "Schwab Import", group: "Import", keywords: ["schwab", "dividend", "brokerage", "interest"], go: () => { setImportSource("schwab"); setTab("bank-import"); } },
+          { id: "import-retirement", label: "Retirement Import", group: "Import", keywords: ["retirement", "401k", "ira", "hsa"], go: () => { setImportSource("retirement"); setTab("bank-import"); } },
+        ]
+      : []),
+    { id: "report-trial", label: "Trial Balance", group: "Reports", keywords: ["tb"], go: () => { setReport("trial"); setTab("reports"); } },
+    { id: "report-income", label: "Income & Expenditure", group: "Reports", keywords: ["income", "expenditure", "expense", "profit", "loss", "p&l"], go: () => { setReport("income"); setTab("reports"); } },
+    { id: "report-balance", label: "Balance Sheet", group: "Reports", keywords: ["assets", "liabilities"], go: () => { setReport("balance"); setTab("reports"); } },
+    { id: "report-cashflow", label: "Cash Flow", group: "Reports", keywords: ["cashflow"], go: () => { setReport("cashflow"); setTab("reports"); } },
+    { id: "report-cash", label: "Cash and Bank", group: "Reports", keywords: ["cash", "bank"], go: () => { setReport("cash"); setTab("reports"); } },
+    { id: "report-fyclose", label: "FY Close", group: "Reports", keywords: ["fiscal year", "year end", "closing"], go: () => { setReport("fyclose"); setTab("reports"); } },
+    { id: "report-networth", label: "Net Worth", group: "Reports", keywords: ["networth"], go: () => { setReport("networth"); setTab("reports"); } },
+    { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
+    { id: "report-trading", label: "Trading", group: "Reports", keywords: ["stocks", "broker", "trades", "portfolio"], go: () => { setReport("trading"); setTab("reports"); } },
+    { id: "report-tax", label: "Tax", group: "Reports", keywords: ["paystub", "payroll", "w2", "withholding", "bracket"], go: () => { setReport("tax"); setTab("reports"); } },
+    { id: "report-recon", label: "Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
+    { id: "report-trash", label: "Trash", group: "Reports", keywords: ["deleted", "duplicate"], go: () => { setReport("trash"); setTab("reports"); } },
+    { id: "masters-ledgers", label: "Ledger Accounts", group: "Masters", keywords: ["chart of accounts", "new ledger", "edit ledger"], go: () => { setMastersSection("ledgers"); setTab("masters"); } },
+    { id: "masters-groups", label: "Account Groups", group: "Masters", keywords: ["groups"], go: () => { setMastersSection("groups"); setTab("masters"); } },
+    { id: "masters-periods", label: "Periods", group: "Masters", keywords: ["close period", "open period", "fiscal year"], go: () => { setMastersSection("periods"); setTab("masters"); } },
+    { id: "masters-settings", label: "Company Settings", group: "Masters", keywords: ["settings", "company", "currency", "voucher types"], go: () => { setMastersSection("settings"); setTab("masters"); } },
+  ];
+  const searchResults = (() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return searchDestinations;
+    return searchDestinations
+      .map((d) => {
+        const label = d.label.toLowerCase();
+        let rank = -1;
+        if (label.startsWith(q)) rank = 0;
+        else if (label.includes(q)) rank = 1;
+        else if (d.keywords.some((k) => k.toLowerCase().startsWith(q))) rank = 2;
+        else if (d.keywords.some((k) => k.toLowerCase().includes(q))) rank = 3;
+        return { d, rank };
+      })
+      .filter((r) => r.rank >= 0)
+      .sort((a, b) => a.rank - b.rank)
+      .map((r) => r.d);
+  })();
+  const runSearchResult = (dest: SearchDest) => {
+    dest.go();
+    setSearchOpen(false);
+    setSearchQuery("");
+  };
 
   const filteredActive = active
     .filter(
@@ -1999,6 +2069,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         })()}
         <div className="period-bar-footer">
           <span className="period-bar-note">Opening + period activity = closing</span>
+          <button
+            type="button"
+            className="search-fab"
+            onClick={() => setSearchOpen(true)}
+            title="Search reports & tabs (Ctrl/Cmd+K)"
+            aria-label="Search reports & tabs"
+          >
+            {uiTheme === "refresh" ? <StatIcon kind="search" color="#fff" /> : <Icon kind="search" size={15} />}
+          </button>
           <div className="attention-bell-wrap">
             <button
               type="button"
@@ -2060,6 +2139,35 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
         </div>
       </div>
+      {searchOpen && (
+        <FloatingWindow title="Search" onClose={() => setSearchOpen(false)} initialWidth={480} initialHeight={440}>
+          <div className="search-palette">
+            <input
+              className="search-palette-input"
+              autoFocus
+              placeholder="Try “equity”, “ESPP”, “trading”, “tax”…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && searchResults[0]) runSearchResult(searchResults[0]);
+                if (e.key === "Escape") setSearchOpen(false);
+              }}
+            />
+            <div className="search-palette-results">
+              {searchResults.length === 0 ? (
+                <p className="dashboard-inline-empty">No matches.</p>
+              ) : (
+                searchResults.map((d) => (
+                  <button key={d.id} type="button" className="search-palette-result" onClick={() => runSearchResult(d)}>
+                    <span>{d.label}</span>
+                    {d.group && <em>{d.group}</em>}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </FloatingWindow>
+      )}
       {tab === "dashboard" && (
         <section className="stats dashboard-stats">
           <div className="dashboard-card-slot cash-slot">
