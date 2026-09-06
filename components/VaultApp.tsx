@@ -51,7 +51,7 @@ import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet"
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
-import { computePendingEsppCycles } from "@/lib/payroll-401k";
+import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
@@ -1212,6 +1212,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         attentionItems.push({
           label: "ESPP purchase due",
           detail: `Purchase cycle ending ${c.purchaseDate} is ready to confirm in Reports → Equity.`,
+        });
+      }
+    }
+    // Every confirmed ESPP purchase's stored purchasePrice must equal marketPriceAtPurchase * 15%
+    // discount (no lookback -- see lib/payroll-401k.ts's esppPurchasePrice). A mismatch means the
+    // record predates that rule being confirmed (e.g. seeded/entered under a wrong assumption)
+    // and its cost basis -- and therefore its reported gain -- is understated or overstated.
+    for (const e of data.equity.esppPurchases ?? []) {
+      if (e.pending) continue;
+      const expected = esppPurchasePrice(e.marketPriceAtPurchase);
+      if (Math.abs(e.purchasePrice - expected) > 0.005) {
+        attentionItems.push({
+          label: "ESPP purchase price mismatch",
+          detail: `${fmtGrantDate(e.purchaseDate)} purchase (${e.shares} sh) shows $${e.purchasePrice.toFixed(2)}/sh, but 15% off the $${e.marketPriceAtPurchase.toFixed(2)} FMV is $${expected.toFixed(2)}/sh — fix it in Reports → Equity.`,
         });
       }
     }
