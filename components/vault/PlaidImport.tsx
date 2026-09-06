@@ -12,7 +12,7 @@ import {
 } from "@/lib/mortgage-amortization";
 import { isCcAcct, isBankAcct, enforceContraType } from "@/lib/plaid-classify";
 import { matchRecurringTemplate, buildVoucherFromTemplate, currentPeriodKey } from "@/lib/recurring";
-import { vaultBookBalance } from "@/lib/plaid-recon";
+import { vaultBookBalance, findAcct, matchVaultAccount, bofaCardGlAccountName } from "@/lib/plaid-recon";
 import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -148,26 +148,6 @@ function isPayroll(tx: PlaidTxRaw) {
   if (tx.amount >= 0) return false; // must be a deposit (money in)
   const desc = `${tx.name} ${tx.merchant_name || ""}`;
   return PAYROLL_PATTERNS.some((p) => p.test(desc));
-}
-
-// ── Account finder helpers ─────────────────────────────────────────────────────
-
-function findAcct(accounts: Account[], ...names: string[]): Account | undefined {
-  // Two passes: try an EXACT match for every candidate name first (in priority order), and
-  // only fall back to substring matching if none of them hit. Previously this checked exact
-  // *and* substring for name[0] before ever trying name[1]'s exact match -- so a later, more
-  // specific candidate's exact match could lose to an earlier candidate's accidental substring
-  // match against an unrelated account (e.g. a short generic alias like "BofA" substring-matching
-  // whichever of two real BofA accounts happens to sit first, non-deterministically).
-  for (const name of names) {
-    const exact = accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
-    if (exact) return exact;
-  }
-  for (const name of names) {
-    const lc = name.toLowerCase();
-    const partial = accounts.find((a) => a.name.toLowerCase().includes(lc));
-    if (partial) return partial;
-  }
 }
 
 // ── House Hold Exps monthly account helpers ───────────────────────────────────
@@ -1135,19 +1115,6 @@ function vaultUnclearedEntries(accountId: number, ledger: Ledger) {
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
-// Two physical BofA credit cards (the user's + spouse Hiral's) share one institution but post
-// to two separate GL accounts, split via a one-time manual reclassification (2026-08-27).
-// Plaid's own account nickname is stable per physical card, so it's the one reliable signal to
-// tell them apart -- institution name/type alone can't, since both are "BofA credit".
-const BOFA_CARD_GL_BY_NAME: Record<string, string> = {
-  "customized cash rewards visa signature": "Credit Card - BofA - Hiral",
-  "unlimited cash rewards visa signature": "Credit Card - BofA",
-};
-
-function bofaCardGlAccountName(plaidAcctName: string): string | undefined {
-  return BOFA_CARD_GL_BY_NAME[(plaidAcctName || "").toLowerCase().trim()];
-}
-
 // Display-only label suffix for the Balances tab so it's obvious at a glance whose card each
 // row is, without having to cross-reference the GL account column.
 const BOFA_CARD_OWNER_BY_NAME: Record<string, string> = {
@@ -1170,39 +1137,6 @@ function formatAcctSubtype(subtype: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function matchVaultAccount(plaidAcct: PlaidAccount, vaultAccounts: Account[]): Account | undefined {
-  const inst = (plaidAcct.institution_name || "").toLowerCase();
-  const isCreditAcct = plaidAcct.type === "credit";
-  const isSavings = plaidAcct.subtype === "savings";
-  if (/bank.of.america|bofa/i.test(inst)) {
-    if (isCreditAcct) {
-      const specific = bofaCardGlAccountName(plaidAcct.name);
-      return findAcct(vaultAccounts, ...(specific ? [specific] : []), "Credit Card - BofA", "BofA Credit Card");
-    }
-    if (isSavings)
-      return findAcct(vaultAccounts, "Saving Account", "Savings Account", "BofA Savings", "Savings");
-    return findAcct(vaultAccounts, "Bank Of America", "Bank of America");
-  }
-  if (/american express|amex/i.test(inst))
-    return findAcct(vaultAccounts, "AMEX Credit Card", "American Express", "Amex");
-  if (/chase/i.test(inst))
-    return isCreditAcct
-      ? findAcct(vaultAccounts, "Chase Credit Card")
-      : findAcct(vaultAccounts, "Chase Bank", "Chase");
-  if (/citi(?!zen)/i.test(inst))
-    return findAcct(vaultAccounts, "Citi Credit Card", "Citibank", "Citi");
-  if (/wells.fargo/i.test(inst))
-    return findAcct(vaultAccounts, "Wells Fargo");
-  // Fidelity: only the HSA has a real Bank-group ledger to reconcile against (see
-  // "HSA Fidelity Account") -- the 401(k) is intentionally NOT tracked as a bank-type account
-  // (its ledger equivalent, "401K Investments", tracks cumulative payroll contributions under the
-  // Retirement group, not a balance meant to match Fidelity's real number). Leaving 401(k) match
-  // undefined here is correct, not an oversight -- it shows up informational-only, no vault
-  // balance/difference column, same as before this HSA rule existed.
-  if (/fidelity/i.test(inst) && plaidAcct.subtype === "hsa")
-    return findAcct(vaultAccounts, "HSA Fidelity Account");
-  return undefined;
-}
 
 // ── PlaidConnectButton sub-component ──────────────────────────────────────────
 

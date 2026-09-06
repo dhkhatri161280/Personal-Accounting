@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { vaultBookBalance, matchAccountToVault, reconciliationStatusForAccounts, type PlaidAccountSummary, type PlaidTxSummary } from "../lib/plaid-recon.ts";
+import { vaultBookBalance, matchVaultAccount, reconciliationStatusForAccounts, type PlaidAccountSummary, type PlaidTxSummary } from "../lib/plaid-recon.ts";
 import type { Ledger } from "../lib/vault-types.ts";
 
 function baseLedger(overrides: Partial<Ledger> = {}): Ledger {
@@ -9,6 +9,9 @@ function baseLedger(overrides: Partial<Ledger> = {}): Ledger {
     accounts: [
       { id: 1, name: "Bank Of America", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 },
       { id: 2, name: "Groceries", parent: "Indirect Expenses", category: "Expense", currency: "USD", openingBalance: 0 },
+      { id: 3, name: "Saving Account", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 },
+      { id: 4, name: "Credit Card - BofA", parent: "Current Liabilities", category: "Liability", currency: "USD", openingBalance: 0 },
+      { id: 5, name: "Credit Card - BofA - Hiral", parent: "Current Liabilities", category: "Liability", currency: "USD", openingBalance: 0 },
     ],
     transactions: [],
     ...overrides,
@@ -28,14 +31,26 @@ test("vaultBookBalance: depository balance flips sign (Dr increases asset), cred
   assert.equal(vaultBookBalance(1, "credit", ledger), -100);
 });
 
-test("matchAccountToVault matches by exact Plaid account name or institution name, case-insensitively", () => {
+test("matchVaultAccount: BofA checking vs. savings resolve to their own distinct vault ledgers, not the same one", () => {
   const vaultAccounts = baseLedger().accounts;
-  const byName: PlaidAccountSummary = { account_id: "a1", type: "depository", name: "bank of america", institution_name: "Some Other Name", balances: { current: 100 } };
-  const byInstitution: PlaidAccountSummary = { account_id: "a2", type: "depository", name: "Checking ...1234", institution_name: "Bank Of America", balances: { current: 100 } };
-  const noMatch: PlaidAccountSummary = { account_id: "a3", type: "depository", name: "Random", institution_name: "Random Bank", balances: { current: 100 } };
-  assert.equal(matchAccountToVault(byName, vaultAccounts)?.id, 1);
-  assert.equal(matchAccountToVault(byInstitution, vaultAccounts)?.id, 1);
-  assert.equal(matchAccountToVault(noMatch, vaultAccounts), undefined);
+  const checking: PlaidAccountSummary = { account_id: "a1", type: "depository", subtype: "checking", name: "Adv Plus Banking", institution_name: "Bank of America", balances: { current: 100 } };
+  const savings: PlaidAccountSummary = { account_id: "a2", type: "depository", subtype: "savings", name: "Advantage Savings", institution_name: "Bank of America", balances: { current: 25000 } };
+  assert.equal(matchVaultAccount(checking, vaultAccounts)?.id, 1);
+  assert.equal(matchVaultAccount(savings, vaultAccounts)?.id, 3);
+});
+
+test("matchVaultAccount: two BofA credit cards with distinct nicknames resolve to their own separate GL accounts", () => {
+  const vaultAccounts = baseLedger().accounts;
+  const dkCard: PlaidAccountSummary = { account_id: "c1", type: "credit", subtype: "credit card", name: "Unlimited Cash Rewards Visa Signature", institution_name: "Bank of America", balances: { current: 7.1 } };
+  const hiralCard: PlaidAccountSummary = { account_id: "c2", type: "credit", subtype: "credit card", name: "Customized Cash Rewards Visa Signature", institution_name: "Bank of America", balances: { current: 57.19 } };
+  assert.equal(matchVaultAccount(dkCard, vaultAccounts)?.id, 4);
+  assert.equal(matchVaultAccount(hiralCard, vaultAccounts)?.id, 5);
+});
+
+test("matchVaultAccount: an unrecognized institution is simply omitted, no fuzzy guessing", () => {
+  const vaultAccounts = baseLedger().accounts;
+  const unrelated: PlaidAccountSummary = { account_id: "a3", type: "depository", subtype: "checking", name: "Random", institution_name: "Some Credit Union", balances: { current: 100 } };
+  assert.equal(matchVaultAccount(unrelated, vaultAccounts), undefined);
 });
 
 test("reconciliationStatusForAccounts: matched balances produce zero diff and no unmatched items", () => {
@@ -48,7 +63,7 @@ test("reconciliationStatusForAccounts: matched balances produce zero diff and no
     ],
   });
   const plaidAccounts: PlaidAccountSummary[] = [
-    { account_id: "a1", type: "depository", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
   ];
   const plaidTransactions: PlaidTxSummary[] = [
     // A $50 deposit to the bank: vault records it as a Cr(+50) on Bank Of America; Plaid
@@ -65,7 +80,7 @@ test("reconciliationStatusForAccounts: matched balances produce zero diff and no
 test("reconciliationStatusForAccounts: flags an unmatched Plaid transaction and a nonzero diff", () => {
   const ledger = baseLedger();
   const plaidAccounts: PlaidAccountSummary[] = [
-    { account_id: "a1", type: "depository", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
   ];
   const plaidTransactions: PlaidTxSummary[] = [
     { transaction_id: "t1", date: "2026-08-05", name: "Grocery Store", amount: 50, account_id: "a1" },
@@ -78,25 +93,24 @@ test("reconciliationStatusForAccounts: flags an unmatched Plaid transaction and 
 test("reconciliationStatusForAccounts: an unrelated Plaid account with no vault match is simply omitted", () => {
   const ledger = baseLedger();
   const plaidAccounts: PlaidAccountSummary[] = [
-    { account_id: "a1", type: "depository", name: "Random", institution_name: "Some Credit Union", balances: { current: 100 } },
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Random", institution_name: "Some Credit Union", balances: { current: 100 } },
   ];
   const results = reconciliationStatusForAccounts(ledger, plaidAccounts, [], "2026-09-06");
   assert.equal(results.length, 0);
 });
 
-test("reconciliationStatusForAccounts: several Plaid accounts under one institution that all fall back to the same vault account are combined into ONE row, not one per Plaid account", () => {
+test("reconciliationStatusForAccounts: two unrecognized BofA cards both fall back to the shared 'Credit Card - BofA' GL and combine into ONE row, not a separate row each", () => {
   const ledger = baseLedger();
-  // Neither "Adv Plus Banking" nor "Way2Save" matches the vault's "Bank Of America" ledger by
-  // name, so both fall back to institution-name matching -- this is the exact real-world shape
-  // that used to produce 4 misleading "need attention" rows all comparing against the same
-  // vault balance (the bug report this test guards against).
+  // Neither nickname is in the known BOFA_CARD_GL_BY_NAME map, so both fall back to the generic
+  // "Credit Card - BofA" match -- this is the one case that's still SUPPOSED to combine into a
+  // single row (unlike checking/savings/named-cards, which each resolve to their own ledger).
   const plaidAccounts: PlaidAccountSummary[] = [
-    { account_id: "checking", type: "depository", name: "Adv Plus Banking", institution_name: "Bank Of America", balances: { current: 100, available: 100 } },
-    { account_id: "savings", type: "depository", name: "Way2Save", institution_name: "Bank Of America", balances: { current: 25000, available: 25000 } },
+    { account_id: "c1", type: "credit", subtype: "credit card", name: "Some New Card Product", institution_name: "Bank of America", balances: { current: 10 } },
+    { account_id: "c2", type: "credit", subtype: "credit card", name: "Another New Card Product", institution_name: "Bank of America", balances: { current: 20 } },
   ];
   const results = reconciliationStatusForAccounts(ledger, plaidAccounts, [], "2026-09-06");
   assert.equal(results.length, 1);
+  assert.equal(results[0].account.id, 4);
   assert.equal(results[0].plaidAccounts.length, 2);
-  // Plaid balance is the SUM of both physical accounts, not either one alone.
-  assert.equal(results[0].plaidBalance, 25100);
+  assert.equal(results[0].plaidBalance, 30);
 });

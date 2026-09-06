@@ -22,8 +22,9 @@ export function vaultBookBalance(accountId: number, plaidType: string, ledger: L
 export type PlaidAccountSummary = {
   account_id: string;
   type: string;
+  subtype: string;
   name: string;
-  institution_name: string;
+  institution_name?: string;
   balances: { current: number | null; available?: number | null };
 };
 export type PlaidTxSummary = {
@@ -35,20 +36,64 @@ export type PlaidTxSummary = {
   pending?: boolean;
 };
 
-// Maps one Plaid account to a vault GL account by exact (case-insensitive) name match against
-// either the Plaid account's own name or its institution name -- deliberately no fuzzy/alias
-// guessing here (unlike buildDraft()'s heuristics elsewhere), since a wrong pairing in a
-// reconciliation report is worse than simply omitting an account this can't confidently match.
-export function matchAccountToVault(plaidAccount: PlaidAccountSummary, vaultAccounts: Account[]): Account | undefined {
-  const candidates = [plaidAccount.name, plaidAccount.institution_name].map((s) => s.toLowerCase().trim());
-  return vaultAccounts.find((a) => candidates.includes(a.name.toLowerCase().trim()));
+// A pure relocation from components/vault/PlaidImport.tsx -- generic ledger-name lookup used
+// throughout that file's own matching heuristics. Two passes: try an EXACT match for every
+// candidate name first (in priority order), only falling back to substring matching if none hit.
+export function findAcct(accounts: Account[], ...names: string[]): Account | undefined {
+  for (const name of names) {
+    const exact = accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
+    if (exact) return exact;
+  }
+  for (const name of names) {
+    const lc = name.toLowerCase();
+    const partial = accounts.find((a) => a.name.toLowerCase().includes(lc));
+    if (partial) return partial;
+  }
+}
+
+// A pure relocation from components/vault/PlaidImport.tsx -- two physical BofA cards map to two
+// separate GL accounts; Plaid's own account nickname is the one stable signal that tells them
+// apart (institution name/type alone can't, since both are "BofA credit").
+const BOFA_CARD_GL_BY_NAME: Record<string, string> = {
+  "customized cash rewards visa signature": "Credit Card - BofA - Hiral",
+  "unlimited cash rewards visa signature": "Credit Card - BofA",
+};
+export function bofaCardGlAccountName(plaidAcctName: string): string | undefined {
+  return BOFA_CARD_GL_BY_NAME[(plaidAcctName || "").toLowerCase().trim()];
+}
+
+// A pure relocation from components/vault/PlaidImport.tsx's `matchVaultAccount` -- the SAME
+// hand-tuned per-institution matcher the (proven, working) Balances tab already uses, reused here
+// instead of a weaker from-scratch matcher. An earlier version of this file matched by raw
+// institution name alone, which collapsed several distinct physical accounts at one bank (e.g.
+// BofA checking + savings + two credit cards) onto a single vault ledger and produced misleading
+// "need attention" rows comparing against the wrong balance entirely -- this is the real fix for
+// that, not a heuristic patch on top of the broken matcher.
+export function matchVaultAccount(plaidAcct: PlaidAccountSummary, vaultAccounts: Account[]): Account | undefined {
+  const inst = (plaidAcct.institution_name || "").toLowerCase();
+  const isCreditAcct = plaidAcct.type === "credit";
+  const isSavings = plaidAcct.subtype === "savings";
+  if (/bank.of.america|bofa/i.test(inst)) {
+    if (isCreditAcct) {
+      const specific = bofaCardGlAccountName(plaidAcct.name);
+      return findAcct(vaultAccounts, ...(specific ? [specific] : []), "Credit Card - BofA", "BofA Credit Card");
+    }
+    if (isSavings) return findAcct(vaultAccounts, "Saving Account", "Savings Account", "BofA Savings", "Savings");
+    return findAcct(vaultAccounts, "Bank Of America", "Bank of America");
+  }
+  if (/american express|amex/i.test(inst)) return findAcct(vaultAccounts, "AMEX Credit Card", "American Express", "Amex");
+  if (/chase/i.test(inst))
+    return isCreditAcct ? findAcct(vaultAccounts, "Chase Credit Card") : findAcct(vaultAccounts, "Chase Bank", "Chase");
+  if (/citi(?!zen)/i.test(inst)) return findAcct(vaultAccounts, "Citi Credit Card", "Citibank", "Citi");
+  if (/wells.fargo/i.test(inst)) return findAcct(vaultAccounts, "Wells Fargo");
+  if (/fidelity/i.test(inst) && plaidAcct.subtype === "hsa") return findAcct(vaultAccounts, "HSA Fidelity Account");
+  return undefined;
 }
 
 export type ReconAccountStatus = {
   account: Account;
-  // One vault account can have several physical Plaid accounts behind it (e.g. a bank exposes
-  // checking + savings under one institution, and neither name matches the vault ledger's name
-  // closely enough to tell them apart) -- all of them, not just one.
+  // One vault account can have several physical Plaid accounts behind it (e.g. two BofA credit
+  // cards that both map to the same shared card GL account) -- all of them, not just one.
   plaidAccounts: PlaidAccountSummary[];
   plaidBalance: number; // summed across plaidAccounts
   vaultBalance: number;
@@ -74,14 +119,9 @@ function vaultTxAccountAmount(t: Tx, accountId: number): number {
 // Per matched account: live Plaid balance vs. the vault's own computed balance, plus a simple
 // two-way date+amount comparison (not Plaid Import's multi-pattern alreadyImported() matcher) --
 // what's in Plaid but not yet posted to the vault, and what's posted to the vault but Plaid
-// hasn't reported (deliberately un-adjusted for pending/uncleared items -- see lib/plaid-recon.ts's
-// module doc in the Bank Reconciliation report for why that tradeoff was made).
-//
-// Grouped by matched vault account, not one row per Plaid account -- an institution that exposes
-// several physical accounts (checking + savings) under names that don't individually match any
-// vault ledger all fall back to the SAME institution-name match, and without grouping that
-// produced several rows all comparing the identical vault balance against different Plaid
-// balances, which reads as "4 accounts need attention" when it's really one ambiguous mapping.
+// hasn't reported (deliberately un-adjusted for pending/uncleared items -- the Balances tab
+// remains the precise source of truth for that; this report trades some precision for a much
+// simpler, standalone "what's outstanding" view).
 export function reconciliationStatusForAccounts(
   data: Ledger,
   plaidAccounts: PlaidAccountSummary[],
@@ -97,7 +137,7 @@ export function reconciliationStatusForAccounts(
 
   const groups = new Map<number, { account: Account; plaidAccounts: PlaidAccountSummary[] }>();
   for (const pa of plaidAccounts) {
-    const account = matchAccountToVault(pa, data.accounts);
+    const account = matchVaultAccount(pa, data.accounts);
     if (!account) continue;
     const g = groups.get(account.id) ?? { account, plaidAccounts: [] };
     g.plaidAccounts.push(pa);
