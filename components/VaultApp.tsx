@@ -54,6 +54,7 @@ import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet"
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
 import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
 import { BankReconciliation } from "@/components/reports/BankReconciliation";
+import { MultiYearTrend } from "@/components/reports/MultiYearTrend";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
@@ -1349,6 +1350,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-budget", label: "Budget vs Actual", group: "Reports", keywords: ["budget", "variance", "plan", "forecast"], go: () => { setReport("budget"); setTab("reports"); } },
     { id: "report-fyclose", label: "FY Close", group: "Reports", keywords: ["fiscal year", "year end", "closing"], go: () => { setReport("fyclose"); setTab("reports"); } },
     { id: "report-networth", label: "Net Worth", group: "Reports", keywords: ["networth"], go: () => { setReport("networth"); setTab("reports"); } },
+    { id: "report-trends", label: "Trends", group: "Reports", keywords: ["multi year", "yoy", "year over year", "growth", "savings rate", "trend"], go: () => { setReport("trends"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
     ...(book !== "india"
       ? [
@@ -2917,6 +2919,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Net Worth
             </button>
+            <button
+              className={report === "trends" ? "selected" : ""}
+              onClick={() => setReport("trends")}
+            >
+              Trends
+            </button>
             {book !== "india" && (
               <button
                 className={report === "equity" ? "selected" : ""}
@@ -3676,6 +3684,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   }
                 }}
               />
+            </>
+          )}
+          {report === "trends" && data && (
+            <>
+              <h3 className="report-inline-heading">Trends</h3>
+              <MultiYearTrend data={data} fmt={fmt} onDrilldown={setColumnarDrilldown} />
             </>
           )}
         </>
