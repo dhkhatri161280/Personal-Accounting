@@ -126,7 +126,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   const [editVest, setEditVest] = useState<{ grantId: string; vestId: string } | null>(null);
   const [editVestForm, setEditVestForm] = useState({ sharesHeld: "", taxShares: "", salePrice: "" });
   const [editEsppId, setEditEsppId] = useState<string | null>(null);
-  const [editEsppForm, setEditEsppForm] = useState({ sharesHeld: "", salePrice: "" });
+  const [editEsppForm, setEditEsppForm] = useState({ sharesHeld: "", salePrice: "", marketPriceAtPurchase: "" });
 
   // ── PDF upload / parse state ───────────────────────────────────────────────
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -513,11 +513,19 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
     if (!editEsppId) return;
     const held = editEsppForm.sharesHeld !== "" ? Number(editEsppForm.sharesHeld) : undefined;
     const sp = editEsppForm.salePrice !== "" ? Number(editEsppForm.salePrice) : undefined;
+    const marketPriceAtPurchase =
+      editEsppForm.marketPriceAtPurchase !== "" ? Number(editEsppForm.marketPriceAtPurchase) : undefined;
     const next = esppPurchases.map((e) =>
       e.id !== editEsppId ? e : {
         ...e,
         sharesHeld: held ?? e.sharesHeld,
         salePrice: sp,
+        // Correcting the FMV recomputes the purchase price via the same formula the entry forms
+        // use, so a wrong historical record (e.g. seeded before the FMV-only rule was confirmed)
+        // can be fixed from here instead of being stuck with whatever was originally saved.
+        ...(marketPriceAtPurchase !== undefined
+          ? { marketPriceAtPurchase, purchasePrice: esppPurchasePrice(marketPriceAtPurchase) }
+          : {}),
       }
     );
     await doSave(grants, next);
@@ -1886,8 +1894,16 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       return (
                         <tr key={e.id} className="equity-edit-row">
                           <td colSpan={7} className="equity-cycle-indent">
-                            <strong>{fmtDate(e.purchaseDate)}</strong> — {e.shares} shares @ ${e.purchasePrice.toFixed(2)}
+                            <strong>{fmtDate(e.purchaseDate)}</strong> — {e.shares} shares @ $
+                            {editEsppForm.marketPriceAtPurchase
+                              ? esppPurchasePrice(Number(editEsppForm.marketPriceAtPurchase)).toFixed(2)
+                              : e.purchasePrice.toFixed(2)}
                             <span className="equity-edit-fields">
+                              <label>Market FMV at purchase
+                                <input type="number" value={editEsppForm.marketPriceAtPurchase}
+                                  onChange={ev => setEditEsppForm(f => ({...f, marketPriceAtPurchase: ev.target.value}))}
+                                  step="0.01" />
+                              </label>
                               <label>Shares still held
                                 <input type="number" value={editEsppForm.sharesHeld}
                                   onChange={ev => setEditEsppForm(f => ({...f, sharesHeld: ev.target.value}))}
@@ -1924,7 +1940,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                           {!readOnly && (<><button className="equity-edit-btn" title="Mark sold" onClick={(ev) => {
                             ev.stopPropagation();
                             setEditEsppId(e.id);
-                            setEditEsppForm({ sharesHeld: String(e.sharesHeld), salePrice: (e as { salePrice?: number }).salePrice ? String((e as { salePrice?: number }).salePrice) : "" });
+                            setEditEsppForm({
+                              sharesHeld: String(e.sharesHeld),
+                              salePrice: (e as { salePrice?: number }).salePrice ? String((e as { salePrice?: number }).salePrice) : "",
+                              marketPriceAtPurchase: String(e.marketPriceAtPurchase),
+                            });
                           }}>✎</button>
                           {" "}
                           <button className="equity-del-btn" onClick={(ev) => { ev.stopPropagation(); deleteEspp(e.id); }}>✕</button></>)}
