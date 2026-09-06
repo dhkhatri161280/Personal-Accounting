@@ -66,9 +66,10 @@ test("reconciliationStatusForAccounts: matched balances produce zero diff and no
     { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
   ];
   const plaidTransactions: PlaidTxSummary[] = [
-    // A $50 deposit to the bank: vault records it as a Cr(+50) on Bank Of America; Plaid
-    // represents money IN as a negative amount.
-    { transaction_id: "t1", date: "2026-08-05", name: "Grocery Store", amount: -50, account_id: "a1" },
+    // A $50 grocery payment out of the bank: vault records it as a Cr(+50) on Bank Of America
+    // (Cr decreases a depository asset); Plaid represents money OUT with a positive amount too --
+    // same sign, no flip, on this specific account (see lib/plaid-recon.ts's comment for why).
+    { transaction_id: "t1", date: "2026-08-05", name: "Grocery Store", amount: 50, account_id: "a1" },
   ];
   const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-06");
   assert.ok(status);
@@ -88,6 +89,33 @@ test("reconciliationStatusForAccounts: flags an unmatched Plaid transaction and 
   const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-06");
   assert.equal(status.diff, -50);
   assert.equal(status.unmatchedPlaid.length, 1);
+});
+
+test("reconciliationStatusForAccounts: a real matching pair (interest earned) is NOT flagged as unmatched on either side -- regression for the mirror-imaged sign bug seen live", () => {
+  const ledger = baseLedger({
+    accounts: [
+      { id: 3, name: "Saving Account", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 },
+      { id: 6, name: "Interest Income", parent: "Indirect Incomes", category: "Income", currency: "USD", openingBalance: 0 },
+    ],
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-11", number: "1", type: "Receipt", narration: "Interest Received on BofA Savings Account", historical: false,
+        // Interest earned increases the savings balance -- per vaultBookBalance, Dr (negative)
+        // increases a depository asset, so this is correctly a -0.91 entry on the savings account.
+        entries: [{ accountId: 3, accountName: "Saving Account", amount: -0.91 }, { accountId: 6, accountName: "Interest Income", amount: 0.91 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "s1", type: "depository", subtype: "savings", name: "Advantage Savings", institution_name: "Bank of America", balances: { current: 25000.91, available: 25000.91 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    // Plaid: money IN = negative, same sign as the vault's own Dr(-0.91) entry on this account.
+    { transaction_id: "t1", date: "2026-08-11", name: "Interest Earned", amount: -0.91, account_id: "s1" },
+  ];
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-06");
+  assert.equal(status.unmatchedPlaid.length, 0);
+  assert.equal(status.unmatchedVault.length, 0);
 });
 
 test("reconciliationStatusForAccounts: an unrelated Plaid account with no vault match is simply omitted", () => {

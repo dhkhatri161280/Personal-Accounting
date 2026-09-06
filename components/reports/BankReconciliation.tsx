@@ -177,7 +177,11 @@ function BankReconDetail({ row, fmt }: { row: ReconAccountStatus; fmt: (n: numbe
                   {t.date} — {t.name}
                   {t.pending && <em> (pending)</em>}
                 </span>
-                <strong>{fmt(-t.amount)}</strong>
+                {/* Same sign convention as the "In vault" column below (Plaid's amount already
+                    matches this account's Dr/Cr entry sign directly, no flip -- see
+                    lib/plaid-recon.ts) -- a genuinely matching pair reads as the identical
+                    number in both columns, making a real mismatch easy to spot by eye. */}
+                <strong>{fmt(t.amount)}</strong>
               </div>
             ))
         )}

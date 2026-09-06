@@ -161,16 +161,25 @@ export function reconciliationStatusForAccounts(
       (t) => !t.deleted && !t.cancelled && t.date >= windowStartStr && t.entries.some((e) => e.accountId === account.id)
     );
 
+    // Plaid's own transaction.amount sign, on a given account, already matches this app's Dr/Cr
+    // entry sign for THAT SAME account directly -- no flip. Proof from vaultBookBalance (already
+    // proven correct, since the balance-vs-Plaid diff above genuinely reconciles): a depository
+    // balance is `-sum(entries)`, i.e. Dr (negative) entries INCREASE it -- exactly matching
+    // Plaid's own "negative = money in" convention for a depository account. A credit-card
+    // balance is `+sum(entries)`, i.e. Cr (positive) entries increase what's owed -- exactly
+    // matching Plaid's "positive = money out (a charge)" convention there too. An earlier version
+    // of this file flipped the sign here, which produced a real bug: a genuinely-matching pair
+    // (e.g. one $0.91 interest-earned transaction) showed up as two separate "unmatched" entries,
+    // one in each column, mirror-imaged in sign.
     const unmatchedPlaid = acctPlaidTxs.filter((pt) => {
-      // Plaid: positive = money out = a vault debit (negative entry); flip sign to compare.
-      const expected = -pt.amount;
+      const expected = pt.amount;
       return !recentVaultTxs.some(
         (vt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(vaultTxAccountAmount(vt, account.id) - expected) < 0.5
       );
     });
     const unmatchedVault = recentVaultTxs.filter((vt) => {
       const amt = vaultTxAccountAmount(vt, account.id);
-      return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(-pt.amount - amt) < 0.5);
+      return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(pt.amount - amt) < 0.5);
     });
 
     results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault });
