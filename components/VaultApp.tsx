@@ -3443,6 +3443,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <h3 className="report-inline-heading">
                 Budget vs Actual — <PeriodSelect />
               </h3>
+              <ReportViewToggle exporting={exportingBudget} onExport={exportBudget} />
               <BudgetVsActual
                 data={data}
                 fy={budgetFy}
@@ -3453,8 +3454,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 }}
                 onDrilldown={setColumnarDrilldown}
                 onComputed={(periods, incomeRows, expenseRows) => setBudgetData({ periods, incomeRows, expenseRows })}
-                exporting={exportingBudget}
-                onExport={exportBudget}
+                reportView={reportView}
               />
             </>
           )}

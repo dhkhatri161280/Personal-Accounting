@@ -21,6 +21,119 @@ function varianceColor(v: number, kind: "in" | "out"): string | undefined {
   return favorable ? MONEY_IN : MONEY_OUT;
 }
 
+// Renders one account's Budget/Actual/Variance-across-periods grid -- shared by the "single"
+// view's per-row expand and the always-visible columnar (monthly/quarterly) view.
+function BudgetDetailGrid({
+  row,
+  accountIds,
+  periods,
+  fmt,
+  editing,
+  editable,
+  onEditCell,
+  onDrilldown,
+  kind,
+}: {
+  row: BudgetRow;
+  accountIds?: number[];
+  periods: PeriodBoundary[];
+  fmt: (n: number) => string;
+  editing: boolean;
+  editable: boolean;
+  onEditCell: (accountId: number, monthIndex: number, value: number) => void;
+  onDrilldown?: (req: DrilldownRequest) => void;
+  kind: "in" | "out";
+}) {
+  const ids = accountIds ?? [row.id];
+  const drill = (label: string, period: PeriodBoundary) => () =>
+    onDrilldown?.({ label, accountIds: ids, start: period.start, end: period.end });
+  return (
+    <table className="columnar-report-table budget-detail-table">
+      <thead>
+        <tr>
+          <th></th>
+          {periods.map((p) => (
+            <th className="right" key={p.key}>
+              {p.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Budget</td>
+          {periods.map((p, i) =>
+            editing && editable ? (
+              <td className="right" key={p.key}>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="budget-cell-input"
+                  value={row.monthlyBudget[i] || ""}
+                  onChange={(e) => onEditCell(row.id, i, Number(e.target.value) || 0)}
+                />
+              </td>
+            ) : (
+              <td className="right" key={p.key}>
+                {cell(row.monthlyBudget[i], fmt)}
+              </td>
+            )
+          )}
+        </tr>
+        <tr>
+          <td>Actual</td>
+          {periods.map((p, i) => (
+            <td className="right" key={p.key}>
+              {onDrilldown ? (
+                <button type="button" className="columnar-cell-btn" onClick={drill(`${row.name} — ${p.label}`, p)}>
+                  {cell(row.monthlyActual[i], fmt)}
+                </button>
+              ) : (
+                cell(row.monthlyActual[i], fmt)
+              )}
+            </td>
+          ))}
+        </tr>
+        <tr>
+          <td>Variance</td>
+          {periods.map((p, i) => {
+            const v = row.monthlyActual[i] - row.monthlyBudget[i];
+            return (
+              <td className="right" key={p.key} style={{ color: varianceColor(v, kind) }}>
+                {cell(v, fmt)}
+              </td>
+            );
+          })}
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+// Combines several accounts' per-period Budget/Actual into one summary row -- used for the
+// columnar view's group and section totals, which need the same period-by-period shape a single
+// account's BudgetRow has, not just a single annual number.
+function aggregateBudgetRow(items: BudgetRow[], periodsLen: number, name: string): BudgetRow {
+  const sumAt = (field: "monthlyBudget" | "monthlyActual", i: number) => items.reduce((s, r) => s + (r[field][i] || 0), 0);
+  const monthlyBudget = Array.from({ length: periodsLen }, (_, i) => sumAt("monthlyBudget", i));
+  const monthlyActual = Array.from({ length: periodsLen }, (_, i) => sumAt("monthlyActual", i));
+  const totalBudget = monthlyBudget.reduce((s, v) => s + v, 0);
+  const totalActual = monthlyActual.reduce((s, v) => s + v, 0);
+  const varianceAmt = totalActual - totalBudget;
+  return {
+    id: -1,
+    name,
+    parent: "",
+    category: "",
+    monthlyBudget,
+    monthlyActual,
+    totalBudget,
+    totalActual,
+    varianceAmt,
+    variancePct: Math.abs(totalBudget) > ZERO_TOL ? (varianceAmt / totalBudget) * 100 : null,
+  };
+}
+
 function BudgetSection({
   title,
   kind,
@@ -32,6 +145,7 @@ function BudgetSection({
   onToggleExpand,
   onEditCell,
   onDrilldown,
+  columnar,
 }: {
   title: string;
   kind: "in" | "out";
@@ -43,7 +157,9 @@ function BudgetSection({
   onToggleExpand: (id: number) => void;
   onEditCell: (accountId: number, monthIndex: number, value: number) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
+  columnar: boolean;
 }) {
+  const editableCells = periods.length === 12;
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (k: string) =>
     setOpenGroups((p) => {
@@ -65,6 +181,73 @@ function BudgetSection({
   const rangeStart = periods[0]?.start, rangeEnd = periods[periods.length - 1]?.end;
   const drill = (label: string, accountIds: number[]) => () =>
     onDrilldown?.({ label, accountIds, start: rangeStart, end: rangeEnd });
+
+  if (columnar) {
+    return (
+      <div className="data-panel grouped-report columnar-report-section budget-section budget-columnar-body">
+        <h3>{title}</h3>
+        {sorted.map(([group, items]) => {
+          const isE = openGroups.has(group);
+          const groupAgg = aggregateBudgetRow(items, periods.length, group);
+          return (
+            <div className="budget-columnar-group" key={group}>
+              <button type="button" className="group-heading budget-columnar-group-heading" onClick={() => toggleGroup(group)}>
+                <span className="bs-arr">{isE ? "-" : "+"}</span>
+                <strong>{group}</strong>
+              </button>
+              <div className="columnar-report-scroll">
+                <BudgetDetailGrid
+                  row={groupAgg}
+                  accountIds={items.map((r) => r.id)}
+                  periods={periods}
+                  fmt={fmt}
+                  editing={false}
+                  editable={false}
+                  onEditCell={onEditCell}
+                  onDrilldown={onDrilldown}
+                  kind={kind}
+                />
+              </div>
+              {isE &&
+                items.map((r) => (
+                  <div className="budget-columnar-account" key={r.id}>
+                    <div className="columnar-ledger-name budget-columnar-account-name">{r.name}</div>
+                    <div className="columnar-report-scroll">
+                      <BudgetDetailGrid
+                        row={r}
+                        periods={periods}
+                        fmt={fmt}
+                        editing={editing}
+                        editable={editableCells}
+                        onEditCell={onEditCell}
+                        onDrilldown={onDrilldown}
+                        kind={kind}
+                      />
+                    </div>
+                  </div>
+                ))}
+            </div>
+          );
+        })}
+        <div className="budget-columnar-group budget-columnar-total">
+          <strong>Total {title}</strong>
+          <div className="columnar-report-scroll">
+            <BudgetDetailGrid
+              row={aggregateBudgetRow(rows, periods.length, `Total ${title}`)}
+              accountIds={rows.map((r) => r.id)}
+              periods={periods}
+              fmt={fmt}
+              editing={false}
+              editable={false}
+              onEditCell={onEditCell}
+              onDrilldown={onDrilldown}
+              kind={kind}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="data-panel grouped-report columnar-report-section budget-section">
@@ -143,65 +326,16 @@ function BudgetSection({
                             <tr className="budget-detail-row">
                               <td colSpan={5}>
                                 <div className="columnar-report-scroll">
-                                  <table className="columnar-report-table budget-detail-table">
-                                    <thead>
-                                      <tr>
-                                        <th></th>
-                                        {periods.map((p) => (
-                                          <th className="right" key={p.key}>
-                                            {p.label}
-                                          </th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      <tr>
-                                        <td>Budget</td>
-                                        {periods.map((p, i) =>
-                                          editing ? (
-                                            <td className="right" key={p.key}>
-                                              <input
-                                                type="number"
-                                                step="0.01"
-                                                className="budget-cell-input"
-                                                value={r.monthlyBudget[i] || ""}
-                                                onChange={(e) => onEditCell(r.id, i, Number(e.target.value) || 0)}
-                                              />
-                                            </td>
-                                          ) : (
-                                            <td className="right" key={p.key}>
-                                              {cell(r.monthlyBudget[i], fmt)}
-                                            </td>
-                                          )
-                                        )}
-                                      </tr>
-                                      <tr>
-                                        <td>Actual</td>
-                                        {periods.map((p, i) => (
-                                          <td className="right" key={p.key}>
-                                            {onDrilldown ? (
-                                              <button type="button" className="columnar-cell-btn" onClick={drill(`${r.name} — ${p.label}`, [r.id])}>
-                                                {cell(r.monthlyActual[i], fmt)}
-                                              </button>
-                                            ) : (
-                                              cell(r.monthlyActual[i], fmt)
-                                            )}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                      <tr>
-                                        <td>Variance</td>
-                                        {periods.map((p, i) => {
-                                          const v = r.monthlyActual[i] - r.monthlyBudget[i];
-                                          return (
-                                            <td className="right" key={p.key} style={{ color: varianceColor(v, kind) }}>
-                                              {cell(v, fmt)}
-                                            </td>
-                                          );
-                                        })}
-                                      </tr>
-                                    </tbody>
-                                  </table>
+                                  <BudgetDetailGrid
+                                    row={r}
+                                    periods={periods}
+                                    fmt={fmt}
+                                    editing={editing}
+                                    editable={editableCells}
+                                    onEditCell={onEditCell}
+                                    onDrilldown={onDrilldown}
+                                    kind={kind}
+                                  />
                                 </div>
                               </td>
                             </tr>
@@ -247,8 +381,7 @@ export function BudgetVsActual({
   onSave,
   onDrilldown,
   onComputed,
-  exporting,
-  onExport,
+  reportView = "single",
 }: {
   data: Ledger;
   fy: string | null; // null when the selected period isn't a plain fiscal year -- budgets need one
@@ -256,9 +389,13 @@ export function BudgetVsActual({
   onSave: (budget: Budget) => Promise<boolean> | boolean | void;
   onDrilldown?: (req: DrilldownRequest) => void;
   onComputed?: (periods: PeriodBoundary[], incomeRows: BudgetRow[], expenseRows: BudgetRow[]) => void;
-  exporting?: boolean;
-  onExport?: () => void;
+  // Shared with Income & Expenditure/Balance Sheet/Cash Flow's global toggle -- "single" keeps
+  // today's annual-summary-with-expand behavior; monthly/quarterly render every account's
+  // Budget/Actual/Variance grid across periods directly (see BudgetSection's `columnar` prop).
+  reportView?: "single" | "monthly" | "quarterly";
 }) {
+  const columnar = reportView !== "single";
+  const granularity = reportView === "quarterly" ? "quarterly" : "monthly";
   const savedBudget = useMemo(() => (fy ? data.budgets?.find((b) => b.fy === fy) : undefined), [data.budgets, fy]);
   const [editing, setEditing] = useState(false);
   const [draftLines, setDraftLines] = useState<BudgetLine[] | null>(null);
@@ -283,8 +420,8 @@ export function BudgetVsActual({
     [fy, draftLines, savedBudget]
   );
   const { incomeRows, expenseRows, periods } = useMemo(
-    () => (fy ? budgetVsActualRows(data, activeBudget, fy) : { incomeRows: [], expenseRows: [], periods: [] }),
-    [data, activeBudget, fy]
+    () => (fy ? budgetVsActualRows(data, activeBudget, fy, granularity) : { incomeRows: [], expenseRows: [], periods: [] }),
+    [data, activeBudget, fy, granularity]
   );
 
   useEffect(() => {
@@ -320,7 +457,9 @@ export function BudgetVsActual({
       const lines = prev ? [...prev] : [];
       const idx = lines.findIndex((l) => l.accountId === accountId);
       if (idx === -1) {
-        const monthly = periods.map(() => 0);
+        // Always a fresh 12-slot monthly array (BudgetLine storage is always monthly, regardless
+        // of the current view's `periods` granularity) -- see the reportView prop's doc comment.
+        const monthly = Array.from({ length: 12 }, () => 0);
         monthly[monthIndex] = value;
         return [...lines, { id: `budget-${accountId}`, accountId, monthly }];
       }
@@ -382,11 +521,6 @@ export function BudgetVsActual({
               </button>
             </>
           )}
-          {!editing && onExport && (
-            <button type="button" className="tr-refresh-btn" disabled={exporting} onClick={onExport}>
-              {exporting ? "Exporting…" : "⬇ Export to Excel"}
-            </button>
-          )}
         </span>
       </div>
       <BudgetSection
@@ -400,6 +534,7 @@ export function BudgetVsActual({
         onToggleExpand={toggleExpand}
         onEditCell={updateCell}
         onDrilldown={onDrilldown}
+        columnar={columnar}
       />
       <BudgetSection
         title="Expense"
@@ -412,6 +547,7 @@ export function BudgetVsActual({
         onToggleExpand={toggleExpand}
         onEditCell={updateCell}
         onDrilldown={onDrilldown}
+        columnar={columnar}
       />
     </div>
   );

@@ -8500,3 +8500,14 @@ details[open] > .tp-cat-label--collapsible::before { transform: rotate(90deg); }
   border-radius: 4px;
   padding: 2px 4px;
 }
+.budget-columnar-body { padding-bottom: 4px; }
+.budget-columnar-group { margin: 0 0 14px; }
+.budget-columnar-group-heading { margin: 0 0 4px 2px; }
+.budget-columnar-account { margin: 8px 0 8px 22px; }
+.budget-columnar-account-name { font-size: 11px; font-weight: 600; opacity: 0.85; margin-bottom: 2px; }
+.budget-columnar-total { border-top: 2px solid #dce2eb; padding-top: 10px; margin-top: 4px; }
+.budget-columnar-total > strong { display: block; margin: 0 0 4px 2px; font-size: 12px; }
+.budget-columnar-body .budget-detail-table th:first-child,
+.budget-columnar-body .budget-detail-table td:first-child {
+  width: 70px;
+}
