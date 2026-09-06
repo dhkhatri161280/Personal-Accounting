@@ -157,6 +157,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [selected, setSelected] = useState<number | null>(null),
     [selectedVoucher, setSelectedVoucher] = useState<Tx | null>(null),
     [uploadingAttachment, setUploadingAttachment] = useState(false),
+    [r2Usage, setR2Usage] = useState<{ totalBytes: number; objectCount: number } | null>(null),
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
     [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null),
@@ -596,6 +597,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     window.addEventListener("dk-nav-home", handler);
     return () => window.removeEventListener("dk-nav-home", handler);
   }, []);
+
+  // One shared R2 bucket across both books (see app/api/attachments) -- fetched once per session
+  // rather than on every render, just to power the Needs Attention free-tier check below.
+  useEffect(() => {
+    if (!data) return;
+    fetch("/api/attachments/usage")
+      .then((r) => r.json())
+      .then((j: unknown) => {
+        const u = j as { totalBytes?: number; objectCount?: number };
+        if (typeof u.totalBytes === "number") setR2Usage({ totalBytes: u.totalBytes, objectCount: u.objectCount ?? 0 });
+      })
+      .catch(() => {});
+  }, [!!data]);
 
   useEffect(() => {
     if (!newVoucherMenuOpen) return;
@@ -1364,6 +1378,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         label: `Recurring: ${due.template.label} due`,
         detail: `${due.periodLabel} — post it from Reports → Recurring, or below.`,
         action: { label: "Post", onClick: () => void postRecurringTemplate(due.template) },
+      });
+    }
+  }
+  // R2's free tier is 10GB storage -- only worth a flag once meaningfully close to that (70%),
+  // since a personal ledger's receipt/statement attachments are realistically nowhere near it
+  // for a long time. Keeps "Needs Attention" meaning "something to check," not a permanent stat.
+  if (r2Usage) {
+    const FREE_TIER_BYTES = 10 * 1024 * 1024 * 1024;
+    const pct = (r2Usage.totalBytes / FREE_TIER_BYTES) * 100;
+    if (pct >= 70) {
+      const gb = (r2Usage.totalBytes / (1024 * 1024 * 1024)).toFixed(2);
+      attentionItems.push({
+        label: "R2 attachment storage nearing free tier limit",
+        detail: `${gb} GB used of the 10GB free tier (${pct.toFixed(0)}%), across ${r2Usage.objectCount} file(s). Beyond 10GB, storage is billed at $0.015/GB-month.`,
       });
     }
   }
