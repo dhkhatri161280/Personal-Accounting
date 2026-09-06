@@ -188,7 +188,12 @@ function BankReconDetail({ row, fmt }: { row: ReconAccountStatus; fmt: (n: numbe
       </div>
       <div className="bank-recon-detail-col">
         <strong>In vault, no Plaid match ({row.unmatchedVault.length})</strong>
-        {row.unmatchedVault.length === 0 ? (
+        {row.noPlaidTransactionFeed ? (
+          <p style={{ opacity: 0.6, fontSize: 12 }}>
+            Plaid doesn't provide itemized transactions for this account (common for HSA/investment-type accounts) — only
+            the balance above is compared, so there's nothing to flag here.
+          </p>
+        ) : row.unmatchedVault.length === 0 ? (
           <p style={{ opacity: 0.6, fontSize: 12 }}>None.</p>
         ) : (
           row.unmatchedVault

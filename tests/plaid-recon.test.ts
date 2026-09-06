@@ -118,6 +118,47 @@ test("reconciliationStatusForAccounts: a real matching pair (interest earned) is
   assert.equal(status.unmatchedVault.length, 0);
 });
 
+test("reconciliationStatusForAccounts: a matching pair posted 2 days apart (a real delayed-posting case seen live) still matches", () => {
+  const ledger = baseLedger({
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-19", number: "1", type: "Payment", narration: "DD DOORDASHDASHPASS", historical: false,
+        entries: [{ accountId: 4, accountName: "Credit Card - BofA", amount: -9.99 }, { accountId: 2, accountName: "Groceries", amount: 9.99 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "c1", type: "credit", subtype: "credit card", name: "Unlimited Cash Rewards Visa Signature", institution_name: "Bank of America", balances: { current: -9.99 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    // Posted to the vault on the 19th, reported by Plaid on the 21st -- a 2-day gap, common for
+    // pending-to-posted transitions.
+    { transaction_id: "t1", date: "2026-08-21", name: "DD *DOORDASHDASHPASS", amount: -9.99, account_id: "c1" },
+  ];
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-06");
+  assert.equal(status.unmatchedPlaid.length, 0);
+  assert.equal(status.unmatchedVault.length, 0);
+});
+
+test("reconciliationStatusForAccounts: an account Plaid reports no transactions for at all (e.g. an HSA) doesn't flag every vault voucher as unmatched", () => {
+  const ledger = baseLedger({
+    accounts: [{ id: 7, name: "HSA Fidelity Account", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 }],
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-31", number: "1", type: "Payment", narration: "Kidney Stone Medicine", historical: false,
+        entries: [{ accountId: 7, accountName: "HSA Fidelity Account", amount: 23.24 }, { accountId: 2, accountName: "Groceries", amount: -23.24 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "h1", type: "depository", subtype: "hsa", name: "Health Savings Account", institution_name: "Fidelity", balances: { current: 235.41 } },
+  ];
+  // No plaidTransactions at all for this account -- Plaid only exposes a balance for it.
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, [], "2026-09-06");
+  assert.equal(status.noPlaidTransactionFeed, true);
+  assert.equal(status.unmatchedVault.length, 0);
+});
+
 test("reconciliationStatusForAccounts: an unrelated Plaid account with no vault match is simply omitted", () => {
   const ledger = baseLedger();
   const plaidAccounts: PlaidAccountSummary[] = [

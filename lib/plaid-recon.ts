@@ -100,10 +100,18 @@ export type ReconAccountStatus = {
   diff: number;
   unmatchedPlaid: PlaidTxSummary[];
   unmatchedVault: Tx[];
+  // True when Plaid returned zero transactions at all for this account within the fetch window
+  // (common for HSA/investment-type accounts, which often only expose a balance) -- "unmatched
+  // vault entries" is meaningless noise in that case (there's nothing to have matched against),
+  // so the UI shows an explanatory note instead of an alarming count.
+  noPlaidTransactionFeed: boolean;
 };
 
 export const DIFF_TOL = 0.005;
-const DATE_TOL_DAYS = 1;
+// A vault voucher and the Plaid transaction it corresponds to don't always land on the exact
+// same date -- pending-to-posted transitions and weekend/holiday posting delays commonly shift
+// it by a day or two either side (confirmed live: a DoorDash charge landed 2 days apart).
+const DATE_TOL_DAYS = 3;
 
 function daysApart(a: string, b: string): number {
   return Math.abs(new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) / 86400000;
@@ -177,12 +185,15 @@ export function reconciliationStatusForAccounts(
         (vt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(vaultTxAccountAmount(vt, account.id) - expected) < 0.5
       );
     });
-    const unmatchedVault = recentVaultTxs.filter((vt) => {
-      const amt = vaultTxAccountAmount(vt, account.id);
-      return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(pt.amount - amt) < 0.5);
-    });
+    const noPlaidTransactionFeed = acctPlaidTxs.length === 0;
+    const unmatchedVault = noPlaidTransactionFeed
+      ? []
+      : recentVaultTxs.filter((vt) => {
+          const amt = vaultTxAccountAmount(vt, account.id);
+          return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(pt.amount - amt) < 0.5);
+        });
 
-    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault });
+    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, noPlaidTransactionFeed });
   }
   return results.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }
