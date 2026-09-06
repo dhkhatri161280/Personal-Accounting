@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useEffect, useState } from "react";
 import type { Ledger, Tx } from "@/lib/vault-types";
+import { StatIcon } from "@/components/Icon";
 import {
   reconciliationStatusForAccounts,
   DIFF_TOL,
@@ -12,7 +13,7 @@ import {
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
 
-export function BankReconciliation({ data, fmt }: { data: Ledger; fmt: (n: number) => string }) {
+export function BankReconciliation({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
   const [fetching, setFetching] = useState(false);
   const [status, setStatus] = useState("");
   const [rows, setRows] = useState<ReconAccountStatus[] | null>(null);
@@ -54,22 +55,44 @@ export function BankReconciliation({ data, fmt }: { data: Ledger; fmt: (n: numbe
 
   const reconciled = (rows ?? []).filter((r) => Math.abs(r.diff) <= DIFF_TOL).length;
   const total = rows?.length ?? 0;
+  const needsAttention = total - reconciled;
+  const totalUnmatched = (rows ?? []).reduce((s, r) => s + r.unmatchedPlaid.length + r.unmatchedVault.length, 0);
+
+  const summaryCards: { label: string; value: string; icon: "bank" | "scale" | "receipt"; color: string }[] = [
+    { label: "Accounts Reconciled", value: `${reconciled} / ${total}`, icon: "bank", color: needsAttention > 0 ? MONEY_OUT : MONEY_IN },
+    { label: "Need Attention", value: String(needsAttention), icon: "scale", color: needsAttention > 0 ? MONEY_OUT : MONEY_IN },
+    { label: "Unmatched Transactions", value: String(totalUnmatched), icon: "receipt", color: totalUnmatched > 0 ? MONEY_OUT : MONEY_IN },
+  ];
 
   return (
     <div className="data-panel">
+      <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
+        {summaryCards.map((c) => (
+          <div key={c.label} className="equity-summary-col">
+            <div className="equity-summary-card">
+              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <div className="equity-summary-card-body">
+                <span>{c.label}</span>
+                <strong className="equity-amt" style={{ color: c.color }}>
+                  {c.value}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
       <div className="report-view-toggle-row">
         <span style={{ fontSize: 12, opacity: 0.7 }}>
           {rows === null
             ? status || "Loading…"
             : total === 0
               ? "No Plaid-connected accounts matched a vault ledger by name."
-              : `${reconciled} of ${total} account(s) reconciled${total - reconciled > 0 ? `, ${total - reconciled} need attention` : ""}.`}
+              : status || "Live balances from Plaid, compared against the vault's own computed balance."}
         </span>
         <button type="button" className="tr-refresh-btn" disabled={fetching} onClick={load}>
           {fetching ? "Refreshing…" : "⟳ Refresh"}
         </button>
       </div>
-      {status && rows !== null && <p style={{ color: MONEY_OUT, fontSize: 12 }}>{status}</p>}
       {rows !== null && total > 0 && (
         <div className="columnar-report-scroll">
           <table className="columnar-report-table budget-table">
@@ -94,6 +117,9 @@ export function BankReconciliation({ data, fmt }: { data: Ledger; fmt: (n: numbe
                         <button type="button" className="group-heading" onClick={() => toggle(r.account.id)}>
                           <span className="bs-arr">{isE ? "-" : "+"}</span>
                           <strong>{r.account.name}</strong>
+                          {r.plaidAccounts.length > 1 && (
+                            <small style={{ opacity: 0.6, fontWeight: 400 }}>({r.plaidAccounts.length} Plaid accounts combined)</small>
+                          )}
                         </button>
                       </td>
                       <td className="right">{fmt(r.plaidBalance)}</td>
@@ -108,7 +134,7 @@ export function BankReconciliation({ data, fmt }: { data: Ledger; fmt: (n: numbe
                     {isE && (
                       <tr className="budget-detail-row">
                         <td colSpan={5}>
-                          <UnmatchedLists row={r} fmt={fmt} />
+                          <BankReconDetail row={r} fmt={fmt} />
                         </td>
                       </tr>
                     )}
@@ -123,9 +149,20 @@ export function BankReconciliation({ data, fmt }: { data: Ledger; fmt: (n: numbe
   );
 }
 
-function UnmatchedLists({ row, fmt }: { row: ReconAccountStatus; fmt: (n: number) => string }) {
+function BankReconDetail({ row, fmt }: { row: ReconAccountStatus; fmt: (n: number) => string }) {
   return (
     <div className="bank-recon-detail">
+      {row.plaidAccounts.length > 1 && (
+        <div className="bank-recon-detail-col" style={{ flexBasis: "100%" }}>
+          <strong>Plaid accounts combined into this row</strong>
+          {row.plaidAccounts.map((pa) => (
+            <div className="report-line" key={pa.account_id}>
+              <span>{pa.name}</span>
+              <strong>{fmt(pa.type === "depository" ? (pa.balances.available ?? pa.balances.current ?? 0) : (pa.balances.current ?? 0))}</strong>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="bank-recon-detail-col">
         <strong>In Plaid, not yet in vault ({row.unmatchedPlaid.length})</strong>
         {row.unmatchedPlaid.length === 0 ? (

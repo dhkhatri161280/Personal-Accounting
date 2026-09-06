@@ -83,3 +83,20 @@ test("reconciliationStatusForAccounts: an unrelated Plaid account with no vault 
   const results = reconciliationStatusForAccounts(ledger, plaidAccounts, [], "2026-09-06");
   assert.equal(results.length, 0);
 });
+
+test("reconciliationStatusForAccounts: several Plaid accounts under one institution that all fall back to the same vault account are combined into ONE row, not one per Plaid account", () => {
+  const ledger = baseLedger();
+  // Neither "Adv Plus Banking" nor "Way2Save" matches the vault's "Bank Of America" ledger by
+  // name, so both fall back to institution-name matching -- this is the exact real-world shape
+  // that used to produce 4 misleading "need attention" rows all comparing against the same
+  // vault balance (the bug report this test guards against).
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "checking", type: "depository", name: "Adv Plus Banking", institution_name: "Bank Of America", balances: { current: 100, available: 100 } },
+    { account_id: "savings", type: "depository", name: "Way2Save", institution_name: "Bank Of America", balances: { current: 25000, available: 25000 } },
+  ];
+  const results = reconciliationStatusForAccounts(ledger, plaidAccounts, [], "2026-09-06");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].plaidAccounts.length, 2);
+  // Plaid balance is the SUM of both physical accounts, not either one alone.
+  assert.equal(results[0].plaidBalance, 25100);
+});

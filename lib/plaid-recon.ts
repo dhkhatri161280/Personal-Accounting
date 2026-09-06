@@ -46,8 +46,11 @@ export function matchAccountToVault(plaidAccount: PlaidAccountSummary, vaultAcco
 
 export type ReconAccountStatus = {
   account: Account;
-  plaidAccount: PlaidAccountSummary;
-  plaidBalance: number;
+  // One vault account can have several physical Plaid accounts behind it (e.g. a bank exposes
+  // checking + savings under one institution, and neither name matches the vault ledger's name
+  // closely enough to tell them apart) -- all of them, not just one.
+  plaidAccounts: PlaidAccountSummary[];
+  plaidBalance: number; // summed across plaidAccounts
   vaultBalance: number;
   diff: number;
   unmatchedPlaid: PlaidTxSummary[];
@@ -73,6 +76,12 @@ function vaultTxAccountAmount(t: Tx, accountId: number): number {
 // what's in Plaid but not yet posted to the vault, and what's posted to the vault but Plaid
 // hasn't reported (deliberately un-adjusted for pending/uncleared items -- see lib/plaid-recon.ts's
 // module doc in the Bank Reconciliation report for why that tradeoff was made).
+//
+// Grouped by matched vault account, not one row per Plaid account -- an institution that exposes
+// several physical accounts (checking + savings) under names that don't individually match any
+// vault ledger all fall back to the SAME institution-name match, and without grouping that
+// produced several rows all comparing the identical vault balance against different Plaid
+// balances, which reads as "4 accounts need attention" when it's really one ambiguous mapping.
 export function reconciliationStatusForAccounts(
   data: Ledger,
   plaidAccounts: PlaidAccountSummary[],
@@ -86,18 +95,28 @@ export function reconciliationStatusForAccounts(
   windowStart.setUTCDate(windowStart.getUTCDate() - 90);
   const windowStartStr = windowStart.toISOString().slice(0, 10);
 
-  const results: ReconAccountStatus[] = [];
+  const groups = new Map<number, { account: Account; plaidAccounts: PlaidAccountSummary[] }>();
   for (const pa of plaidAccounts) {
     const account = matchAccountToVault(pa, data.accounts);
     if (!account) continue;
+    const g = groups.get(account.id) ?? { account, plaidAccounts: [] };
+    g.plaidAccounts.push(pa);
+    groups.set(account.id, g);
+  }
+
+  const results: ReconAccountStatus[] = [];
+  for (const { account, plaidAccounts: paGroup } of groups.values()) {
     // Same convention vaultBookBalance already returns: depository = positive asset value
     // (prefer `available`, which excludes pending holds, matching PlaidImport.tsx's Balances
     // tab), credit = positive amount owed. No sign flip needed on either side.
-    const plaidBalance = pa.type === "depository" ? (pa.balances.available ?? pa.balances.current ?? 0) : (pa.balances.current ?? 0);
-    const vaultBalance = vaultBookBalance(account.id, pa.type, data);
+    const balanceOf = (pa: PlaidAccountSummary) =>
+      pa.type === "depository" ? (pa.balances.available ?? pa.balances.current ?? 0) : (pa.balances.current ?? 0);
+    const plaidBalance = paGroup.reduce((s, pa) => s + balanceOf(pa), 0);
+    const vaultBalance = vaultBookBalance(account.id, paGroup[0].type, data);
     const diff = plaidBalance - vaultBalance;
 
-    const acctPlaidTxs = plaidTransactions.filter((t) => t.account_id === pa.account_id);
+    const groupAcctIds = new Set(paGroup.map((pa) => pa.account_id));
+    const acctPlaidTxs = plaidTransactions.filter((t) => groupAcctIds.has(t.account_id));
     const recentVaultTxs = data.transactions.filter(
       (t) => !t.deleted && !t.cancelled && t.date >= windowStartStr && t.entries.some((e) => e.accountId === account.id)
     );
@@ -114,7 +133,7 @@ export function reconciliationStatusForAccounts(
       return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(-pt.amount - amt) < 0.5);
     });
 
-    results.push({ account, plaidAccount: pa, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault });
+    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault });
   }
   return results.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }

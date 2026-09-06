@@ -24,6 +24,11 @@ export function AuditLog({ data, onViewVoucher }: { data: Ledger; onViewVoucher:
   return (
     <div className="data-panel">
       <h3>Audit Log</h3>
+      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
+        A running record of who changed what, going forward from when this was added — every voucher create/edit/delete/restore
+        and every Masters ledger/group save or delete appends an entry here with a before/after summary. It doesn't retroactively
+        cover changes made before this feature shipped, and Tally-side sync activity isn't tracked (only edits made in this app).
+      </p>
       <div className="master-toolbar">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search summary" />
         <select value={entityFilter} onChange={(e) => setEntityFilter(e.target.value as typeof entityFilter)}>
@@ -35,7 +40,10 @@ export function AuditLog({ data, onViewVoucher }: { data: Ledger; onViewVoucher:
         <span style={{ fontSize: 12, opacity: 0.7 }}>{entries.length} entr{entries.length === 1 ? "y" : "ies"}</span>
       </div>
       {entries.length === 0 ? (
-        <p style={{ opacity: 0.7 }}>No audit history yet.</p>
+        <p style={{ opacity: 0.7 }}>
+          No changes recorded yet — nothing has been created, edited, or deleted since this feature was added. Try editing a
+          voucher or a Masters ledger/group and check back here.
+        </p>
       ) : (
         entries.map((e) => {
           const tx = e.entity === "voucher" ? txByGuid.get(e.entityId) : undefined;

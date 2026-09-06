@@ -2973,6 +2973,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Cash and Bank
             </button>
+            {book !== "india" && (
+              <button
+                className={report === "bankrecon" ? "selected" : ""}
+                onClick={() => setReport("bankrecon")}
+              >
+                Bank Recon
+              </button>
+            )}
             <button
               className={report === "budget" ? "selected" : ""}
               onClick={() => setReport("budget")}
@@ -3037,14 +3045,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Recon
             </button>
-            {book !== "india" && (
-              <button
-                className={report === "bankrecon" ? "selected" : ""}
-                onClick={() => setReport("bankrecon")}
-              >
-                Bank Recon
-              </button>
-            )}
             <button
               className={report === "recurring" ? "selected" : ""}
               onClick={() => setReport("recurring")}
@@ -3693,7 +3693,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "bankrecon" && book !== "india" && data && (
             <>
               <h3 className="report-inline-heading">Bank Reconciliation</h3>
-              <BankReconciliation data={data} fmt={fmt} />
+              <BankReconciliation data={data} fmt={fmt} uiTheme={uiTheme} />
             </>
           )}
           {report === "recurring" && data && (() => {
