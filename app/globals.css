@@ -3496,15 +3496,17 @@ aside .install-options .install-app {
 }
 /* Reuses .attention-bell's proven round-icon-button sizing/mobile behavior (same
    .period-bar-footer row).
-   Icon-row color convention -- keep each button visually distinct, and pick a genuinely unused
-   color for the next one instead of defaulting back to blue:
+   Icon-row color convention -- keep each button visually distinct, and pick a genuinely unused,
+   visually-separated color for the next one instead of defaulting back to blue:
      - Blue (#2f6fed / india #e99518) = primary book action (New Voucher) -- matches the book's
        identity color used everywhere else in the app (buttons, links, "+Add" actions).
      - Green/red (.attention-bell) = a status signal (clear vs. flagged), not decorative.
-     - Teal (#0d9488, here) = utility/tool actions with no state to report, e.g. Search.
-     - Unclaimed so far: purple (#7c3aed, used narrowly today for Trading's Watchlist "Long"
-       badge -- fine to reuse for a future icon here if that context stays unambiguous), amber,
-       or a neutral slate. Avoid blue/green/red/teal for anything new in this row. */
+     - Purple (#7c3aed, here) = utility/tool actions with no state to report, e.g. Search. (Teal
+       was tried first but sat too close to the attention bell's green at a glance -- purple
+       reads clearly separate from blue/green/red/orange.) Also used narrowly elsewhere for
+       Trading's Watchlist "Long" badge; that context is unambiguous next to this one.
+     - Unclaimed so far: amber, or a neutral slate. Avoid blue/green/red/purple for anything new
+       in this row. */
 .search-fab {
   width: 32px;
   height: 32px;
@@ -3515,14 +3517,14 @@ aside .install-options .install-app {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0d9488;
+  background: #7c3aed;
   color: #fff;
   cursor: pointer;
   box-shadow: 0 6px 18px rgba(16, 34, 63, 0.32);
   transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 .search-fab:hover {
-  background: #0b7c72;
+  background: #6425c7;
   box-shadow: 0 8px 22px rgba(16, 34, 63, 0.4);
   transform: scale(1.06);
 }
