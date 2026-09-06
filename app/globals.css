@@ -8472,3 +8472,30 @@ details[open] > .tp-cat-label--collapsible::before { transform: rotate(90deg); }
   background: rgba(47, 111, 237, 0.12);
   text-decoration: underline;
 }
+.budget-table th:nth-child(n+2),
+.budget-table td:nth-child(n+2) {
+  width: 100px;
+}
+.budget-detail-row td {
+  padding: 4px 10px 10px 26px;
+  background: #f8fafe;
+}
+.budget-detail-table {
+  font-size: 10px;
+  margin: 0;
+}
+.budget-detail-table th:first-child,
+.budget-detail-table td:first-child {
+  width: 70px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.budget-cell-input {
+  width: 72px;
+  font: inherit;
+  font-size: 10px;
+  text-align: right;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 4px;
+}

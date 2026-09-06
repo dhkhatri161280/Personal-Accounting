@@ -13,6 +13,7 @@ import type {
   Ledger,
   Vault,
   SyncHealth,
+  Budget,
 } from "@/lib/vault-types";
 import {
   bytes,
@@ -49,6 +50,7 @@ import { GroupedReport } from "@/components/reports/GroupedReport";
 import { ColumnarIncomeExpenditure } from "@/components/reports/ColumnarIncomeExpenditure";
 import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet";
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
+import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
@@ -1297,6 +1299,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-balance", label: "Balance Sheet", group: "Reports", keywords: ["assets", "liabilities"], go: () => { setReport("balance"); setTab("reports"); } },
     { id: "report-cashflow", label: "Cash Flow", group: "Reports", keywords: ["cashflow"], go: () => { setReport("cashflow"); setTab("reports"); } },
     { id: "report-cash", label: "Cash and Bank", group: "Reports", keywords: ["cash", "bank"], go: () => { setReport("cash"); setTab("reports"); } },
+    { id: "report-budget", label: "Budget vs Actual", group: "Reports", keywords: ["budget", "variance", "plan", "forecast"], go: () => { setReport("budget"); setTab("reports"); } },
     { id: "report-fyclose", label: "FY Close", group: "Reports", keywords: ["fiscal year", "year end", "closing"], go: () => { setReport("fyclose"); setTab("reports"); } },
     { id: "report-networth", label: "Net Worth", group: "Reports", keywords: ["networth"], go: () => { setReport("networth"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
@@ -1462,6 +1465,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     year === "custom" ? `${customEnd}-31` : year.length === 7 ? `${year}-31` : `${Number(year) + 1}-03-31`;
   const columnarRangeLabel =
     year === "custom" ? `${customStart} to ${customEnd}` : year.length === 7 ? year : `FY ${year}`;
+
+  // Budget vs Actual is inherently a 12-month (Apr-Mar) FY structure -- "all periods", a custom
+  // range, or a single month don't map onto that, so this stays null (report shows a message)
+  // unless `year` is a plain 4-digit fiscal year like the other reports' `year` values already are.
+  const budgetFy = /^\d{4}$/.test(year) ? year : null;
 
   // Mirrors the proven pattern in IndiaTaxReport.tsx's exportPayrollReconciliation -- dynamic
   // xlsx import, aoa_to_sheet, one workbook, save via writeFile. Exports whichever view is
@@ -2779,6 +2787,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               Cash and Bank
             </button>
             <button
+              className={report === "budget" ? "selected" : ""}
+              onClick={() => setReport("budget")}
+            >
+              Budget vs Actual
+            </button>
+            <button
               className={report === "fyclose" ? "selected" : ""}
               onClick={() => setReport("fyclose")}
             >
@@ -3311,6 +3325,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </div>
             );
           })()}
+          {report === "budget" && (
+            <>
+              <h3 className="report-inline-heading">
+                Budget vs Actual — <PeriodSelect />
+              </h3>
+              <BudgetVsActual
+                data={data}
+                fy={budgetFy}
+                fmt={fmt}
+                onSave={(budget: Budget) => {
+                  const next: Ledger = { ...data, budgets: [...(data.budgets ?? []).filter((b) => b.fy !== budget.fy), budget] };
+                  return save(next, "budget");
+                }}
+                onDrilldown={setColumnarDrilldown}
+              />
+            </>
+          )}
           {report === "fyclose" && data && (() => {
             const currentFY = fiscalYearOf(todayStr);
             const preview = buildFiscalYearCloseVoucher(data, currentFY);

@@ -138,10 +138,10 @@ export type ColumnarRow = {
 // Same nature-classification rules as components/VaultApp.tsx's `natureFor`/`isProfitLoss`
 // (duplicated there too, once per report section) -- kept here rather than shared since it's a
 // small pure function and this module has no dependency on VaultApp's local state.
-function isProfitLoss(name: string) {
+export function isProfitLoss(name: string) {
   return /profit\s*&\s*loss|income\s*&\s*expenditure/i.test(name);
 }
-function natureFor(a: { parent: string }, groups: Ledger["groups"]) {
+export function natureFor(a: { parent: string }, groups: Ledger["groups"]) {
   const group = (a.parent || "").toLowerCase();
   const configured = (groups || []).find((g) => g.name.toLowerCase() === group);
   if (group.includes("(asset)")) return "Asset";

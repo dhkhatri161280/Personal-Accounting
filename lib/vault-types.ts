@@ -266,6 +266,22 @@ export type IndiaTaxData = {
   itrYears: IndiaItrYear[];
 };
 
+export type BudgetLine = {
+  id: string;
+  accountId: number;
+  monthly: number[]; // 12 values, index 0 = Apr .. 11 = Mar, aligned to the FY's monthly
+                      // columnar periods (lib/columnar-report.ts). Positive = budgeted amount.
+};
+
+// One fiscal year's budget -- generatedFromFy records which prior FY's actuals were used to
+// seed `lines` (see lib/budget.ts's generateBudgetFromActuals), purely informational.
+export type Budget = {
+  fy: string; // e.g. "2026" -- same Apr-start FY convention as VaultApp's `year` state
+  lines: BudgetLine[];
+  generatedFromFy?: string;
+  updatedAt: string;
+};
+
 export type TallyLedgerSnapshot = {
   asOf: string;
   balances: { name: string; parent?: string; closingBalance: number }[];
@@ -300,6 +316,9 @@ export type Ledger = {
   // exists) may also contain non-retirement capital, so only the user-entered retirement portion
   // counts here.
   retirementOtherInvestments?: { id: string; label: string; amount: number }[];
+  // Per-fiscal-year budgets for the Budget vs Actual report, one entry per FY the user has
+  // budgeted. See lib/budget.ts for how these are generated/compared against actuals.
+  budgets?: Budget[];
 };
 
 export type Vault = {
