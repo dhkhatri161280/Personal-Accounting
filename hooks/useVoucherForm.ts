@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { voucherEntrySchema, type VoucherEntryFormValues } from "@/lib/voucher-entry-schema";
 import { validateVoucher } from "@/lib/voucher-validation";
 import type { Account, Ledger, Tx, VoucherLineDraft } from "@/lib/vault-types";
+import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import {
   blankVoucherLines,
   draftLinesFromTx,
@@ -242,6 +243,7 @@ export function useVoucherForm({
       historical: editTx?.historical || false,
       cancelled: editTx?.cancelled || false,
       entries,
+      attachments: editTx?.attachments,
     };
     const validation = validateVoucher(tx, data.accounts);
     if (!validation.valid) {
@@ -251,7 +253,16 @@ export function useVoucherForm({
     const nextTransactions = editTx
       ? data.transactions.map((t) => (t.guid === editTx.guid ? tx : t))
       : [...data.transactions, tx];
-    if (await save({ ...data, transactions: nextTransactions })) {
+    const auditFields: (keyof Tx & string)[] = ["date", "number", "type", "narration", "entries"];
+    const changes = editTx ? diffFields(editTx, tx, auditFields) : [];
+    const auditedNext = appendAuditEntry({ ...data, transactions: nextTransactions }, {
+      entity: "voucher",
+      entityId: tx.guid,
+      action: editTx ? "edited" : "created",
+      summary: summarize(changes, editTx ? undefined : `Voucher created: ${tx.type} ${tx.date} — ${tx.narration || "(no narration)"}`),
+      changes: changes.length ? changes : undefined,
+    });
+    if (await save(auditedNext)) {
       setCopyTx(null);
       setEditTx(null);
       setVoucherLines(blankVoucherLines());

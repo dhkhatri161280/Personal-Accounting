@@ -84,7 +84,7 @@ interface ImportRow {
   narration: string;
   entries: EntryDraft[];
   confidence: number; // 0–1, 1 = high confidence (payroll template), < 0.5 = needs review
-  source?: "payroll" | "recurring" | "history" | "household" | "none" | "duplicate";
+  source?: "payroll" | "recurring" | "history" | "household" | "ai" | "none" | "duplicate";
   // Set when `source === "recurring"` -- which RecurringTemplate matched, so saveSelected() can
   // record the posting back onto it (see lib/recurring.ts).
   recurringTemplateId?: string;
@@ -1548,6 +1548,62 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     );
   }
 
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const AI_SUGGEST_MAX_ROWS = 10;
+  // Only the lowest-confidence fallback tier (household/generic-deposit buckets, ~0.3-0.35 --
+  // see buildDraft()'s fallback chain above) is eligible -- a manual, opt-in pass over a bounded
+  // number of rows per click, not automatic on every fetch, so Groq usage stays deliberate.
+  const aiEligibleRows = rows
+    .map((r, idx) => ({ r, idx }))
+    .filter(({ r }) => !r.alreadyImported && !r.skip && r.confidence > 0 && r.confidence <= 0.35);
+
+  async function runAiSuggest() {
+    setAiSuggesting(true);
+    const candidateAccounts = data.accounts.filter((a) => a.active !== false).map((a) => ({ id: a.id, name: a.name, parent: a.parent }));
+    const targets = aiEligibleRows.slice(0, AI_SUGGEST_MAX_ROWS);
+    try {
+      await Promise.all(
+        targets.map(async ({ r, idx }) => {
+          try {
+            const res = await fetch("/api/categorize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                transaction: {
+                  name: r.plaidTx.name,
+                  merchant_name: r.plaidTx.merchant_name,
+                  amount: r.plaidTx.amount,
+                  date: r.plaidTx.date,
+                  institution_name: r.plaidTx.institution_name,
+                },
+                candidateAccounts,
+              }),
+            });
+            if (!res.ok) return;
+            const suggestion = (await res.json()) as { debitAccountId: number; creditAccountId: number; narration: string; confidence: number };
+            const debitAcct = data.accounts.find((a) => a.id === suggestion.debitAccountId);
+            const creditAcct = data.accounts.find((a) => a.id === suggestion.creditAccountId);
+            if (!debitAcct || !creditAcct) return;
+            const amt = Math.abs(r.plaidTx.amount);
+            updateRow(idx, {
+              entries: [
+                { accountId: debitAcct.id, accountName: debitAcct.name, amount: -amt },
+                { accountId: creditAcct.id, accountName: creditAcct.name, amount: amt },
+              ],
+              narration: suggestion.narration,
+              confidence: suggestion.confidence,
+              source: "ai",
+            });
+          } catch {
+            // leave this one row's existing (low-confidence) draft as-is
+          }
+        })
+      );
+    } finally {
+      setAiSuggesting(false);
+    }
+  }
+
   function updatePendingRow(idx: number, patch: Partial<ImportRow>) {
     setPendingRows((rs) => rs.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   }
@@ -2068,6 +2124,17 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
               <input type="checkbox" onChange={(e) => setRows((rs) => rs.map((r) => ({ ...r, skip: r.alreadyImported ? true : e.target.checked })))} />
               Skip all
             </label>
+            {aiEligibleRows.length > 0 && (
+              <button
+                type="button"
+                className="tr-refresh-btn"
+                onClick={runAiSuggest}
+                disabled={aiSuggesting}
+                title="Ask AI to suggest accounts for the lowest-confidence rows below"
+              >
+                {aiSuggesting ? "Asking AI…" : `✨ AI Suggest (${Math.min(aiEligibleRows.length, AI_SUGGEST_MAX_ROWS)})`}
+              </button>
+            )}
             <button className="plaid-save-btn" onClick={saveSelected} disabled={saving || !toImport.length}>
               {saving ? "Saving…" : `Save ${toImport.length} selected`}
             </button>
@@ -2129,6 +2196,9 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                   )}
                   {row.source === "recurring" && !row.alreadyImported && (
                     <span className="plaid-recurring-badge">recurring</span>
+                  )}
+                  {row.source === "ai" && !row.alreadyImported && (
+                    <span className="plaid-ai-badge">✨ AI suggested</span>
                   )}
                   {row.confidence === 0 && !row.alreadyImported && (
                     <span className="plaid-unmatched-badge">needs accounts</span>

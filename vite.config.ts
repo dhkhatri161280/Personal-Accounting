@@ -27,14 +27,12 @@ const localBindingConfig = {
         },
       ]
     : [],
-  r2_buckets: r2
-    ? [
-        {
-          binding: r2,
-          bucket_name: "site-creator-r2",
-        },
-      ]
-    : [],
+  r2_buckets: [
+    // Local-only bucket for voucher attachments, isolated from the production
+    // "personal-ledger-attachments" bucket (see app/api/attachments/route.ts).
+    { binding: "ATTACHMENTS", bucket_name: "local-attachments" },
+    ...(r2 ? [{ binding: r2, bucket_name: "site-creator-r2" }] : []),
+  ],
 };
 
 export default defineConfig(async () => {

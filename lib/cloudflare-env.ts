@@ -1,6 +1,9 @@
 export interface AppBindings {
   VAULT: KVNamespace;
   DB: D1Database;
+  // Voucher receipt/statement attachments -- file bytes live here, only lightweight metadata
+  // (key/filename/size/contentType) lives in the encrypted vault blob. See app/api/attachments.
+  ATTACHMENTS: R2Bucket;
   SYNC_SECRET?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_SECRET?: string;

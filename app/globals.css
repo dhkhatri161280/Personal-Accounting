@@ -2376,6 +2376,18 @@ tfoot th {
   padding: 12px !important;
   color: #273752 !important;
 }
+.voucher-attachments {
+  background: #f8fafc;
+  border: 1px solid #e5eaf1;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.voucher-attachments .report-line {
+  border-bottom: 1px solid #e5eaf1;
+}
+.voucher-attachments .report-line:last-of-type {
+  border-bottom: none;
+}
 .voucher-detail-actions {
   display: flex;
   justify-content: flex-end;
@@ -7006,6 +7018,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-confidence-badge { background: #dcfce7; color: #15803d; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
 .plaid-household-badge { background: #dbeafe; color: #1d4ed8; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
 .plaid-recurring-badge { background: #ede9fe; color: #6d28d9; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
+.plaid-ai-badge { background: #fef3c7; color: #92400e; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
 .plaid-unmatched-badge { background: #ffedd5; color: #c2410c; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
 .plaid-exists-badge { background: #e0e7ff; color: #3730a3; border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; width: fit-content; }
 .plaid-new-accts-notice { background: #fef9c3; color: #854d0e; border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; }

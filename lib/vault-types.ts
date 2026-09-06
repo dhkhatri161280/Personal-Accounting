@@ -20,6 +20,17 @@ export type Tx = {
   cancelled?: boolean;
   deleted?: boolean;
   entries: Entry[];
+  // Receipts/statements attached via the voucher view modal. File bytes live in R2 (the
+  // ATTACHMENTS binding) -- only this small metadata array lives in the encrypted vault blob.
+  attachments?: Attachment[];
+};
+
+export type Attachment = {
+  key: string; // R2 object key, e.g. "us/<txGuid>/<uuid>-<filename>"
+  filename: string;
+  size: number;
+  contentType: string;
+  uploadedAt: string;
 };
 
 export type Account = {
@@ -340,6 +351,21 @@ export type Ledger = {
   budgets?: Budget[];
   // User-defined recurring bills/expenses/income. See lib/recurring.ts.
   recurringTemplates?: RecurringTemplate[];
+  // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
+  // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
+  auditLog?: AuditEntry[];
+};
+
+export type AuditEntry = {
+  id: string;
+  at: string; // ISO timestamp
+  entity: "voucher" | "account" | "group";
+  entityId: string; // Tx.guid, or Account.id / MasterGroup.name as a string
+  action: "created" | "edited" | "deleted" | "restored";
+  summary: string; // human-readable one-liner, e.g. "Amount changed from $100.00 to $150.00"
+  // Shallow field-level diff only, not full before/after snapshots -- keeps entries small since
+  // this array lives inside the same single encrypted vault blob re-saved on every change.
+  changes?: { field: string; before: unknown; after: unknown }[];
 };
 
 export type Vault = {

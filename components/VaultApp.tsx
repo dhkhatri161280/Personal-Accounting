@@ -15,6 +15,7 @@ import type {
   SyncHealth,
   Budget,
   RecurringTemplate,
+  Attachment,
 } from "@/lib/vault-types";
 import {
   bytes,
@@ -55,8 +56,10 @@ import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
 import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
 import { BankReconciliation } from "@/components/reports/BankReconciliation";
 import { MultiYearTrend } from "@/components/reports/MultiYearTrend";
+import { AuditLog } from "@/components/reports/AuditLog";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
+import { appendAuditEntry } from "@/lib/audit";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
@@ -153,6 +156,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [columnarDrilldown, setColumnarDrilldown] = useState<DrilldownRequest | null>(null),
     [selected, setSelected] = useState<number | null>(null),
     [selectedVoucher, setSelectedVoucher] = useState<Tx | null>(null),
+    [uploadingAttachment, setUploadingAttachment] = useState(false),
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
     [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null),
@@ -1145,23 +1149,62 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     }
     if (!confirm(`Permanently delete ${t.type} voucher ${t.number} from both the app and Tally?`))
       return;
+    const auditEntry = { entity: "voucher" as const, entityId: t.guid, action: "deleted" as const, summary: `Voucher deleted: ${t.type} ${t.date} — ${t.narration || "(no narration)"}` };
     if (!t.tallyGuid && !t.syncFingerprint) {
       // save() sets its own status message on failure (including a period-lock block) --
       // only overwrite it with a success message once the delete actually went through.
-      if (await save({ ...data, transactions: data.transactions.filter((x) => x.guid !== t.guid) }))
-        setStatus(`Voucher ${t.number} deleted.`);
+      const next = appendAuditEntry({ ...data, transactions: data.transactions.filter((x) => x.guid !== t.guid) }, auditEntry);
+      if (await save(next)) setStatus(`Voucher ${t.number} deleted.`);
       return;
     }
     const deleted = { ...t, deleted: true, syncStatus: "pending", lastSyncedAt: undefined };
-    if (
-      await save({
-        ...data,
-        transactions: data.transactions.map((x) => (x.guid === t.guid ? deleted : x)),
-      })
-    )
+    const next = appendAuditEntry(
+      { ...data, transactions: data.transactions.map((x) => (x.guid === t.guid ? deleted : x)) },
+      auditEntry
+    );
+    if (await save(next))
       setStatus(
         `Voucher ${t.number} removed from the app. It will be deleted from Tally automatically.`
       );
+  }
+
+  // Uploads to R2 first, then saves just the small Attachment metadata onto the Tx -- file bytes
+  // never touch the encrypted vault blob (see lib/vault-types.ts's Attachment type doc comment).
+  async function uploadAttachment(t: Tx, file: File) {
+    if (!data) return;
+    setUploadingAttachment(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("book", book);
+      form.append("txGuid", t.guid);
+      const r = await fetch("/api/attachments", { method: "POST", body: form });
+      if (!r.ok) {
+        setStatus(`Attachment upload failed (${r.status}).`);
+        return;
+      }
+      const attachment = (await r.json()) as Attachment;
+      const nextTx: Tx = { ...t, attachments: [...(t.attachments ?? []), attachment] };
+      const next = { ...data, transactions: data.transactions.map((x) => (x.guid === t.guid ? nextTx : x)) };
+      if (await save(next)) setSelectedVoucher(nextTx);
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  async function deleteAttachment(t: Tx, key: string) {
+    if (!data) return;
+    if (!confirm("Remove this attachment?")) return;
+    try {
+      await fetch(`/api/attachments?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+    } catch {
+      // Fall through and remove the reference anyway -- an orphaned R2 object is harmless,
+      // whereas leaving a broken link on the voucher (pointing at a file the user just asked
+      // to delete) is the worse failure mode.
+    }
+    const nextTx: Tx = { ...t, attachments: (t.attachments ?? []).filter((a) => a.key !== key) };
+    const next = { ...data, transactions: data.transactions.map((x) => (x.guid === t.guid ? nextTx : x)) };
+    if (await save(next)) setSelectedVoucher(nextTx);
   }
 
   const capitalRows = active.filter(
@@ -1351,6 +1394,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-fyclose", label: "FY Close", group: "Reports", keywords: ["fiscal year", "year end", "closing"], go: () => { setReport("fyclose"); setTab("reports"); } },
     { id: "report-networth", label: "Net Worth", group: "Reports", keywords: ["networth"], go: () => { setReport("networth"); setTab("reports"); } },
     { id: "report-trends", label: "Trends", group: "Reports", keywords: ["multi year", "yoy", "year over year", "growth", "savings rate", "trend"], go: () => { setReport("trends"); setTab("reports"); } },
+    { id: "report-auditlog", label: "Audit Log", group: "Reports", keywords: ["audit", "history", "change log", "who changed"], go: () => { setReport("auditlog"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
     ...(book !== "india"
       ? [
@@ -2925,6 +2969,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Trends
             </button>
+            <button
+              className={report === "auditlog" ? "selected" : ""}
+              onClick={() => setReport("auditlog")}
+            >
+              Audit Log
+            </button>
             {book !== "india" && (
               <button
                 className={report === "equity" ? "selected" : ""}
@@ -2987,22 +3037,29 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               .sort((a, b) => b.id - a.id);
 
             async function restoreTx(guid: string) {
-              const next: Ledger = {
-                ...ledger,
-                transactions: ledger.transactions.map(t =>
-                  t.guid === guid ? { ...t, deleted: false } : t
-                ),
-              };
+              const t = ledger.transactions.find(x => x.guid === guid);
+              const next = appendAuditEntry(
+                {
+                  ...ledger,
+                  transactions: ledger.transactions.map(t =>
+                    t.guid === guid ? { ...t, deleted: false } : t
+                  ),
+                },
+                { entity: "voucher", entityId: guid, action: "restored", summary: `Voucher restored: ${t?.type ?? ""} ${t?.date ?? ""} — ${t?.narration || "(no narration)"}` }
+              );
               const ok = await save(next, "trash");
               if (!ok) setStatus("Restore failed.");
             }
 
             async function restoreAll() {
               if (!window.confirm(`Restore all ${deleted.length} deleted voucher(s)?`)) return;
-              const next: Ledger = {
-                ...ledger,
-                transactions: ledger.transactions.map(t => t.deleted ? { ...t, deleted: false } : t),
-              };
+              const next = appendAuditEntry(
+                {
+                  ...ledger,
+                  transactions: ledger.transactions.map(t => t.deleted ? { ...t, deleted: false } : t),
+                },
+                { entity: "voucher", entityId: "bulk", action: "restored", summary: `${deleted.length} voucher(s) restored from Trash.` }
+              );
               const ok = await save(next, "trash");
               if (ok) setStatus(`${deleted.length} voucher(s) restored.`);
               else setStatus("Restore failed.");
@@ -3045,7 +3102,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               return { ...v, deleted: true, syncStatus: "pending", lastSyncedAt: undefined };
             }
             async function deleteDupeTx(id: number) {
-              const next: Ledger = { ...ledger, transactions: ledger.transactions.map(v => v.id === id ? markDupeDeleted(v) : v) };
+              const v = ledger.transactions.find(x => x.id === id);
+              const next = appendAuditEntry(
+                { ...ledger, transactions: ledger.transactions.map(v => v.id === id ? markDupeDeleted(v) : v) },
+                { entity: "voucher", entityId: v?.guid ?? String(id), action: "deleted", summary: `Duplicate voucher #${id} deleted: ${v?.type ?? ""} ${v?.date ?? ""} — ${v?.narration || "(no narration)"}` }
+              );
               const ok = await save(next, "trash");
               if (ok) setStatus(`Voucher #${id} deleted.`);
               else setStatus("Delete failed.");
@@ -3054,7 +3115,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               const extraIds = new Set(dupeGroups.flatMap(g => g.txs.slice(1).map(v => v.id)));
               if (!extraIds.size) return;
               if (!window.confirm(`Delete ${extraIds.size} extra duplicate voucher(s)? The oldest entry in each group will be kept.`)) return;
-              const next: Ledger = { ...ledger, transactions: ledger.transactions.map(v => extraIds.has(v.id) ? markDupeDeleted(v) : v) };
+              const next = appendAuditEntry(
+                { ...ledger, transactions: ledger.transactions.map(v => extraIds.has(v.id) ? markDupeDeleted(v) : v) },
+                { entity: "voucher", entityId: "bulk", action: "deleted", summary: `${extraIds.size} duplicate voucher(s) deleted.` }
+              );
               const ok = await save(next, "trash");
               if (ok) setStatus(`${extraIds.size} duplicate(s) deleted.`);
               else setStatus("Delete failed.");
@@ -3692,6 +3756,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <MultiYearTrend data={data} fmt={fmt} onDrilldown={setColumnarDrilldown} />
             </>
           )}
+          {report === "auditlog" && data && (
+            <AuditLog data={data} onViewVoucher={(t) => setSelectedVoucher(t)} />
+          )}
         </>
       )}
       {tab === "new" && (
@@ -4114,6 +4181,42 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 </tfoot>
               </table>
             )}
+            <h3>Attachments</h3>
+            <div className="voucher-attachments">
+              {(selectedVoucher.attachments ?? []).length === 0 && !uploadingAttachment && (
+                <p style={{ opacity: 0.6, fontSize: 12, margin: "0 0 8px" }}>No files attached.</p>
+              )}
+              {(selectedVoucher.attachments ?? []).map((att) => (
+                <div className="report-line" key={att.key}>
+                  <a href={`/api/attachments?key=${encodeURIComponent(att.key)}`} target="_blank" rel="noopener noreferrer">
+                    {att.filename}
+                  </a>
+                  <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <small style={{ opacity: 0.6 }}>{(att.size / 1024).toFixed(0)} KB</small>
+                    <button
+                      type="button"
+                      className="master-delete"
+                      onClick={() => deleteAttachment(selectedVoucher, att.key)}
+                    >
+                      Delete
+                    </button>
+                  </span>
+                </div>
+              ))}
+              <label className="tr-refresh-btn" style={{ display: "inline-block", marginTop: 6, cursor: "pointer" }}>
+                {uploadingAttachment ? "Uploading…" : "+ Attach file"}
+                <input
+                  type="file"
+                  style={{ display: "none" }}
+                  disabled={uploadingAttachment}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) uploadAttachment(selectedVoucher, file);
+                  }}
+                />
+              </label>
+            </div>
             <div className="voucher-detail-actions">
               {!selectedVoucher.cancelled && !isPeriodClosed(data?.closedPeriods, selectedVoucher.date) && (
                 <button

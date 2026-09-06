@@ -4,7 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate } from "@/lib/vault-types";
+import type { RecurringTemplate, AuditEntry } from "@/lib/vault-types";
+import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 
 export type MasterGroup = {
   name: string;
@@ -43,6 +44,7 @@ export type MasterLedger = {
   closedPeriods?: string[];
   transactions?: Array<{ date: string; deleted?: boolean; entries: Array<{ accountId: number }> }>;
   recurringTemplates?: RecurringTemplate[];
+  auditLog?: AuditEntry[];
 };
 
 const standard: MasterGroup[] = [
@@ -467,12 +469,27 @@ export function MastersPanel({
         tallyGuid: existing?.tallyGuid,
         masterFingerprint: "app-change-" + Date.now(),
       };
-    const next = {
-      ...data,
-      accounts: existing
-        ? data.accounts.map((a) => (a.id === existing.id ? account : a))
-        : [...data.accounts, account],
-    };
+    // `active` defaults to undefined on legacy accounts but the form always writes an explicit
+    // boolean -- normalize both sides to the app's own "active !== false" convention first, or
+    // every edit of a never-toggled account would show a spurious "active changed" diff.
+    const changes = existing
+      ? diffFields({ ...existing, active: existing.active !== false }, { ...account, active: account.active !== false }, ["name", "parent", "currency", "openingBalance", "active"])
+      : [];
+    const next = appendAuditEntry(
+      {
+        ...data,
+        accounts: existing
+          ? data.accounts.map((a) => (a.id === existing.id ? account : a))
+          : [...data.accounts, account],
+      },
+      {
+        entity: "account",
+        entityId: String(account.id),
+        action: existing ? "edited" : "created",
+        summary: summarize(changes, existing ? undefined : `Ledger created: ${name}`),
+        changes: changes.length ? changes : undefined,
+      }
+    );
     onSave(next, `${existing ? "Updated" : "Created"} ledger ${name}.`);
     setAccountId(null);
   };
@@ -505,10 +522,20 @@ export function MastersPanel({
       old && old !== name
         ? data.accounts.map((a) => (a.parent === old ? { ...a, parent } : a))
         : data.accounts;
-    onSave(
+    const changes = existingGroup
+      ? diffFields({ ...existingGroup, active: existingGroup.active !== false }, { ...group, active: group.active !== false }, ["name", "parent", "nature", "active"])
+      : [];
+    const next = appendAuditEntry(
       { ...data, accounts, groups: [...custom, group] },
-      `${old ? "Updated" : "Created"} group ${name}.`
+      {
+        entity: "group",
+        entityId: name,
+        action: existingGroup ? "edited" : "created",
+        summary: summarize(changes, existingGroup ? undefined : `Group created: ${name}`),
+        changes: changes.length ? changes : undefined,
+      }
     );
+    onSave(next, `${old ? "Updated" : "Created"} group ${name}.`);
     setGroupName(null);
   };
   const copyAccount = (a: MasterAccount) => {
@@ -539,7 +566,7 @@ export function MastersPanel({
     }
     if (!confirm(`Delete ledger ${a.name} from the App and Tally?`)) return;
     const linked = !!(a.tallyGuid || a.tallyMasterId || a.masterFingerprint);
-    onSave(
+    const next = appendAuditEntry<MasterLedger>(
       {
         ...data,
         accounts: linked
@@ -550,8 +577,9 @@ export function MastersPanel({
             )
           : data.accounts.filter((x) => x.id !== a.id),
       },
-      linked ? `Ledger ${a.name} is pending deletion from Tally.` : `Ledger ${a.name} deleted.`
+      { entity: "account", entityId: String(a.id), action: "deleted", summary: `Ledger deleted: ${a.name}` }
     );
+    onSave(next, linked ? `Ledger ${a.name} is pending deletion from Tally.` : `Ledger ${a.name} deleted.`);
   };
   const copyGroup = (g: MasterGroup) => {
     let name = `${g.name} - Copy`,
@@ -581,7 +609,7 @@ export function MastersPanel({
     if (!confirm(`Delete group ${g.name} from the App and Tally?`)) return;
     const linked = !!(g.tallyGuid || g.tallyMasterId || g.masterFingerprint),
       custom = data.groups || [];
-    onSave(
+    const next = appendAuditEntry<MasterLedger>(
       {
         ...data,
         groups: linked
@@ -592,6 +620,10 @@ export function MastersPanel({
             )
           : custom.filter((x) => x.name !== g.name),
       },
+      { entity: "group", entityId: g.name, action: "deleted", summary: `Group deleted: ${g.name}` }
+    );
+    onSave(
+      next,
       linked ? `Group ${g.name} is pending deletion from Tally.` : `Group ${g.name} deleted.`
     );
   };
