@@ -11,6 +11,7 @@ import {
   computeMortgagePaymentSplit,
 } from "@/lib/mortgage-amortization";
 import { isCcAcct, isBankAcct, enforceContraType } from "@/lib/plaid-classify";
+import { matchRecurringTemplate, buildVoucherFromTemplate, currentPeriodKey } from "@/lib/recurring";
 import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -82,7 +83,10 @@ interface ImportRow {
   narration: string;
   entries: EntryDraft[];
   confidence: number; // 0–1, 1 = high confidence (payroll template), < 0.5 = needs review
-  source?: "payroll" | "history" | "household" | "none" | "duplicate";
+  source?: "payroll" | "recurring" | "history" | "household" | "none" | "duplicate";
+  // Set when `source === "recurring"` -- which RecurringTemplate matched, so saveSelected() can
+  // record the posting back onto it (see lib/recurring.ts).
+  recurringTemplateId?: string;
   // Set when a save attempt was blocked by the vault-duplicate guardrail so the user can
   // review and explicitly confirm it's actually a separate transaction, not a re-save.
   dupBlocked?: boolean;
@@ -430,7 +434,7 @@ function buildDraft(
   newAcctsByName: Record<string, Account>,
   historyIndex: HistoryIndex,
   plaidAcctMap: Map<string, PlaidAccount>
-): Pick<ImportRow, "entries" | "voucherType" | "narration" | "confidence" | "source"> {
+): Pick<ImportRow, "entries" | "voucherType" | "narration" | "confidence" | "source" | "recurringTemplateId"> {
   const accounts = ledger.accounts.filter((a) => a.active !== false);
   // Combined lookup: existing vault accounts + pending new ones
   const allAccounts = [
@@ -494,6 +498,23 @@ function buildDraft(
       ];
       return { entries, voucherType: "Receipt", narration: "Salary Income - Semi Monthly", confidence: matched ? 0.98 : 0.9, source: "payroll" };
     }
+  }
+
+  // ── User-defined recurring templates (Masters → Recurring Templates) ───────────────────────
+  // Explicit user config outranks every inferred/regex heuristic below, including mortgage/card
+  // rules -- checked right after payroll, before anything else gets a chance to claim the row.
+  const recurringMatch = matchRecurringTemplate(tx.institution_name || "", tx.amount, tx.date, ledger.recurringTemplates);
+  if (recurringMatch) {
+    const accountById = new Map(allAccounts.map((a) => [a.id, a]));
+    const built = buildVoucherFromTemplate(recurringMatch.template, tx.date, accountById);
+    return {
+      entries: built.entries,
+      voucherType: built.voucherType,
+      narration: built.narration,
+      confidence: 0.9,
+      source: "recurring",
+      recurringTemplateId: recurringMatch.template.id,
+    };
   }
 
   // ── Mortgage payment (BofA checking -> Home principal + Interest on Home Loan) ─────────────
@@ -1765,7 +1786,24 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       }
     }
 
-    const next: Ledger = { ...data, accounts: updatedAccounts, transactions: [...data.transactions, ...safeTxs], payroll: nextPayroll };
+    // Record which recurring template this row satisfied and for which period, mirroring the
+    // payroll match above -- otherwise a Plaid-posted recurring voucher wouldn't be recognized
+    // as "done" by the manual Recurring due list, and would show up there as still due too.
+    let nextRecurringTemplates = data.recurringTemplates;
+    if (nextRecurringTemplates) {
+      const recurringSaved = drafts.filter((d) => d.row.source === "recurring" && d.row.recurringTemplateId && safeTxs.includes(d.tx));
+      if (recurringSaved.length) {
+        nextRecurringTemplates = nextRecurringTemplates.map((template) => {
+          const match = recurringSaved.find((d) => d.row.recurringTemplateId === template.id);
+          if (!match) return template;
+          const periodKey = currentPeriodKey(template, match.tx.date);
+          if (template.postings.some((p) => p.periodKey === periodKey)) return template;
+          return { ...template, postings: [...template.postings, { periodKey, txGuid: match.tx.guid, postedAt: importedAt }] };
+        });
+      }
+    }
+
+    const next: Ledger = { ...data, accounts: updatedAccounts, transactions: [...data.transactions, ...safeTxs], payroll: nextPayroll, recurringTemplates: nextRecurringTemplates };
     const ok = await onSave(next);
     if (ok) {
       const msg = blocked
@@ -2101,6 +2139,9 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                   )}
                   {row.source === "household" && !row.alreadyImported && (
                     <span className="plaid-household-badge">household</span>
+                  )}
+                  {row.source === "recurring" && !row.alreadyImported && (
+                    <span className="plaid-recurring-badge">recurring</span>
                   )}
                   {row.confidence === 0 && !row.alreadyImported && (
                     <span className="plaid-unmatched-badge">needs accounts</span>

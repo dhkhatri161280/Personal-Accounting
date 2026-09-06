@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
+import type { RecurringTemplate } from "@/lib/vault-types";
 
 export type MasterGroup = {
   name: string;
@@ -41,6 +42,7 @@ export type MasterLedger = {
   fiscalYearStartMonth?: number;
   closedPeriods?: string[];
   transactions?: Array<{ date: string; deleted?: boolean; entries: Array<{ accountId: number }> }>;
+  recurringTemplates?: RecurringTemplate[];
 };
 
 const standard: MasterGroup[] = [
@@ -394,11 +396,12 @@ export function MastersPanel({
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
-  initialSection?: "ledgers" | "groups" | "periods" | "settings";
+  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "settings";
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "settings">(initialSection ?? "ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "settings">(initialSection ?? "ledgers"),
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
+    [recurringTemplateId, setRecurringTemplateId] = useState<string | null>(null),
     [search, setSearch] = useState("");
 
   // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
@@ -592,8 +595,52 @@ export function MastersPanel({
       linked ? `Group ${g.name} is pending deletion from Tally.` : `Group ${g.name} deleted.`
     );
   };
+  const saveRecurringTemplate = (form: FormData) => {
+    const label = normalize(String(form.get("label") || "")),
+      frequency = String(form.get("frequency") || "monthly") as RecurringTemplate["frequency"],
+      dayOfMonth = form.get("dayOfMonth") ? Number(form.get("dayOfMonth")) : undefined,
+      voucherType = String(form.get("voucherType") || "Payment"),
+      narrationTemplate = normalize(String(form.get("narrationTemplate") || `{month} ${label}`)),
+      active = form.get("active") === "on",
+      debitAccountId = Number(form.get("debitAccountId")),
+      creditAccountId = Number(form.get("creditAccountId")),
+      amount = Math.abs(Number(form.get("amount") || 0)),
+      institutionPattern = normalize(String(form.get("institutionPattern") || "")),
+      amountTolerance = Number(form.get("amountTolerance") || 5);
+    if (!label || !debitAccountId || !creditAccountId || !amount) return;
+    const existing = (data.recurringTemplates || []).find((t) => t.id === recurringTemplateId);
+    const template: RecurringTemplate = {
+      id: existing?.id || crypto.randomUUID(),
+      label,
+      active,
+      frequency,
+      dayOfMonth,
+      voucherType,
+      narrationTemplate,
+      entries: [
+        { accountId: debitAccountId, amount: -amount },
+        { accountId: creditAccountId, amount },
+      ],
+      plaidMatch: institutionPattern ? { institutionPattern, amountTolerance } : undefined,
+      postings: existing?.postings || [],
+    };
+    const custom = (data.recurringTemplates || []).filter((t) => t.id !== template.id);
+    onSave(
+      { ...data, recurringTemplates: [...custom, template] },
+      `${existing ? "Updated" : "Created"} recurring template ${label}.`
+    );
+    setRecurringTemplateId(null);
+  };
+  const deleteRecurringTemplate = (t: RecurringTemplate) => {
+    if (!confirm(`Delete recurring template ${t.label}? Vouchers already posted from it are unaffected.`)) return;
+    onSave(
+      { ...data, recurringTemplates: (data.recurringTemplates || []).filter((x) => x.id !== t.id) },
+      `Recurring template ${t.label} deleted.`
+    );
+  };
   const account = data.accounts.find((a) => a.id === accountId),
     group = groups.find((g) => g.name === groupName),
+    recurringTemplate = (data.recurringTemplates || []).find((t) => t.id === recurringTemplateId),
     usedGroups = new Set(data.accounts.map((a) => a.parent));
   return (
     <div className="masters-panel">
@@ -615,6 +662,12 @@ export function MastersPanel({
           onClick={() => setSection("periods")}
         >
           Periods
+        </button>
+        <button
+          className={section === "recurring" ? "selected" : ""}
+          onClick={() => setSection("recurring")}
+        >
+          Recurring Templates
         </button>
         <button
           className={section === "settings" ? "selected" : ""}
@@ -740,6 +793,58 @@ export function MastersPanel({
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      {section === "recurring" && (
+        <>
+          <div className="master-toolbar">
+            <span>{(data.recurringTemplates || []).length} recurring template(s)</span>
+            <button className="primary" onClick={() => setRecurringTemplateId("")}>
+              + New Recurring Template
+            </button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Frequency</th>
+                <th>Amount</th>
+                <th>Plaid Match</th>
+                <th>Status</th>
+                <th>Postings</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.recurringTemplates || [])
+                .slice()
+                .sort((a, b) => a.label.localeCompare(b.label))
+                .map((t) => (
+                  <tr key={t.id}>
+                    <td>{t.label}</td>
+                    <td>{t.frequency === "yearly" ? "Yearly" : "Monthly"}</td>
+                    <td className="right">{Math.abs(t.entries.find((e) => e.amount < 0)?.amount ?? 0).toFixed(2)}</td>
+                    <td>{t.plaidMatch ? t.plaidMatch.institutionPattern : "Manual only"}</td>
+                    <td>
+                      <span className={`master-status ${t.active ? "synced" : "pending"}`}>
+                        {t.active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td>{t.postings.length}</td>
+                    <td>
+                      <div className="master-actions">
+                        <button className="master-edit" onClick={() => setRecurringTemplateId(t.id)}>
+                          Edit
+                        </button>
+                        <button className="master-delete" onClick={() => deleteRecurringTemplate(t)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </>
@@ -875,6 +980,105 @@ export function MastersPanel({
                 Cancel
               </button>
               <button className="primary">Save group</button>
+            </div>
+          </form>
+        </FloatingWindow>
+      )}
+      {recurringTemplateId !== null && (
+        <FloatingWindow
+          title={`${recurringTemplate ? "Edit" : "Create"} Recurring Template`}
+          onClose={() => setRecurringTemplateId(null)}
+        >
+          <form
+            className="master-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveRecurringTemplate(new FormData(e.currentTarget));
+            }}
+          >
+            <label>
+              Label
+              <input name="label" defaultValue={recurringTemplate?.label} placeholder="e.g. Rent, Netflix, Car EMI" required autoFocus />
+            </label>
+            <label>
+              Frequency
+              <select name="frequency" defaultValue={recurringTemplate?.frequency || "monthly"}>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </label>
+            <label>
+              Usually due on (day of month, optional)
+              <input name="dayOfMonth" type="number" min={1} max={31} defaultValue={recurringTemplate?.dayOfMonth} />
+            </label>
+            <label>
+              Voucher type
+              <select name="voucherType" defaultValue={recurringTemplate?.voucherType || "Payment"}>
+                {["Payment", "Receipt", "Journal", "Contra"].map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Narration ({"{month}"}/{"{year}"} are filled in when posted)
+              <input name="narrationTemplate" defaultValue={recurringTemplate?.narrationTemplate} placeholder="e.g. {month} rent" />
+            </label>
+            <label>
+              Debit account
+              <select name="debitAccountId" defaultValue={recurringTemplate?.entries.find((e) => e.amount < 0)?.accountId || ""}>
+                <option value="" disabled>
+                  Select ledger
+                </option>
+                {data.accounts.filter((a) => a.active !== false).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Credit account
+              <select name="creditAccountId" defaultValue={recurringTemplate?.entries.find((e) => e.amount > 0)?.accountId || ""}>
+                <option value="" disabled>
+                  Select ledger
+                </option>
+                {data.accounts.filter((a) => a.active !== false).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Amount
+              <input
+                name="amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                defaultValue={Math.abs(recurringTemplate?.entries.find((e) => e.amount < 0)?.amount ?? 0) || undefined}
+                required
+              />
+            </label>
+            <label className="check-label">
+              <input name="active" type="checkbox" defaultChecked={recurringTemplate?.active !== false} /> Active
+            </label>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0" }}>
+              Optional: auto-detect this template in Plaid Import when a matching bank transaction arrives. Leave blank to only post it manually.
+            </p>
+            <label>
+              Plaid institution pattern (optional)
+              <input name="institutionPattern" defaultValue={recurringTemplate?.plaidMatch?.institutionPattern} placeholder="e.g. Bank of America" />
+            </label>
+            <label>
+              Plaid amount tolerance ($)
+              <input name="amountTolerance" type="number" step="0.01" min="0" defaultValue={recurringTemplate?.plaidMatch?.amountTolerance ?? 5} />
+            </label>
+            <div>
+              <button type="button" onClick={() => setRecurringTemplateId(null)}>
+                Cancel
+              </button>
+              <button className="primary">Save template</button>
             </div>
           </form>
         </FloatingWindow>

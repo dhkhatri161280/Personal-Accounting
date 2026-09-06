@@ -14,6 +14,7 @@ import type {
   Vault,
   SyncHealth,
   Budget,
+  RecurringTemplate,
 } from "@/lib/vault-types";
 import {
   bytes,
@@ -40,6 +41,7 @@ import {
   ensureHouseHoldAccountsForFiscalYears,
   buildFiscalYearCloseVoucher,
   isProfitAndLossAccountName,
+  nextTransactionIds,
 } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
@@ -52,6 +54,7 @@ import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet"
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
 import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
 import type { BudgetRow } from "@/lib/budget";
+import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
@@ -106,7 +109,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [trashSubTab, setTrashSubTab] = useState<"deleted" | "duplicate">("deleted"),
     // Which Masters sub-tab to land on next time it mounts -- lets the Dashboard's period-open
     // badge jump straight to Periods instead of always defaulting to Ledgers.
-    [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "settings">("ledgers"),
+    [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "settings">("ledgers"),
     [searchOpen, setSearchOpen] = useState(false),
     [searchQuery, setSearchQuery] = useState(""),
     // Deep-link targets for report components with their own internal sub-tabs, set by the
@@ -477,6 +480,37 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setTab(destination);
     scheduleAutoSyncTrigger();
     return true;
+  }
+
+  // Posts one recurring template's voucher for "today" and records the posting back onto the
+  // template (same periodKey/txGuid link the Plaid-match path records in PlaidImport.tsx's
+  // saveSelected) -- shared by the Recurring report's Post button and the Needs Attention bell's
+  // action button, so there's exactly one place that turns a due template into a saved voucher.
+  async function postRecurringTemplate(template: RecurringTemplate) {
+    if (!data) return false;
+    const accountById = new Map(data.accounts.map((a) => [a.id, a]));
+    const built = buildVoucherFromTemplate(template, todayStr, accountById);
+    const tx: Tx = {
+      id: nextTransactionIds(data.transactions, 1)[0],
+      guid: crypto.randomUUID(),
+      syncStatus: "pending",
+      createdAt: new Date().toISOString(),
+      date: todayStr,
+      number: "",
+      type: built.voucherType,
+      narration: built.narration,
+      historical: false,
+      cancelled: false,
+      entries: built.entries,
+    };
+    const periodKey = currentPeriodKey(template, todayStr);
+    const nextTemplates = (data.recurringTemplates || []).map((t) =>
+      t.id === template.id ? { ...t, postings: [...t.postings, { periodKey, txGuid: tx.guid, postedAt: new Date().toISOString() }] } : t
+    );
+    const next: Ledger = { ...data, transactions: [...data.transactions, tx], recurringTemplates: nextTemplates };
+    const ok = await save(next, "reports");
+    if (!ok) setStatus(`Failed to post ${template.label}.`);
+    return ok;
   }
 
   // Debounce: wait until saves settle before asking the local Tally daemon to sync,
@@ -1237,7 +1271,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // ambiguous (checked well before March, not just at close time). Reconciliation diffs from
   // Import → Balances aren't included yet -- that logic lives deep in PlaidImport.tsx's matching
   // engine and isn't safely reusable here without extracting it first.
-  const attentionItems: { label: string; detail: string }[] = [];
+  const attentionItems: { label: string; detail: string; action?: { label: string; onClick: () => void } }[] = [];
   if (data?.equity) {
     for (const c of computePendingEsppCycles(data.equity.esppPurchases ?? [], data.payroll, todayStr)) {
       if (c.dueForConfirm) {
@@ -1278,6 +1312,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       label: "FY close not ready",
       detail: `Fiscal-year closing voucher can't auto-post yet (${fyCloseCheck.message}) — fix the ledger setup in Masters → Ledgers before March.`,
     });
+  }
+  if (data) {
+    for (const due of dueTemplates(data.recurringTemplates, todayStr)) {
+      attentionItems.push({
+        label: `Recurring: ${due.template.label} due`,
+        detail: `${due.periodLabel} — post it from Reports → Recurring, or below.`,
+        action: { label: "Post", onClick: () => void postRecurringTemplate(due.template) },
+      });
+    }
   }
 
   // Command-palette destinations: every report/masters/import sub-tab plus the top-level tabs,
@@ -1320,6 +1363,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         ]
       : []),
     { id: "report-recon", label: "Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
+    { id: "report-recurring", label: "Recurring", group: "Reports", keywords: ["recurring", "rent", "subscription", "emi", "template", "due"], go: () => { setReport("recurring"); setTab("reports"); } },
+    { id: "masters-recurring", label: "Recurring Templates", group: "Masters", keywords: ["recurring", "rent", "subscription", "emi", "template"], go: () => { setMastersSection("recurring"); setTab("masters"); } },
     { id: "report-trash", label: "Trash", group: "Reports", keywords: [], go: () => { setReport("trash"); setTab("reports"); } },
     { id: "report-trash-deleted", label: "Trash — Deleted", group: "Reports", keywords: ["deleted"], go: () => { setTrashSubTab("deleted"); setReport("trash"); setTab("reports"); } },
     { id: "report-trash-duplicate", label: "Trash — Duplicate", group: "Reports", keywords: ["duplicate", "duplicates"], go: () => { setTrashSubTab("duplicate"); setReport("trash"); setTab("reports"); } },
@@ -2201,6 +2246,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                           {item.label}
                           <small>{item.detail}</small>
                         </span>
+                        {item.action && (
+                          <button type="button" className="tr-refresh-btn" onClick={item.action.onClick}>
+                            {item.action.label}
+                          </button>
+                        )}
                       </div>
                     ))
                   )}
@@ -2896,6 +2946,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               Recon
             </button>
             <button
+              className={report === "recurring" ? "selected" : ""}
+              onClick={() => setReport("recurring")}
+            >
+              Recurring
+            </button>
+            <button
               className={report === "trash" ? "selected" : ""}
               onClick={() => setReport("trash")}
             >
@@ -3520,6 +3576,64 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "recon" && data && (
             <ReconReport data={data} fmt={fmt} uiTheme={uiTheme} />
           )}
+          {report === "recurring" && data && (() => {
+            const templates = data.recurringTemplates ?? [];
+            const due = dueTemplates(templates, todayStr);
+            const dueIds = new Set(due.map((d) => d.template.id));
+            return (
+              <div className="data-panel">
+                <h3>Recurring Transactions</h3>
+                {templates.length === 0 ? (
+                  <p style={{ opacity: 0.7 }}>No recurring templates yet. Add one in Masters → Recurring Templates.</p>
+                ) : (
+                  <>
+                    <h4 style={{ margin: "0.5rem 0" }}>Due now</h4>
+                    {due.length === 0 ? (
+                      <p style={{ opacity: 0.7 }}>Nothing due right now.</p>
+                    ) : (
+                      due.map(({ template, periodLabel }) => (
+                        <div className="report-line" key={template.id}>
+                          <span>
+                            {template.label} <small style={{ opacity: 0.7 }}>({periodLabel})</small>
+                          </span>
+                          <button type="button" className="tr-refresh-btn" onClick={() => postRecurringTemplate(template)}>
+                            Post
+                          </button>
+                        </div>
+                      ))
+                    )}
+                    <h4 style={{ margin: "1rem 0 0.5rem" }}>All templates</h4>
+                    {templates
+                      .slice()
+                      .sort((a, b) => a.label.localeCompare(b.label))
+                      .map((t) => (
+                        <div className="report-line" key={t.id}>
+                          <span>
+                            {t.label}{" "}
+                            <small style={{ opacity: 0.7 }}>
+                              {t.frequency === "yearly" ? "Yearly" : "Monthly"} · {t.postings.length} posted
+                              {t.plaidMatch ? " · Plaid-matched" : ""}
+                            </small>
+                          </span>
+                          {!t.active ? (
+                            <span style={{ opacity: 0.5, fontSize: 12 }}>Inactive</span>
+                          ) : dueIds.has(t.id) ? (
+                            <span style={{ color: "#dc2626", fontSize: 12 }}>Due</span>
+                          ) : (
+                            <span style={{ color: "#16a34a", fontSize: 12 }}>Up to date</span>
+                          )}
+                        </div>
+                      ))}
+                  </>
+                )}
+                <p style={{ marginTop: "1rem" }}>
+                  <button type="button" className="tr-refresh-btn" onClick={() => { setMastersSection("recurring"); setTab("masters"); }}>
+                    Manage templates in Masters
+                  </button>
+                </p>
+              </div>
+            );
+          })()}
           {report === "networth" && (
             <>
               <h3 className="report-inline-heading">

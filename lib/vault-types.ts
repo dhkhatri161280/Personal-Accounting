@@ -266,6 +266,25 @@ export type IndiaTaxData = {
   itrYears: IndiaItrYear[];
 };
 
+// A user-defined recurring bill/expense/income (rent, a subscription, an EMI, an insurance
+// premium) that either gets auto-detected during Plaid import (if plaidMatch is set, same
+// institution+amount matching the mortgage/payroll detection already do) or shows up in the
+// Recurring report's "due this period" list for one-click manual posting.
+export type RecurringTemplate = {
+  id: string;
+  label: string;
+  active: boolean;
+  frequency: "monthly" | "yearly";
+  dayOfMonth?: number; // informational "usually due on the Nth" -- not used to gate visibility
+  voucherType: string;
+  narrationTemplate: string; // e.g. "{month} rent" -- {month}/{year} interpolated at post time
+  entries: { accountId: number; amount: number }[]; // fixed amount, signed like Entry (negative = debit)
+  plaidMatch?: { institutionPattern: string; amountTolerance: number };
+  // Persisted link from a period to the voucher that satisfied it -- generalizes PayrollMatch's
+  // period->txGuid link (above) to any recurring template, not just payroll.
+  postings: { periodKey: string; txGuid: string; postedAt: string }[];
+};
+
 export type BudgetLine = {
   id: string;
   accountId: number;
@@ -319,6 +338,8 @@ export type Ledger = {
   // Per-fiscal-year budgets for the Budget vs Actual report, one entry per FY the user has
   // budgeted. See lib/budget.ts for how these are generated/compared against actuals.
   budgets?: Budget[];
+  // User-defined recurring bills/expenses/income. See lib/recurring.ts.
+  recurringTemplates?: RecurringTemplate[];
 };
 
 export type Vault = {
