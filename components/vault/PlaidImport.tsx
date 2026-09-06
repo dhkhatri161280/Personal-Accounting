@@ -12,6 +12,7 @@ import {
 } from "@/lib/mortgage-amortization";
 import { isCcAcct, isBankAcct, enforceContraType } from "@/lib/plaid-classify";
 import { matchRecurringTemplate, buildVoucherFromTemplate, currentPeriodKey } from "@/lib/recurring";
+import { vaultBookBalance } from "@/lib/plaid-recon";
 import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -1108,20 +1109,6 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
 }
 
 // ── Balance reconciliation helpers ────────────────────────────────────────────
-
-function vaultBookBalance(accountId: number, plaidType: string, ledger: Ledger): number {
-  let sum = 0;
-  for (const v of ledger.transactions) {
-    if (v.deleted || v.cancelled) continue;
-    for (const e of v.entries) {
-      if (e.accountId === accountId) sum += e.amount;
-    }
-  }
-  // Vault convention: Dr=negative, Cr=positive
-  // Asset (depository): balance = -sum  (Dr entries increase the asset)
-  // Liability (credit): balance = +sum  (Cr entries increase what you owe)
-  return plaidType === "credit" ? sum : -sum;
-}
 
 // Sum of vault entries with syncStatus==="bank-pending" for this account.
 // These are transactions posted via the Pending tab that haven't cleared the bank yet.

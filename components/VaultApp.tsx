@@ -53,6 +53,7 @@ import { ColumnarIncomeExpenditure } from "@/components/reports/ColumnarIncomeEx
 import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet";
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
 import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
+import { BankReconciliation } from "@/components/reports/BankReconciliation";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
@@ -1363,6 +1364,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         ]
       : []),
     { id: "report-recon", label: "Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
+    ...(book !== "india"
+      ? [
+          { id: "report-bankrecon", label: "Bank Reconciliation", group: "Reports", keywords: ["bank recon", "plaid", "unmatched", "outstanding", "balance"], go: () => { setReport("bankrecon"); setTab("reports"); } },
+        ]
+      : []),
     { id: "report-recurring", label: "Recurring", group: "Reports", keywords: ["recurring", "rent", "subscription", "emi", "template", "due"], go: () => { setReport("recurring"); setTab("reports"); } },
     { id: "masters-recurring", label: "Recurring Templates", group: "Masters", keywords: ["recurring", "rent", "subscription", "emi", "template"], go: () => { setMastersSection("recurring"); setTab("masters"); } },
     { id: "report-trash", label: "Trash", group: "Reports", keywords: [], go: () => { setReport("trash"); setTab("reports"); } },
@@ -2945,6 +2951,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Recon
             </button>
+            {book !== "india" && (
+              <button
+                className={report === "bankrecon" ? "selected" : ""}
+                onClick={() => setReport("bankrecon")}
+              >
+                Bank Recon
+              </button>
+            )}
             <button
               className={report === "recurring" ? "selected" : ""}
               onClick={() => setReport("recurring")}
@@ -3575,6 +3589,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "recon" && data && (
             <ReconReport data={data} fmt={fmt} uiTheme={uiTheme} />
+          )}
+          {report === "bankrecon" && book !== "india" && data && (
+            <>
+              <h3 className="report-inline-heading">Bank Reconciliation</h3>
+              <BankReconciliation data={data} fmt={fmt} />
+            </>
           )}
           {report === "recurring" && data && (() => {
             const templates = data.recurringTemplates ?? [];
