@@ -51,6 +51,7 @@ import { ColumnarIncomeExpenditure } from "@/components/reports/ColumnarIncomeEx
 import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet";
 import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
 import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
+import type { BudgetRow } from "@/lib/budget";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
@@ -129,6 +130,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [exportingBalanceSheet, setExportingBalanceSheet] = useState(false),
     [columnarCFData, setColumnarCFData] = useState<{ periods: PeriodBoundary[]; inflowRows: ColumnarRow[]; outflowRows: ColumnarRow[] } | null>(null),
     [exportingCashFlow, setExportingCashFlow] = useState(false),
+    [budgetData, setBudgetData] = useState<{ periods: PeriodBoundary[]; incomeRows: BudgetRow[]; expenseRows: BudgetRow[] } | null>(null),
+    [exportingBudget, setExportingBudget] = useState(false),
     [year, setYear] = useState("all"),
     [customStart, setCustomStart] = useState("2026-04"),
     [customEnd, setCustomEnd] = useState("2026-06"),
@@ -1642,6 +1645,60 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       XLSX.writeFile(wb, `Cash Flow${year !== "all" ? ` — ${columnarRangeLabel}` : ""}.xlsx`);
     } finally {
       setExportingCashFlow(false);
+    }
+  }
+
+  // Budget vs Actual has no single/columnar toggle -- it's always the 12-month FY grid -- so this
+  // always exports the full monthly Budget/Actual/Variance breakdown (not just the on-screen
+  // annual summary), same "give the complete detail, not just what fits on screen" intent as the
+  // other reports' monthly/quarterly export branch.
+  async function exportBudget() {
+    if (!budgetData || !budgetFy) return;
+    setExportingBudget(true);
+    try {
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      const { periods, incomeRows, expenseRows } = budgetData;
+      const header = [
+        "Ledger",
+        ...periods.flatMap((p) => [`${p.label} Budget`, `${p.label} Actual`, `${p.label} Variance`]),
+        "Total Budget",
+        "Total Actual",
+        "Total Variance",
+        "Variance %",
+      ];
+      const sheetRows = (kind: string, rows: BudgetRow[]) => {
+        const sorted = rows.slice().sort((a, b) => (a.parent || "").localeCompare(b.parent || "") || a.name.localeCompare(b.name));
+        const dataRows = sorted.map((r) => [
+          r.name,
+          ...periods.flatMap((p, i) => [r.monthlyBudget[i], r.monthlyActual[i], r.monthlyActual[i] - r.monthlyBudget[i]]),
+          r.totalBudget,
+          r.totalActual,
+          r.varianceAmt,
+          r.variancePct === null ? "" : `${r.variancePct.toFixed(1)}%`,
+        ]);
+        const totalBudget = rows.reduce((s, r) => s + r.totalBudget, 0);
+        const totalActual = rows.reduce((s, r) => s + r.totalActual, 0);
+        const totalsRow = [
+          `Total ${kind}`,
+          ...periods.flatMap((p, i) => {
+            const b = rows.reduce((s, r) => s + r.monthlyBudget[i], 0);
+            const a = rows.reduce((s, r) => s + r.monthlyActual[i], 0);
+            return [b, a, a - b];
+          }),
+          totalBudget,
+          totalActual,
+          totalActual - totalBudget,
+          Math.abs(totalBudget) > 0.005 ? `${(((totalActual - totalBudget) / totalBudget) * 100).toFixed(1)}%` : "",
+        ];
+        return [...dataRows, totalsRow, []];
+      };
+      const ws = XLSX.utils.aoa_to_sheet([header, ...sheetRows("Income", incomeRows), ...sheetRows("Expense", expenseRows)]);
+      ws["!cols"] = header.map((h) => ({ wch: Math.max(12, h.length) }));
+      XLSX.utils.book_append_sheet(wb, ws, `Budget vs Actual FY ${budgetFy}`.slice(0, 31));
+      XLSX.writeFile(wb, `Budget vs Actual — FY ${budgetFy}.xlsx`);
+    } finally {
+      setExportingBudget(false);
     }
   }
 
@@ -3339,6 +3396,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   return save(next, "budget");
                 }}
                 onDrilldown={setColumnarDrilldown}
+                onComputed={(periods, incomeRows, expenseRows) => setBudgetData({ periods, incomeRows, expenseRows })}
+                exporting={exportingBudget}
+                onExport={exportBudget}
               />
             </>
           )}

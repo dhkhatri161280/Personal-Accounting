@@ -246,12 +246,18 @@ export function BudgetVsActual({
   fmt,
   onSave,
   onDrilldown,
+  onComputed,
+  exporting,
+  onExport,
 }: {
   data: Ledger;
   fy: string | null; // null when the selected period isn't a plain fiscal year -- budgets need one
   fmt: (n: number) => string;
   onSave: (budget: Budget) => Promise<boolean> | boolean | void;
   onDrilldown?: (req: DrilldownRequest) => void;
+  onComputed?: (periods: PeriodBoundary[], incomeRows: BudgetRow[], expenseRows: BudgetRow[]) => void;
+  exporting?: boolean;
+  onExport?: () => void;
 }) {
   const savedBudget = useMemo(() => (fy ? data.budgets?.find((b) => b.fy === fy) : undefined), [data.budgets, fy]);
   const [editing, setEditing] = useState(false);
@@ -265,6 +271,27 @@ export function BudgetVsActual({
     setExpanded(new Set());
   }, [fy]);
 
+  // Memoized so `periods`/`incomeRows`/`expenseRows` keep a stable identity across renders that
+  // don't actually change the inputs -- without this, the onComputed effect below (which lifts
+  // this data up to VaultApp's state) would fire on every render, since VaultApp storing that
+  // state triggers a re-render here too, recomputing fresh array references and firing again.
+  const activeBudget = useMemo<Budget | undefined>(
+    () =>
+      fy && draftLines
+        ? { fy, lines: draftLines, generatedFromFy: savedBudget?.generatedFromFy, updatedAt: savedBudget?.updatedAt ?? "" }
+        : savedBudget,
+    [fy, draftLines, savedBudget]
+  );
+  const { incomeRows, expenseRows, periods } = useMemo(
+    () => (fy ? budgetVsActualRows(data, activeBudget, fy) : { incomeRows: [], expenseRows: [], periods: [] }),
+    [data, activeBudget, fy]
+  );
+
+  useEffect(() => {
+    if (fy) onComputed?.(periods, incomeRows, expenseRows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fy, periods, incomeRows, expenseRows]);
+
   if (!fy) {
     return (
       <div className="data-panel">
@@ -275,10 +302,6 @@ export function BudgetVsActual({
     );
   }
 
-  const activeBudget: Budget | undefined = draftLines
-    ? { fy, lines: draftLines, generatedFromFy: savedBudget?.generatedFromFy, updatedAt: savedBudget?.updatedAt ?? "" }
-    : savedBudget;
-  const { incomeRows, expenseRows, periods } = budgetVsActualRows(data, activeBudget, fy);
   const priorFy = String(Number(fy) - 1);
 
   function startEditing() {
@@ -358,6 +381,11 @@ export function BudgetVsActual({
                 {saving ? "Saving…" : "Save Budget"}
               </button>
             </>
+          )}
+          {!editing && onExport && (
+            <button type="button" className="tr-refresh-btn" disabled={exporting} onClick={onExport}>
+              {exporting ? "Exporting…" : "⬇ Export to Excel"}
+            </button>
           )}
         </span>
       </div>
