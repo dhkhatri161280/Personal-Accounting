@@ -18,20 +18,32 @@ export type VoucherRow = {
 };
 type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount";
 
-// Shared between the DataGrid's column widths and the filter-input row above it, so the two
-// rows always line up -- fixed (not flex) widths are what make that possible; a flex column's
-// rendered width depends on available space, which a static filter input can never track.
-const COLUMN_WIDTHS: Record<SortKey, number> = {
-  date: 100,
-  type: 120,
-  number: 64,
-  debit: 170,
-  credit: 170,
-  narration: 220,
-  amount: 120,
+// Single source of truth for column sizing, shared by the DataGrid's own columns AND the
+// filter-input row above it (via FILTER_GRID_TEMPLATE below), so the two rows always line up.
+// Date/Type/#/Amount don't need to grow, so they stay fixed px; Debit/Credit/Narration flex to
+// fill whatever room is left, same as a normal responsive table -- on a wide screen the earlier
+// all-fixed-width layout left a large empty gap on the right instead of using it. CSS Grid's
+// `fr` unit and MUI DataGrid's `flex` column sizing compute track widths the same way (fixed
+// tracks take their width, remaining space splits by weight, minmax floors each flexible track),
+// which is what keeps a CSS Grid filter row and a DataGrid pixel-aligned even though one uses
+// `fr` and the other uses `flex`.
+type ColSpec = { width: number } | { flex: number; minWidth: number };
+const COLUMN_SPECS: Record<SortKey, ColSpec> = {
+  date: { width: 100 },
+  type: { width: 120 },
+  number: { width: 64 },
+  debit: { flex: 1, minWidth: 170 },
+  credit: { flex: 1, minWidth: 170 },
+  narration: { flex: 1.6, minWidth: 220 },
+  amount: { width: 120 },
 };
 const BALANCE_COL_WIDTH = 120;
 const ACTION_COL_WIDTH = 84;
+
+const gridTrack = (spec: ColSpec) =>
+  "width" in spec ? `${spec.width}px` : `minmax(${spec.minWidth}px, ${spec.flex}fr)`;
+const FILTER_KEYS: SortKey[] = ["date", "type", "number", "debit", "credit", "narration", "amount"];
+const FILTER_GRID_TEMPLATE = FILTER_KEYS.map((k) => gridTrack(COLUMN_SPECS[k])).join(" ");
 
 // Tally's own Day Book order within a date: Contra, Payment, Receipt, Journal -- fixed, never
 // reversed even when the date sort direction is descending (only the date itself, and voucher
@@ -295,7 +307,7 @@ export function TransactionTable({
   );
 
   const filterField = (key: SortKey, label: string, placeholder: string) => (
-    <label key={key} style={{ width: COLUMN_WIDTHS[key] }}>
+    <label key={key}>
       {label}
       <input
         aria-label={`Filter ${placeholder}`}
@@ -310,13 +322,13 @@ export function TransactionTable({
     {
       field: "date",
       headerName: "Date",
-      width: COLUMN_WIDTHS.date,
+      ...COLUMN_SPECS.date,
       valueFormatter: (v: string) => v.split("-").reverse().join("-"),
     },
     {
       field: "type",
       headerName: "Type",
-      width: COLUMN_WIDTHS.type,
+      ...COLUMN_SPECS.type,
       renderCell: (params) => (
         <span className={`pill ${params.row.voucher.cancelled ? "cancelled" : ""}`}>
           {params.row.type}
@@ -327,21 +339,21 @@ export function TransactionTable({
     {
       field: "number",
       headerName: "#",
-      width: COLUMN_WIDTHS.number,
+      ...COLUMN_SPECS.number,
       renderCell: (params) => (
         <button className="voucher-reference" onClick={() => onView(params.row.voucher)}>
           {params.row.number || "-"}
         </button>
       ),
     },
-    { field: "debit", headerName: "Debit Ledger", width: COLUMN_WIDTHS.debit },
-    { field: "credit", headerName: "Credit Ledger", width: COLUMN_WIDTHS.credit },
-    { field: "narration", headerName: "Narration", width: COLUMN_WIDTHS.narration },
+    { field: "debit", headerName: "Debit Ledger", ...COLUMN_SPECS.debit },
+    { field: "credit", headerName: "Credit Ledger", ...COLUMN_SPECS.credit },
+    { field: "narration", headerName: "Narration", ...COLUMN_SPECS.narration },
     {
       field: "amount",
       headerName: "Amount",
       type: "number",
-      width: COLUMN_WIDTHS.amount,
+      ...COLUMN_SPECS.amount,
       valueFormatter: (v: number) => formatAmount(v),
     },
     ...(balanceMap
@@ -392,7 +404,7 @@ export function TransactionTable({
           Clear all filters
         </button>
       </div>
-      <div className="table-filters grid-aligned-filters">
+      <div className="table-filters grid-aligned-filters" style={{ gridTemplateColumns: FILTER_GRID_TEMPLATE }}>
         {filterField("date", "Date", "date")}
         {filterField("type", "Type", "voucher type")}
         {filterField("number", "#", "voucher number")}
