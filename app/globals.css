@@ -3824,6 +3824,33 @@ table thead th button,
 .shell.india-books table thead th button {
   color: #a55a00;
 }
+.shell.gr-books table thead th,
+.shell.gr-books table thead th button {
+  color: var(--dk-gr-text);
+}
+/* MUI DataGrid (Day Book, the Ledgers tab, and any ledger-drilldown popup) renders its own
+   header markup instead of a plain <table><thead>, so the rules above don't reach it -- mirror
+   the same per-book theme color here, matching every other report's header styling. !important
+   is needed since MUI injects its own header color via lib/mui-theme.ts at the same specificity
+   this app's own CSS load order can't otherwise beat. */
+.shell.us-books .MuiDataGrid-columnHeaderTitle,
+.shell.us-books .MuiDataGrid-columnHeader .MuiDataGrid-iconButtonContainer svg,
+.shell.us-books .MuiDataGrid-sortIcon,
+.shell.us-books .MuiDataGrid-menuIcon svg {
+  color: #1559b7 !important;
+}
+.shell.india-books .MuiDataGrid-columnHeaderTitle,
+.shell.india-books .MuiDataGrid-columnHeader .MuiDataGrid-iconButtonContainer svg,
+.shell.india-books .MuiDataGrid-sortIcon,
+.shell.india-books .MuiDataGrid-menuIcon svg {
+  color: #a55a00 !important;
+}
+.shell.gr-books .MuiDataGrid-columnHeaderTitle,
+.shell.gr-books .MuiDataGrid-columnHeader .MuiDataGrid-iconButtonContainer svg,
+.shell.gr-books .MuiDataGrid-sortIcon,
+.shell.gr-books .MuiDataGrid-menuIcon svg {
+  color: var(--dk-gr-text) !important;
+}
 table tbody td {
   border-color: #dfe6ef;
 }
