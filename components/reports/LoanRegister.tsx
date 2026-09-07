@@ -463,12 +463,15 @@ export function LoanRegister({
                       <td colSpan={10} style={{ padding: 0 }}>
                         <div style={{ padding: "10px 12px", background: "#f8fafc" }}>
                           <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-                            One table, start to end: <strong>Posted</strong> rows are a straight read of every real entry posted
-                            against this loan's account (so out-of-schedule principal payments show up as themselves, not
-                            smoothed away). <strong>Projected</strong> rows roll forward from today's real balance ({fmt(balance)}
-                            ); if this loan has known adjustable-rate reset terms, future rate changes are applied at the
-                            contractual worst case (the rate can legally never be higher than shown) and the payment is
-                            re-amortized over the remaining term at each reset, exactly like the Note itself does.
+                            One table, start ({l.startDate}) to end: <strong>Posted</strong> rows are a straight read of every
+                            real entry posted against this loan's account (so out-of-schedule principal payments show up as
+                            themselves, not smoothed away), and reset every later month's running balance to match.{" "}
+                            <strong>Estimated</strong> rows fill a month with no real entry (today or earlier) from the loan's
+                            stated terms -- the best available answer when the ledger itself has a gap.{" "}
+                            <strong>Projected</strong> rows do the same for future months; if this loan has known adjustable-rate
+                            reset terms, future rate changes are applied at the contractual worst case (the rate can legally never
+                            be higher than shown) and the payment is re-amortized over the remaining term at each reset, exactly
+                            like the Note itself does. Current real balance: {fmt(balance)}.
                           </p>
                           {schedule.rateUnknownPast && (
                             <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 8px" }}>
@@ -492,9 +495,9 @@ export function LoanRegister({
                               </thead>
                               <tbody>
                                 {schedule.rows.map((row, i) => (
-                                  <tr key={i} style={row.type === "projected" ? { opacity: 0.75 } : undefined}>
+                                  <tr key={i} style={row.type === "posted" ? undefined : { opacity: 0.7, fontStyle: "italic" }}>
                                     <td>{row.date}</td>
-                                    <td>{row.type === "posted" ? "Posted" : "Projected"}</td>
+                                    <td>{row.type === "posted" ? "Posted" : row.type === "estimated" ? "Estimated" : "Projected"}</td>
                                     <td className="right">{row.ratePct.toFixed(3)}%</td>
                                     <td className="right">{row.payment === null ? "—" : fmt(row.payment)}</td>
                                     <td className="right" style={{ color: row.principal < 0 ? "#dc2626" : undefined }}>

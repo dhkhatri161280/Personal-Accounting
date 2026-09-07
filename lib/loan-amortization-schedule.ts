@@ -9,7 +9,10 @@ import { currentLoanBalance } from "./loans-ledger";
 
 export type LoanScheduleRow = {
   date: string;
-  type: "posted" | "projected";
+  // "posted": a real ledger entry. "estimated": a past/present month with no real entry, filled
+  // from the loan's stated terms (the best available answer when the ledger itself has a gap).
+  // "projected": a future month, same computation, rolled forward from the real current balance.
+  type: "posted" | "estimated" | "projected";
   ratePct: number; // annual rate in effect, as a percentage (e.g. 2.875)
   note: string;
   payment: number | null; // null for posted rows -- a posted entry isn't necessarily a clean "payment"
@@ -29,6 +32,16 @@ function addMonthsClamped(dateStr: string, n: number): string {
   const nm = (total % 12) + 1;
   const daysInTargetMonth = new Date(ny, nm, 0).getDate();
   return `${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(day, daysInTargetMonth)).padStart(2, "0")}`;
+}
+
+// First-of-month, one month after `dateStr` -- monthly schedule rows land on the 1st (matching
+// how a standard note actually schedules payments: "the 1st day of each month"), not on whatever
+// day-of-month the loan happened to be registered on.
+function firstOfNextMonth(dateStr: string): string {
+  const [y, m] = dateStr.split("-").map(Number);
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}-01`;
 }
 
 function monthsBetween(from: string, to: string): number {
@@ -86,52 +99,82 @@ function actualHistory(data: Ledger, loan: Loan): LoanScheduleRow[] {
   return rows;
 }
 
-// The full loan schedule as ONE chronological table: every real posted entry (see actualHistory
-// above), followed by a month-by-month projection from TODAY's real balance through payoff or
-// maturity -- whichever comes first. The projection re-amortizes the remaining balance over the
-// remaining term every time the worst-case rate changes (matching the Note's own "Calculation of
-// Changes" language: a new payment sufficient to repay the balance by the Maturity Date in
-// substantially equal payments), and otherwise holds the payment flat, same as the real contract
-// (a partial prepayment does NOT change the payment amount until the next Change Date). If the
-// loan has no known reset terms (`rateAdjustment` unset) but does have `rateValidThrough` set, the
-// projection stops there instead of guessing and `rateUnknownPast` reports why.
+// The full loan schedule as ONE continuous table, month by month, from the loan's own startDate
+// through payoff or maturity -- whichever comes first. Every calendar month is represented:
+// - A month with a real posted entry (see actualHistory) shows that entry's real numbers, and the
+//   running balance is re-anchored to the real ledger balance from that point on -- so an
+//   out-of-schedule or extra principal payment immediately changes every month that follows.
+// - A month with no real entry is filled from the loan's stated terms: "estimated" if that month
+//   is today or earlier (the ledger has a gap there -- most loans aren't re-posted every single
+//   month, e.g. a balance maintained by periodic manual catch-up entries), "projected" if it's in
+//   the future.
+// Filled months re-amortize the payment over the remaining term every time the worst-case rate
+// changes (matching the Note's own "Calculation of Changes" language), and otherwise hold the
+// payment flat, same as the real contract (a partial prepayment does NOT change the payment amount
+// until the next Change Date). If the loan has no known reset terms (`rateAdjustment` unset) but
+// does have `rateValidThrough` set, the schedule stops filling future months there instead of
+// guessing, and `rateUnknownPast` reports why.
 export function computeLoanSchedule(
   data: Ledger,
   loan: Loan,
   asOfDate: string
 ): { rows: LoanScheduleRow[]; rateUnknownPast: string | null } {
-  const rows = actualHistory(data, loan);
+  const posted = actualHistory(data, loan);
+  const postedByMonth = new Map<string, LoanScheduleRow[]>();
+  for (const row of posted) {
+    const key = row.date.slice(0, 7);
+    if (!postedByMonth.has(key)) postedByMonth.set(key, []);
+    postedByMonth.get(key)!.push(row);
+  }
 
-  const maturityDate = addMonthsClamped(loan.startDate, loan.termMonths);
-  let balance = currentLoanBalance(data, loan, asOfDate);
-  let currentRatePct = worstCaseRatePct(loan, asOfDate);
-  let currentPayment = loan.standardPayment;
+  const rows: LoanScheduleRow[] = [];
+  let balance = loan.originalPrincipal;
+  let ratePct = loan.annualRate * 100;
+  let payment = loan.standardPayment;
   let rateUnknownPast: string | null = null;
 
-  const totalRemainingMonths = Math.max(0, monthsBetween(asOfDate, maturityDate));
-  for (let period = 1; period <= totalRemainingMonths && balance > 0.5; period++) {
-    const date = addMonthsClamped(asOfDate, period);
+  // Any real entry posted in the loan's own start month (e.g. its opening registration) predates
+  // the monthly grid below (which starts the month AFTER startDate) -- emit those first.
+  const startMonthKey = loan.startDate.slice(0, 7);
+  for (const row of postedByMonth.get(startMonthKey) ?? []) {
+    rows.push(row);
+    balance = row.balance;
+  }
+  postedByMonth.delete(startMonthKey);
 
-    if (!loan.rateAdjustment && loan.rateValidThrough && date > loan.rateValidThrough) {
-      rateUnknownPast = loan.rateValidThrough;
-      break;
+  const maturityDate = addMonthsClamped(loan.startDate, loan.termMonths);
+  let cursor = firstOfNextMonth(loan.startDate);
+  let guard = 0;
+  while (cursor <= maturityDate && balance > 0.5 && guard < loan.termMonths + 12) {
+    guard++;
+    const monthKey = cursor.slice(0, 7);
+    const postedThisMonth = postedByMonth.get(monthKey);
+    if (postedThisMonth) {
+      for (const row of postedThisMonth) {
+        rows.push(row);
+        balance = row.balance;
+      }
+      ratePct = worstCaseRatePct(loan, cursor);
+    } else {
+      if (!loan.rateAdjustment && loan.rateValidThrough && cursor > loan.rateValidThrough && cursor > asOfDate) {
+        rateUnknownPast = loan.rateValidThrough;
+        break;
+      }
+      const rp = worstCaseRatePct(loan, cursor);
+      let note = "";
+      if (rp !== ratePct) {
+        const remainingMonths = Math.max(1, monthsBetween(cursor, maturityDate) + 1);
+        payment = standardMonthlyPayment(balance, rp / 100, remainingMonths);
+        ratePct = rp;
+        note = "Rate reset (worst case per contract cap) -- payment re-amortized over remaining term";
+      }
+      const { interest } = computePaymentSplit(balance, rp / 100, payment);
+      const pay = round2(Math.min(payment, balance + interest));
+      const principal = round2(pay - interest);
+      balance = round2(Math.max(0, balance - principal));
+      rows.push({ date: cursor, type: cursor <= asOfDate ? "estimated" : "projected", ratePct: rp, note, payment: pay, principal, interest, balance });
     }
-
-    const ratePct = worstCaseRatePct(loan, date);
-    let note = "";
-    if (ratePct !== currentRatePct) {
-      const remainingMonths = totalRemainingMonths - period + 1;
-      currentPayment = standardMonthlyPayment(balance, ratePct / 100, remainingMonths);
-      currentRatePct = ratePct;
-      note = "Rate reset (worst case per contract cap) -- payment re-amortized over remaining term";
-    }
-
-    const { interest } = computePaymentSplit(balance, ratePct / 100, currentPayment);
-    const payment = round2(Math.min(currentPayment, balance + interest));
-    const principal = round2(payment - interest);
-    balance = round2(Math.max(0, balance - principal));
-
-    rows.push({ date, type: "projected", ratePct, note, payment, principal, interest, balance });
+    cursor = firstOfNextMonth(cursor);
   }
 
   return { rows, rateUnknownPast };
