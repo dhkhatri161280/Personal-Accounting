@@ -110,15 +110,17 @@ export function FixedAssetRegister({
     <div className="data-panel">
       <h3>Fixed Asset Register</h3>
       <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Straight-line depreciation only. Each asset gets its own ledger account under "Fixed Assets"; monthly depreciation posts
-        as a Journal entry (Dr Depreciation Expense / Cr Accumulated Depreciation) shared across all assets.
+        Straight-line depreciation only. Each asset gets its own ledger account under "Fixed Assets". The Monthly/Accum./Book
+        Value columns below are always live and up to date — no action needed to see them. "Run Depreciation" is a separate,
+        optional step that <strong>posts real Journal vouchers</strong> (Dr Depreciation Expense / Cr Accumulated Depreciation)
+        into the books for whichever months haven't been posted yet; skip it if you only want the numbers for reference.
       </p>
       <div className="master-toolbar">
         <button type="button" className="tr-refresh-btn" onClick={() => setShowAdd((v) => !v)}>
           {showAdd ? "Cancel" : "+ Add Asset"}
         </button>
         <button type="button" className="tr-refresh-btn" disabled={saving || pendingCount === 0} onClick={runDepreciation}>
-          {saving ? "Posting…" : pendingCount === 0 ? "Depreciation up to date" : `Run Depreciation (${pendingCount} pending)`}
+          {saving ? "Posting…" : pendingCount === 0 ? "Depreciation up to date" : `Run Depreciation (${pendingCount} pending) — posts vouchers`}
         </button>
         {accumDeprecGlBalance !== null && Math.abs(accumDeprecGlBalance - computedAccumTotal) > 0.5 && (
           <span style={{ fontSize: 11, color: "#dc2626" }}>
