@@ -7,17 +7,19 @@ import {
   neededRateMonths,
   prevMonthKey,
   getApplicableRate,
+  computeFxRevaluation,
   type FxRates,
   type GrLedger,
   type GrTx,
   type GrAccount,
+  type FxRevaluationPoint,
 } from "@/lib/gr-consolidation";
 import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { EquityReport } from "@/components/reports/EquityReport";
-import { computeGrNetWorthTrend } from "@/lib/net-worth-trend";
+import { computeGrNetWorthTrend, computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
@@ -138,6 +140,7 @@ export function GrApp() {
   const [phase, setPhase] = useState<Phase>("init");
   const [statusMsg, setStatusMsg] = useState("");
   const [gr, setGr] = useState<GrLedger | null>(null);
+  const [fxRevaluation, setFxRevaluation] = useState<FxRevaluationPoint[]>([]);
   const [editMode, setEditMode] = useState(false);
   const [tab, setTab] = useState<Tab>("dashboard");
   const [report, setReport] = useState<Report>("trial");
@@ -318,6 +321,10 @@ export function GrApp() {
 
       const consolidated = consolidateLedger(usData, inData, rates);
       setGr(consolidated);
+      // US book's own native-USD net worth trend (no conversion) -- the input the FX Revaluation
+      // section decomposes into real growth vs. currency movement using the same rate table.
+      const usTrend = computeNetWorthTrend(usData.accounts, usData.transactions, usData.groups ?? []);
+      setFxRevaluation(computeFxRevaluation(usTrend, rates));
       if (usData.equity) setEquityData(usData.equity);
       setEditRates(
         Object.fromEntries(Object.entries(rates).map(([k, v]) => [k, String(v)]))
@@ -2010,6 +2017,38 @@ export function GrApp() {
               )}
             </tbody>
           </table>
+
+          <h3 style={{ marginTop: 24 }}>FX Revaluation (US book, year over year)</h3>
+          <p className="gr-fxrates-note">
+            Decomposes each year's change in the US book's INR-equivalent net worth into real (USD) growth vs. pure currency
+            movement. India's own net worth has no FX component (it's already native INR) and isn't included here.
+          </p>
+          {fxRevaluation.length === 0 ? (
+            <p style={{ opacity: 0.7 }}>Not enough US book history yet to show year-over-year revaluation.</p>
+          ) : (
+            <table className="transaction-table gr-fxrates-table">
+              <thead>
+                <tr>
+                  <th>Fiscal Year</th>
+                  <th className="right">Real Growth (₹)</th>
+                  <th className="right">FX Gain/(Loss) (₹)</th>
+                  <th className="right">Total Change (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fxRevaluation.map((p) => (
+                  <tr key={p.fy}>
+                    <td>{p.fy}</td>
+                    <td className="right">{fmt(p.realGrowthInr)}</td>
+                    <td className="right" style={{ color: p.fxGainLossInr >= 0 ? "#16a34a" : "#dc2626" }}>
+                      {fmt(p.fxGainLossInr)}
+                    </td>
+                    <td className="right">{fmt(p.totalChangeInr)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>

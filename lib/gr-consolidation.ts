@@ -73,6 +73,44 @@ export function neededRateMonths(usTxns: Tx[]): string[] {
   return Array.from(months).sort();
 }
 
+export type FxRevaluationPoint = {
+  fy: string; // "FYxx-yy" label
+  realGrowthInr: number;
+  fxGainLossInr: number;
+  totalChangeInr: number;
+};
+
+// Standard translation decomposition: isolates how much of the US book's INR-equivalent net
+// worth change came from real (USD-native) growth vs. pure currency movement. Only the US book's
+// contribution has an FX component -- India's own net worth is already native INR, so it's
+// excluded here entirely (this only explains the US-book-in-INR portion of a GR consolidation).
+//   deltaInr (total change) = NWend*Rend - NWstart*Rstart
+//   realGrowthInr           = (NWend - NWstart) * Rend      -- growth valued at the END rate
+//   fxGainLossInr           = NWstart * (Rend - Rstart)     -- pure rate movement on the starting balance
+// realGrowthInr + fxGainLossInr === totalChangeInr exactly (this is an algebraic identity, not an
+// approximation) -- verified in the live check for this report, not just asserted here.
+export function computeFxRevaluation(
+  usTrend: { label: string; fyEndDate: string; netWorth: number }[],
+  fxRates: FxRates
+): FxRevaluationPoint[] {
+  const points: FxRevaluationPoint[] = [];
+  for (let i = 1; i < usTrend.length; i++) {
+    const prev = usTrend[i - 1],
+      curr = usTrend[i];
+    const rateStart = getApplicableRate(fxRates, prev.fyEndDate);
+    const rateEnd = getApplicableRate(fxRates, curr.fyEndDate);
+    const realGrowthInr = (curr.netWorth - prev.netWorth) * rateEnd;
+    const fxGainLossInr = prev.netWorth * (rateEnd - rateStart);
+    points.push({
+      fy: curr.label,
+      realGrowthInr,
+      fxGainLossInr,
+      totalChangeInr: realGrowthInr + fxGainLossInr,
+    });
+  }
+  return points;
+}
+
 export function consolidateLedger(
   usData: Ledger,
   indiaData: Ledger,

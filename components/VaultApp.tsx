@@ -60,6 +60,8 @@ import { AuditLog } from "@/components/reports/AuditLog";
 import { FixedAssetRegister } from "@/components/reports/FixedAssetRegister";
 import { PrepaidExpenseRegister } from "@/components/reports/PrepaidExpenseRegister";
 import { LoanRegister } from "@/components/reports/LoanRegister";
+import { PeriodCloseChecklist } from "@/components/reports/PeriodCloseChecklist";
+import { FinancialRatios } from "@/components/reports/FinancialRatios";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
@@ -1429,6 +1431,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-fixedassets", label: "Fixed Asset Register", group: "Reports", keywords: ["depreciation", "asset register", "fixed asset", "straight-line"], go: () => { setReport("fixedassets"); setTab("reports"); } },
     { id: "report-prepaid", label: "Prepaid Expenses", group: "Reports", keywords: ["prepaid", "amortization", "insurance", "subscription"], go: () => { setReport("prepaid"); setTab("reports"); } },
     { id: "report-loans", label: "Loan / Debt Register", group: "Reports", keywords: ["loan", "debt", "amortization", "car loan", "personal loan"], go: () => { setReport("loans"); setTab("reports"); } },
+    { id: "report-closechecklist", label: "Period-Close Checklist", group: "Reports", keywords: ["checklist", "close", "period", "ready to close"], go: () => { setReport("closechecklist"); setTab("reports"); } },
+    { id: "report-ratios", label: "Financial Ratios", group: "Reports", keywords: ["ratio", "kpi", "savings rate", "debt to income", "emergency fund"], go: () => { setReport("ratios"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
     ...(book !== "india"
       ? [
@@ -3065,6 +3069,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Loans
             </button>
+            <button
+              className={report === "closechecklist" ? "selected" : ""}
+              onClick={() => setReport("closechecklist")}
+            >
+              Close Checklist
+            </button>
+            <button
+              className={report === "ratios" ? "selected" : ""}
+              onClick={() => setReport("ratios")}
+            >
+              Ratios
+            </button>
             {book !== "india" && (
               <button
                 className={report === "equity" ? "selected" : ""}
@@ -3850,6 +3866,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "loans" && data && (
             <LoanRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
           )}
+          {report === "closechecklist" && data && (
+            <PeriodCloseChecklist
+              data={data}
+              book={book}
+              onSave={(next) => save(next, "reports")}
+              onNavigateReport={(r) => setReport(r)}
+            />
+          )}
+          {report === "ratios" && data && <FinancialRatios data={data} fmt={fmt} />}
         </>
       )}
       {tab === "new" && (
