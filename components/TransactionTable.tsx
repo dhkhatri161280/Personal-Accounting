@@ -36,10 +36,10 @@ const COLUMN_SPECS: Record<SortKey, ColSpec> = {
   credit: { flex: 1, minWidth: 170 },
   narration: { flex: 1.6, minWidth: 220 },
   amount: { width: 120 },
-  debitAmount: { width: 110 },
-  creditAmount: { width: 110 },
+  debitAmount: { width: 100 },
+  creditAmount: { width: 100 },
 };
-const DEBIT_CREDIT_AMOUNT_COL_WIDTH = 110;
+const DEBIT_CREDIT_AMOUNT_COL_WIDTH = 100;
 const BALANCE_COL_WIDTH = 120;
 const ACTION_COL_WIDTH = 84;
 
@@ -380,14 +380,14 @@ export function TransactionTable({
       ? ([
           {
             field: "debitAmount",
-            headerName: "Debit Amount",
+            headerName: "Dr Amount",
             type: "number",
             width: DEBIT_CREDIT_AMOUNT_COL_WIDTH,
             valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),
           },
           {
             field: "creditAmount",
-            headerName: "Credit Amount",
+            headerName: "Cr Amount",
             type: "number",
             width: DEBIT_CREDIT_AMOUNT_COL_WIDTH,
             valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),

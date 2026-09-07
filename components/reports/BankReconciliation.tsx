@@ -269,8 +269,8 @@ function BankReconDetail({
           <div className="report-line" style={{ fontSize: 11, opacity: 0.6 }}>
             <span></span>
             <span style={{ display: "flex", gap: 8 }}>
-              <span style={{ width: 72, textAlign: "right" }}>Debit</span>
-              <span style={{ width: 72, textAlign: "right" }}>Credit</span>
+              <span style={{ width: 72, textAlign: "right" }}>Dr</span>
+              <span style={{ width: 72, textAlign: "right" }}>Cr</span>
               <span style={{ width: 112 }}></span>
             </span>
           </div>
@@ -322,8 +322,8 @@ function BankReconDetail({
           <div className="report-line" style={{ fontSize: 11, opacity: 0.6 }}>
             <span></span>
             <span style={{ display: "flex", gap: 8 }}>
-              <span style={{ width: 72, textAlign: "right" }}>Debit</span>
-              <span style={{ width: 72, textAlign: "right" }}>Credit</span>
+              <span style={{ width: 72, textAlign: "right" }}>Dr</span>
+              <span style={{ width: 72, textAlign: "right" }}>Cr</span>
               <span style={{ width: 112 }}></span>
             </span>
           </div>
