@@ -129,7 +129,9 @@ export function LoanRegister({
   }
 
   function round2Pct(rate: number): number {
-    return Math.round(rate * 100 * 100) / 100;
+    // 3 decimal places -- real note rates (e.g. 2.875%) need thousandths precision; 2 decimals
+    // was silently rounding 2.875 to 2.88 every time this form opened.
+    return Math.round(rate * 100 * 1000) / 1000;
   }
 
   async function confirmEdit(loanId: string) {
@@ -305,7 +307,7 @@ export function LoanRegister({
                     <td>{l.name}</td>
                     <td className="right">{fmt(l.originalPrincipal)}</td>
                     <td className="right">
-                      {(l.annualRate * 100).toFixed(2)}%
+                      {(l.annualRate * 100).toFixed(3)}%
                       {l.rateValidThrough && (
                         <div style={{ fontSize: 10, opacity: 0.6 }}>through {l.rateValidThrough}</div>
                       )}
