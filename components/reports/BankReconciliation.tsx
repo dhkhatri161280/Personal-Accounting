@@ -70,6 +70,20 @@ export function BankReconciliation({
       return next;
     });
 
+  // Auto-expand every account that actually needs a look (a material balance diff, or any
+  // unmatched transaction on either side) as soon as a fresh fetch lands, instead of making the
+  // user click "+" on each one individually to see what's wrong -- a fully-matched account still
+  // starts collapsed, since there's nothing to drill into.
+  useEffect(() => {
+    if (!plaidData) return;
+    const statuses = reconciliationStatusForAccounts(data, plaidData.accounts, plaidData.transactions, new Date().toISOString().slice(0, 10), data.bankReconExceptions);
+    const needsAttentionIds = statuses
+      .filter((r) => Math.abs(r.diff) > DIFF_TOL || r.unmatchedPlaid.length > 0 || r.unmatchedVault.length > 0)
+      .map((r) => r.account.id);
+    setExpanded(new Set(needsAttentionIds));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plaidData]);
+
   async function markException(key: string, label: string) {
     const entry: BankReconException = { key, label, markedAt: new Date().toISOString() };
     const next: Ledger = { ...data, bankReconExceptions: [...(data.bankReconExceptions ?? []), entry] };
