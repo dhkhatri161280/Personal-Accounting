@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { Ledger, Loan } from "@/lib/vault-types";
 import { standardMonthlyPayment, computePaymentSplit } from "@/lib/loans";
 import { getOrCreateLoanAccount, getOrCreateExpenseAccount, currentLoanBalance, recordLoanPayment } from "@/lib/loans-ledger";
+import { computeLoanAmortizationSchedule } from "@/lib/loan-amortization-schedule";
 
 export function LoanRegister({
   data,
@@ -23,6 +24,8 @@ export function LoanRegister({
   const [expenseAcctId, setExpenseAcctId] = useState<number | "">("");
   const [newExpenseAcctName, setNewExpenseAcctName] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const [scheduleId, setScheduleId] = useState<string | null>(null);
 
   const [payingId, setPayingId] = useState<string | null>(null);
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -210,13 +213,16 @@ export function LoanRegister({
                 <th className="right">Payment</th>
                 <th>Status</th>
                 <th></th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {loans.map((l) => {
                 const balance = currentLoanBalance(data, l, todayStr);
+                const schedule = scheduleId === l.id ? computeLoanAmortizationSchedule(l) : null;
                 return (
-                  <tr key={l.id}>
+                  <Fragment key={l.id}>
+                  <tr>
                     <td>{l.name}</td>
                     <td className="right">{fmt(l.originalPrincipal)}</td>
                     <td className="right">{(l.annualRate * 100).toFixed(2)}%</td>
@@ -229,6 +235,11 @@ export function LoanRegister({
                       ) : (
                         <span style={{ color: "#16a34a", fontSize: 12 }}>Active</span>
                       )}
+                    </td>
+                    <td>
+                      <button type="button" className="tr-refresh-btn" onClick={() => setScheduleId(scheduleId === l.id ? null : l.id)}>
+                        {scheduleId === l.id ? "Hide Schedule" : "Amortization Schedule"}
+                      </button>
                     </td>
                     <td>
                       {!l.closed &&
@@ -269,6 +280,51 @@ export function LoanRegister({
                         ))}
                     </td>
                   </tr>
+                  {schedule && (
+                    <tr>
+                      <td colSpan={9} style={{ padding: 0 }}>
+                        <div style={{ padding: "10px 12px", background: "#f8fafc" }}>
+                          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                            Full standard-payment schedule from {l.startDate} through payoff, projected off this loan's stated
+                            terms (principal, rate, payment) -- not a read of actually posted payments. The Current Balance
+                            above is the real, live figure; it can differ from this schedule if payments were made off-schedule
+                            or (for a loan like this one) the balance is maintained by manual entries rather than through
+                            "Record Payment".
+                          </p>
+                          <div className="columnar-report-scroll" style={{ maxHeight: 320, overflowY: "auto" }}>
+                            <table className="columnar-report-table budget-table">
+                              <thead>
+                                <tr>
+                                  <th className="right">#</th>
+                                  <th>Date</th>
+                                  <th className="right">Payment</th>
+                                  <th className="right">Principal</th>
+                                  <th className="right">Interest</th>
+                                  <th className="right">Balance</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {schedule.map((row) => (
+                                  <tr key={row.period} style={row.date <= todayStr ? undefined : { opacity: 0.6 }}>
+                                    <td className="right">{row.period}</td>
+                                    <td>
+                                      {row.date}
+                                      {row.date <= todayStr ? "" : " (projected)"}
+                                    </td>
+                                    <td className="right">{fmt(row.payment)}</td>
+                                    <td className="right">{fmt(row.principal)}</td>
+                                    <td className="right">{fmt(row.interest)}</td>
+                                    <td className="right">{fmt(row.balance)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
