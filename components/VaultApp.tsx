@@ -62,6 +62,7 @@ import { PrepaidExpenseRegister } from "@/components/reports/PrepaidExpenseRegis
 import { LoanRegister } from "@/components/reports/LoanRegister";
 import { PeriodCloseChecklist } from "@/components/reports/PeriodCloseChecklist";
 import { FinancialRatios } from "@/components/reports/FinancialRatios";
+import { CashFlowForecast } from "@/components/reports/CashFlowForecast";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
@@ -106,6 +107,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const autoBiometricStarted = useRef(false),
     entryFormRef = useRef<HTMLFormElement>(null),
     newVoucherMenuRef = useRef<HTMLDivElement>(null),
+    reportPickerRef = useRef<HTMLDivElement>(null),
     autoSyncTriggerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [password, setPassword] = useState(""),
     [data, setData] = useState<Ledger | null>(null),
@@ -172,7 +174,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // contributions) -- same "live value alongside/instead of book value" idea as heldEquity
     // below for RSU/ESPP. null = not fetched yet (or fetch failed); Net Worth falls back to the
     // book-value ledger row in that case rather than silently showing $0.
-    [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null);
+    [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null),
+    [openReportGroup, setOpenReportGroup] = useState<string | null>(null);
 
   const {
     copyTx,
@@ -625,6 +628,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
   }, [newVoucherMenuOpen]);
+
+  useEffect(() => {
+    if (!openReportGroup) return;
+    const onOutside = (e: MouseEvent) => {
+      if (reportPickerRef.current && !reportPickerRef.current.contains(e.target as Node)) setOpenReportGroup(null);
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [openReportGroup]);
 
   useEffect(() => {
     if (!data) return;
@@ -1433,6 +1445,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-loans", label: "Loan / Debt Register", group: "Reports", keywords: ["loan", "debt", "amortization", "car loan", "personal loan"], go: () => { setReport("loans"); setTab("reports"); } },
     { id: "report-closechecklist", label: "Period-Close Checklist", group: "Reports", keywords: ["checklist", "close", "period", "ready to close"], go: () => { setReport("closechecklist"); setTab("reports"); } },
     { id: "report-ratios", label: "Financial Ratios", group: "Reports", keywords: ["ratio", "kpi", "savings rate", "debt to income", "emergency fund"], go: () => { setReport("ratios"); setTab("reports"); } },
+    { id: "report-cashforecast", label: "Cash Flow Forecast", group: "Reports", keywords: ["forecast", "cash flow", "projection", "runway"], go: () => { setReport("cashforecast"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
     ...(book !== "india"
       ? [
@@ -2982,152 +2995,108 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       )}
       {tab === "reports" && (
         <>
-          <div className="report-picker">
-            <button
-              className={report === "trial" ? "selected" : ""}
-              onClick={() => setReport("trial")}
-            >
-              Trial Balance
-            </button>
-            <button
-              className={report === "income" ? "selected" : ""}
-              onClick={() => setReport("income")}
-            >
-              Income &amp; Expenditure
-            </button>
-            <button
-              className={report === "balance" ? "selected" : ""}
-              onClick={() => setReport("balance")}
-            >
-              Balance Sheet
-            </button>
-            <button
-              className={report === "cashflow" ? "selected" : ""}
-              onClick={() => setReport("cashflow")}
-            >
-              Cash Flow
-            </button>
-            <button
-              className={report === "cash" ? "selected" : ""}
-              onClick={() => setReport("cash")}
-            >
-              Cash and Bank
-            </button>
-            {book !== "india" && (
-              <button
-                className={report === "bankrecon" ? "selected" : ""}
-                onClick={() => setReport("bankrecon")}
-              >
-                Bank Recon
-              </button>
-            )}
-            <button
-              className={report === "budget" ? "selected" : ""}
-              onClick={() => setReport("budget")}
-            >
-              Budget vs Actual
-            </button>
-            <button
-              className={report === "fyclose" ? "selected" : ""}
-              onClick={() => setReport("fyclose")}
-            >
-              FY Close
-            </button>
-            <button
-              className={report === "networth" ? "selected" : ""}
-              onClick={() => setReport("networth")}
-            >
-              Net Worth
-            </button>
-            <button
-              className={report === "trends" ? "selected" : ""}
-              onClick={() => setReport("trends")}
-            >
-              Trends
-            </button>
-            <button
-              className={report === "auditlog" ? "selected" : ""}
-              onClick={() => setReport("auditlog")}
-            >
-              Audit Log
-            </button>
-            <button
-              className={report === "fixedassets" ? "selected" : ""}
-              onClick={() => setReport("fixedassets")}
-            >
-              Fixed Assets
-            </button>
-            <button
-              className={report === "prepaid" ? "selected" : ""}
-              onClick={() => setReport("prepaid")}
-            >
-              Prepaid Expenses
-            </button>
-            <button
-              className={report === "loans" ? "selected" : ""}
-              onClick={() => setReport("loans")}
-            >
-              Loans
-            </button>
-            <button
-              className={report === "closechecklist" ? "selected" : ""}
-              onClick={() => setReport("closechecklist")}
-            >
-              Close Checklist
-            </button>
-            <button
-              className={report === "ratios" ? "selected" : ""}
-              onClick={() => setReport("ratios")}
-            >
-              Ratios
-            </button>
-            {book !== "india" && (
-              <button
-                className={report === "equity" ? "selected" : ""}
-                onClick={() => setReport("equity")}
-              >
-                Equity
-              </button>
-            )}
-            {book !== "india" && (
-              <button
-                className={report === "trading" ? "selected" : ""}
-                onClick={() => {
-                  setTradingTab("open");
-                  setReport("trading");
-                }}
-              >
-                Trading
-              </button>
-            )}
-            <button
-              className={report === "tax" ? "selected" : ""}
-              onClick={() => {
-                setTaxViewMode("yearly");
-                setReport("tax");
-              }}
-            >
-              Tax
-            </button>
-            <button
-              className={report === "recon" ? "selected" : ""}
-              onClick={() => setReport("recon")}
-            >
-              Recon
-            </button>
-            <button
-              className={report === "recurring" ? "selected" : ""}
-              onClick={() => setReport("recurring")}
-            >
-              Recurring
-            </button>
-            <button
-              className={report === "trash" ? "selected" : ""}
-              onClick={() => setReport("trash")}
-            >
-              Trash
-            </button>
-          </div>
+          {(() => {
+            type ReportItem = { id: string; label: string; onClick: () => void };
+            type ReportGroup = { id: string; label: string; items: ReportItem[] };
+            const reportGroups: ReportGroup[] = [
+              {
+                id: "statements",
+                label: "Statements",
+                items: [
+                  { id: "trial", label: "Trial Balance", onClick: () => setReport("trial") },
+                  { id: "income", label: "Income & Expenditure", onClick: () => setReport("income") },
+                  { id: "balance", label: "Balance Sheet", onClick: () => setReport("balance") },
+                  { id: "cashflow", label: "Cash Flow", onClick: () => setReport("cashflow") },
+                  { id: "cash", label: "Cash and Bank", onClick: () => setReport("cash") },
+                ],
+              },
+              {
+                id: "reconciliation",
+                label: "Reconciliation",
+                items: [
+                  ...(book !== "india" ? [{ id: "bankrecon", label: "Bank Recon", onClick: () => setReport("bankrecon") }] : []),
+                  { id: "recon", label: "Recon", onClick: () => setReport("recon") },
+                ],
+              },
+              {
+                id: "registers",
+                label: "Registers",
+                items: [
+                  { id: "fixedassets", label: "Fixed Assets", onClick: () => setReport("fixedassets") },
+                  { id: "prepaid", label: "Prepaid Expenses", onClick: () => setReport("prepaid") },
+                  { id: "loans", label: "Loans", onClick: () => setReport("loans") },
+                  { id: "recurring", label: "Recurring", onClick: () => setReport("recurring") },
+                ],
+              },
+              {
+                id: "planning",
+                label: "Planning & Insights",
+                items: [
+                  { id: "budget", label: "Budget vs Actual", onClick: () => setReport("budget") },
+                  { id: "trends", label: "Trends", onClick: () => setReport("trends") },
+                  { id: "networth", label: "Net Worth", onClick: () => setReport("networth") },
+                  { id: "ratios", label: "Ratios", onClick: () => setReport("ratios") },
+                  { id: "cashforecast", label: "Cash Flow Forecast", onClick: () => setReport("cashforecast") },
+                ],
+              },
+              {
+                id: "close",
+                label: "Close & Audit",
+                items: [
+                  { id: "fyclose", label: "FY Close", onClick: () => setReport("fyclose") },
+                  { id: "closechecklist", label: "Close Checklist", onClick: () => setReport("closechecklist") },
+                  { id: "auditlog", label: "Audit Log", onClick: () => setReport("auditlog") },
+                  { id: "trash", label: "Trash", onClick: () => setReport("trash") },
+                ],
+              },
+              {
+                id: "investments",
+                label: "Investments & Tax",
+                items: [
+                  ...(book !== "india" ? [{ id: "equity", label: "Equity", onClick: () => setReport("equity") }] : []),
+                  ...(book !== "india"
+                    ? [{ id: "trading", label: "Trading", onClick: () => { setTradingTab("open"); setReport("trading"); } }]
+                    : []),
+                  { id: "tax", label: "Tax", onClick: () => { setTaxViewMode("yearly"); setReport("tax"); } },
+                ],
+              },
+            ];
+            return (
+              <div className="report-picker" ref={reportPickerRef}>
+                {reportGroups.map((g) => {
+                  const isActiveGroup = g.items.some((it) => it.id === report);
+                  return (
+                    <div className="period-fy-picker report-picker-group" key={g.id}>
+                      <button
+                        type="button"
+                        className={isActiveGroup ? "selected" : ""}
+                        onClick={() => setOpenReportGroup((prev) => (prev === g.id ? null : g.id))}
+                      >
+                        {g.label} ▾
+                      </button>
+                      {openReportGroup === g.id && (
+                        <div className="period-fy-menu">
+                          {g.items.map((it) => (
+                            <div
+                              key={it.id}
+                              className="period-fy-menu-item"
+                              style={it.id === report ? { fontWeight: 700, color: "#1d4ed8" } : undefined}
+                              onClick={() => {
+                                it.onClick();
+                                setOpenReportGroup(null);
+                              }}
+                            >
+                              {it.label}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
           {report === "trash" && data && (() => {
             const ledger = data as Ledger;
             const deleted = ledger.transactions
@@ -3875,6 +3844,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             />
           )}
           {report === "ratios" && data && <FinancialRatios data={data} fmt={fmt} />}
+          {report === "cashforecast" && data && <CashFlowForecast data={data} fmt={fmt} />}
         </>
       )}
       {tab === "new" && (
