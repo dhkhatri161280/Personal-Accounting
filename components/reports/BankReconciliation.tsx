@@ -211,6 +211,7 @@ function BankReconDetail({
     if (e.key.startsWith("v:")) return vaultTxGuidsForAccount.has(e.key.slice(2));
     return false;
   });
+  const [showMarked, setShowMarked] = useState(false);
   return (
     <div className="bank-recon-detail">
       {row.plaidAccounts.length > 1 && (
@@ -292,15 +293,21 @@ function BankReconDetail({
       </div>
       {markedForAccount.length > 0 && (
         <div className="bank-recon-detail-col" style={{ flexBasis: "100%" }}>
-          <strong>Marked as reconciled ({markedForAccount.length})</strong>
-          {markedForAccount.map((e) => (
-            <div className="report-line" key={e.key}>
-              <span style={{ opacity: 0.7 }}>{e.label}</span>
-              <button type="button" className="tr-refresh-btn" onClick={() => onUnmark(e.key)}>
-                Undo
-              </button>
-            </div>
-          ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <strong>Marked as reconciled ({markedForAccount.length})</strong>
+            <button type="button" className="tr-refresh-btn" onClick={() => setShowMarked((v) => !v)}>
+              {showMarked ? "Hide" : "Show"}
+            </button>
+          </div>
+          {showMarked &&
+            markedForAccount.map((e) => (
+              <div className="report-line" key={e.key}>
+                <span style={{ opacity: 0.7 }}>{e.label}</span>
+                <button type="button" className="tr-refresh-btn" onClick={() => onUnmark(e.key)}>
+                  Undo
+                </button>
+              </div>
+            ))}
         </div>
       )}
     </div>
