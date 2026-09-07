@@ -1,6 +1,5 @@
 import type { Ledger, Loan } from "./vault-types";
 import { standardMonthlyPayment, computePaymentSplit } from "./loans";
-import { currentLoanBalance } from "./loans-ledger";
 
 // Composer, not self-contained -- like lib/cash-flow-forecast.ts, this imports runtime values
 // (standardMonthlyPayment, computePaymentSplit, currentLoanBalance) from other lib/*.ts files,
@@ -70,65 +69,39 @@ function worstCaseRatePct(loan: Loan, date: string): number {
   return rate;
 }
 
-// Every real transaction actually posted for this loan, in chronological order, with the real
-// running balance after each one. Two kinds of real posting exist for a loan like this:
-// - Direct entries against the loan's own liability account (`loan.accountId`) -- the opening
-//   registration, every "Record Payment" voucher, or any other journal entry posted straight to
-//   it (e.g. a periodic manual balance adjustment). The real ledger balance is the source of
-//   truth here (`currentLoanBalance`).
-// - Older historical payment vouchers posted BEFORE the loan had its own liability account at
-//   all -- these split Dr the interest-expense account (`loan.interestExpenseAccountId`) and Dr
-//   whatever account was standing in for the principal side (for a real mortgage, that's the
-//   "Home" fixed-asset account) / Cr the paying bank account. There's no liability account to
-//   read a balance back from for these, so the running balance is tracked by cumulative
-//   subtraction from the original principal instead, and resyncs to the real ledger balance the
-//   moment a direct entry (above) appears.
-// Either way this is a straight read of what's actually in the ledger, not a formula.
+// Every real payment voucher actually posted for this loan, in chronological order, with a
+// running balance tracked by cumulative subtraction from the original principal. Deliberately
+// does NOT look at `loan.accountId` at all -- for a loan like this one, that liability account is
+// just a periodic outstanding-balance snapshot/cross-check the user keeps separately, not the
+// loan's real payment trail, and mixing it in double-counts or jumps the balance around. The real
+// trail is the historical payment vouchers that split Dr the interest-expense account
+// (`loan.interestExpenseAccountId`) and Dr whatever account carried the principal side (for a real
+// mortgage, "Home") / Cr the paying bank account -- a straight read of the ledger, not a formula.
 function actualHistory(data: Ledger, loan: Loan): LoanScheduleRow[] {
   const rows: LoanScheduleRow[] = [];
   const txs = data.transactions
-    .filter(
-      (t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === loan.accountId || e.accountId === loan.interestExpenseAccountId)
-    )
+    .filter((t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === loan.interestExpenseAccountId))
     .slice()
     .sort((a, b) => (a.date === b.date ? a.id - b.id : a.date.localeCompare(b.date)));
 
   let computedBalance = loan.originalPrincipal;
   for (const t of txs) {
-    const loanAcctEntries = t.entries.filter((e) => e.accountId === loan.accountId);
     const interestEntries = t.entries.filter((e) => e.accountId === loan.interestExpenseAccountId);
     const interestPaid = round2(interestEntries.reduce((s, e) => s + -e.amount, 0));
-
-    if (loanAcctEntries.length > 0) {
-      const principal = round2(loanAcctEntries.reduce((s, e) => s + -e.amount, 0));
-      if (principal === 0 && interestPaid === 0) continue;
-      const balance = currentLoanBalance(data, loan, t.date);
-      rows.push({
-        date: t.date,
-        type: "posted",
-        ratePct: worstCaseRatePct(loan, t.date),
-        note: t.narration,
-        payment: interestPaid !== 0 ? round2(principal + interestPaid) : null,
-        principal,
-        interest: interestPaid !== 0 ? interestPaid : null,
-        balance,
-      });
-      computedBalance = balance;
-    } else if (interestPaid !== 0) {
-      const totalPayment = round2(t.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0));
-      const principal = round2(totalPayment - interestPaid);
-      computedBalance = round2(computedBalance - principal);
-      rows.push({
-        date: t.date,
-        type: "posted",
-        ratePct: worstCaseRatePct(loan, t.date),
-        note: t.narration,
-        payment: round2(totalPayment),
-        principal,
-        interest: interestPaid,
-        balance: computedBalance,
-      });
-    }
+    if (interestPaid === 0) continue;
+    const totalPayment = round2(t.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0));
+    const principal = round2(totalPayment - interestPaid);
+    computedBalance = round2(computedBalance - principal);
+    rows.push({
+      date: t.date,
+      type: "posted",
+      ratePct: worstCaseRatePct(loan, t.date),
+      note: t.narration,
+      payment: round2(totalPayment),
+      principal,
+      interest: interestPaid,
+      balance: computedBalance,
+    });
   }
   return rows;
 }
@@ -136,8 +109,8 @@ function actualHistory(data: Ledger, loan: Loan): LoanScheduleRow[] {
 // The full loan schedule as ONE continuous table, month by month, from the loan's own startDate
 // through payoff or maturity -- whichever comes first. Every calendar month is represented:
 // - A month with a real posted entry (see actualHistory) shows that entry's real numbers, and the
-//   running balance is re-anchored to the real ledger balance from that point on -- so an
-//   out-of-schedule or extra principal payment immediately changes every month that follows.
+//   running balance carries forward from it -- so an out-of-schedule or extra principal payment
+//   immediately changes every month that follows.
 // - A month with no real entry is filled from the loan's stated terms: "estimated" if that month
 //   is today or earlier (the ledger has a gap there -- most loans aren't re-posted every single
 //   month, e.g. a balance maintained by periodic manual catch-up entries), "projected" if it's in

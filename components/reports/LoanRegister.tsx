@@ -464,16 +464,28 @@ export function LoanRegister({
                       <td colSpan={10} style={{ padding: 0 }}>
                         <div style={{ padding: "10px 12px", background: "#f8fafc" }}>
                           <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-                            One table, start ({fmtDate(l.startDate)}) to end: <strong>Posted</strong> rows are a straight read of every
-                            real entry posted against this loan's account (so out-of-schedule principal payments show up as
-                            themselves, not smoothed away), and reset every later month's running balance to match.{" "}
-                            <strong>Estimated</strong> rows fill a month with no real entry (today or earlier) from the loan's
+                            One table, start ({fmtDate(l.startDate)}) to end: <strong>Posted</strong> rows are a straight read of
+                            every real payment voucher for this loan (so out-of-schedule principal payments show up as
+                            themselves, not smoothed away) -- deliberately not the loan's own liability account itself, which for
+                            this loan is a separate outstanding-balance snapshot the user keeps, not the payment trail.{" "}
+                            <strong>Estimated</strong> rows fill a month with no real voucher (today or earlier) from the loan's
                             stated terms -- the best available answer when the ledger itself has a gap.{" "}
                             <strong>Projected</strong> rows do the same for future months; if this loan has known adjustable-rate
                             reset terms, future rate changes are applied at the contractual worst case (the rate can legally never
                             be higher than shown) and the payment is re-amortized over the remaining term at each reset, exactly
-                            like the Note itself does. Current real balance: {fmt(balance)}.
+                            like the Note itself does.
                           </p>
+                          {(() => {
+                            const asOfRows = schedule.rows.filter((r) => r.date <= todayStr);
+                            const scheduleBalance = asOfRows.length > 0 ? asOfRows[asOfRows.length - 1].balance : l.originalPrincipal;
+                            return Math.abs(scheduleBalance - balance) > 0.5 ? (
+                              <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 8px" }}>
+                                This schedule's balance as of today ({fmt(scheduleBalance)}) differs from the Current Balance
+                                column above ({fmt(balance)}) -- expected, since this schedule deliberately ignores the loan's own
+                                liability account and tracks only the real payment vouchers instead.
+                              </p>
+                            ) : null;
+                          })()}
                           {schedule.rateUnknownPast && (
                             <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 8px" }}>
                               Stops at {fmtDate(schedule.rateUnknownPast)} — the rate is only confirmed through this date. Add the loan's
