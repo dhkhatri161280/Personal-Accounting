@@ -2065,6 +2065,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return next;
     });
 
+  // Blocking errors (a rejected save, not a transient "Encrypting..."/"Auto-fixed..." progress
+  // note) get a full-width, un-truncated alert banner instead of the small header pill -- the
+  // pill's fixed max-width + ellipsis was silently cutting off the actionable part of messages
+  // like the closed-period block (see status text below), leaving no way to read or act on it.
+  const isBlockingStatus =
+    status.startsWith("Blocked:") || status.startsWith("Save failed") || status.startsWith("Newer synchronized");
+
   return (
     <div className={[privacyMode ? "privacy-mode" : "", uiTheme === "refresh" ? "ui-refresh" : ""].filter(Boolean).join(" ") || undefined}>
       <header>
@@ -2081,7 +2088,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </p>
         </div>
         <div className="header-actions">
-          {status && (
+          {status && !isBlockingStatus && (
             <span className={`vault-status${status.startsWith("Auto-fixed") ? " vault-status--info" : ""}`}>
               {status}
             </span>
@@ -2139,6 +2146,28 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           <SyncStatusLock book={book} onClick={lockVault} />
         </div>
       </header>
+      {isBlockingStatus && (
+        <div className="vault-alert-banner">
+          <span>{status}</span>
+          <div className="vault-alert-banner-actions">
+            {status.startsWith("Blocked:") && (
+              <button
+                type="button"
+                className="tr-refresh-btn"
+                onClick={() => {
+                  setMastersSection("periods");
+                  setTab("masters");
+                }}
+              >
+                Reopen in Masters → Periods
+              </button>
+            )}
+            <button type="button" className="tr-refresh-btn" onClick={() => setStatus("")}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       <div className="app-nav">
         <button
           className={tab === "dashboard" ? "selected" : ""}

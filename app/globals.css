@@ -1307,6 +1307,24 @@ td strong {
   color: #2c5282;
   border-color: #cbd8ea;
 }
+.vault-alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fdecea;
+  color: #7a271a;
+  border-bottom: 1px solid #f5c2bc;
+  padding: 10px 20px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.vault-alert-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .search-box {
   width: 100%;
   border: 1px solid #dfe5ed;
