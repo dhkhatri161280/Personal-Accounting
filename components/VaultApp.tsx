@@ -57,6 +57,7 @@ import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
 import { BankReconciliation } from "@/components/reports/BankReconciliation";
 import { MultiYearTrend } from "@/components/reports/MultiYearTrend";
 import { AuditLog } from "@/components/reports/AuditLog";
+import { FixedAssetRegister } from "@/components/reports/FixedAssetRegister";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
@@ -1423,6 +1424,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-networth", label: "Net Worth", group: "Reports", keywords: ["networth"], go: () => { setReport("networth"); setTab("reports"); } },
     { id: "report-trends", label: "Trends", group: "Reports", keywords: ["multi year", "yoy", "year over year", "growth", "savings rate", "trend"], go: () => { setReport("trends"); setTab("reports"); } },
     { id: "report-auditlog", label: "Audit Log", group: "Reports", keywords: ["audit", "history", "change log", "who changed"], go: () => { setReport("auditlog"); setTab("reports"); } },
+    { id: "report-fixedassets", label: "Fixed Asset Register", group: "Reports", keywords: ["depreciation", "asset register", "fixed asset", "straight-line"], go: () => { setReport("fixedassets"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
     ...(book !== "india"
       ? [
@@ -3011,6 +3013,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Audit Log
             </button>
+            <button
+              className={report === "fixedassets" ? "selected" : ""}
+              onClick={() => setReport("fixedassets")}
+            >
+              Fixed Assets
+            </button>
             {book !== "india" && (
               <button
                 className={report === "equity" ? "selected" : ""}
@@ -3786,6 +3794,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "auditlog" && data && (
             <AuditLog data={data} onViewVoucher={(t) => setSelectedVoucher(t)} />
+          )}
+          {report === "fixedassets" && data && (
+            <FixedAssetRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
           )}
         </>
       )}

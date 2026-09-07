@@ -312,6 +312,26 @@ export type Budget = {
   updatedAt: string;
 };
 
+// A depreciable physical asset (laptop, furniture, vehicle) -- straight-line depreciation only.
+// No schedule is persisted, just the inputs; book value/accumulated depreciation are derived at
+// render time from these (lib/fixed-assets.ts). accountId is the asset's own "Fixed Assets"-group
+// ledger account (its cost shows in the trial balance/balance sheet like any other asset);
+// depreciation postings hit two shared accounts ("Depreciation Expense"/"Accumulated
+// Depreciation"), not a per-asset pair.
+export type FixedAsset = {
+  id: string;
+  name: string;
+  accountId: number;
+  purchaseDate: string;
+  cost: number;
+  salvageValue: number;
+  usefulLifeMonths: number;
+  // "YYYY-MM" of the last month a depreciation Tx was posted for this asset -- undefined means
+  // none posted yet (depreciation starts accruing from purchaseDate's month).
+  lastDepreciatedThrough?: string;
+  disposed?: { date: string; proceeds: number; txGuid?: string };
+};
+
 export type TallyLedgerSnapshot = {
   asOf: string;
   balances: { name: string; parent?: string; closingBalance: number }[];
@@ -358,6 +378,8 @@ export type Ledger = {
   // report -- e.g. a cash transaction with no corresponding Plaid line, or a known one-off Plaid
   // entry (a bank fee) the user doesn't book as a voucher. See lib/plaid-recon.ts.
   bankReconExceptions?: BankReconException[];
+  // Depreciable physical assets tracked in the Fixed Asset Register. See lib/fixed-assets.ts.
+  fixedAssets?: FixedAsset[];
 };
 
 export type BankReconException = {
