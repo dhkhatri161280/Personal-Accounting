@@ -1307,23 +1307,20 @@ td strong {
   color: #2c5282;
   border-color: #cbd8ea;
 }
-.vault-alert-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+.vault-alert-message {
   background: #fdecea;
   color: #7a271a;
-  border-bottom: 1px solid #f5c2bc;
-  padding: 10px 20px;
+  border: 1px solid #f5c2bc;
+  border-radius: 8px;
+  padding: 10px 14px;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
+  margin: 0 0 12px;
 }
 .vault-alert-banner-actions {
   display: flex;
   gap: 8px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .search-box {
   width: 100%;

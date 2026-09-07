@@ -2149,14 +2149,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </div>
       </header>
       {isBlockingStatus && (
-        <div className="vault-alert-banner">
-          <span>{status}</span>
+        <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
+          <p className="vault-alert-message">{status}</p>
           <div className="vault-alert-banner-actions">
             {status.startsWith("Blocked:") && (
               <button
                 type="button"
                 className="tr-refresh-btn"
                 onClick={() => {
+                  setStatus("");
                   setMastersSection("periods");
                   setTab("masters");
                 }}
@@ -2168,7 +2169,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               Dismiss
             </button>
           </div>
-        </div>
+        </FloatingWindow>
       )}
       <div className="app-nav">
         <button
