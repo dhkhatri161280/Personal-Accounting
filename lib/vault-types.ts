@@ -372,11 +372,24 @@ export type Loan = {
   termMonths: number;
   startDate: string;
   standardPayment: number;
-  // Date through which `annualRate` is confirmed accurate. Optional -- only meaningful for an
-  // adjustable-rate loan (e.g. a 5/5 ARM) whose rate resets on a schedule and whose post-reset
-  // rate isn't knowable in advance. When set, the projected amortization schedule stops rolling
-  // forward past this date instead of silently assuming the current rate holds indefinitely.
+  // Date through which `annualRate` is confirmed accurate. Optional fallback for an
+  // adjustable-rate loan whose reset terms (below) aren't known -- when set (and rateAdjustment is
+  // NOT set), the projected schedule stops rolling forward past this date instead of silently
+  // assuming the current rate holds indefinitely.
   rateValidThrough?: string;
+  // The actual contractual reset terms for an adjustable-rate loan (straight from the Note's
+  // "Interest Rate and Monthly Payment Changes" section), used to project a worst-case (rate
+  // always moves to the cap) future schedule instead of just flagging the rate as unknown -- the
+  // real post-reset rate depends on a future market index value and can't be known in advance, but
+  // the CONTRACTUAL CEILING at each reset is spelled out in the Note and is knowable today.
+  rateAdjustment?: {
+    firstChangeDate: string; // e.g. "2028-01-01"
+    changeIntervalMonths: number; // e.g. 60 for a 5-year-interval ARM
+    firstChangeCapPct: number; // max rate (%) allowed at the first change, e.g. 4.875
+    periodicCapPct: number; // max +/- (percentage points) per change after the first, e.g. 2.0
+    lifetimeCapPct: number; // absolute max rate (%) over the life of the loan, e.g. 7.875
+    lifetimeFloorPct: number; // absolute min rate (%) over the life of the loan, e.g. 2.375
+  };
   closed?: { date: string; txGuid?: string };
 };
 

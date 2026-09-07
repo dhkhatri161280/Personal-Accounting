@@ -1,25 +1,20 @@
 import type { Ledger, Loan } from "./vault-types";
-import { computePaymentSplit } from "./loans";
+import { standardMonthlyPayment, computePaymentSplit } from "./loans";
 import { currentLoanBalance } from "./loans-ledger";
 
 // Composer, not self-contained -- like lib/cash-flow-forecast.ts, this imports runtime values
-// (computePaymentSplit, currentLoanBalance) from other lib/*.ts files, which node --test can't
-// resolve across lib/*.ts files, so this isn't directly unit-tested -- same accepted precedent,
-// verified live.
+// (standardMonthlyPayment, computePaymentSplit, currentLoanBalance) from other lib/*.ts files,
+// which node --test can't resolve across lib/*.ts files, so this isn't directly unit-tested --
+// same accepted precedent, verified live.
 
-export type ActualHistoryRow = {
+export type LoanScheduleRow = {
   date: string;
-  narration: string;
-  amount: number; // positive = principal reduction (paid down), negative = balance increase
-  balance: number; // real running balance after this entry, straight from the ledger
-};
-
-export type ProjectedRow = {
-  period: number; // months out from asOfDate
-  date: string;
-  payment: number;
+  type: "posted" | "projected";
+  ratePct: number; // annual rate in effect, as a percentage (e.g. 2.875)
+  note: string;
+  payment: number | null; // null for posted rows -- a posted entry isn't necessarily a clean "payment"
   principal: number;
-  interest: number;
+  interest: number | null; // null for posted rows -- can't be split out of a lump ledger adjustment
   balance: number;
 };
 
@@ -36,15 +31,40 @@ function addMonthsClamped(dateStr: string, n: number): string {
   return `${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(day, daysInTargetMonth)).padStart(2, "0")}`;
 }
 
+function monthsBetween(from: string, to: string): number {
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  return (ty * 12 + tm) - (fy * 12 + fm);
+}
+
+// The worst-case annual rate (%) in effect on `date`, per the loan's actual contractual reset
+// terms: holds at the note rate until the first Change Date, then assumes the rate moves to
+// whatever the contract caps allow at each reset (it can never legally be worse than this) --
+// the real future rate depends on a market index value that isn't knowable today, so this is a
+// ceiling, not a prediction.
+function worstCaseRatePct(loan: Loan, date: string): number {
+  if (!loan.rateAdjustment) return loan.annualRate * 100;
+  const { firstChangeDate, changeIntervalMonths, firstChangeCapPct, periodicCapPct, lifetimeCapPct } = loan.rateAdjustment;
+  if (date < firstChangeDate) return loan.annualRate * 100;
+  let rate = Math.min(firstChangeCapPct, lifetimeCapPct);
+  let changeDate = firstChangeDate;
+  while (true) {
+    const nextChangeDate = addMonthsClamped(changeDate, changeIntervalMonths);
+    if (date < nextChangeDate) break;
+    rate = Math.min(rate + periodicCapPct, lifetimeCapPct);
+    changeDate = nextChangeDate;
+  }
+  return rate;
+}
+
 // Every real transaction actually posted against this loan's own liability account, in
 // chronological order, with the account's real running balance after each one -- covers the
-// opening registration, every "Record Payment" voucher, AND any other journal entry the user
-// posted directly against the account (e.g. an out-of-band principal paydown, or -- as with a loan
-// whose balance is maintained by periodic manual adjustments rather than through "Record Payment"
-// at all -- every one of those adjustments). This is a straight read of what's actually in the
-// ledger, not a formula.
-export function computeLoanActualHistory(data: Ledger, loan: Loan): ActualHistoryRow[] {
-  const rows: ActualHistoryRow[] = [];
+// opening registration, every "Record Payment" voucher, AND any other journal entry posted
+// directly against the account (e.g. an out-of-band principal paydown, or -- for a loan whose
+// balance is maintained by periodic manual adjustments rather than "Record Payment" at all --
+// every one of those adjustments). A straight read of the ledger, not a formula.
+function actualHistory(data: Ledger, loan: Loan): LoanScheduleRow[] {
+  const rows: LoanScheduleRow[] = [];
   const txs = data.transactions
     .filter((t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === loan.accountId))
     .slice()
@@ -52,37 +72,67 @@ export function computeLoanActualHistory(data: Ledger, loan: Loan): ActualHistor
   for (const t of txs) {
     const amount = t.entries.filter((e) => e.accountId === loan.accountId).reduce((s, e) => s + -e.amount, 0);
     if (amount === 0) continue;
-    rows.push({ date: t.date, narration: t.narration, amount: round2(amount), balance: currentLoanBalance(data, loan, t.date) });
+    rows.push({
+      date: t.date,
+      type: "posted",
+      ratePct: worstCaseRatePct(loan, t.date),
+      note: t.narration,
+      payment: null,
+      principal: round2(amount),
+      interest: null,
+      balance: currentLoanBalance(data, loan, t.date),
+    });
   }
   return rows;
 }
 
-// The remaining schedule, rolled forward month by month from the loan's REAL current balance
-// (currentLoanBalance as of `asOfDate`, not the original principal) -- so it reflects every actual
-// payment/adjustment already posted, including out-of-schedule principal paydowns. Stops at
-// `loan.rateValidThrough` if set (an adjustable-rate loan whose rate is only confirmed through a
-// known date) rather than silently projecting the current rate indefinitely -- `rateUnknownPast`
-// on the return value flags this so the UI can say so instead of just trailing off.
-export function computeLoanProjectedSchedule(
+// The full loan schedule as ONE chronological table: every real posted entry (see actualHistory
+// above), followed by a month-by-month projection from TODAY's real balance through payoff or
+// maturity -- whichever comes first. The projection re-amortizes the remaining balance over the
+// remaining term every time the worst-case rate changes (matching the Note's own "Calculation of
+// Changes" language: a new payment sufficient to repay the balance by the Maturity Date in
+// substantially equal payments), and otherwise holds the payment flat, same as the real contract
+// (a partial prepayment does NOT change the payment amount until the next Change Date). If the
+// loan has no known reset terms (`rateAdjustment` unset) but does have `rateValidThrough` set, the
+// projection stops there instead of guessing and `rateUnknownPast` reports why.
+export function computeLoanSchedule(
   data: Ledger,
   loan: Loan,
   asOfDate: string
-): { rows: ProjectedRow[]; rateUnknownPast: string | null } {
-  const rows: ProjectedRow[] = [];
+): { rows: LoanScheduleRow[]; rateUnknownPast: string | null } {
+  const rows = actualHistory(data, loan);
+
+  const maturityDate = addMonthsClamped(loan.startDate, loan.termMonths);
   let balance = currentLoanBalance(data, loan, asOfDate);
-  const maxPeriods = loan.termMonths; // safety bound; payoff (balance<=0.5) stops it well before this in practice
-  let stoppedForRateReason: string | null = null;
-  for (let period = 1; period <= maxPeriods && balance > 0.5; period++) {
+  let currentRatePct = worstCaseRatePct(loan, asOfDate);
+  let currentPayment = loan.standardPayment;
+  let rateUnknownPast: string | null = null;
+
+  const totalRemainingMonths = Math.max(0, monthsBetween(asOfDate, maturityDate));
+  for (let period = 1; period <= totalRemainingMonths && balance > 0.5; period++) {
     const date = addMonthsClamped(asOfDate, period);
-    if (loan.rateValidThrough && date > loan.rateValidThrough) {
-      stoppedForRateReason = loan.rateValidThrough;
+
+    if (!loan.rateAdjustment && loan.rateValidThrough && date > loan.rateValidThrough) {
+      rateUnknownPast = loan.rateValidThrough;
       break;
     }
-    const { interest } = computePaymentSplit(balance, loan.annualRate, loan.standardPayment);
-    const payment = round2(Math.min(loan.standardPayment, balance + interest));
+
+    const ratePct = worstCaseRatePct(loan, date);
+    let note = "";
+    if (ratePct !== currentRatePct) {
+      const remainingMonths = totalRemainingMonths - period + 1;
+      currentPayment = standardMonthlyPayment(balance, ratePct / 100, remainingMonths);
+      currentRatePct = ratePct;
+      note = "Rate reset (worst case per contract cap) -- payment re-amortized over remaining term";
+    }
+
+    const { interest } = computePaymentSplit(balance, ratePct / 100, currentPayment);
+    const payment = round2(Math.min(currentPayment, balance + interest));
     const principal = round2(payment - interest);
     balance = round2(Math.max(0, balance - principal));
-    rows.push({ period, date, payment, principal, interest, balance });
+
+    rows.push({ date, type: "projected", ratePct, note, payment, principal, interest, balance });
   }
-  return { rows, rateUnknownPast: stoppedForRateReason };
+
+  return { rows, rateUnknownPast };
 }

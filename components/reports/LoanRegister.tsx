@@ -3,7 +3,7 @@ import { Fragment, useState } from "react";
 import type { Ledger, Loan } from "@/lib/vault-types";
 import { standardMonthlyPayment, computePaymentSplit } from "@/lib/loans";
 import { getOrCreateLoanAccount, getOrCreateExpenseAccount, currentLoanBalance, recordLoanPayment } from "@/lib/loans-ledger";
-import { computeLoanActualHistory, computeLoanProjectedSchedule } from "@/lib/loan-amortization-schedule";
+import { computeLoanSchedule } from "@/lib/loan-amortization-schedule";
 
 export function LoanRegister({
   data,
@@ -33,6 +33,13 @@ export function LoanRegister({
   const [editPayment, setEditPayment] = useState("");
   const [editTermMonths, setEditTermMonths] = useState("");
   const [editRateValidThrough, setEditRateValidThrough] = useState("");
+  const [editArmEnabled, setEditArmEnabled] = useState(false);
+  const [editFirstChangeDate, setEditFirstChangeDate] = useState("");
+  const [editChangeIntervalMonths, setEditChangeIntervalMonths] = useState("60");
+  const [editFirstChangeCapPct, setEditFirstChangeCapPct] = useState("");
+  const [editPeriodicCapPct, setEditPeriodicCapPct] = useState("");
+  const [editLifetimeCapPct, setEditLifetimeCapPct] = useState("");
+  const [editLifetimeFloorPct, setEditLifetimeFloorPct] = useState("");
 
   const [payingId, setPayingId] = useState<string | null>(null);
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -112,6 +119,13 @@ export function LoanRegister({
     setEditPayment(String(loan.standardPayment));
     setEditTermMonths(String(loan.termMonths));
     setEditRateValidThrough(loan.rateValidThrough ?? "");
+    setEditArmEnabled(!!loan.rateAdjustment);
+    setEditFirstChangeDate(loan.rateAdjustment?.firstChangeDate ?? "");
+    setEditChangeIntervalMonths(String(loan.rateAdjustment?.changeIntervalMonths ?? 60));
+    setEditFirstChangeCapPct(loan.rateAdjustment ? String(loan.rateAdjustment.firstChangeCapPct) : "");
+    setEditPeriodicCapPct(loan.rateAdjustment ? String(loan.rateAdjustment.periodicCapPct) : "");
+    setEditLifetimeCapPct(loan.rateAdjustment ? String(loan.rateAdjustment.lifetimeCapPct) : "");
+    setEditLifetimeFloorPct(loan.rateAdjustment ? String(loan.rateAdjustment.lifetimeFloorPct) : "");
   }
 
   function round2Pct(rate: number): number {
@@ -123,6 +137,17 @@ export function LoanRegister({
     const paymentNum = Number(editPayment);
     const termNum = Number(editTermMonths);
     if (!paymentNum || paymentNum <= 0 || !termNum || termNum <= 0) return;
+    const rateAdjustment =
+      editArmEnabled && editFirstChangeDate && Number(editChangeIntervalMonths) > 0
+        ? {
+            firstChangeDate: editFirstChangeDate,
+            changeIntervalMonths: Number(editChangeIntervalMonths),
+            firstChangeCapPct: Number(editFirstChangeCapPct) || 0,
+            periodicCapPct: Number(editPeriodicCapPct) || 0,
+            lifetimeCapPct: Number(editLifetimeCapPct) || 0,
+            lifetimeFloorPct: Number(editLifetimeFloorPct) || 0,
+          }
+        : undefined;
     setSaving(true);
     try {
       const updatedLoans = (data.loans ?? []).map((l) =>
@@ -133,6 +158,7 @@ export function LoanRegister({
               standardPayment: paymentNum,
               termMonths: termNum,
               rateValidThrough: editRateValidThrough || undefined,
+              rateAdjustment,
             }
           : l
       );
@@ -271,8 +297,7 @@ export function LoanRegister({
               {loans.map((l) => {
                 const balance = currentLoanBalance(data, l, todayStr);
                 const showSchedule = scheduleId === l.id;
-                const actualHistory = showSchedule ? computeLoanActualHistory(data, l) : null;
-                const projected = showSchedule ? computeLoanProjectedSchedule(data, l, todayStr) : null;
+                const schedule = showSchedule ? computeLoanSchedule(data, l, todayStr) : null;
                 const isEditing = editingId === l.id;
                 return (
                   <Fragment key={l.id}>
@@ -347,23 +372,83 @@ export function LoanRegister({
                   {isEditing && (
                     <tr>
                       <td colSpan={10} style={{ padding: 0 }}>
-                        <div style={{ padding: "10px 12px", background: "#f8fafc", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                            Rate %
-                            <input type="number" value={editRatePct} onChange={(e) => setEditRatePct(e.target.value)} style={{ width: 80 }} />
+                        <div style={{ padding: "10px 12px", background: "#f8fafc" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                            <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                              Rate % (current)
+                              <input type="number" value={editRatePct} onChange={(e) => setEditRatePct(e.target.value)} style={{ width: 80 }} />
+                            </label>
+                            <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                              Payment (current)
+                              <input type="number" value={editPayment} onChange={(e) => setEditPayment(e.target.value)} style={{ width: 100 }} />
+                            </label>
+                            <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                              Term (months)
+                              <input type="number" value={editTermMonths} onChange={(e) => setEditTermMonths(e.target.value)} style={{ width: 90 }} />
+                            </label>
+                          </div>
+                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                            <input type="checkbox" checked={editArmEnabled} onChange={(e) => setEditArmEnabled(e.target.checked)} />
+                            This is an adjustable-rate loan with known reset terms (from the Note)
                           </label>
-                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                            Payment
-                            <input type="number" value={editPayment} onChange={(e) => setEditPayment(e.target.value)} style={{ width: 100 }} />
-                          </label>
-                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                            Term (months)
-                            <input type="number" value={editTermMonths} onChange={(e) => setEditTermMonths(e.target.value)} style={{ width: 90 }} />
-                          </label>
-                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                            Rate valid through (ARM, optional)
-                            <input type="date" value={editRateValidThrough} onChange={(e) => setEditRateValidThrough(e.target.value)} />
-                          </label>
+                          {editArmEnabled ? (
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                First Change Date
+                                <input type="date" value={editFirstChangeDate} onChange={(e) => setEditFirstChangeDate(e.target.value)} />
+                              </label>
+                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                Reset every (months)
+                                <input
+                                  type="number"
+                                  value={editChangeIntervalMonths}
+                                  onChange={(e) => setEditChangeIntervalMonths(e.target.value)}
+                                  style={{ width: 70 }}
+                                />
+                              </label>
+                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                First-change cap %
+                                <input
+                                  type="number"
+                                  value={editFirstChangeCapPct}
+                                  onChange={(e) => setEditFirstChangeCapPct(e.target.value)}
+                                  style={{ width: 70 }}
+                                />
+                              </label>
+                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                Per-reset cap ±%
+                                <input
+                                  type="number"
+                                  value={editPeriodicCapPct}
+                                  onChange={(e) => setEditPeriodicCapPct(e.target.value)}
+                                  style={{ width: 70 }}
+                                />
+                              </label>
+                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                Lifetime cap %
+                                <input
+                                  type="number"
+                                  value={editLifetimeCapPct}
+                                  onChange={(e) => setEditLifetimeCapPct(e.target.value)}
+                                  style={{ width: 70 }}
+                                />
+                              </label>
+                              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                Lifetime floor %
+                                <input
+                                  type="number"
+                                  value={editLifetimeFloorPct}
+                                  onChange={(e) => setEditLifetimeFloorPct(e.target.value)}
+                                  style={{ width: 70 }}
+                                />
+                              </label>
+                            </div>
+                          ) : (
+                            <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, marginBottom: 8 }}>
+                              Rate valid through (unknown reset terms, optional)
+                              <input type="date" value={editRateValidThrough} onChange={(e) => setEditRateValidThrough(e.target.value)} />
+                            </label>
+                          )}
                           <button type="button" className="tr-refresh-btn" disabled={saving} onClick={() => confirmEdit(l.id)}>
                             {saving ? "Saving…" : "Save Terms"}
                           </button>
@@ -371,84 +456,56 @@ export function LoanRegister({
                       </td>
                     </tr>
                   )}
-                  {showSchedule && (
+                  {showSchedule && schedule && (
                     <tr>
                       <td colSpan={10} style={{ padding: 0 }}>
                         <div style={{ padding: "10px 12px", background: "#f8fafc" }}>
-                          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 4px" }}>
-                            <strong>Posted history</strong> — every real entry actually posted against this loan's account, in
-                            order, with the real running balance after each one.
+                          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                            One table, start to end: <strong>Posted</strong> rows are a straight read of every real entry posted
+                            against this loan's account (so out-of-schedule principal payments show up as themselves, not
+                            smoothed away). <strong>Projected</strong> rows roll forward from today's real balance ({fmt(balance)}
+                            ); if this loan has known adjustable-rate reset terms, future rate changes are applied at the
+                            contractual worst case (the rate can legally never be higher than shown) and the payment is
+                            re-amortized over the remaining term at each reset, exactly like the Note itself does.
                           </p>
-                          {actualHistory && actualHistory.length === 0 ? (
-                            <p style={{ fontSize: 12, opacity: 0.6, margin: "0 0 10px" }}>Nothing posted against this account yet.</p>
-                          ) : (
-                            <div className="columnar-report-scroll" style={{ maxHeight: 260, overflowY: "auto", marginBottom: 12 }}>
-                              <table className="columnar-report-table budget-table">
-                                <thead>
-                                  <tr>
-                                    <th>Date</th>
-                                    <th>Narration</th>
-                                    <th className="right">Principal Paid</th>
-                                    <th className="right">Balance</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {actualHistory!.map((row, i) => (
-                                    <tr key={i}>
-                                      <td>{row.date}</td>
-                                      <td>{row.narration}</td>
-                                      <td className="right" style={{ color: row.amount < 0 ? "#dc2626" : undefined }}>
-                                        {fmt(row.amount)}
-                                      </td>
-                                      <td className="right">{fmt(row.balance)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-
-                          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 4px" }}>
-                            <strong>Projected schedule</strong> — rolled forward from today's real balance ({fmt(balance)}) at the
-                            current rate and payment. Not a read of actual future postings.
-                          </p>
-                          {projected && projected.rateUnknownPast && (
+                          {schedule.rateUnknownPast && (
                             <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 8px" }}>
-                              Stops at {projected.rateUnknownPast} — the rate is only confirmed through this date (e.g. an
-                              adjustable-rate reset). Update "Edit Terms" once the real post-reset rate is known to extend the
-                              projection.
+                              Stops at {schedule.rateUnknownPast} — the rate is only confirmed through this date. Add the loan's
+                              reset terms under "Edit Terms" to extend the projection through maturity.
                             </p>
                           )}
-                          {projected && projected.rows.length === 0 ? (
-                            <p style={{ fontSize: 12, opacity: 0.6 }}>Nothing to project — loan is paid off or rate is unknown from today.</p>
-                          ) : (
-                            <div className="columnar-report-scroll" style={{ maxHeight: 260, overflowY: "auto" }}>
-                              <table className="columnar-report-table budget-table">
-                                <thead>
-                                  <tr>
-                                    <th className="right">#</th>
-                                    <th>Date</th>
-                                    <th className="right">Payment</th>
-                                    <th className="right">Principal</th>
-                                    <th className="right">Interest</th>
-                                    <th className="right">Balance</th>
+                          <div className="columnar-report-scroll" style={{ maxHeight: 420, overflowY: "auto" }}>
+                            <table className="columnar-report-table budget-table">
+                              <thead>
+                                <tr>
+                                  <th>Date</th>
+                                  <th>Type</th>
+                                  <th className="right">Rate</th>
+                                  <th className="right">Payment</th>
+                                  <th className="right">Principal</th>
+                                  <th className="right">Interest</th>
+                                  <th className="right">Balance</th>
+                                  <th>Note</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {schedule.rows.map((row, i) => (
+                                  <tr key={i} style={row.type === "projected" ? { opacity: 0.75 } : undefined}>
+                                    <td>{row.date}</td>
+                                    <td>{row.type === "posted" ? "Posted" : "Projected"}</td>
+                                    <td className="right">{row.ratePct.toFixed(3)}%</td>
+                                    <td className="right">{row.payment === null ? "—" : fmt(row.payment)}</td>
+                                    <td className="right" style={{ color: row.principal < 0 ? "#dc2626" : undefined }}>
+                                      {fmt(row.principal)}
+                                    </td>
+                                    <td className="right">{row.interest === null ? "—" : fmt(row.interest)}</td>
+                                    <td className="right">{fmt(row.balance)}</td>
+                                    <td style={{ fontSize: 11 }}>{row.note}</td>
                                   </tr>
-                                </thead>
-                                <tbody>
-                                  {projected!.rows.map((row) => (
-                                    <tr key={row.period}>
-                                      <td className="right">{row.period}</td>
-                                      <td>{row.date}</td>
-                                      <td className="right">{fmt(row.payment)}</td>
-                                      <td className="right">{fmt(row.principal)}</td>
-                                      <td className="right">{fmt(row.interest)}</td>
-                                      <td className="right">{fmt(row.balance)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       </td>
                     </tr>
