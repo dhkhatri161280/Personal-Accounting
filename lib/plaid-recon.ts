@@ -172,9 +172,16 @@ export function reconciliationStatusForAccounts(
 
     const groupAcctIds = new Set(paGroup.map((pa) => pa.account_id));
     const acctPlaidTxs = plaidTransactions.filter((t) => groupAcctIds.has(t.account_id));
-    const recentVaultTxs = data.transactions.filter(
-      (t) => !t.deleted && !t.cancelled && t.date >= windowStartStr && t.entries.some((e) => e.accountId === account.id)
-    );
+    // Every real vault voucher touching this account, with NO date-window restriction -- used as
+    // the candidate pool when checking whether a given Plaid transaction already has a match.
+    // Restricting this to the same rolling 90-day window as `recentVaultTxs` below created a real
+    // bug: a Plaid transaction dated right at the edge of the window (Plaid still returns it) could
+    // have its one real matching voucher fall JUST outside the window as "today" advances day by
+    // day, leaving no candidate to pair against and flagging a genuinely-matched transaction as
+    // "unmatched" -- confirmed live with a real mortgage payment. The window below still applies to
+    // the reverse direction (an old vault voucher Plaid could never return), where it's correct.
+    const acctVaultTxs = data.transactions.filter((t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === account.id));
+    const recentVaultTxs = acctVaultTxs.filter((t) => t.date >= windowStartStr);
 
     // Plaid's own transaction.amount sign, on a given account, already matches this app's Dr/Cr
     // entry sign for THAT SAME account directly -- no flip. Proof from vaultBookBalance (already
@@ -189,7 +196,7 @@ export function reconciliationStatusForAccounts(
     const unmatchedPlaid = acctPlaidTxs
       .filter((pt) => {
         const expected = pt.amount;
-        return !recentVaultTxs.some(
+        return !acctVaultTxs.some(
           (vt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(vaultTxAccountAmount(vt, account.id) - expected) < 0.5
         );
       })
