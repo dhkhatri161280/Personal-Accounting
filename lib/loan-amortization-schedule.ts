@@ -74,20 +74,65 @@ function worstCaseRatePct(loan: Loan, date: string): number {
 // does NOT look at `loan.accountId` at all -- for a loan like this one, that liability account is
 // just a periodic outstanding-balance snapshot/cross-check the user keeps separately, not the
 // loan's real payment trail, and mixing it in double-counts or jumps the balance around. The real
-// trail is the historical payment vouchers that split Dr the interest-expense account
-// (`loan.interestExpenseAccountId`) and Dr whatever account carried the principal side (for a real
-// mortgage, "Home") / Cr the paying bank account -- a straight read of the ledger, not a formula.
+// trail has two shapes:
+// - Regular payment vouchers that split Dr the interest-expense account
+//   (`loan.interestExpenseAccountId`) and Dr whatever account carried the principal side (for a
+//   real mortgage, "Home") / Cr the paying bank account.
+// - Extra principal-only payments (a lump-sum paydown) with no interest leg at all -- these use
+//   the EXACT SAME principal account and funding (paying) account as the regular vouchers above,
+//   just without the interest split. That pairing is derived from the loan's own regular vouchers
+//   (never hardcoded to a specific account name), so an unrelated transaction that happens to
+//   touch the same principal account for a different reason (e.g. a home-purchase cost from
+//   before this loan even started) isn't mistaken for a loan payment -- it's further restricted to
+//   transactions dated on or after the loan's own startDate.
 function actualHistory(data: Ledger, loan: Loan): LoanScheduleRow[] {
-  const rows: LoanScheduleRow[] = [];
-  const txs = data.transactions
-    .filter((t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === loan.interestExpenseAccountId))
+  const allTxs = data.transactions.filter((t) => !t.deleted && !t.cancelled);
+
+  const principalAcctIds = new Set<number>();
+  const fundingAcctIds = new Set<number>();
+  for (const t of allTxs) {
+    if (!t.entries.some((e) => e.accountId === loan.interestExpenseAccountId)) continue;
+    for (const e of t.entries) {
+      if (e.accountId === loan.interestExpenseAccountId || e.accountId === loan.accountId) continue;
+      if (e.amount < 0) principalAcctIds.add(e.accountId);
+      else if (e.amount > 0) fundingAcctIds.add(e.accountId);
+    }
+  }
+
+  const txs = allTxs
+    .filter((t) => {
+      if (t.entries.some((e) => e.accountId === loan.interestExpenseAccountId)) return true;
+      if (t.date < loan.startDate) return false;
+      const hasPrincipalDr = t.entries.some((e) => principalAcctIds.has(e.accountId) && e.amount < 0);
+      const hasFundingCr = t.entries.some((e) => fundingAcctIds.has(e.accountId) && e.amount > 0);
+      return hasPrincipalDr && hasFundingCr;
+    })
     .slice()
     .sort((a, b) => (a.date === b.date ? a.id - b.id : a.date.localeCompare(b.date)));
 
+  const rows: LoanScheduleRow[] = [];
   let computedBalance = loan.originalPrincipal;
   for (const t of txs) {
     const interestEntries = t.entries.filter((e) => e.accountId === loan.interestExpenseAccountId);
     const interestPaid = round2(interestEntries.reduce((s, e) => s + -e.amount, 0));
+
+    if (interestEntries.length === 0) {
+      const totalPayment = round2(t.entries.filter((e) => fundingAcctIds.has(e.accountId) && e.amount > 0).reduce((s, e) => s + e.amount, 0));
+      if (totalPayment === 0) continue;
+      computedBalance = round2(computedBalance - totalPayment);
+      rows.push({
+        date: t.date,
+        type: "posted",
+        ratePct: worstCaseRatePct(loan, t.date),
+        note: t.narration,
+        payment: totalPayment,
+        principal: totalPayment,
+        interest: 0,
+        balance: computedBalance,
+      });
+      continue;
+    }
+
     if (interestPaid === 0) continue;
     const totalPayment = round2(t.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0));
     const principal = round2(totalPayment - interestPaid);
