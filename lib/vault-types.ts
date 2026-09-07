@@ -332,6 +332,25 @@ export type FixedAsset = {
   disposed?: { date: string; proceeds: number; txGuid?: string };
 };
 
+// A prepaid expense (an annual insurance premium, a subscription paid upfront) -- same
+// straight-line "spread a cost over N months" shape as FixedAsset, but simpler: no salvage
+// value (always fully expenses) and no disposal-with-proceeds, just an optional early write-off
+// of whatever's left. accountId is its own "Current Assets"-group ledger account (the unamortized
+// balance); expenseAccountId is the specific expense account monthly amortization posts against
+// (unlike FixedAsset, there's no shared pool account -- each prepaid item hits its own expense
+// category). See lib/prepaid-expense.ts.
+export type PrepaidExpense = {
+  id: string;
+  name: string;
+  accountId: number;
+  expenseAccountId: number;
+  startDate: string;
+  totalAmount: number;
+  termMonths: number;
+  lastAmortizedThrough?: string;
+  writtenOff?: { date: string; txGuid?: string };
+};
+
 export type TallyLedgerSnapshot = {
   asOf: string;
   balances: { name: string; parent?: string; closingBalance: number }[];
@@ -380,6 +399,8 @@ export type Ledger = {
   bankReconExceptions?: BankReconException[];
   // Depreciable physical assets tracked in the Fixed Asset Register. See lib/fixed-assets.ts.
   fixedAssets?: FixedAsset[];
+  // Prepaid expenses amortized over time. See lib/prepaid-expense.ts.
+  prepaidExpenses?: PrepaidExpense[];
 };
 
 export type BankReconException = {
