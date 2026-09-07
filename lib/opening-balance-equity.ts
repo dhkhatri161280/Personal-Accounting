@@ -14,7 +14,8 @@ export function findOrCreateAccount(
   name: string,
   groupName: string,
   currency: string,
-  openingBalance = 0
+  openingBalance = 0,
+  category = "Asset"
 ): { account: Account; accounts: Account[]; created: boolean } {
   const existing = accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
   if (existing) return { account: existing, accounts, created: false };
@@ -22,7 +23,7 @@ export function findOrCreateAccount(
     id: Math.max(0, ...accounts.map((a) => a.id)) + 1,
     name,
     parent: groupName,
-    category: "Asset",
+    category,
     currency,
     openingBalance,
     active: true,
@@ -31,17 +32,27 @@ export function findOrCreateAccount(
 }
 
 // Registers the starting balance of a newly-created account via a real, auditable Journal Tx
-// (Dr the account / Cr a shared "Opening Balance Equity" account) instead of silently setting
+// against a shared "Opening Balance Equity" account instead of silently setting
 // Account.openingBalance with no double-entry counterpart. Account.openingBalance alone breaks
 // the Balance Sheet's own check (assets = liabilities + capital) by exactly that amount, since
 // nothing else in the books moves to offset it -- confirmed live: adding one $1,200 fixed
 // asset/prepaid expense this way shifted the Balance Sheet check by exactly $1,200. This is the
-// standard "register something I already own" pattern real ERPs use for onboarding pre-existing
-// assets into a books-in-progress system.
-export function registerOpeningBalance(data: Ledger, account: Account, amount: number, date: string, narration: string): Ledger {
+// standard "register something I already own (or owe)" pattern real ERPs use for onboarding
+// pre-existing balances into a books-in-progress system.
+// direction "debit" (default, for an asset-like account): Dr the account / Cr equity.
+// direction "credit" (for a liability like a loan): Cr the account / Dr equity.
+export function registerOpeningBalance(
+  data: Ledger,
+  account: Account,
+  amount: number,
+  date: string,
+  narration: string,
+  direction: "debit" | "credit" = "debit"
+): Ledger {
   if (amount === 0) return data;
   const { account: equityAcct, accounts } = findOrCreateAccount(data.accounts, OPENING_BALANCE_EQUITY_ACCOUNT_NAME, CAPITAL_GROUP_NAME, data.currency);
   let next: Ledger = { ...data, accounts };
+  const accountAmount = direction === "debit" ? -amount : amount;
   const tx: Tx = {
     id: nextTransactionIds(next.transactions, 1)[0],
     guid: crypto.randomUUID(),
@@ -54,8 +65,8 @@ export function registerOpeningBalance(data: Ledger, account: Account, amount: n
     cancelled: false,
     syncStatus: "pending",
     entries: [
-      { accountId: account.id, accountName: account.name, amount: -amount }, // Dr the new account
-      { accountId: equityAcct.id, accountName: equityAcct.name, amount }, // Cr Opening Balance Equity
+      { accountId: account.id, accountName: account.name, amount: accountAmount },
+      { accountId: equityAcct.id, accountName: equityAcct.name, amount: -accountAmount },
     ],
   };
   next = { ...next, transactions: [...next.transactions, tx] };

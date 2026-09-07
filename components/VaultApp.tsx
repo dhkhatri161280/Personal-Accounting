@@ -59,6 +59,7 @@ import { MultiYearTrend } from "@/components/reports/MultiYearTrend";
 import { AuditLog } from "@/components/reports/AuditLog";
 import { FixedAssetRegister } from "@/components/reports/FixedAssetRegister";
 import { PrepaidExpenseRegister } from "@/components/reports/PrepaidExpenseRegister";
+import { LoanRegister } from "@/components/reports/LoanRegister";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
@@ -1427,6 +1428,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-auditlog", label: "Audit Log", group: "Reports", keywords: ["audit", "history", "change log", "who changed"], go: () => { setReport("auditlog"); setTab("reports"); } },
     { id: "report-fixedassets", label: "Fixed Asset Register", group: "Reports", keywords: ["depreciation", "asset register", "fixed asset", "straight-line"], go: () => { setReport("fixedassets"); setTab("reports"); } },
     { id: "report-prepaid", label: "Prepaid Expenses", group: "Reports", keywords: ["prepaid", "amortization", "insurance", "subscription"], go: () => { setReport("prepaid"); setTab("reports"); } },
+    { id: "report-loans", label: "Loan / Debt Register", group: "Reports", keywords: ["loan", "debt", "amortization", "car loan", "personal loan"], go: () => { setReport("loans"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
     ...(book !== "india"
       ? [
@@ -3057,6 +3059,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             >
               Prepaid Expenses
             </button>
+            <button
+              className={report === "loans" ? "selected" : ""}
+              onClick={() => setReport("loans")}
+            >
+              Loans
+            </button>
             {book !== "india" && (
               <button
                 className={report === "equity" ? "selected" : ""}
@@ -3838,6 +3846,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "prepaid" && data && (
             <PrepaidExpenseRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
+          )}
+          {report === "loans" && data && (
+            <LoanRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
           )}
         </>
       )}

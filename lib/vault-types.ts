@@ -351,6 +351,30 @@ export type PrepaidExpense = {
   writtenOff?: { date: string; txGuid?: string };
 };
 
+// A loan (car loan, personal loan, a second mortgage) with auto-computed principal/interest
+// amortization -- distinct from FixedAsset/PrepaidExpense in that a payment is a real cash event,
+// not a non-cash accrual to backfill on a schedule, so there's no "run pending months" poster;
+// see lib/loans.ts/lib/loans-ledger.ts's recordLoanPayment (one real payment at a time). Current
+// balance is never stored -- always computed live via ledgerBalanceAsOf(data, accountId, asOfDate)
+// from whatever's actually posted to accountId, the same self-correcting approach
+// lib/mortgage-amortization.ts's currentMortgageBalance already uses for the one real mortgage
+// that file tracks (deliberately kept separate from this general register -- see that file's own
+// comments). accountId is a Liability-nature account under "Loans (Liability)";
+// interestExpenseAccountId is the target expense account each payment's interest portion posts
+// against.
+export type Loan = {
+  id: string;
+  name: string;
+  accountId: number;
+  interestExpenseAccountId: number;
+  originalPrincipal: number;
+  annualRate: number;
+  termMonths: number;
+  startDate: string;
+  standardPayment: number;
+  closed?: { date: string; txGuid?: string };
+};
+
 export type TallyLedgerSnapshot = {
   asOf: string;
   balances: { name: string; parent?: string; closingBalance: number }[];
@@ -401,6 +425,8 @@ export type Ledger = {
   fixedAssets?: FixedAsset[];
   // Prepaid expenses amortized over time. See lib/prepaid-expense.ts.
   prepaidExpenses?: PrepaidExpense[];
+  // Loans tracked in the Loan/Debt Register. See lib/loans.ts.
+  loans?: Loan[];
 };
 
 export type BankReconException = {
