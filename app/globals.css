@@ -1344,9 +1344,9 @@ td strong {
 }
 .report-picker {
   display: flex;
+  flex-wrap: wrap;
   gap: 7px;
   margin-bottom: 12px;
-  overflow: auto;
 }
 .report-picker button {
   margin: 0;
