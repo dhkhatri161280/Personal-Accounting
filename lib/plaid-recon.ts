@@ -105,6 +105,13 @@ export type ReconAccountStatus = {
   diff: number;
   unmatchedPlaid: PlaidTxSummary[];
   unmatchedVault: Tx[];
+  // Plaid's own pending (not yet posted/cleared) transactions for this account -- these are the
+  // #1 real cause of a nonzero `diff` with ZERO unmatched transactions on either side: Plaid's
+  // balance only reflects posted activity, but a charge can already have a real vault voucher
+  // (entered as soon as it happened) well before the bank clears it days later. Surfaced here so
+  // the diff is explained instead of looking like a mystery gap -- confirmed live: a credit
+  // card's entire diff summed to the exact cent against its own pending total.
+  pendingPlaid: PlaidTxSummary[];
   // True when Plaid returned zero transactions at all for this account within the fetch window
   // (common for HSA/investment-type accounts, which often only expose a balance) -- "unmatched
   // vault entries" is meaningless noise in that case (there's nothing to have matched against),
@@ -215,7 +222,9 @@ export function reconciliationStatusForAccounts(
           // match (e.g. a cash transaction with no corresponding bank line).
           .filter((vt) => !exceptionKeys.has(vaultExceptionKey(vt.guid)));
 
-    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, noPlaidTransactionFeed });
+    const pendingPlaid = acctPlaidTxs.filter((t) => t.pending);
+
+    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, pendingPlaid, noPlaidTransactionFeed });
   }
   return results.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }

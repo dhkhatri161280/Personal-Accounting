@@ -226,8 +226,29 @@ function BankReconDetail({
     return false;
   });
   const [showMarked, setShowMarked] = useState(false);
+  const pendingSum = row.pendingPlaid.reduce((s, t) => s + t.amount, 0);
   return (
     <div className="bank-recon-detail">
+      {row.pendingPlaid.length > 0 && (
+        <div className="bank-recon-detail-col" style={{ flexBasis: "100%" }}>
+          <strong>Pending / uncleared at the bank ({row.pendingPlaid.length})</strong>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "2px 0 8px" }}>
+            Not yet posted by Plaid, so not in the Plaid Balance above -- this is the #1 cause of a Diff with zero unmatched
+            transactions (a charge can already have a real vault voucher well before the bank clears it). Sums to{" "}
+            <strong>{fmt(pendingSum)}</strong>
+            {Math.abs(pendingSum - row.diff) < 0.5 ? " -- accounts for the entire Diff." : `, vs a Diff of ${fmt(row.diff)}.`}
+          </p>
+          {row.pendingPlaid
+            .slice()
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((t) => (
+              <div className="report-line" key={t.transaction_id}>
+                <span>{t.date} — {t.name}</span>
+                <strong>{fmt(t.amount)}</strong>
+              </div>
+            ))}
+        </div>
+      )}
       {row.plaidAccounts.length > 1 && (
         <div className="bank-recon-detail-col" style={{ flexBasis: "100%" }}>
           <strong>Plaid accounts combined into this row</strong>
