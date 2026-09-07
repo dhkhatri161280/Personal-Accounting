@@ -5,6 +5,7 @@ import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import { DataGrid, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
+import { fiscalYearOf } from "@/lib/vault-accounting";
 
 type Entry = { accountName: string; amount: number };
 export type VoucherRow = {
@@ -103,19 +104,31 @@ const ledgerCreditAmount = (t: VoucherRow, selectedLedgerName?: string) => {
 type SubtotalPeriod = "none" | "date" | "month" | "quarter" | "year";
 // Groups by calendar period, not fiscal -- matches how every other date grouping in this app
 // (the FY/month pickers aside) already reads a plain YYYY-MM-DD date.
+// Fiscal quarter within fiscalYearOf's Apr-Mar year (see lib/vault-accounting.ts): Q1=Apr-Jun,
+// Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar -- shifts the calendar month so April lands on 1 before
+// taking the usual ceil(month/3).
+function fiscalQuarterOf(calendarMonth: number): number {
+  const fiscalMonth = ((calendarMonth - 4 + 12) % 12) + 1;
+  return Math.ceil(fiscalMonth / 3);
+}
 function periodKey(dateIso: string, period: SubtotalPeriod): string {
   const [y, m] = dateIso.split("-");
   if (period === "date") return dateIso;
   if (period === "month") return `${y}-${m}`;
-  if (period === "quarter") return `${y}-Q${Math.ceil(Number(m) / 3)}`;
-  return y;
+  // Quarter and Year follow this app's own fiscal year (Apr-Mar, see fiscalYearOf) rather than
+  // the calendar year -- matching the FY labels used everywhere else in the app (e.g. the Periods
+  // screen), a September voucher belongs to FY <year>'s Q2, not calendar Q3.
+  const fy = fiscalYearOf(dateIso);
+  if (period === "quarter") return `FY${fy}-Q${fiscalQuarterOf(Number(m))}`;
+  return `FY${fy}`;
 }
 function periodLabel(dateIso: string, period: SubtotalPeriod): string {
   const [y, m, d] = dateIso.split("-").map(Number);
   if (period === "date") return `${String(d).padStart(2, "0")}-${String(m).padStart(2, "0")}-${y}`;
   if (period === "month") return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
-  if (period === "quarter") return `Q${Math.ceil(m / 3)} ${y}`;
-  return String(y);
+  const fy = fiscalYearOf(dateIso);
+  if (period === "quarter") return `Q${fiscalQuarterOf(m)} FY${fy}`;
+  return `FY ${fy} (Apr ${fy} - Mar ${fy + 1})`;
 }
 
 // Rendered inside a DataGrid cell (overflow: hidden), so the popover must be a portal-based
