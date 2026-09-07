@@ -4137,6 +4137,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onCopy={(t) => copyVoucher(t as Tx)}
               onDelete={(t) => deleteVoucher(t as Tx)}
               closedPeriods={data.closedPeriods}
+              selectedLedgerName={cashFlowDetail?.ledger}
             />
           </div>
         </FloatingWindow>

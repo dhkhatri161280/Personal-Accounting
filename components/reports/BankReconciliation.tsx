@@ -265,32 +265,47 @@ function BankReconDetail({
         {row.unmatchedPlaid.length === 0 ? (
           <p style={{ opacity: 0.6, fontSize: 12 }}>None.</p>
         ) : (
-          row.unmatchedPlaid
+          <>
+          <div className="report-line" style={{ fontSize: 11, opacity: 0.6 }}>
+            <span></span>
+            <span style={{ display: "flex", gap: 8 }}>
+              <span style={{ width: 72, textAlign: "right" }}>Debit</span>
+              <span style={{ width: 72, textAlign: "right" }}>Credit</span>
+              <span style={{ width: 112 }}></span>
+            </span>
+          </div>
+          {row.unmatchedPlaid
             .slice()
             .sort((a, b) => b.date.localeCompare(a.date))
-            .map((t) => (
-              <div className="report-line bank-recon-exception-row" key={t.transaction_id}>
-                <span>
-                  {t.date} — {t.name}
-                  {t.pending && <em> (pending)</em>}
-                </span>
-                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  {/* Same sign convention as the "In vault" column below (Plaid's amount already
-                      matches this account's Dr/Cr entry sign directly, no flip -- see
-                      lib/plaid-recon.ts) -- a genuinely matching pair reads as the identical
-                      number in both columns, making a real mismatch easy to spot by eye. */}
-                  <strong>{fmt(t.amount)}</strong>
-                  <button
-                    type="button"
-                    className="tr-refresh-btn"
-                    title="This will never have a matching vault voucher -- stop flagging it"
-                    onClick={() => onMark(plaidExceptionKey(t.account_id, t.transaction_id), `${t.date} — ${t.name}`)}
-                  >
-                    Mark reconciled
-                  </button>
-                </span>
-              </div>
-            ))
+            .map((t) => {
+              // Plaid's own amount sign already matches this account's Dr/Cr entry sign directly
+              // (negative=Dr, positive=Cr, no flip -- see lib/plaid-recon.ts), so the same
+              // SAP/Oracle-style Debit/Credit column split used in the ledger drill-down applies
+              // directly here too: one of the two is always null.
+              const debitAmt = t.amount < 0 ? Math.abs(t.amount) : null;
+              const creditAmt = t.amount > 0 ? t.amount : null;
+              return (
+                <div className="report-line bank-recon-exception-row" key={t.transaction_id}>
+                  <span>
+                    {t.date} — {t.name}
+                    {t.pending && <em> (pending)</em>}
+                  </span>
+                  <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ width: 72, textAlign: "right" }}>{debitAmt === null ? "" : <strong>{fmt(debitAmt)}</strong>}</span>
+                    <span style={{ width: 72, textAlign: "right" }}>{creditAmt === null ? "" : <strong>{fmt(creditAmt)}</strong>}</span>
+                    <button
+                      type="button"
+                      className="tr-refresh-btn"
+                      title="This will never have a matching vault voucher -- stop flagging it"
+                      onClick={() => onMark(plaidExceptionKey(t.account_id, t.transaction_id), `${t.date} — ${t.name}`)}
+                    >
+                      Mark reconciled
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
       <div className="bank-recon-detail-col">
@@ -303,27 +318,43 @@ function BankReconDetail({
         ) : row.unmatchedVault.length === 0 ? (
           <p style={{ opacity: 0.6, fontSize: 12 }}>None.</p>
         ) : (
-          row.unmatchedVault
+          <>
+          <div className="report-line" style={{ fontSize: 11, opacity: 0.6 }}>
+            <span></span>
+            <span style={{ display: "flex", gap: 8 }}>
+              <span style={{ width: 72, textAlign: "right" }}>Debit</span>
+              <span style={{ width: 72, textAlign: "right" }}>Credit</span>
+              <span style={{ width: 112 }}></span>
+            </span>
+          </div>
+          {row.unmatchedVault
             .slice()
             .sort((a, b) => b.date.localeCompare(a.date))
-            .map((t: Tx) => (
-              <div className="report-line bank-recon-exception-row" key={t.guid}>
-                <span>
-                  {t.date} — {t.narration || t.type}
-                </span>
-                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <strong>{fmt(t.entries.filter((e) => e.accountId === row.account.id).reduce((s, e) => s + e.amount, 0))}</strong>
-                  <button
-                    type="button"
-                    className="tr-refresh-btn"
-                    title="This will never have a matching Plaid transaction (e.g. cash) -- stop flagging it"
-                    onClick={() => onMark(vaultExceptionKey(t.guid), `${t.date} — ${t.narration || t.type}`)}
-                  >
-                    Mark reconciled
-                  </button>
-                </span>
-              </div>
-            ))
+            .map((t: Tx) => {
+              const raw = t.entries.filter((e) => e.accountId === row.account.id).reduce((s, e) => s + e.amount, 0);
+              const debitAmt = raw < 0 ? Math.abs(raw) : null;
+              const creditAmt = raw > 0 ? raw : null;
+              return (
+                <div className="report-line bank-recon-exception-row" key={t.guid}>
+                  <span>
+                    {t.date} — {t.narration || t.type}
+                  </span>
+                  <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ width: 72, textAlign: "right" }}>{debitAmt === null ? "" : <strong>{fmt(debitAmt)}</strong>}</span>
+                    <span style={{ width: 72, textAlign: "right" }}>{creditAmt === null ? "" : <strong>{fmt(creditAmt)}</strong>}</span>
+                    <button
+                      type="button"
+                      className="tr-refresh-btn"
+                      title="This will never have a matching Plaid transaction (e.g. cash) -- stop flagging it"
+                      onClick={() => onMark(vaultExceptionKey(t.guid), `${t.date} — ${t.narration || t.type}`)}
+                    >
+                      Mark reconciled
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
       {markedForAccount.length > 0 && (

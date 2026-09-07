@@ -16,7 +16,7 @@ export type VoucherRow = {
   cancelled?: boolean;
   entries: Entry[];
 };
-type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount";
+type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount" | "debitAmount" | "creditAmount";
 
 // Single source of truth for column sizing, shared by the DataGrid's own columns AND the
 // filter-input row above it (via FILTER_GRID_TEMPLATE below), so the two rows always line up.
@@ -36,7 +36,10 @@ const COLUMN_SPECS: Record<SortKey, ColSpec> = {
   credit: { flex: 1, minWidth: 170 },
   narration: { flex: 1.6, minWidth: 220 },
   amount: { width: 120 },
+  debitAmount: { width: 110 },
+  creditAmount: { width: 110 },
 };
+const DEBIT_CREDIT_AMOUNT_COL_WIDTH = 110;
 const BALANCE_COL_WIDTH = 120;
 const ACTION_COL_WIDTH = 84;
 
@@ -83,6 +86,18 @@ const ledgerSignedAmount = (t: VoucherRow, selectedLedgerName?: string) => {
     if (Math.abs(signed) > 0.004) return signed > 0 ? -Math.abs(signed) : Math.abs(signed);
   }
   return amount(t);
+};
+// SAP/Oracle-style split of the one signed amount into its Debit/Credit side -- only meaningful
+// once a specific ledger is selected (ledgerSignedAmount's Dr=positive/Cr=negative convention);
+// without one, every voucher's debit total always equals its credit total by construction, so a
+// split would just duplicate the same number in both columns.
+const ledgerDebitAmount = (t: VoucherRow, selectedLedgerName?: string) => {
+  const v = ledgerSignedAmount(t, selectedLedgerName);
+  return v > 0.004 ? v : null;
+};
+const ledgerCreditAmount = (t: VoucherRow, selectedLedgerName?: string) => {
+  const v = ledgerSignedAmount(t, selectedLedgerName);
+  return v < -0.004 ? Math.abs(v) : null;
 };
 
 // Rendered inside a DataGrid cell (overflow: hidden), so the popover must be a portal-based
@@ -188,6 +203,8 @@ export function TransactionTable({
     credit: "",
     narration: "",
     amount: "",
+    debitAmount: "",
+    creditAmount: "",
   });
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({
     key: "date",
@@ -200,9 +217,13 @@ export function TransactionTable({
         ? credit(t)
         : key === "amount"
           ? ledgerSignedAmount(t, selectedLedgerName)
-          : key === "narration"
-            ? text(t.narration)
-            : String(t[key] || "");
+          : key === "debitAmount"
+            ? (ledgerDebitAmount(t, selectedLedgerName) ?? 0)
+            : key === "creditAmount"
+              ? (ledgerCreditAmount(t, selectedLedgerName) ?? 0)
+              : key === "narration"
+                ? text(t.narration)
+                : String(t[key as keyof VoucherRow] || "");
   const rows = useMemo(
     () =>
       transactions
@@ -301,6 +322,8 @@ export function TransactionTable({
         credit: credit(t),
         narration: text(t.narration) || "-",
         amount: ledgerSignedAmount(t, selectedLedgerName),
+        debitAmount: ledgerDebitAmount(t, selectedLedgerName),
+        creditAmount: ledgerCreditAmount(t, selectedLedgerName),
         balance: balanceMap?.get(t.guid) ?? null,
       })),
     [rows, selectedLedgerName, balanceMap]
@@ -349,13 +372,36 @@ export function TransactionTable({
     { field: "debit", headerName: "Debit Ledger", ...COLUMN_SPECS.debit },
     { field: "credit", headerName: "Credit Ledger", ...COLUMN_SPECS.credit },
     { field: "narration", headerName: "Narration", ...COLUMN_SPECS.narration },
-    {
-      field: "amount",
-      headerName: "Amount",
-      type: "number",
-      ...COLUMN_SPECS.amount,
-      valueFormatter: (v: number) => formatAmount(v),
-    },
+    // SAP/Oracle-style two-column split (Debit Amount / Credit Amount, one populated per row) --
+    // only meaningful once a specific ledger is selected, since that's what gives "debit" and
+    // "credit" a fixed side; the general Day Book (no ledger selected) keeps the single Amount
+    // column, since every voucher's debit total always equals its credit total there.
+    ...(selectedLedgerName
+      ? ([
+          {
+            field: "debitAmount",
+            headerName: "Debit Amount",
+            type: "number",
+            width: DEBIT_CREDIT_AMOUNT_COL_WIDTH,
+            valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),
+          },
+          {
+            field: "creditAmount",
+            headerName: "Credit Amount",
+            type: "number",
+            width: DEBIT_CREDIT_AMOUNT_COL_WIDTH,
+            valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),
+          },
+        ] as GridColDef<(typeof gridRows)[number]>[])
+      : ([
+          {
+            field: "amount",
+            headerName: "Amount",
+            type: "number",
+            ...COLUMN_SPECS.amount,
+            valueFormatter: (v: number) => formatAmount(v),
+          },
+        ] as GridColDef<(typeof gridRows)[number]>[])),
     ...(balanceMap
       ? ([
           {
@@ -397,7 +443,7 @@ export function TransactionTable({
         </span>
         <button
           onClick={() => {
-            setFilters({ date: "", type: "", number: "", debit: "", credit: "", narration: "", amount: "" });
+            setFilters({ date: "", type: "", number: "", debit: "", credit: "", narration: "", amount: "", debitAmount: "", creditAmount: "" });
             onClearSearch?.();
           }}
         >
