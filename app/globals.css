@@ -1125,6 +1125,10 @@ a.action {
 .ledger-grid-totals strong {
   color: #0f1b2d;
 }
+.ledger-subtotal-row {
+  background: #eef3fb;
+  font-weight: 600;
+}
 @media (max-width: 720px) {
   .ledger-grid-totals {
     font-size: 11px;

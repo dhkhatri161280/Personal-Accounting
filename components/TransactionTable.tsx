@@ -100,6 +100,24 @@ const ledgerCreditAmount = (t: VoucherRow, selectedLedgerName?: string) => {
   return v < -0.004 ? Math.abs(v) : null;
 };
 
+type SubtotalPeriod = "none" | "date" | "month" | "quarter" | "year";
+// Groups by calendar period, not fiscal -- matches how every other date grouping in this app
+// (the FY/month pickers aside) already reads a plain YYYY-MM-DD date.
+function periodKey(dateIso: string, period: SubtotalPeriod): string {
+  const [y, m] = dateIso.split("-");
+  if (period === "date") return dateIso;
+  if (period === "month") return `${y}-${m}`;
+  if (period === "quarter") return `${y}-Q${Math.ceil(Number(m) / 3)}`;
+  return y;
+}
+function periodLabel(dateIso: string, period: SubtotalPeriod): string {
+  const [y, m, d] = dateIso.split("-").map(Number);
+  if (period === "date") return `${String(d).padStart(2, "0")}-${String(m).padStart(2, "0")}-${y}`;
+  if (period === "month") return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  if (period === "quarter") return `Q${Math.ceil(m / 3)} ${y}`;
+  return String(y);
+}
+
 // Rendered inside a DataGrid cell (overflow: hidden), so the popover must be a portal-based
 // MUI Menu rather than the app's usual <details>/<summary> dropdown -- that pattern relies on
 // overflowing its container, which a grid cell clips.
@@ -210,6 +228,15 @@ export function TransactionTable({
     key: "date",
     direction: "desc",
   });
+  // Sub-totaling a ledger by period only makes sense in chronological order -- picking a period
+  // other than "None" forces the sort to Date (keeping whichever direction was already active) so
+  // each period's rows land contiguously; sorting by any other column while sub-totaled would
+  // scatter one period's rows across the table and break the grouping.
+  const [subtotalPeriod, setSubtotalPeriod] = useState<SubtotalPeriod>("none");
+  const changeSubtotal = (next: SubtotalPeriod) => {
+    setSubtotalPeriod(next);
+    if (next !== "none") setSort((s) => ({ ...s, key: "date" }));
+  };
   const value = (t: VoucherRow, key: SortKey): string | number =>
     key === "debit"
       ? debit(t)
@@ -328,6 +355,50 @@ export function TransactionTable({
       })),
     [rows, selectedLedgerName, balanceMap]
   );
+  type Row = (typeof gridRows)[number] & { isSubtotal?: boolean };
+
+  // Interleaves a Sub-total row after each contiguous run of same-period rows (rows are already
+  // grouped correctly because changeSubtotal forces Date sort whenever a period is active). Only
+  // available once there's a real running balance to report as the period's closing figure.
+  const displayRows: Row[] = useMemo(() => {
+    if (subtotalPeriod === "none" || !balanceMap) return gridRows;
+    const isAsc = sort.direction === "asc";
+    const out: Row[] = [];
+    let i = 0;
+    while (i < gridRows.length) {
+      const key = periodKey(gridRows[i].date, subtotalPeriod);
+      let drSum = 0;
+      let crSum = 0;
+      let j = i;
+      while (j < gridRows.length && periodKey(gridRows[j].date, subtotalPeriod) === key) {
+        drSum += gridRows[j].debitAmount ?? 0;
+        crSum += gridRows[j].creditAmount ?? 0;
+        out.push(gridRows[j]);
+        j++;
+      }
+      // balanceMap is already correct in either sort direction -- the row bordering the "later"
+      // edge of this run holds the period's true closing balance: the last row when ascending
+      // (latest date is last), the first row when descending (latest date is first).
+      const edgeRow = isAsc ? gridRows[j - 1] : gridRows[i];
+      out.push({
+        ...edgeRow,
+        id: `subtotal-${key}`,
+        isSubtotal: true,
+        date: "",
+        type: "",
+        number: "",
+        debit: "",
+        credit: "",
+        narration: `Sub-total — ${periodLabel(edgeRow.date, subtotalPeriod)}`,
+        amount: drSum - crSum,
+        debitAmount: drSum > 0.004 ? drSum : null,
+        creditAmount: crSum > 0.004 ? crSum : null,
+        balance: edgeRow.balance,
+      });
+      i = j;
+    }
+    return out;
+  }, [gridRows, subtotalPeriod, sort.direction, balanceMap]);
 
   const filterField = (key: SortKey, label: string, placeholder: string) => (
     <label key={key}>
@@ -341,7 +412,7 @@ export function TransactionTable({
     </label>
   );
 
-  const columns: GridColDef<(typeof gridRows)[number]>[] = [
+  const columns: GridColDef<Row>[] = [
     {
       field: "date",
       headerName: "Date",
@@ -352,22 +423,24 @@ export function TransactionTable({
       field: "type",
       headerName: "Type",
       ...COLUMN_SPECS.type,
-      renderCell: (params) => (
-        <span className={`pill ${params.row.voucher.cancelled ? "cancelled" : ""}`}>
-          {params.row.type}
-          {params.row.voucher.cancelled ? " - Cancelled" : ""}
-        </span>
-      ),
+      renderCell: (params) =>
+        params.row.isSubtotal ? null : (
+          <span className={`pill ${params.row.voucher.cancelled ? "cancelled" : ""}`}>
+            {params.row.type}
+            {params.row.voucher.cancelled ? " - Cancelled" : ""}
+          </span>
+        ),
     },
     {
       field: "number",
       headerName: "#",
       ...COLUMN_SPECS.number,
-      renderCell: (params) => (
-        <button className="voucher-reference" onClick={() => onView(params.row.voucher)}>
-          {params.row.number || "-"}
-        </button>
-      ),
+      renderCell: (params) =>
+        params.row.isSubtotal ? null : (
+          <button className="voucher-reference" onClick={() => onView(params.row.voucher)}>
+            {params.row.number || "-"}
+          </button>
+        ),
     },
     { field: "debit", headerName: "Debit Ledger", ...COLUMN_SPECS.debit },
     { field: "credit", headerName: "Credit Ledger", ...COLUMN_SPECS.credit },
@@ -392,7 +465,7 @@ export function TransactionTable({
             width: DEBIT_CREDIT_AMOUNT_COL_WIDTH,
             valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),
           },
-        ] as GridColDef<(typeof gridRows)[number]>[])
+        ] as GridColDef<Row>[])
       : ([
           {
             field: "amount",
@@ -401,7 +474,7 @@ export function TransactionTable({
             ...COLUMN_SPECS.amount,
             valueFormatter: (v: number) => formatAmount(v),
           },
-        ] as GridColDef<(typeof gridRows)[number]>[])),
+        ] as GridColDef<Row>[])),
     ...(balanceMap
       ? ([
           {
@@ -411,7 +484,7 @@ export function TransactionTable({
             width: BALANCE_COL_WIDTH,
             valueFormatter: (v: number | null) => (v === null ? "" : formatAmount(v)),
           },
-        ] as GridColDef<(typeof gridRows)[number]>[])
+        ] as GridColDef<Row>[])
       : []),
     {
       field: "action",
@@ -420,15 +493,16 @@ export function TransactionTable({
       sortable: false,
       filterable: false,
       disableColumnMenu: true,
-      renderCell: (params) => (
-        <ActionMenuCell
-          t={params.row.voucher}
-          closed={isClosed(params.row.voucher)}
-          onEdit={onEdit}
-          onCopy={onCopy}
-          onDelete={onDelete}
-        />
-      ),
+      renderCell: (params) =>
+        params.row.isSubtotal ? null : (
+          <ActionMenuCell
+            t={params.row.voucher}
+            closed={isClosed(params.row.voucher)}
+            onEdit={onEdit}
+            onCopy={onCopy}
+            onDelete={onDelete}
+          />
+        ),
     },
   ];
 
@@ -449,6 +523,18 @@ export function TransactionTable({
         >
           Clear all filters
         </button>
+        {balanceMap && (
+          <label style={{ marginLeft: "auto", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+            Sub-total
+            <select value={subtotalPeriod} onChange={(e) => changeSubtotal(e.target.value as SubtotalPeriod)}>
+              <option value="none">None</option>
+              <option value="date">Date</option>
+              <option value="month">Monthly</option>
+              <option value="quarter">Quarterly</option>
+              <option value="year">Yearly</option>
+            </select>
+          </label>
+        )}
       </div>
       <div className="table-filters grid-aligned-filters" style={{ gridTemplateColumns: FILTER_GRID_TEMPLATE }}>
         {filterField("date", "Date", "date")}
@@ -461,12 +547,13 @@ export function TransactionTable({
       </div>
       <ThemeProvider theme={appMuiTheme}>
         <DataGrid
-          rows={gridRows}
+          rows={displayRows}
           columns={columns}
           density="compact"
           disableRowSelectionOnClick
           disableColumnFilter
           hideFooterSelectedRowCount
+          getRowClassName={(params) => (params.row.isSubtotal ? "ledger-subtotal-row" : "")}
           sortingMode="server"
           sortingOrder={["asc", "desc"]}
           sortModel={sortModel}
