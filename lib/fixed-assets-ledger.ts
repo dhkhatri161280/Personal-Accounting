@@ -10,39 +10,20 @@ import {
   pendingDepreciationMonths,
   round2,
 } from "./fixed-assets";
-
-function findOrCreateAccount(
-  accounts: Account[],
-  name: string,
-  groupName: string,
-  currency: string,
-  openingBalance = 0
-): { account: Account; accounts: Account[] } {
-  const existing = accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
-  if (existing) return { account: existing, accounts };
-  const account: Account = {
-    id: Math.max(0, ...accounts.map((a) => a.id)) + 1,
-    name,
-    parent: groupName,
-    category: "Asset",
-    currency,
-    openingBalance,
-    active: true,
-  };
-  return { account, accounts: [...accounts, account] };
-}
+import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity";
 
 // Finds an existing ledger account by name under the "Fixed Assets" group, or creates one -- used
 // when adding a new asset to the register so its cost shows in the trial balance/balance sheet
-// like any other asset, without forcing the user through Masters first. Ledger balance convention
-// (lib/vault-accounting.ts's ledgerBalanceAsOf): displayed balance = -(openingBalance + sum of
-// entries), so a brand-new account needs openingBalance = -cost to show a +cost asset balance --
-// this represents the asset as already-owned/paid-for at the point it's registered (the common
-// case: backfilling something bought before this feature existed), not a fresh purchase voucher.
-// Never overrides an EXISTING account's real opening balance.
-export function getOrCreateAssetAccount(data: Ledger, name: string, cost: number): { data: Ledger; account: Account } {
-  const { account, accounts } = findOrCreateAccount(data.accounts, name, FIXED_ASSETS_GROUP_NAME, data.currency, -cost);
-  return { data: { ...data, accounts }, account };
+// like any other asset, without forcing the user through Masters first. A brand-new account's
+// starting balance is posted via a real, auditable Journal Tx against "Opening Balance Equity"
+// (registerOpeningBalance) rather than a silent Account.openingBalance value with no double-entry
+// counterpart -- that trick was tried first and confirmed live to break the Balance Sheet check
+// by exactly the account's starting amount. Never touches an existing account's real balance.
+export function getOrCreateAssetAccount(data: Ledger, name: string, cost: number, purchaseDate: string): { data: Ledger; account: Account } {
+  const { account, accounts, created } = findOrCreateAccount(data.accounts, name, FIXED_ASSETS_GROUP_NAME, data.currency);
+  let next: Ledger = { ...data, accounts };
+  if (created) next = registerOpeningBalance(next, account, cost, purchaseDate, `Registered fixed asset: ${name}`);
+  return { data: next, account };
 }
 
 // Ensures the two shared GL accounts this feature depends on exist, creating them under the

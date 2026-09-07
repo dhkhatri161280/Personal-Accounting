@@ -40,7 +40,7 @@ export function FixedAssetRegister({
     if (!name.trim() || !costNum || costNum <= 0 || !lifeNum || lifeNum <= 0) return;
     setSaving(true);
     try {
-      const { data: withAcct, account } = getOrCreateAssetAccount(data, name.trim(), costNum);
+      const { data: withAcct, account } = getOrCreateAssetAccount(data, name.trim(), costNum, purchaseDate);
       const asset: FixedAsset = {
         id: crypto.randomUUID(),
         name: name.trim(),
