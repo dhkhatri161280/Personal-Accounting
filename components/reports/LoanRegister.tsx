@@ -5,6 +5,8 @@ import { standardMonthlyPayment, computePaymentSplit } from "@/lib/loans";
 import { getOrCreateLoanAccount, getOrCreateExpenseAccount, currentLoanBalance, recordLoanPayment } from "@/lib/loans-ledger";
 import { computeLoanSchedule } from "@/lib/loan-amortization-schedule";
 import { fmtDate } from "@/lib/format-date";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 export function LoanRegister({
   data,
@@ -210,6 +212,41 @@ export function LoanRegister({
         <button type="button" className="tr-refresh-btn" onClick={() => setShowAdd((v) => !v)}>
           {showAdd ? "Cancel" : "+ Add Loan"}
         </button>
+        {loans.length > 0 && (
+          <ExportButton
+            onExport={async () => {
+              const summaryHeader = ["Name", "Principal", "Rate", "Term (mo)", "Current Balance", "Payment", "Status"];
+              const summaryBody = loans.map((l) => [
+                l.name,
+                l.originalPrincipal,
+                `${(l.annualRate * 100).toFixed(3)}%`,
+                l.termMonths,
+                currentLoanBalance(data, l, todayStr),
+                l.standardPayment,
+                l.closed ? `Closed ${l.closed.date}` : "Active",
+              ]);
+              const scheduleHeader = ["Loan", "Date", "Type", "Rate", "Payment", "Principal", "Interest", "Balance", "Note"];
+              const scheduleBody = loans.flatMap((l) => {
+                const { rows: schedRows } = computeLoanSchedule(data, l, todayStr);
+                return schedRows.map((r) => [
+                  l.name,
+                  fmtDate(r.date),
+                  r.type === "posted" ? "Posted" : r.type === "estimated" ? "Estimated" : "Projected",
+                  `${r.ratePct.toFixed(3)}%`,
+                  r.payment ?? "",
+                  r.principal,
+                  r.interest ?? "",
+                  r.balance,
+                  r.note,
+                ]);
+              });
+              await exportWorkbook("Loan Register.xlsx", [
+                { name: "Loans", rows: [summaryHeader, ...summaryBody] },
+                { name: "Amortization Schedule", rows: [scheduleHeader, ...scheduleBody] },
+              ]);
+            }}
+          />
+        )}
       </div>
 
       {showAdd && (

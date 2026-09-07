@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { FixedAsset, Ledger } from "@/lib/vault-types";
 import { monthlyDepreciation, accumulatedDepreciation, bookValue, ACCUMULATED_DEPRECIATION_ACCOUNT_NAME } from "@/lib/fixed-assets";
 import { getOrCreateAssetAccount, postDepreciation, disposeAsset } from "@/lib/fixed-assets-ledger";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 export function FixedAssetRegister({
   data,
@@ -106,6 +108,21 @@ export function FixedAssetRegister({
   })();
   const computedAccumTotal = active.reduce((s, a) => s + accumulatedDepreciation(a, todayStr), 0);
 
+  async function exportAssets() {
+    const header = ["Asset", "Purchase Date", "Cost", "Useful Life (mo)", "Monthly Dep.", "Accum. Dep.", "Book Value", "Status"];
+    const body = assets.map((a) => [
+      a.name,
+      a.purchaseDate,
+      a.cost,
+      a.usefulLifeMonths,
+      monthlyDepreciation(a),
+      accumulatedDepreciation(a, todayStr),
+      bookValue(a, todayStr),
+      a.disposed ? `Disposed ${a.disposed.date}` : "Active",
+    ]);
+    await exportWorkbook("Fixed Asset Register.xlsx", [{ name: "Fixed Assets", rows: [header, ...body] }]);
+  }
+
   return (
     <div className="data-panel">
       <h3>Fixed Asset Register</h3>
@@ -128,6 +145,7 @@ export function FixedAssetRegister({
             manual entries against that account.
           </span>
         )}
+        <ExportButton onExport={exportAssets} />
       </div>
 
       {showAdd && (

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { StatIcon } from "@/components/Icon";
 import { compute401kLifetimeTotals } from "@/lib/payroll-401k";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 interface PlaidInvestmentAccount {
   account_id: string;
@@ -174,9 +176,31 @@ export function RetirementReport({
             in Import &gt; Plaid &gt; Balances instead, since it's tracked as a real ledger account.
           </p>
         </div>
-        <button className="tr-refresh-btn" onClick={load} disabled={loading}>
-          {loading ? "Refreshing…" : "↻ Refresh"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <ExportButton
+            onExport={async () => {
+              const header = ["Institution", "Account", "Type", "Balance"];
+              const body = grouped.flatMap(([inst, accts]) =>
+                accts.map((a) => [inst, a.name, SUBTYPE_LABEL[a.subtype] || a.subtype, a.balances?.current ?? 0])
+              );
+              const otherBody = otherInvestments.map((r) => ["Other (not via Plaid)", r.label, "Other", r.amount]);
+              const summaryHeader = ["Metric", "Amount"];
+              const summaryBody = [
+                ["Employee (payroll deduction)", k401Self],
+                ["Employer Match", k401Employer],
+                ["Current balance (Fidelity + Merrill + Other)", totalBalance],
+                ["Growth / (loss)", totalBalance - k401Contributions],
+              ];
+              await exportWorkbook("Retirement.xlsx", [
+                { name: "Accounts", rows: [header, ...body, ...otherBody] },
+                { name: "Summary", rows: [summaryHeader, ...summaryBody] },
+              ]);
+            }}
+          />
+          <button className="tr-refresh-btn" onClick={load} disabled={loading}>
+            {loading ? "Refreshing…" : "↻ Refresh"}
+          </button>
+        </div>
       </div>
 
       {error && <p style={{ fontSize: 12, color: "#dc2626" }}>Error: {error}</p>}

@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { fiscalYearOf } from "@/lib/vault-accounting";
 import { StatIcon, type IconKind } from "@/components/Icon";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 interface ReconRow {
   name: string;
@@ -164,6 +166,12 @@ export function ReconReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: num
     );
   }
 
+  async function exportRecon() {
+    const header = ["Ledger", "Group", "App Balance", "Tally Balance", "Difference", "Status"];
+    const body = filtered.map((r) => [r.name, r.parent || "", r.appBalance ?? "", r.tallyBalance ?? "", r.diff, statusLabel[r.status]]);
+    await exportWorkbook("Reconciliation — App vs Tally.xlsx", [{ name: "Recon", rows: [header, ...body] }]);
+  }
+
   const summaryCards: { label: string; value: number; icon: IconKind; color: string; format?: "count" | "money" }[] = [
     { label: "Matched", value: matchedCount, icon: "scale", color: "#16a34a", format: "count" },
     { label: "Differences", value: diffCount, icon: "tag", color: diffCount > 0 ? "#dc2626" : "#64748b", format: "count" },
@@ -185,6 +193,7 @@ export function ReconReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: num
           <input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} />
           Show only differences
         </label>
+        <ExportButton onExport={exportRecon} />
       </div>
       <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
         {summaryCards.map((c) => (

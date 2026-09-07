@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { Ledger, PrepaidExpense } from "@/lib/vault-types";
 import { monthlyAmortization, amortizedToDate, remainingBalance } from "@/lib/prepaid-expense";
 import { getOrCreatePrepaidAccount, getOrCreateExpenseAccount, postAmortization, writeOffPrepaid } from "@/lib/prepaid-expense-ledger";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 export function PrepaidExpenseRegister({
   data,
@@ -101,6 +103,21 @@ export function PrepaidExpenseRegister({
     }
   }
 
+  async function exportItems() {
+    const header = ["Name", "Start Date", "Total Amount", "Term (mo)", "Monthly Amort.", "Amortized", "Remaining", "Status"];
+    const body = items.map((p) => [
+      p.name,
+      p.startDate,
+      p.totalAmount,
+      p.termMonths,
+      monthlyAmortization(p),
+      amortizedToDate(p, todayStr),
+      remainingBalance(p, todayStr),
+      p.writtenOff ? `Written off ${p.writtenOff.date}` : "Active",
+    ]);
+    await exportWorkbook("Prepaid Expense Amortization.xlsx", [{ name: "Prepaid Expenses", rows: [header, ...body] }]);
+  }
+
   return (
     <div className="data-panel">
       <h3>Prepaid Expense Amortization</h3>
@@ -117,6 +134,7 @@ export function PrepaidExpenseRegister({
         <button type="button" className="tr-refresh-btn" disabled={saving || pendingCount === 0} onClick={runAmortization}>
           {saving ? "Posting…" : pendingCount === 0 ? "Amortization up to date" : `Run Amortization (${pendingCount} pending) — posts vouchers`}
         </button>
+        <ExportButton onExport={exportItems} />
       </div>
 
       {showAdd && (

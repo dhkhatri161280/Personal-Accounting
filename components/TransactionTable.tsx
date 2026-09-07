@@ -6,6 +6,8 @@ import MenuItem from "@mui/material/MenuItem";
 import { DataGrid, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
 import { fiscalYearOf } from "@/lib/vault-accounting";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 type Entry = { accountName: string; amount: number };
 export type VoucherRow = {
@@ -535,6 +537,26 @@ export function TransactionTable({
 
   const sortModel: GridSortModel = [{ field: sort.key, sort: sort.direction }];
 
+  // Exports the currently filtered/sorted rows (not the collapsed Sub-total grouping -- Excel
+  // itself can subtotal/pivot, and a flat transaction list is more useful pasted elsewhere than a
+  // pre-collapsed one). Same column set as the on-screen table, split Dr/Cr amounts included when
+  // a ledger is selected, otherwise the single Amount column, plus Balance when there's a running
+  // balance to report.
+  async function exportRows() {
+    const header = ["Date", "Type", "#", "Debit Ledger", "Credit Ledger", "Narration"];
+    if (selectedLedgerName) header.push("Dr Amount", "Cr Amount");
+    else header.push("Amount");
+    if (balanceMap) header.push("Balance");
+    const body = rows.map((t) => {
+      const row: (string | number)[] = [t.date.split("-").reverse().join("-"), t.type, t.number, debit(t), credit(t), text(t.narration)];
+      if (selectedLedgerName) row.push(ledgerDebitAmount(t, selectedLedgerName) ?? "", ledgerCreditAmount(t, selectedLedgerName) ?? "");
+      else row.push(ledgerSignedAmount(t, selectedLedgerName));
+      if (balanceMap) row.push(balanceMap.get(t.guid) ?? "");
+      return row;
+    });
+    await exportWorkbook(`${selectedLedgerName || "Day Book"}.xlsx`, [{ name: (selectedLedgerName || "Vouchers").slice(0, 31), rows: [header, ...body] }]);
+  }
+
   return (
     <div className="excel-table">
       <div className="excel-toolbar">
@@ -550,6 +572,7 @@ export function TransactionTable({
         >
           Clear all filters
         </button>
+        <ExportButton onExport={exportRows} />
         {balanceMap && (
           <label style={{ marginLeft: "auto", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
             Sub-total

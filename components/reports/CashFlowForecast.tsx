@@ -2,6 +2,8 @@
 import { useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { computeCashFlowForecast } from "@/lib/cash-flow-forecast";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 const GOOD = "#16a34a";
 const BAD = "#dc2626";
@@ -29,6 +31,21 @@ export function CashFlowForecast({ data, fmt }: { data: Ledger; fmt: (n: number)
             ))}
           </select>
         </label>
+        <ExportButton
+          onExport={async () => {
+            const header = ["", ...points.map((p) => p.label)];
+            const body = [
+              ["Recurring Net", ...points.map((p) => p.recurringNet)],
+              ["Loan Payments", ...points.map((p) => p.loanPayments)],
+              ["Projected Cash", ...points.map((p) => p.projectedCash)],
+              [],
+              ["Upcoming annual items (timing not tracked)"],
+              ["Item", "Amount"],
+              ...unplacedYearly.map((item) => [item.label, item.amount]),
+            ];
+            await exportWorkbook("Cash Flow Forecast.xlsx", [{ name: "Cash Flow Forecast", rows: [header, ...body] }]);
+          }}
+        />
       </div>
       <div className="columnar-report-scroll">
         <table className="columnar-report-table">

@@ -2,6 +2,8 @@
 import type React from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { computeFinancialRatios, type RatioPoint } from "@/lib/financial-ratios";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 const GOOD = "#16a34a";
 const BAD = "#dc2626";
@@ -45,6 +47,20 @@ export function FinancialRatios({ data, fmt }: { data: Ledger; fmt: (n: number) 
     { label: "Net Worth Growth", render: (p) => <span style={{ color: p.netWorthGrowthPct === null || p.netWorthGrowthPct >= 0 ? GOOD : BAD }}>{pct(p.netWorthGrowthPct)}</span> },
   ];
 
+  async function exportRatios() {
+    const header = ["Ratio", ...points.map((p) => p.label)];
+    const exportRows: { label: string; value: (p: RatioPoint) => string | number }[] = [
+      { label: "Savings Rate", value: (p) => (p.savingsRate === null ? "" : `${p.savingsRate.toFixed(1)}%`) },
+      { label: "Liquid Assets (Bank + Cash)", value: (p) => p.liquidAssets },
+      { label: "Total Debt", value: (p) => p.totalDebt },
+      { label: "Emergency Fund (months)", value: (p) => (p.emergencyFundMonths === null ? "" : p.emergencyFundMonths.toFixed(1)) },
+      { label: "Debt-to-Income", value: (p) => (p.debtToIncome === null ? "" : p.debtToIncome.toFixed(2)) },
+      { label: "Net Worth Growth", value: (p) => pct(p.netWorthGrowthPct) },
+    ];
+    const body = exportRows.map((row) => [row.label, ...points.map((p) => row.value(p))]);
+    await exportWorkbook("Financial Ratios.xlsx", [{ name: "Financial Ratios", rows: [header, ...body] }]);
+  }
+
   return (
     <div className="data-panel grouped-report columnar-report-section">
       <h3>Financial Ratios</h3>
@@ -52,6 +68,9 @@ export function FinancialRatios({ data, fmt }: { data: Ledger; fmt: (n: number) 
         Emergency Fund = liquid assets ÷ monthly expense (3+ months is a common baseline). Debt-to-Income = total debt ÷ annual
         income (lower is better; includes the mortgage balance when this book has a "Home" account).
       </p>
+      <div className="master-toolbar">
+        <ExportButton onExport={exportRatios} />
+      </div>
       <div className="columnar-report-scroll">
         <table className="columnar-report-table">
           <thead>

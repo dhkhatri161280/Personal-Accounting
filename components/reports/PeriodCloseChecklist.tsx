@@ -5,6 +5,8 @@ import { periodKeyOf, isPeriodClosed } from "@/lib/vault-accounting";
 import { reconciliationStatusForAccounts, DIFF_TOL, type PlaidAccountSummary, type PlaidTxSummary } from "@/lib/plaid-recon";
 import { pendingDepreciationMonths } from "@/lib/fixed-assets";
 import { pendingAmortizationMonths } from "@/lib/prepaid-expense";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 // Not a hard gate -- this is purely informational, surfacing what's outstanding for a period
 // before you close it. Closing is still allowed with items unchecked; nothing here blocks save().
@@ -125,6 +127,15 @@ export function PeriodCloseChecklist({
         <button type="button" className="tr-refresh-btn" onClick={togglePeriod}>
           {closed ? "Reopen this period" : "Close this period"}
         </button>
+        <ExportButton
+          onExport={async () => {
+            const header = ["Item", "Status", "OK"];
+            const body = items.map((item) => [item.label, item.status, item.ok ? "Yes" : "No"]);
+            await exportWorkbook(`Period Close Checklist — ${monthLabel(period)}.xlsx`, [
+              { name: "Checklist", rows: [header, ...body] },
+            ]);
+          }}
+        />
       </div>
       {items.map((item) => (
         <div className="report-line" key={item.label}>

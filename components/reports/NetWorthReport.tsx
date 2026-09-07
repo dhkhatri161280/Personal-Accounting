@@ -3,6 +3,8 @@ import { useState } from "react";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import type { NetWorthPoint } from "@/lib/net-worth-trend";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 interface NWRow {
   id: number | string;
@@ -164,6 +166,30 @@ export function NetWorthReport({
 
   return (
     <>
+      <div className="master-toolbar">
+        <ExportButton
+          onExport={async () => {
+            const summaryHeader = ["Metric", "Amount"];
+            const summaryBody = summaryCards.map((c) => [c.label, c.value]);
+            const assetHeader = ["Category", "Amount"];
+            const assetBody = [...assetGroups.entries()]
+              .sort((a, b) => ASSET_ORDER.indexOf(a[0]) - ASSET_ORDER.indexOf(b[0]))
+              .map(([cat, v]) => [cat, v]);
+            const liabHeader = ["Category", "Amount"];
+            const liabBody = [...liabGroups.entries()]
+              .sort((a, b) => LIAB_ORDER.indexOf(a[0]) - LIAB_ORDER.indexOf(b[0]))
+              .map(([cat, v]) => [cat, v]);
+            const trendHeader = ["Period", "Net Worth"];
+            const trendBody = trend.map((p) => [p.label, p.netWorth]);
+            await exportWorkbook("Net Worth.xlsx", [
+              { name: "Summary", rows: [summaryHeader, ...summaryBody] },
+              { name: "Assets", rows: [assetHeader, ...assetBody] },
+              { name: "Liabilities", rows: [liabHeader, ...liabBody] },
+              ...(trendBody.length > 0 ? [{ name: "Trend", rows: [trendHeader, ...trendBody] }] : []),
+            ]);
+          }}
+        />
+      </div>
       <div className="equity-summary-row">
         {summaryCards.map((c) => (
           <div key={c.label} className="equity-summary-col">

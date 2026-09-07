@@ -3,6 +3,8 @@ import type React from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { computeMultiYearTrend, type FyTrendPoint } from "@/lib/multi-year-trend";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -61,9 +63,28 @@ export function MultiYearTrend({
     { label: "Net Worth Growth", render: (p) => <span style={{ color: growthColor(p.netWorthGrowthPct, true) }}>{pct(p.netWorthGrowthPct)}</span> },
   ];
 
+  async function exportTrend() {
+    const header = ["", ...points.map((p) => p.label)];
+    const exportRows: { label: string; value: (p: FyTrendPoint) => string | number }[] = [
+      { label: "Income", value: (p) => p.income },
+      { label: "Expense", value: (p) => p.expense },
+      { label: "Surplus / (Deficit)", value: (p) => p.surplus },
+      { label: "Savings Rate", value: (p) => (p.savingsRate === null ? "" : `${p.savingsRate.toFixed(1)}%`) },
+      { label: "Net Worth", value: (p) => p.netWorth },
+      { label: "Income Growth", value: (p) => pct(p.incomeGrowthPct) },
+      { label: "Expense Growth", value: (p) => pct(p.expenseGrowthPct) },
+      { label: "Net Worth Growth", value: (p) => pct(p.netWorthGrowthPct) },
+    ];
+    const body = exportRows.map((row) => [row.label, ...points.map((p) => row.value(p))]);
+    await exportWorkbook("Multi-Year Trend.xlsx", [{ name: "Multi-Year Trend", rows: [header, ...body] }]);
+  }
+
   return (
     <div className="data-panel grouped-report columnar-report-section">
       <h3>Multi-Year Trend</h3>
+      <div className="master-toolbar">
+        <ExportButton onExport={exportTrend} />
+      </div>
       <div className="columnar-report-scroll">
         <table className="columnar-report-table">
           <thead>

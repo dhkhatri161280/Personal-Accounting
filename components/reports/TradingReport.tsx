@@ -8,6 +8,8 @@ import { StatIcon } from "@/components/Icon";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { nextVoucherNumber, nextTransactionIds, recomputeVoucherNumbers } from "@/lib/vault-accounting";
 import { parseSchwabTransactionsCsv, classifySchwabRows, type SchwabCsvRow } from "@/lib/parse-schwab-csv";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -804,9 +806,35 @@ export function TradingReport({
           <button className={activeTab === "closed"    ? "selected" : ""} onClick={() => setActiveTab("closed")}>Closed Positions ({closed.length})</button>
           <button className={activeTab === "watchlist" ? "selected" : ""} onClick={() => setActiveTab("watchlist")}>Watchlist ({watchlistItems.length})</button>
         </div>
-        {activeTab !== "watchlist" && (
-          <button onClick={openAddTrade}>+ Add Trade</button>
-        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ExportButton
+            onExport={async () => {
+              const openHeader = ["Stock", "Term", "Buy Date", "Units", "Cost/Sh", "Total Cost", "Current Price", "Market Value", "G/(L)"];
+              const openBody = openRows.map(({ t, gl, mv, tc, isLong }) => [t.symbol, isLong ? "Long" : "Short", fmtDate(t.buyDate), t.units, t.costPerSh, tc, curPrice(t), mv, gl]);
+              const closedHeader = ["Stock", "Term", "Buy Date", "Sale Date", "Days", "Units", "Cost/Sh", "Sale/Sh", "Total Cost", "Proceeds", "G/(L)"];
+              const closedBody = sortedClosed.map(({ t, gl, tc, proceeds, days, isLong }) => [
+                t.symbol,
+                isLong ? "Long" : "Short",
+                fmtDate(t.buyDate),
+                fmtDate(t.saleDate!),
+                days,
+                t.units,
+                t.costPerSh,
+                t.marketOrSalePrice,
+                tc,
+                proceeds,
+                gl,
+              ]);
+              await exportWorkbook("Trading Report.xlsx", [
+                { name: "Open Positions", rows: [openHeader, ...openBody] },
+                { name: "Closed Positions", rows: [closedHeader, ...closedBody] },
+              ]);
+            }}
+          />
+          {activeTab !== "watchlist" && (
+            <button onClick={openAddTrade}>+ Add Trade</button>
+          )}
+        </div>
       </div>
 
       {showTradeForm && (

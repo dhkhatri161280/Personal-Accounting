@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import type { AuditEntry, Ledger, Tx } from "@/lib/vault-types";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 const ACTION_COLOR: Record<AuditEntry["action"], string> = {
   created: "#16a34a",
@@ -21,6 +23,12 @@ export function AuditLog({ data, onViewVoucher }: { data: Ledger; onViewVoucher:
 
   const txByGuid = new Map(data.transactions.map((t) => [t.guid, t]));
 
+  async function exportEntries() {
+    const header = ["When", "Action", "Entity", "Summary"];
+    const body = entries.map((e) => [new Date(e.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }), e.action, e.entity, e.summary]);
+    await exportWorkbook("Audit Log.xlsx", [{ name: "Audit Log", rows: [header, ...body] }]);
+  }
+
   return (
     <div className="data-panel">
       <h3>Audit Log</h3>
@@ -38,6 +46,7 @@ export function AuditLog({ data, onViewVoucher }: { data: Ledger; onViewVoucher:
           <option value="group">Account Groups</option>
         </select>
         <span style={{ fontSize: 12, opacity: 0.7 }}>{entries.length} entr{entries.length === 1 ? "y" : "ies"}</span>
+        <ExportButton onExport={exportEntries} />
       </div>
       {entries.length === 0 ? (
         <p style={{ opacity: 0.7 }}>

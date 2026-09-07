@@ -66,6 +66,8 @@ import { CashFlowForecast } from "@/components/reports/CashFlowForecast";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
@@ -3335,6 +3337,25 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   tCDr = tR.reduce((s, a) => s + (a.tC < 0 ? -a.tC : 0), 0),
                   tCCr = tR.reduce((s, a) => s + (a.tC > 0 ? a.tC : 0), 0);
                 return (
+                  <>
+                  <div className="master-toolbar">
+                    <ExportButton
+                      onExport={async () => {
+                        const header = ["Ledger", "Opening Dr", "Opening Cr", "Period Dr", "Period Cr", "Closing Dr", "Closing Cr"];
+                        const body = tR.map((a) => [
+                          a.name,
+                          a.tO < 0 ? -a.tO : 0,
+                          a.tO > 0 ? a.tO : 0,
+                          a.debit,
+                          a.credit,
+                          a.tC < 0 ? -a.tC : 0,
+                          a.tC > 0 ? a.tC : 0,
+                        ]);
+                        const totals = ["Totals", tODr, tOCr, tR.reduce((s, a) => s + a.debit, 0), tR.reduce((s, a) => s + a.credit, 0), tCDr, tCCr];
+                        await exportWorkbook("Trial Balance.xlsx", [{ name: "Trial Balance", rows: [header, ...body, totals] }]);
+                      }}
+                    />
+                  </div>
                   <table>
                     <thead>
                       <tr>
@@ -3386,6 +3407,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                       </tr>
                     </tfoot>
                   </table>
+                  </>
                 );
               })()}
             </div>
@@ -3549,6 +3571,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <h3>
                   Cash and Bank Closing Balances — <PeriodSelect />
                 </h3>
+                <div className="master-toolbar">
+                  <ExportButton
+                    onExport={async () => {
+                      const header = ["Ledger", "Closing Balance"];
+                      const body = cashBankRows.map((a) => [a.name, -a.closing]);
+                      await exportWorkbook("Cash and Bank.xlsx", [{ name: "Cash and Bank", rows: [header, ...body, ["Total", cashBank]] }]);
+                    }}
+                  />
+                </div>
                 <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">

@@ -11,6 +11,8 @@ import {
   type PlaidTxSummary,
   type ReconAccountStatus,
 } from "@/lib/plaid-recon";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -133,6 +135,29 @@ export function BankReconciliation({
         <button type="button" className="tr-refresh-btn" disabled={fetching} onClick={load}>
           {fetching ? "Refreshing…" : "⟳ Refresh"}
         </button>
+        {rows !== null && total > 0 && (
+          <ExportButton
+            onExport={async () => {
+              const summaryHeader = ["Account", "Plaid Balance", "Vault Balance", "Diff", "Unmatched"];
+              const summaryBody = rows.map((r) => [r.account.name, r.plaidBalance, r.vaultBalance, r.diff, r.unmatchedPlaid.length + r.unmatchedVault.length]);
+              const unmatchedHeader = ["Account", "Side", "Date", "Description", "Amount"];
+              const unmatchedBody = rows.flatMap((r) => [
+                ...r.unmatchedPlaid.map((t) => [r.account.name, "In Plaid, not yet in vault", t.date, t.name, t.amount]),
+                ...r.unmatchedVault.map((t: Tx) => [
+                  r.account.name,
+                  "In vault, no Plaid match",
+                  t.date,
+                  t.narration || t.type,
+                  t.entries.filter((e) => e.accountId === r.account.id).reduce((s, e) => s + e.amount, 0),
+                ]),
+              ]);
+              await exportWorkbook("Bank Reconciliation.xlsx", [
+                { name: "Summary", rows: [summaryHeader, ...summaryBody] },
+                { name: "Unmatched", rows: [unmatchedHeader, ...unmatchedBody] },
+              ]);
+            }}
+          />
+        )}
       </div>
       {rows !== null && total > 0 && (
         <div className="columnar-report-scroll">

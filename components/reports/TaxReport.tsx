@@ -18,6 +18,8 @@ import { resolveStateResidency } from "@/lib/tax-state-residency";
 import { computeTaxPlanningScenarios } from "@/lib/tax-planning";
 import { compute401kByYear } from "@/lib/payroll-401k";
 import { fmtDate } from "@/lib/format-date";
+import { exportWorkbook } from "@/lib/export-excel";
+import { ExportButton } from "@/components/ExportButton";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -942,6 +944,23 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </button>
               </>
             )}
+            <ExportButton
+              onExport={async () => {
+                const header = ["Period", "Gross", "Federal", "SSN", "Medicare", "State W/H", "State SDI", "Total Tax", "Net"];
+                const body = yr.periodLabels.map((label, i) => [
+                  label || `Period ${i + 1}`,
+                  at(gross, i),
+                  at(federal, i),
+                  at(ssn, i),
+                  at(medicare, i),
+                  at(stateWH, i),
+                  at(stateSDI, i),
+                  at(totalTax, i),
+                  at(netSalary, i),
+                ]);
+                await exportWorkbook(`Tax & Paystub Details — ${yr.year}.xlsx`, [{ name: `${yr.year}`, rows: [header, ...body] }]);
+              }}
+            />
           </div>
         </div>
         {importError && <p className="equity-pdf-error" style={{ marginTop: "0.5rem" }}>{importError}</p>}
