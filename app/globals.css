@@ -1128,6 +1128,10 @@ a.action {
 .ledger-subtotal-row {
   background: #eef3fb;
   font-weight: 600;
+  cursor: pointer;
+}
+.ledger-subtotal-row:hover {
+  background: #e2eafb;
 }
 @media (max-width: 720px) {
   .ledger-grid-totals {

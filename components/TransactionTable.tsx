@@ -233,8 +233,13 @@ export function TransactionTable({
   // each period's rows land contiguously; sorting by any other column while sub-totaled would
   // scatter one period's rows across the table and break the grouping.
   const [subtotalPeriod, setSubtotalPeriod] = useState<SubtotalPeriod>("none");
+  // Collapsed by default -- a period only expands into its individual vouchers once its own
+  // header row is clicked. Keyed by periodKey, so switching between e.g. Monthly and Quarterly
+  // starts every group fresh rather than carrying over stale keys from a different bucketing.
+  const [expandedPeriods, setExpandedPeriods] = useState<Set<string>>(new Set());
   const changeSubtotal = (next: SubtotalPeriod) => {
     setSubtotalPeriod(next);
+    setExpandedPeriods(new Set());
     if (next !== "none") setSort((s) => ({ ...s, key: "date" }));
   };
   const value = (t: VoucherRow, key: SortKey): string | number =>
@@ -355,11 +360,14 @@ export function TransactionTable({
       })),
     [rows, selectedLedgerName, balanceMap]
   );
-  type Row = (typeof gridRows)[number] & { isSubtotal?: boolean };
+  type Row = (typeof gridRows)[number] & { isSubtotal?: boolean; isGroupHeader?: boolean; periodKeyValue?: string };
 
-  // Interleaves a Sub-total row after each contiguous run of same-period rows (rows are already
-  // grouped correctly because changeSubtotal forces Date sort whenever a period is active). Only
-  // available once there's a real running balance to report as the period's closing figure.
+  // One collapsed header row per period, summing that period's Dr/Cr and showing its real closing
+  // balance -- clicking a header row (see the DataGrid's onRowClick below) toggles it open to
+  // reveal that period's individual vouchers directly beneath it, collapsed again on a second
+  // click. Rows are already grouped correctly because changeSubtotal forces Date sort whenever a
+  // period is active. Only available once there's a real running balance to report as the
+  // period's closing figure.
   const displayRows: Row[] = useMemo(() => {
     if (subtotalPeriod === "none" || !balanceMap) return gridRows;
     const isAsc = sort.direction === "asc";
@@ -373,32 +381,38 @@ export function TransactionTable({
       while (j < gridRows.length && periodKey(gridRows[j].date, subtotalPeriod) === key) {
         drSum += gridRows[j].debitAmount ?? 0;
         crSum += gridRows[j].creditAmount ?? 0;
-        out.push(gridRows[j]);
         j++;
       }
+      const count = j - i;
       // balanceMap is already correct in either sort direction -- the row bordering the "later"
       // edge of this run holds the period's true closing balance: the last row when ascending
       // (latest date is last), the first row when descending (latest date is first).
       const edgeRow = isAsc ? gridRows[j - 1] : gridRows[i];
+      const expanded = expandedPeriods.has(key);
       out.push({
         ...edgeRow,
-        id: `subtotal-${key}`,
+        id: `group-${key}`,
         isSubtotal: true,
+        isGroupHeader: true,
+        periodKeyValue: key,
         date: "",
         type: "",
         number: "",
         debit: "",
         credit: "",
-        narration: `Sub-total — ${periodLabel(edgeRow.date, subtotalPeriod)}`,
+        narration: `${expanded ? "−" : "+"} ${periodLabel(edgeRow.date, subtotalPeriod)} (${count} voucher${count === 1 ? "" : "s"})`,
         amount: drSum - crSum,
         debitAmount: drSum > 0.004 ? drSum : null,
         creditAmount: crSum > 0.004 ? crSum : null,
         balance: edgeRow.balance,
       });
+      if (expanded) {
+        for (let k = i; k < j; k++) out.push(gridRows[k]);
+      }
       i = j;
     }
     return out;
-  }, [gridRows, subtotalPeriod, sort.direction, balanceMap]);
+  }, [gridRows, subtotalPeriod, sort.direction, balanceMap, expandedPeriods]);
 
   const filterField = (key: SortKey, label: string, placeholder: string) => (
     <label key={key}>
@@ -554,6 +568,15 @@ export function TransactionTable({
           disableColumnFilter
           hideFooterSelectedRowCount
           getRowClassName={(params) => (params.row.isSubtotal ? "ledger-subtotal-row" : "")}
+          onRowClick={(params) => {
+            if (!params.row.isGroupHeader) return;
+            const key = params.row.periodKeyValue as string;
+            setExpandedPeriods((prev) => {
+              const next = new Set(prev);
+              next.has(key) ? next.delete(key) : next.add(key);
+              return next;
+            });
+          }}
           sortingMode="server"
           sortingOrder={["asc", "desc"]}
           sortModel={sortModel}
