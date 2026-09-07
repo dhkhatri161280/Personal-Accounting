@@ -372,6 +372,11 @@ export type Loan = {
   termMonths: number;
   startDate: string;
   standardPayment: number;
+  // Date through which `annualRate` is confirmed accurate. Optional -- only meaningful for an
+  // adjustable-rate loan (e.g. a 5/5 ARM) whose rate resets on a schedule and whose post-reset
+  // rate isn't knowable in advance. When set, the projected amortization schedule stops rolling
+  // forward past this date instead of silently assuming the current rate holds indefinitely.
+  rateValidThrough?: string;
   closed?: { date: string; txGuid?: string };
 };
 

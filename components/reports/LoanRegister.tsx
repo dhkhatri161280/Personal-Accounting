@@ -3,7 +3,7 @@ import { Fragment, useState } from "react";
 import type { Ledger, Loan } from "@/lib/vault-types";
 import { standardMonthlyPayment, computePaymentSplit } from "@/lib/loans";
 import { getOrCreateLoanAccount, getOrCreateExpenseAccount, currentLoanBalance, recordLoanPayment } from "@/lib/loans-ledger";
-import { computeLoanAmortizationSchedule } from "@/lib/loan-amortization-schedule";
+import { computeLoanActualHistory, computeLoanProjectedSchedule } from "@/lib/loan-amortization-schedule";
 
 export function LoanRegister({
   data,
@@ -21,11 +21,18 @@ export function LoanRegister({
   const [termMonths, setTermMonths] = useState("60");
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [payment, setPayment] = useState("");
+  const [rateValidThrough, setRateValidThrough] = useState("");
   const [expenseAcctId, setExpenseAcctId] = useState<number | "">("");
   const [newExpenseAcctName, setNewExpenseAcctName] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [scheduleId, setScheduleId] = useState<string | null>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editRatePct, setEditRatePct] = useState("");
+  const [editPayment, setEditPayment] = useState("");
+  const [editTermMonths, setEditTermMonths] = useState("");
+  const [editRateValidThrough, setEditRateValidThrough] = useState("");
 
   const [payingId, setPayingId] = useState<string | null>(null);
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -79,6 +86,7 @@ export function LoanRegister({
         termMonths: termNum,
         startDate,
         standardPayment: paymentNum,
+        ...(rateValidThrough ? { rateValidThrough } : {}),
       };
       const next: Ledger = { ...working, loans: [...(working.loans ?? []), loan] };
       const ok = await onSave(next);
@@ -89,9 +97,47 @@ export function LoanRegister({
         setRatePct("");
         setTermMonths("60");
         setPayment("");
+        setRateValidThrough("");
         setExpenseAcctId("");
         setNewExpenseAcctName("");
       }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openEditFor(loan: Loan) {
+    setEditingId(loan.id);
+    setEditRatePct(String(round2Pct(loan.annualRate)));
+    setEditPayment(String(loan.standardPayment));
+    setEditTermMonths(String(loan.termMonths));
+    setEditRateValidThrough(loan.rateValidThrough ?? "");
+  }
+
+  function round2Pct(rate: number): number {
+    return Math.round(rate * 100 * 100) / 100;
+  }
+
+  async function confirmEdit(loanId: string) {
+    const rateNum = (Number(editRatePct) || 0) / 100;
+    const paymentNum = Number(editPayment);
+    const termNum = Number(editTermMonths);
+    if (!paymentNum || paymentNum <= 0 || !termNum || termNum <= 0) return;
+    setSaving(true);
+    try {
+      const updatedLoans = (data.loans ?? []).map((l) =>
+        l.id === loanId
+          ? {
+              ...l,
+              annualRate: rateNum,
+              standardPayment: paymentNum,
+              termMonths: termNum,
+              rateValidThrough: editRateValidThrough || undefined,
+            }
+          : l
+      );
+      const ok = await onSave({ ...data, loans: updatedLoans });
+      if (ok) setEditingId(null);
     } finally {
       setSaving(false);
     }
@@ -169,6 +215,10 @@ export function LoanRegister({
             onChange={(e) => setPayment(e.target.value)}
             style={{ width: 180 }}
           />
+          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+            Rate valid through (ARM, optional)
+            <input type="date" value={rateValidThrough} onChange={(e) => setRateValidThrough(e.target.value)} />
+          </label>
           <select
             value={expenseAcctId}
             onChange={(e) => {
@@ -214,18 +264,27 @@ export function LoanRegister({
                 <th>Status</th>
                 <th></th>
                 <th></th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {loans.map((l) => {
                 const balance = currentLoanBalance(data, l, todayStr);
-                const schedule = scheduleId === l.id ? computeLoanAmortizationSchedule(l) : null;
+                const showSchedule = scheduleId === l.id;
+                const actualHistory = showSchedule ? computeLoanActualHistory(data, l) : null;
+                const projected = showSchedule ? computeLoanProjectedSchedule(data, l, todayStr) : null;
+                const isEditing = editingId === l.id;
                 return (
                   <Fragment key={l.id}>
                   <tr>
                     <td>{l.name}</td>
                     <td className="right">{fmt(l.originalPrincipal)}</td>
-                    <td className="right">{(l.annualRate * 100).toFixed(2)}%</td>
+                    <td className="right">
+                      {(l.annualRate * 100).toFixed(2)}%
+                      {l.rateValidThrough && (
+                        <div style={{ fontSize: 10, opacity: 0.6 }}>through {l.rateValidThrough}</div>
+                      )}
+                    </td>
                     <td className="right">{l.termMonths} mo</td>
                     <td className="right">{fmt(balance)}</td>
                     <td className="right">{fmt(l.standardPayment)}</td>
@@ -237,8 +296,13 @@ export function LoanRegister({
                       )}
                     </td>
                     <td>
-                      <button type="button" className="tr-refresh-btn" onClick={() => setScheduleId(scheduleId === l.id ? null : l.id)}>
-                        {scheduleId === l.id ? "Hide Schedule" : "Amortization Schedule"}
+                      <button type="button" className="tr-refresh-btn" onClick={() => setScheduleId(showSchedule ? null : l.id)}>
+                        {showSchedule ? "Hide Schedule" : "Amortization Schedule"}
+                      </button>
+                    </td>
+                    <td>
+                      <button type="button" className="tr-refresh-btn" onClick={() => (isEditing ? setEditingId(null) : openEditFor(l))}>
+                        {isEditing ? "Cancel Edit" : "Edit Terms"}
                       </button>
                     </td>
                     <td>
@@ -280,46 +344,111 @@ export function LoanRegister({
                         ))}
                     </td>
                   </tr>
-                  {schedule && (
+                  {isEditing && (
                     <tr>
-                      <td colSpan={9} style={{ padding: 0 }}>
+                      <td colSpan={10} style={{ padding: 0 }}>
+                        <div style={{ padding: "10px 12px", background: "#f8fafc", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                            Rate %
+                            <input type="number" value={editRatePct} onChange={(e) => setEditRatePct(e.target.value)} style={{ width: 80 }} />
+                          </label>
+                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                            Payment
+                            <input type="number" value={editPayment} onChange={(e) => setEditPayment(e.target.value)} style={{ width: 100 }} />
+                          </label>
+                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                            Term (months)
+                            <input type="number" value={editTermMonths} onChange={(e) => setEditTermMonths(e.target.value)} style={{ width: 90 }} />
+                          </label>
+                          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                            Rate valid through (ARM, optional)
+                            <input type="date" value={editRateValidThrough} onChange={(e) => setEditRateValidThrough(e.target.value)} />
+                          </label>
+                          <button type="button" className="tr-refresh-btn" disabled={saving} onClick={() => confirmEdit(l.id)}>
+                            {saving ? "Saving…" : "Save Terms"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {showSchedule && (
+                    <tr>
+                      <td colSpan={10} style={{ padding: 0 }}>
                         <div style={{ padding: "10px 12px", background: "#f8fafc" }}>
-                          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-                            Full standard-payment schedule from {l.startDate} through payoff, projected off this loan's stated
-                            terms (principal, rate, payment) -- not a read of actually posted payments. The Current Balance
-                            above is the real, live figure; it can differ from this schedule if payments were made off-schedule
-                            or (for a loan like this one) the balance is maintained by manual entries rather than through
-                            "Record Payment".
+                          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 4px" }}>
+                            <strong>Posted history</strong> — every real entry actually posted against this loan's account, in
+                            order, with the real running balance after each one.
                           </p>
-                          <div className="columnar-report-scroll" style={{ maxHeight: 320, overflowY: "auto" }}>
-                            <table className="columnar-report-table budget-table">
-                              <thead>
-                                <tr>
-                                  <th className="right">#</th>
-                                  <th>Date</th>
-                                  <th className="right">Payment</th>
-                                  <th className="right">Principal</th>
-                                  <th className="right">Interest</th>
-                                  <th className="right">Balance</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {schedule.map((row) => (
-                                  <tr key={row.period} style={row.date <= todayStr ? undefined : { opacity: 0.6 }}>
-                                    <td className="right">{row.period}</td>
-                                    <td>
-                                      {row.date}
-                                      {row.date <= todayStr ? "" : " (projected)"}
-                                    </td>
-                                    <td className="right">{fmt(row.payment)}</td>
-                                    <td className="right">{fmt(row.principal)}</td>
-                                    <td className="right">{fmt(row.interest)}</td>
-                                    <td className="right">{fmt(row.balance)}</td>
+                          {actualHistory && actualHistory.length === 0 ? (
+                            <p style={{ fontSize: 12, opacity: 0.6, margin: "0 0 10px" }}>Nothing posted against this account yet.</p>
+                          ) : (
+                            <div className="columnar-report-scroll" style={{ maxHeight: 260, overflowY: "auto", marginBottom: 12 }}>
+                              <table className="columnar-report-table budget-table">
+                                <thead>
+                                  <tr>
+                                    <th>Date</th>
+                                    <th>Narration</th>
+                                    <th className="right">Principal Paid</th>
+                                    <th className="right">Balance</th>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                                </thead>
+                                <tbody>
+                                  {actualHistory!.map((row, i) => (
+                                    <tr key={i}>
+                                      <td>{row.date}</td>
+                                      <td>{row.narration}</td>
+                                      <td className="right" style={{ color: row.amount < 0 ? "#dc2626" : undefined }}>
+                                        {fmt(row.amount)}
+                                      </td>
+                                      <td className="right">{fmt(row.balance)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 4px" }}>
+                            <strong>Projected schedule</strong> — rolled forward from today's real balance ({fmt(balance)}) at the
+                            current rate and payment. Not a read of actual future postings.
+                          </p>
+                          {projected && projected.rateUnknownPast && (
+                            <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 8px" }}>
+                              Stops at {projected.rateUnknownPast} — the rate is only confirmed through this date (e.g. an
+                              adjustable-rate reset). Update "Edit Terms" once the real post-reset rate is known to extend the
+                              projection.
+                            </p>
+                          )}
+                          {projected && projected.rows.length === 0 ? (
+                            <p style={{ fontSize: 12, opacity: 0.6 }}>Nothing to project — loan is paid off or rate is unknown from today.</p>
+                          ) : (
+                            <div className="columnar-report-scroll" style={{ maxHeight: 260, overflowY: "auto" }}>
+                              <table className="columnar-report-table budget-table">
+                                <thead>
+                                  <tr>
+                                    <th className="right">#</th>
+                                    <th>Date</th>
+                                    <th className="right">Payment</th>
+                                    <th className="right">Principal</th>
+                                    <th className="right">Interest</th>
+                                    <th className="right">Balance</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {projected!.rows.map((row) => (
+                                    <tr key={row.period}>
+                                      <td className="right">{row.period}</td>
+                                      <td>{row.date}</td>
+                                      <td className="right">{fmt(row.payment)}</td>
+                                      <td className="right">{fmt(row.principal)}</td>
+                                      <td className="right">{fmt(row.interest)}</td>
+                                      <td className="right">{fmt(row.balance)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
