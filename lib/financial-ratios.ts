@@ -1,7 +1,6 @@
 import type { Ledger } from "./vault-types";
 import { computeMultiYearTrend, type FyTrendPoint } from "./multi-year-trend";
 import { accountNature, ledgerBalanceAsOf } from "./vault-accounting";
-import { currentMortgageBalance, MORTGAGE_HOME_ACCOUNT_NAMES } from "./mortgage-amortization";
 
 // Composer, not self-contained -- like lib/multi-year-trend.ts itself, this imports runtime
 // values from other lib/*.ts files (computeMultiYearTrend, ledgerBalanceAsOf, accountNature),
@@ -42,14 +41,16 @@ function sumByNature(data: Ledger, groupMap: Map<string, { nature: string }>, na
 export function computeFinancialRatios(data: Ledger): RatioPoint[] {
   const trend = computeMultiYearTrend(data);
   const groupMap = new Map((data.groups ?? []).map((g) => [g.name.toLowerCase(), { nature: g.nature }]));
-  // Only add the mortgage's outstanding balance if a "Home" account actually exists in this
-  // ledger -- currentMortgageBalance() falls back to its hardcoded US anchor when it can't find
-  // one, which would silently pollute an India-book (or any Home-less) computation.
-  const hasMortgage = data.accounts.some((a) => MORTGAGE_HOME_ACCOUNT_NAMES.some((n) => a.name.toLowerCase() === n.toLowerCase()));
 
   return trend.map((p: FyTrendPoint) => {
     const liquidAssets = sumByNature(data, groupMap, ["Bank", "Cash"], p.end, false);
-    const totalDebt = sumByNature(data, groupMap, ["Liability"], p.end, true) + (hasMortgage ? currentMortgageBalance(data, p.end) : 0);
+    // Deliberately NOT adding lib/mortgage-amortization.ts's currentMortgageBalance() here --
+    // confirmed live against real production data that the mortgage already has its own proper
+    // Liability-nature ledger account (e.g. "CCU Home Loan"), so it's already included in this
+    // sum. currentMortgageBalance() derives its figure from the asset-side "Home" account as a
+    // proxy for Plaid auto-detection purposes; adding it on top of the real liability account
+    // double-counted the same mortgage by ~2x in this report specifically.
+    const totalDebt = sumByNature(data, groupMap, ["Liability"], p.end, true);
     const monthlyExpense = p.expense / 12;
     return {
       fy: p.fy,
