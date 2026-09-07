@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { vaultBookBalance, matchVaultAccount, reconciliationStatusForAccounts, type PlaidAccountSummary, type PlaidTxSummary } from "../lib/plaid-recon.ts";
-import type { Ledger } from "../lib/vault-types.ts";
+import { vaultBookBalance, matchVaultAccount, reconciliationStatusForAccounts, vaultExceptionKey, plaidExceptionKey, type PlaidAccountSummary, type PlaidTxSummary } from "../lib/plaid-recon.ts";
+import type { Ledger, BankReconException } from "../lib/vault-types.ts";
 
 function baseLedger(overrides: Partial<Ledger> = {}): Ledger {
   return {
@@ -182,4 +182,34 @@ test("reconciliationStatusForAccounts: two unrecognized BofA cards both fall bac
   assert.equal(results[0].account.id, 4);
   assert.equal(results[0].plaidAccounts.length, 2);
   assert.equal(results[0].plaidBalance, 30);
+});
+
+test("reconciliationStatusForAccounts: a 'Mark as reconciled' exception permanently excludes that specific entry from either unmatched list", () => {
+  const ledger = baseLedger({
+    transactions: [
+      {
+        id: 1, guid: "cash-voucher", date: "2026-08-31", number: "1", type: "Payment", narration: "Cash purchase, no Plaid line", historical: false,
+        entries: [{ accountId: 4, accountName: "Credit Card - BofA", amount: -1322.90 }, { accountId: 2, accountName: "Groceries", amount: 1322.90 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "c1", type: "credit", subtype: "credit card", name: "Unlimited Cash Rewards Visa Signature", institution_name: "Bank of America", balances: { current: 0 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    // A one-off Plaid entry the user has decided not to book as a voucher (e.g. a bank fee).
+    { transaction_id: "fee1", date: "2026-08-15", name: "Monthly Fee", amount: 5, account_id: "c1" },
+  ];
+  const exceptions: BankReconException[] = [
+    { key: vaultExceptionKey("cash-voucher"), label: "Cash purchase", markedAt: "2026-09-01T00:00:00.000Z" },
+    { key: plaidExceptionKey("c1", "fee1"), label: "Monthly Fee", markedAt: "2026-09-01T00:00:00.000Z" },
+  ];
+
+  const withoutExceptions = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-06");
+  assert.equal(withoutExceptions[0].unmatchedVault.length, 1);
+  assert.equal(withoutExceptions[0].unmatchedPlaid.length, 1);
+
+  const withExceptions = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-06", exceptions);
+  assert.equal(withExceptions[0].unmatchedVault.length, 0);
+  assert.equal(withExceptions[0].unmatchedPlaid.length, 0);
 });

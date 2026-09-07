@@ -1,4 +1,9 @@
-import type { Account, Ledger, Tx } from "./vault-types";
+import type { Account, BankReconException, Ledger, Tx } from "./vault-types";
+
+// Namespaced exception keys -- shared with the "Mark as reconciled" UI so both sides agree on
+// what a given entry's key looks like.
+export const vaultExceptionKey = (txGuid: string) => `v:${txGuid}`;
+export const plaidExceptionKey = (accountId: string, transactionId: string) => `p:${accountId}:${transactionId}`;
 
 // A pure relocation from components/vault/PlaidImport.tsx (was a private helper there) -- moved
 // here so it can be shared with the Bank Reconciliation report without duplicating the
@@ -134,8 +139,10 @@ export function reconciliationStatusForAccounts(
   data: Ledger,
   plaidAccounts: PlaidAccountSummary[],
   plaidTransactions: PlaidTxSummary[],
-  todayStr: string
+  todayStr: string,
+  exceptions?: BankReconException[]
 ): ReconAccountStatus[] {
+  const exceptionKeys = new Set((exceptions ?? []).map((e) => e.key));
   // Bounds the "in vault, no Plaid match" comparison to roughly the same window Plaid itself
   // returns -- without this, every old historical voucher outside Plaid's fetch window would
   // spuriously show up as "unmatched" since Plaid never reports transactions that old.
@@ -179,19 +186,27 @@ export function reconciliationStatusForAccounts(
     // of this file flipped the sign here, which produced a real bug: a genuinely-matching pair
     // (e.g. one $0.91 interest-earned transaction) showed up as two separate "unmatched" entries,
     // one in each column, mirror-imaged in sign.
-    const unmatchedPlaid = acctPlaidTxs.filter((pt) => {
-      const expected = pt.amount;
-      return !recentVaultTxs.some(
-        (vt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(vaultTxAccountAmount(vt, account.id) - expected) < 0.5
-      );
-    });
+    const unmatchedPlaid = acctPlaidTxs
+      .filter((pt) => {
+        const expected = pt.amount;
+        return !recentVaultTxs.some(
+          (vt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(vaultTxAccountAmount(vt, account.id) - expected) < 0.5
+        );
+      })
+      // "Mark as reconciled" exceptions -- a Plaid-side entry the user has said will never get a
+      // vault voucher (e.g. a bank fee they don't book) stops being flagged, permanently.
+      .filter((pt) => !exceptionKeys.has(plaidExceptionKey(pt.account_id, pt.transaction_id)));
     const noPlaidTransactionFeed = acctPlaidTxs.length === 0;
     const unmatchedVault = noPlaidTransactionFeed
       ? []
-      : recentVaultTxs.filter((vt) => {
-          const amt = vaultTxAccountAmount(vt, account.id);
-          return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(pt.amount - amt) < 0.5);
-        });
+      : recentVaultTxs
+          .filter((vt) => {
+            const amt = vaultTxAccountAmount(vt, account.id);
+            return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(pt.amount - amt) < 0.5);
+          })
+          // Same "mark as reconciled" override, for a vault voucher that will never have a Plaid
+          // match (e.g. a cash transaction with no corresponding bank line).
+          .filter((vt) => !exceptionKeys.has(vaultExceptionKey(vt.guid)));
 
     results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, noPlaidTransactionFeed });
   }

@@ -3693,7 +3693,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "bankrecon" && book !== "india" && data && (
             <>
               <h3 className="report-inline-heading">Bank Reconciliation</h3>
-              <BankReconciliation data={data} fmt={fmt} uiTheme={uiTheme} />
+              <BankReconciliation data={data} fmt={fmt} uiTheme={uiTheme} onSave={(next) => save(next, "reports")} />
             </>
           )}
           {report === "recurring" && data && (() => {

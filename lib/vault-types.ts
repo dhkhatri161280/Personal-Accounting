@@ -354,6 +354,18 @@ export type Ledger = {
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];
+  // Manual "this will never have a match, stop flagging it" overrides for the Bank Reconciliation
+  // report -- e.g. a cash transaction with no corresponding Plaid line, or a known one-off Plaid
+  // entry (a bank fee) the user doesn't book as a voucher. See lib/plaid-recon.ts.
+  bankReconExceptions?: BankReconException[];
+};
+
+export type BankReconException = {
+  // "v:<txGuid>" for a vault voucher, or "p:<plaid_account_id>:<plaid_transaction_id>" for a
+  // Plaid-side transaction -- one flat namespaced key so both sides share one array.
+  key: string;
+  label: string; // snapshot of what this was, so the exceptions list stays readable later
+  markedAt: string;
 };
 
 export type AuditEntry = {

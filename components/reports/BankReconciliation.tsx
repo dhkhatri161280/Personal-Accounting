@@ -1,9 +1,11 @@
 "use client";
 import { Fragment, useEffect, useState } from "react";
-import type { Ledger, Tx } from "@/lib/vault-types";
+import type { BankReconException, Ledger, Tx } from "@/lib/vault-types";
 import { StatIcon } from "@/components/Icon";
 import {
   reconciliationStatusForAccounts,
+  vaultExceptionKey,
+  plaidExceptionKey,
   DIFF_TOL,
   type PlaidAccountSummary,
   type PlaidTxSummary,
@@ -13,11 +15,20 @@ import {
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
 
-export function BankReconciliation({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
+export function BankReconciliation({
+  data,
+  fmt,
+  uiTheme,
+  onSave,
+}: {
+  data: Ledger;
+  fmt: (n: number) => string;
+  uiTheme?: "classic" | "refresh";
+  onSave: (next: Ledger) => Promise<boolean> | boolean;
+}) {
   const [fetching, setFetching] = useState(false);
   const [status, setStatus] = useState("");
-  const [rows, setRows] = useState<ReconAccountStatus[] | null>(null);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [plaidData, setPlaidData] = useState<{ accounts: PlaidAccountSummary[]; transactions: PlaidTxSummary[] } | null>(null);
 
   async function load() {
     setFetching(true);
@@ -31,11 +42,10 @@ export function BankReconciliation({ data, fmt, uiTheme }: { data: Ledger; fmt: 
       };
       if (errors?.length) setStatus(`Partial fetch — ${errors.join(", ")}`);
       else setStatus("");
-      const today = new Date().toISOString().slice(0, 10);
-      setRows(reconciliationStatusForAccounts(data, accounts ?? [], transactions ?? [], today));
+      setPlaidData({ accounts: accounts ?? [], transactions: transactions ?? [] });
     } catch {
       setStatus("Failed to fetch Plaid data.");
-      setRows([]);
+      setPlaidData({ accounts: [], transactions: [] });
     } finally {
       setFetching(false);
     }
@@ -46,12 +56,29 @@ export function BankReconciliation({ data, fmt, uiTheme }: { data: Ledger; fmt: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Derived from state, not stored -- recomputes automatically once `data.bankReconExceptions`
+  // changes after a "Mark as reconciled" save, with no need to re-fetch Plaid.
+  const rows = plaidData
+    ? reconciliationStatusForAccounts(data, plaidData.accounts, plaidData.transactions, new Date().toISOString().slice(0, 10), data.bankReconExceptions)
+    : null;
+
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const toggle = (id: number) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+
+  async function markException(key: string, label: string) {
+    const entry: BankReconException = { key, label, markedAt: new Date().toISOString() };
+    const next: Ledger = { ...data, bankReconExceptions: [...(data.bankReconExceptions ?? []), entry] };
+    await onSave(next);
+  }
+  async function unmarkException(key: string) {
+    const next: Ledger = { ...data, bankReconExceptions: (data.bankReconExceptions ?? []).filter((e) => e.key !== key) };
+    await onSave(next);
+  }
 
   const reconciled = (rows ?? []).filter((r) => Math.abs(r.diff) <= DIFF_TOL).length;
   const total = rows?.length ?? 0;
@@ -134,7 +161,14 @@ export function BankReconciliation({ data, fmt, uiTheme }: { data: Ledger; fmt: 
                     {isE && (
                       <tr className="budget-detail-row">
                         <td colSpan={5}>
-                          <BankReconDetail row={r} fmt={fmt} />
+                          <BankReconDetail
+                            row={r}
+                            fmt={fmt}
+                            onMark={markException}
+                            onUnmark={unmarkException}
+                            exceptions={data.bankReconExceptions ?? []}
+                            allTransactions={data.transactions}
+                          />
                         </td>
                       </tr>
                     )}
@@ -149,7 +183,34 @@ export function BankReconciliation({ data, fmt, uiTheme }: { data: Ledger; fmt: 
   );
 }
 
-function BankReconDetail({ row, fmt }: { row: ReconAccountStatus; fmt: (n: number) => string }) {
+function BankReconDetail({
+  row,
+  fmt,
+  onMark,
+  onUnmark,
+  exceptions,
+  allTransactions,
+}: {
+  row: ReconAccountStatus;
+  fmt: (n: number) => string;
+  onMark: (key: string, label: string) => void;
+  onUnmark: (key: string) => void;
+  exceptions: BankReconException[];
+  allTransactions: Tx[];
+}) {
+  // Exceptions already marked for THIS account, whether or not they still appear in the raw
+  // unmatched lists (they won't, since reconciliationStatusForAccounts filters them out already)
+  // -- shown here so there's a way to undo one. Scoped by checking which real account a "p:" key's
+  // Plaid account_id or a "v:" key's vault Tx actually belongs to (the key alone doesn't say).
+  const plaidAcctIds = new Set(row.plaidAccounts.map((pa) => pa.account_id));
+  const vaultTxGuidsForAccount = new Set(
+    allTransactions.filter((t) => t.entries.some((e) => e.accountId === row.account.id)).map((t) => t.guid)
+  );
+  const markedForAccount = exceptions.filter((e) => {
+    if (e.key.startsWith("p:")) return plaidAcctIds.has(e.key.split(":")[1]);
+    if (e.key.startsWith("v:")) return vaultTxGuidsForAccount.has(e.key.slice(2));
+    return false;
+  });
   return (
     <div className="bank-recon-detail">
       {row.plaidAccounts.length > 1 && (
@@ -172,16 +233,26 @@ function BankReconDetail({ row, fmt }: { row: ReconAccountStatus; fmt: (n: numbe
             .slice()
             .sort((a, b) => b.date.localeCompare(a.date))
             .map((t) => (
-              <div className="report-line" key={t.transaction_id}>
+              <div className="report-line bank-recon-exception-row" key={t.transaction_id}>
                 <span>
                   {t.date} — {t.name}
                   {t.pending && <em> (pending)</em>}
                 </span>
-                {/* Same sign convention as the "In vault" column below (Plaid's amount already
-                    matches this account's Dr/Cr entry sign directly, no flip -- see
-                    lib/plaid-recon.ts) -- a genuinely matching pair reads as the identical
-                    number in both columns, making a real mismatch easy to spot by eye. */}
-                <strong>{fmt(t.amount)}</strong>
+                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {/* Same sign convention as the "In vault" column below (Plaid's amount already
+                      matches this account's Dr/Cr entry sign directly, no flip -- see
+                      lib/plaid-recon.ts) -- a genuinely matching pair reads as the identical
+                      number in both columns, making a real mismatch easy to spot by eye. */}
+                  <strong>{fmt(t.amount)}</strong>
+                  <button
+                    type="button"
+                    className="tr-refresh-btn"
+                    title="This will never have a matching vault voucher -- stop flagging it"
+                    onClick={() => onMark(plaidExceptionKey(t.account_id, t.transaction_id), `${t.date} — ${t.name}`)}
+                  >
+                    Mark reconciled
+                  </button>
+                </span>
               </div>
             ))
         )}
@@ -200,15 +271,38 @@ function BankReconDetail({ row, fmt }: { row: ReconAccountStatus; fmt: (n: numbe
             .slice()
             .sort((a, b) => b.date.localeCompare(a.date))
             .map((t: Tx) => (
-              <div className="report-line" key={t.guid}>
+              <div className="report-line bank-recon-exception-row" key={t.guid}>
                 <span>
                   {t.date} — {t.narration || t.type}
                 </span>
-                <strong>{fmt(t.entries.filter((e) => e.accountId === row.account.id).reduce((s, e) => s + e.amount, 0))}</strong>
+                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <strong>{fmt(t.entries.filter((e) => e.accountId === row.account.id).reduce((s, e) => s + e.amount, 0))}</strong>
+                  <button
+                    type="button"
+                    className="tr-refresh-btn"
+                    title="This will never have a matching Plaid transaction (e.g. cash) -- stop flagging it"
+                    onClick={() => onMark(vaultExceptionKey(t.guid), `${t.date} — ${t.narration || t.type}`)}
+                  >
+                    Mark reconciled
+                  </button>
+                </span>
               </div>
             ))
         )}
       </div>
+      {markedForAccount.length > 0 && (
+        <div className="bank-recon-detail-col" style={{ flexBasis: "100%" }}>
+          <strong>Marked as reconciled ({markedForAccount.length})</strong>
+          {markedForAccount.map((e) => (
+            <div className="report-line" key={e.key}>
+              <span style={{ opacity: 0.7 }}>{e.label}</span>
+              <button type="button" className="tr-refresh-btn" onClick={() => onUnmark(e.key)}>
+                Undo
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
