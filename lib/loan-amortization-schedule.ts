@@ -70,31 +70,65 @@ function worstCaseRatePct(loan: Loan, date: string): number {
   return rate;
 }
 
-// Every real transaction actually posted against this loan's own liability account, in
-// chronological order, with the account's real running balance after each one -- covers the
-// opening registration, every "Record Payment" voucher, AND any other journal entry posted
-// directly against the account (e.g. an out-of-band principal paydown, or -- for a loan whose
-// balance is maintained by periodic manual adjustments rather than "Record Payment" at all --
-// every one of those adjustments). A straight read of the ledger, not a formula.
+// Every real transaction actually posted for this loan, in chronological order, with the real
+// running balance after each one. Two kinds of real posting exist for a loan like this:
+// - Direct entries against the loan's own liability account (`loan.accountId`) -- the opening
+//   registration, every "Record Payment" voucher, or any other journal entry posted straight to
+//   it (e.g. a periodic manual balance adjustment). The real ledger balance is the source of
+//   truth here (`currentLoanBalance`).
+// - Older historical payment vouchers posted BEFORE the loan had its own liability account at
+//   all -- these split Dr the interest-expense account (`loan.interestExpenseAccountId`) and Dr
+//   whatever account was standing in for the principal side (for a real mortgage, that's the
+//   "Home" fixed-asset account) / Cr the paying bank account. There's no liability account to
+//   read a balance back from for these, so the running balance is tracked by cumulative
+//   subtraction from the original principal instead, and resyncs to the real ledger balance the
+//   moment a direct entry (above) appears.
+// Either way this is a straight read of what's actually in the ledger, not a formula.
 function actualHistory(data: Ledger, loan: Loan): LoanScheduleRow[] {
   const rows: LoanScheduleRow[] = [];
   const txs = data.transactions
-    .filter((t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === loan.accountId))
+    .filter(
+      (t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === loan.accountId || e.accountId === loan.interestExpenseAccountId)
+    )
     .slice()
     .sort((a, b) => (a.date === b.date ? a.id - b.id : a.date.localeCompare(b.date)));
+
+  let computedBalance = loan.originalPrincipal;
   for (const t of txs) {
-    const amount = t.entries.filter((e) => e.accountId === loan.accountId).reduce((s, e) => s + -e.amount, 0);
-    if (amount === 0) continue;
-    rows.push({
-      date: t.date,
-      type: "posted",
-      ratePct: worstCaseRatePct(loan, t.date),
-      note: t.narration,
-      payment: null,
-      principal: round2(amount),
-      interest: null,
-      balance: currentLoanBalance(data, loan, t.date),
-    });
+    const loanAcctEntries = t.entries.filter((e) => e.accountId === loan.accountId);
+    const interestEntries = t.entries.filter((e) => e.accountId === loan.interestExpenseAccountId);
+    const interestPaid = round2(interestEntries.reduce((s, e) => s + -e.amount, 0));
+
+    if (loanAcctEntries.length > 0) {
+      const principal = round2(loanAcctEntries.reduce((s, e) => s + -e.amount, 0));
+      if (principal === 0 && interestPaid === 0) continue;
+      const balance = currentLoanBalance(data, loan, t.date);
+      rows.push({
+        date: t.date,
+        type: "posted",
+        ratePct: worstCaseRatePct(loan, t.date),
+        note: t.narration,
+        payment: interestPaid !== 0 ? round2(principal + interestPaid) : null,
+        principal,
+        interest: interestPaid !== 0 ? interestPaid : null,
+        balance,
+      });
+      computedBalance = balance;
+    } else if (interestPaid !== 0) {
+      const totalPayment = round2(t.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0));
+      const principal = round2(totalPayment - interestPaid);
+      computedBalance = round2(computedBalance - principal);
+      rows.push({
+        date: t.date,
+        type: "posted",
+        ratePct: worstCaseRatePct(loan, t.date),
+        note: t.narration,
+        payment: round2(totalPayment),
+        principal,
+        interest: interestPaid,
+        balance: computedBalance,
+      });
+    }
   }
   return rows;
 }

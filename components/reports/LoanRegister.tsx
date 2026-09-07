@@ -4,6 +4,7 @@ import type { Ledger, Loan } from "@/lib/vault-types";
 import { standardMonthlyPayment, computePaymentSplit } from "@/lib/loans";
 import { getOrCreateLoanAccount, getOrCreateExpenseAccount, currentLoanBalance, recordLoanPayment } from "@/lib/loans-ledger";
 import { computeLoanSchedule } from "@/lib/loan-amortization-schedule";
+import { fmtDate } from "@/lib/format-date";
 
 export function LoanRegister({
   data,
@@ -309,7 +310,7 @@ export function LoanRegister({
                     <td className="right">
                       {(l.annualRate * 100).toFixed(3)}%
                       {l.rateValidThrough && (
-                        <div style={{ fontSize: 10, opacity: 0.6 }}>through {l.rateValidThrough}</div>
+                        <div style={{ fontSize: 10, opacity: 0.6 }}>through {fmtDate(l.rateValidThrough)}</div>
                       )}
                     </td>
                     <td className="right">{l.termMonths} mo</td>
@@ -317,7 +318,7 @@ export function LoanRegister({
                     <td className="right">{fmt(l.standardPayment)}</td>
                     <td>
                       {l.closed ? (
-                        <span style={{ opacity: 0.6, fontSize: 12 }}>Closed {l.closed.date}</span>
+                        <span style={{ opacity: 0.6, fontSize: 12 }}>Closed {fmtDate(l.closed.date)}</span>
                       ) : (
                         <span style={{ color: "#16a34a", fontSize: 12 }}>Active</span>
                       )}
@@ -463,7 +464,7 @@ export function LoanRegister({
                       <td colSpan={10} style={{ padding: 0 }}>
                         <div style={{ padding: "10px 12px", background: "#f8fafc" }}>
                           <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-                            One table, start ({l.startDate}) to end: <strong>Posted</strong> rows are a straight read of every
+                            One table, start ({fmtDate(l.startDate)}) to end: <strong>Posted</strong> rows are a straight read of every
                             real entry posted against this loan's account (so out-of-schedule principal payments show up as
                             themselves, not smoothed away), and reset every later month's running balance to match.{" "}
                             <strong>Estimated</strong> rows fill a month with no real entry (today or earlier) from the loan's
@@ -475,7 +476,7 @@ export function LoanRegister({
                           </p>
                           {schedule.rateUnknownPast && (
                             <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 8px" }}>
-                              Stops at {schedule.rateUnknownPast} — the rate is only confirmed through this date. Add the loan's
+                              Stops at {fmtDate(schedule.rateUnknownPast)} — the rate is only confirmed through this date. Add the loan's
                               reset terms under "Edit Terms" to extend the projection through maturity.
                             </p>
                           )}
@@ -496,7 +497,7 @@ export function LoanRegister({
                               <tbody>
                                 {schedule.rows.map((row, i) => (
                                   <tr key={i} style={row.type === "posted" ? undefined : { opacity: 0.7, fontStyle: "italic" }}>
-                                    <td>{row.date}</td>
+                                    <td>{fmtDate(row.date)}</td>
                                     <td>{row.type === "posted" ? "Posted" : row.type === "estimated" ? "Estimated" : "Projected"}</td>
                                     <td className="right">{row.ratePct.toFixed(3)}%</td>
                                     <td className="right">{row.payment === null ? "—" : fmt(row.payment)}</td>
