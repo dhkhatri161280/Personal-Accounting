@@ -210,6 +210,8 @@ export function FixedAssetRegister({
       next.has(cls) ? next.delete(cls) : next.add(cls);
       return next;
     });
+  const allClassesExpanded = classGroups.length > 0 && classGroups.every(([cls]) => expandedClasses.has(cls));
+  const toggleAllClasses = () => setExpandedClasses(allClassesExpanded ? new Set() : new Set(classGroups.map(([cls]) => cls)));
 
   async function exportAssets() {
     const header = ["Asset", "Group / Class", "Purchase Date", "Cost", "Useful Life (mo)", "Monthly Dep.", "Accum. Dep.", "Book Value", "Status"];
@@ -230,47 +232,58 @@ export function FixedAssetRegister({
 
   return (
     <div className="data-panel">
-      <h3>Fixed Asset Register</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Straight-line depreciation only. Each asset gets its own ledger account under "Fixed Assets". The Monthly/Accum./Book
-        Value columns below are always live and up to date — no action needed to see them. "Run Depreciation" is a separate,
-        optional step that <strong>posts real Journal vouchers</strong> (Dr Depreciation Expense / Cr Accumulated Depreciation)
-        for whichever months haven't been posted yet, through the date you choose. By default it posts one voucher per pending
-        asset-month, dated at that month's own end (correct if those periods are still open). If your backlog spans periods
-        you've already closed and reported, check "Consolidate" below to post one true-up voucher per asset instead, dated on
-        your chosen date, for the full catch-up amount — the same way SAP/Oracle/Rillet handle a large catch-up run.
-      </p>
-      <div className="master-toolbar">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ margin: 0 }}>Fixed Asset Register</h3>
+        <details style={{ fontSize: 12 }}>
+          <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ How depreciation posting works</summary>
+          <p style={{ opacity: 0.75, margin: "6px 0 0", maxWidth: 640 }}>
+            Straight-line only. Each asset gets its own ledger account under "Fixed Assets". The Monthly/Accum./Book Value
+            columns are always live — no action needed. "Run Depreciation" is a separate, optional step that{" "}
+            <strong>posts real Journal vouchers</strong> (Dr Depreciation Expense / Cr Accumulated Depreciation) through the date
+            you choose. By default it's one voucher per pending asset-month, dated at that month's own end. If your backlog spans
+            periods you've already closed and reported, check "Consolidate" to post one true-up voucher per asset instead, dated
+            on your chosen date — the same way SAP/Oracle/Rillet handle a large catch-up run.
+          </p>
+        </details>
+      </div>
+      <div className="master-toolbar" style={{ marginTop: 10 }}>
         <button type="button" className="tr-refresh-btn" onClick={() => setShowAdd((v) => !v)}>
           {showAdd ? "Cancel" : "+ Add Asset"}
         </button>
         {unclassifiedCount > 0 && (
           <button type="button" className="tr-refresh-btn" disabled={classifying} onClick={autoClassify}>
-            {classifying ? "Classifying…" : `🪄 Auto-classify ${unclassifiedCount} asset${unclassifiedCount === 1 ? "" : "s"}`}
+            {classifying ? "Classifying…" : `🪄 Auto-classify ${unclassifiedCount}`}
           </button>
         )}
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 700, color: "#53627a" }}>
+        <ExportButton onExport={exportAssets} />
+      </div>
+      <div className="master-toolbar" style={{ marginTop: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#53627a" }}>
           Post through
-          <input type="date" value={throughDate} max={todayStr} onChange={(e) => setThroughDate(e.target.value)} style={{ padding: "6px 8px" }} />
+          <input type="date" value={throughDate} max={todayStr} onChange={(e) => setThroughDate(e.target.value)} style={{ padding: "5px 7px" }} />
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#53627a" }}>
+        <label
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}
+          title={`Posts one true-up voucher per asset, dated ${throughDate}, instead of one per pending asset-month`}
+        >
           <input type="checkbox" checked={consolidate} onChange={(e) => setConsolidate(e.target.checked)} />
-          Consolidate into 1 voucher per asset (dated {throughDate})
+          Consolidate into 1 voucher/asset
         </label>
         <button type="button" className="tr-refresh-btn" disabled={saving || pendingCount === 0} onClick={runDepreciation}>
           {saving
             ? "Posting…"
             : pendingCount === 0
               ? "Depreciation up to date"
-              : `Run Depreciation (${pendingCount} voucher${pendingCount === 1 ? "" : "s"}, ${fmt(pendingAmount)}) — posts vouchers`}
+              : `Run Depreciation (${pendingCount} voucher${pendingCount === 1 ? "" : "s"}, ${fmt(pendingAmount)})`}
         </button>
         {accumDeprecGlBalance !== null && Math.abs(accumDeprecGlBalance - computedAccumTotal) > 0.5 && (
-          <span style={{ fontSize: 11, color: "#dc2626" }}>
-            GL Accumulated Depreciation ({fmt(accumDeprecGlBalance)}) doesn't match computed ({fmt(computedAccumTotal)}) — check for
-            manual entries against that account.
+          <span
+            style={{ fontSize: 11, color: "#dc2626", cursor: "help" }}
+            title={`GL Accumulated Depreciation (${fmt(accumDeprecGlBalance)}) doesn't match computed (${fmt(computedAccumTotal)}) — check for manual entries against that account.`}
+          >
+            ⚠ GL mismatch
           </span>
         )}
-        <ExportButton onExport={exportAssets} />
       </div>
 
       <datalist id="asset-class-suggestions">
@@ -318,7 +331,18 @@ export function FixedAssetRegister({
           <table className="columnar-report-table budget-table">
             <thead>
               <tr>
-                <th>Asset</th>
+                <th>
+                  <button
+                    type="button"
+                    onClick={toggleAllClasses}
+                    title={allClassesExpanded ? "Collapse all groups" : "Expand all groups"}
+                    aria-label={allClassesExpanded ? "Collapse all groups" : "Expand all groups"}
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: "0 6px 0 0", fontSize: 13, lineHeight: 1, verticalAlign: "middle" }}
+                  >
+                    {allClassesExpanded ? "⊟" : "⊞"}
+                  </button>
+                  Asset
+                </th>
                 <th>Group / Class</th>
                 <th>Purchase Date</th>
                 <th className="right">Cost</th>
