@@ -15,8 +15,12 @@ import {
   ACCUMULATED_DEPRECIATION_ACCOUNT_NAME,
   ASSET_CLASS_SUGGESTIONS,
   UNCLASSIFIED_LABEL,
+  ASSET_CLASS_PREFIXES,
+  defaultUsefulLifeForClass,
+  suggestNextAssetTag,
 } from "@/lib/fixed-assets";
 import { getOrCreateAssetAccount, findLegacyCostMismatches, repairLegacyAssetCosts } from "@/lib/fixed-assets-ledger";
+import { AssetTagPicker } from "@/components/AssetTagPicker";
 
 export type MasterGroup = {
   name: string;
@@ -407,6 +411,7 @@ export function MastersPanel({
   data,
   onSave,
   initialSection,
+  onTagAsset,
 }: {
   data: MasterLedger;
   onSave: (next: MasterLedger, message: string) => void;
@@ -415,6 +420,11 @@ export function MastersPanel({
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
   initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings";
+  // Applies a Fixed Asset # to every voucher already posted on an untagged asset's own ledger --
+  // routed through a dedicated prop (not the generic onSave above) because it needs to exempt
+  // those (possibly closed-period) vouchers from the closed-period check, the same way
+  // FixedAssetRegister's "Tag all vouchers" action does. See bulkTagAsset in VaultApp.tsx.
+  onTagAsset?: (asset: FixedAsset, tag: string) => Promise<void> | void;
 }) {
   const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings">(initialSection ?? "ledgers"),
     [accountId, setAccountId] = useState<number | null>(null),
@@ -428,10 +438,7 @@ export function MastersPanel({
     [showAddAsset, setShowAddAsset] = useState(false),
     [assetName, setAssetName] = useState(""),
     [assetClassInput, setAssetClassInput] = useState(""),
-    [assetCost, setAssetCost] = useState(""),
-    [assetPurchaseDate, setAssetPurchaseDate] = useState(new Date().toISOString().slice(0, 10)),
-    [assetUsefulLife, setAssetUsefulLife] = useState("36"),
-    [assetSalvage, setAssetSalvage] = useState("0"),
+    [assetTagInput, setAssetTagInput] = useState(""),
     [editingAssetNameId, setEditingAssetNameId] = useState<string | null>(null),
     [editingAssetNameValue, setEditingAssetNameValue] = useState(""),
     [editingAssetClassId, setEditingAssetClassId] = useState<string | null>(null),
@@ -439,7 +446,10 @@ export function MastersPanel({
     [editingAssetLifeId, setEditingAssetLifeId] = useState<string | null>(null),
     [editingAssetLifeValue, setEditingAssetLifeValue] = useState(""),
     [editingAssetSalvageValue, setEditingAssetSalvageValue] = useState(""),
-    [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
+    [deletingAssetId, setDeletingAssetId] = useState<string | null>(null),
+    [taggingAssetId, setTaggingAssetId] = useState<string | null>(null),
+    [taggingValue, setTaggingValue] = useState(""),
+    [tagging, setTagging] = useState(false);
 
   // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
   // than kept inside PeriodControlPanel so the picker can render in this same tab row instead of
@@ -668,35 +678,71 @@ export function MastersPanel({
   // not MasterLedger's trimmed-down transaction summary), so the same cast is used here rather
   // than duplicating their logic against a narrower type.
   const assetLedger = data as unknown as Ledger;
-  const fixedAssetsList = (data.fixedAssets ?? []).slice().sort((a, b) => (a.sourceTag || "").localeCompare(b.sourceTag || "") || a.name.localeCompare(b.name));
+  const fixedAssetsList = (data.fixedAssets ?? [])
+    .slice()
+    .sort((a, b) => (a.sourceTag || "").localeCompare(b.sourceTag || "", undefined, { numeric: true }) || a.name.localeCompare(b.name));
   const legacyCostMismatches = findLegacyCostMismatches(assetLedger);
   const unclassifiedAssetCount = fixedAssetsList.filter((a) => !a.assetClass).length;
 
+  // Suggested tag for the asset currently being added, based on its (possibly still-typed) Class
+  // -- purely a placeholder/starting point; the user can override or clear it (a blank tag stays
+  // a legacy asset, taggable later via the per-row "Tag" action below).
+  const newAssetSuggestedTag = (() => {
+    const cls = assetClassInput.trim() || guessAssetClass(assetName.trim()) || UNCLASSIFIED_LABEL;
+    const prefix = ASSET_CLASS_PREFIXES[cls] || ASSET_CLASS_PREFIXES[UNCLASSIFIED_LABEL];
+    const existingTags = fixedAssetsList.map((a) => a.sourceTag).filter((t): t is string => !!t);
+    return suggestNextAssetTag(existingTags, prefix);
+  })();
+
+  // New asset creation is deliberately reduced to Name / Class / Fixed Asset # -- Useful Life and
+  // Salvage are a property of the Class (defaultUsefulLifeForClass), not hand-typed per asset, and
+  // Cost/Purchase Date are a derived fact of the real ledger once a real voucher gets tagged to it
+  // (or via the "Tag" action below for an already-posted purchase), never something to guess up
+  // front. This creates a $0 shell ledger/master ready to receive that real posting.
   function addAsset() {
-    const costNum = Number(assetCost);
-    const lifeNum = Number(assetUsefulLife);
-    const salvageNum = Number(assetSalvage) || 0;
-    if (!assetName.trim() || !costNum || costNum <= 0 || !lifeNum || lifeNum <= 0) return;
-    const { data: withAcct, account } = getOrCreateAssetAccount(assetLedger, assetName.trim(), costNum, assetPurchaseDate);
-    const resolvedClass = assetClassInput.trim() || guessAssetClass(assetName.trim());
+    const name = assetName.trim();
+    if (!name) return;
+    const cls = assetClassInput.trim() || guessAssetClass(name) || UNCLASSIFIED_LABEL;
+    const tag = assetTagInput.trim();
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: withAcct, account } = getOrCreateAssetAccount(assetLedger, name, 0, today);
     const asset: FixedAsset = {
       id: crypto.randomUUID(),
-      name: assetName.trim(),
+      name,
       accountId: account.id,
-      ...(resolvedClass ? { assetClass: resolvedClass } : {}),
-      purchaseDate: assetPurchaseDate,
-      cost: costNum,
-      salvageValue: salvageNum,
-      usefulLifeMonths: lifeNum,
+      assetClass: cls,
+      purchaseDate: today,
+      cost: 0,
+      salvageValue: 0,
+      usefulLifeMonths: defaultUsefulLifeForClass(cls),
+      ...(tag ? { sourceAccountId: account.id, sourceTag: tag } : {}),
     };
     const next: MasterLedger = { ...withAcct, fixedAssets: [...(withAcct.fixedAssets ?? []), asset] };
-    onSave(next, `Fixed asset ${asset.name} added.`);
+    onSave(next, `Fixed asset ${asset.name} added${tag ? ` (${tag})` : ""}.`);
     setShowAddAsset(false);
     setAssetName("");
     setAssetClassInput("");
-    setAssetCost("");
-    setAssetSalvage("0");
-    setAssetUsefulLife("36");
+    setAssetTagInput("");
+  }
+
+  function openTagAsset(a: FixedAsset) {
+    const cls = a.assetClass || UNCLASSIFIED_LABEL;
+    const prefix = ASSET_CLASS_PREFIXES[cls] || ASSET_CLASS_PREFIXES[UNCLASSIFIED_LABEL];
+    const existingTags = fixedAssetsList.map((x) => x.sourceTag).filter((t): t is string => !!t);
+    setTaggingValue(suggestNextAssetTag(existingTags, prefix));
+    setTaggingAssetId(a.id);
+  }
+
+  async function confirmTagAsset(a: FixedAsset) {
+    const tag = taggingValue.trim();
+    if (!tag || !onTagAsset) return;
+    setTagging(true);
+    try {
+      await onTagAsset(a, tag);
+      setTaggingAssetId(null);
+    } finally {
+      setTagging(false);
+    }
   }
 
   function autoClassifyAssets() {
@@ -1016,9 +1062,10 @@ export function MastersPanel({
       {section === "fixedassets" && (
         <>
           <p className="field-hint" style={{ margin: "0 0 10px" }}>
-            Name, Group/Class, Useful Life, and Salvage are editable master data. Fixed Asset # and Cost are read-only here — the
-            tag comes from the voucher that created it, and Cost is a derived fact of the real ledger balance, not something to
-            hand-type. See Reports → Registers → Fixed Asset Register for depreciation, disposal, and drill-down.
+            Name, Group/Class, Useful Life, and Salvage are editable master data. Cost is read-only here — it's a derived fact of
+            the real ledger balance, not something to hand-type. An untagged asset can be given a Fixed Asset # here (🏷 Tag) —
+            applies it to every voucher already posted on its own ledger, existing or new. See Reports → Registers → Fixed Asset
+            Register for depreciation, disposal, and drill-down.
           </p>
           <div className="master-toolbar">
             <button type="button" className="tr-refresh-btn" onClick={() => setShowAddAsset((v) => !v)}>
@@ -1049,34 +1096,32 @@ export function MastersPanel({
           </datalist>
           {showAddAsset && (
             <div className="report-line" style={{ flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-              <input placeholder="Asset name" value={assetName} onChange={(e) => setAssetName(e.target.value)} />
+              <input placeholder="Asset name / description" value={assetName} onChange={(e) => setAssetName(e.target.value)} style={{ width: 200 }} />
               <input
                 list="master-asset-class-suggestions"
-                placeholder="Group / Class (optional)"
+                placeholder="Group / Class"
                 value={assetClassInput}
                 onChange={(e) => setAssetClassInput(e.target.value)}
                 style={{ width: 170 }}
               />
-              <input placeholder="Cost" type="number" value={assetCost} onChange={(e) => setAssetCost(e.target.value)} style={{ width: 100 }} />
-              <input type="date" value={assetPurchaseDate} onChange={(e) => setAssetPurchaseDate(e.target.value)} />
               <input
-                placeholder="Useful life (months)"
-                type="number"
-                value={assetUsefulLife}
-                onChange={(e) => setAssetUsefulLife(e.target.value)}
-                style={{ width: 140 }}
-              />
-              <input
-                placeholder="Salvage value"
-                type="number"
-                value={assetSalvage}
-                onChange={(e) => setAssetSalvage(e.target.value)}
-                style={{ width: 110 }}
+                placeholder={newAssetSuggestedTag}
+                title="Fixed Asset # (optional) -- leave blank to tag it later, once you know it"
+                value={assetTagInput}
+                onChange={(e) => setAssetTagInput(e.target.value)}
+                style={{ width: 100 }}
               />
               <button type="button" className="tr-refresh-btn" onClick={addAsset}>
                 Save Asset
               </button>
             </div>
+          )}
+          {showAddAsset && (
+            <p className="field-hint" style={{ margin: "0 0 10px" }}>
+              Useful life ({defaultUsefulLifeForClass(assetClassInput.trim() || guessAssetClass(assetName.trim()) || UNCLASSIFIED_LABEL)} mo) and
+              salvage (0) come from the Group/Class and can be adjusted per asset afterward. Cost is set automatically once a real
+              purchase voucher is tagged to this asset.
+            </p>
           )}
           {fixedAssetsList.length === 0 ? (
             <p style={{ opacity: 0.7 }}>No fixed assets yet. Add one above, or tag a voucher line to create one automatically.</p>
@@ -1127,7 +1172,38 @@ export function MastersPanel({
                         </button>
                       )}
                     </td>
-                    <td>{a.sourceTag || "—"}</td>
+                    <td>
+                      {taggingAssetId === a.id ? (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <AssetTagPicker
+                            fixedAssets={fixedAssetsList}
+                            accountId={a.accountId}
+                            value={taggingValue}
+                            onChange={setTaggingValue}
+                            suggestedNewTag={taggingValue}
+                          />
+                          <button className="master-edit" disabled={tagging || !taggingValue.trim()} onClick={() => confirmTagAsset(a)}>
+                            Apply
+                          </button>
+                          <button className="master-delete" onClick={() => setTaggingAssetId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      ) : a.sourceTag ? (
+                        a.sourceTag
+                      ) : onTagAsset ? (
+                        <button
+                          type="button"
+                          className="master-edit"
+                          title="Apply a Fixed Asset # to every voucher already posted on this asset's own ledger"
+                          onClick={() => openTagAsset(a)}
+                        >
+                          🏷 Tag
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td>
                       {editingAssetClassId === a.id ? (
                         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>

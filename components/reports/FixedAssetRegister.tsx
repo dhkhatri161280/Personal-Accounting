@@ -17,6 +17,7 @@ import { postDepreciation, postDepreciationConsolidated, disposeAsset } from "@/
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { fmtDate } from "@/lib/format-date";
+import { AssetTagPicker } from "@/components/AssetTagPicker";
 
 // Report/operational view over the Fixed Asset master data maintained in Masters > Fixed Assets
 // (name, Fixed Asset #, Group/Class, Useful Life, Salvage -- all read-only here). This screen is
@@ -65,10 +66,21 @@ export function FixedAssetRegister({
   // $0 record has nothing left to depreciate or report, so it's just noise here. The underlying
   // record isn't deleted (still visible/removable in Masters > Fixed Assets), only hidden from
   // this report.
+  // Serialized (Fixed Asset #) order within a class, the way a real Asset Master listing reads --
+  // NOT purchase date, which scatters a late-numbered entry (e.g. a corrective/placeholder tag
+  // like "MOB-999") into the middle of the list by whenever it happened to be bought rather than
+  // where its number puts it. Numeric-aware compare so "MOB-9" still sorts before "MOB-10". An
+  // untagged asset has no serial position yet, so those fall after every tagged one, ordered
+  // amongst themselves by purchase date.
   const assets = (data.fixedAssets ?? [])
     .filter((a) => Math.abs(a.cost) > 0.005)
     .slice()
-    .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
+    .sort((a, b) => {
+      if (a.sourceTag && b.sourceTag) return a.sourceTag.localeCompare(b.sourceTag, undefined, { numeric: true });
+      if (a.sourceTag) return -1;
+      if (b.sourceTag) return 1;
+      return a.purchaseDate.localeCompare(b.purchaseDate);
+    });
   const todayStr = new Date().toISOString().slice(0, 10);
   // User-chosen cutoff for a one-shot depreciation run (SAP/Oracle/Rillet-style "post through
   // date") -- defaults to today, but the user can pick any earlier date to post depreciation
@@ -319,12 +331,12 @@ export function FixedAssetRegister({
                         const monthly = monthlyDepreciation(a);
                         const accum = accumulatedDepreciation(a, todayStr);
                         const bv = bookValue(a, todayStr);
-                        // Bulk-tagging is only safe when this asset is the sole occupant of its
-                        // ledger -- a shared ledger with several distinct assets is exactly why
-                        // per-voucher tagging exists, and bulk-applying one tag there would
-                        // reintroduce the ambiguity tagging was built to remove.
-                        const soleOccupant = assets.filter((x) => x.accountId === a.accountId).length === 1;
-                        const canBulkTag = !a.sourceTag && soleOccupant && !!onBulkTagAsset;
+                        // Offered for any untagged asset with real remaining cost. The tag picker
+                        // itself only offers a NEW tag or one of THIS ledger's own existing tags
+                        // (a real duplicate -- see tagExistingAsset in lib/fixed-assets-ledger.ts,
+                        // which merges the two in that case), so this never risks bulk-applying one
+                        // tag across a genuinely shared ledger's distinct, unrelated assets.
+                        const canBulkTag = !a.sourceTag && !!onBulkTagAsset;
                         return (
                           <tr key={a.id}>
                             <td>
@@ -347,11 +359,12 @@ export function FixedAssetRegister({
                             <td>
                               {bulkTaggingId === a.id ? (
                                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                  <input
+                                  <AssetTagPicker
+                                    fixedAssets={data.fixedAssets ?? []}
+                                    accountId={a.accountId}
                                     value={bulkTagValue}
-                                    onChange={(e) => setBulkTagValue(e.target.value)}
-                                    placeholder="FUR-006"
-                                    style={{ width: 80 }}
+                                    onChange={setBulkTagValue}
+                                    suggestedNewTag={bulkTagValue}
                                   />
                                   <button
                                     type="button"

@@ -82,6 +82,25 @@ export const ASSET_CLASS_PREFIXES: Record<string, string> = {
   [UNCLASSIFIED_LABEL]: "MISC",
 };
 
+// SAP/Oracle-style: useful life is a property of the Asset Class, not something re-typed on every
+// individual asset -- these are the book-wide defaults a new asset in Masters > Fixed Assets
+// inherits from its Class, so "+ Add Asset" only needs a Name/Class/Tag, never a hand-typed
+// depreciation period. Salvage value always defaults to 0 (no class commonly has a non-zero
+// residual by default); both remain editable per-asset afterward if a specific item is different.
+export const ASSET_CLASS_DEFAULT_LIFE_MONTHS: Record<string, number> = {
+  "Furniture & Fixtures": 84,
+  Vehicles: 60,
+  "Electronics & Appliances": 60,
+  "IT Equipment": 36,
+  "Machinery & Equipment": 84,
+  "Buildings & Improvements": 360,
+  [UNCLASSIFIED_LABEL]: 60,
+};
+
+export function defaultUsefulLifeForClass(assetClass: string): number {
+  return ASSET_CLASS_DEFAULT_LIFE_MONTHS[assetClass] ?? 60;
+}
+
 // Next sequential "PREFIX-NNN" tag not already present in `existingTags` (any tag under that
 // prefix, case-insensitive, however it originated -- freehand or previously auto-suggested).
 // Zero-padded to 3 digits up to 999, then grows naturally (e.g. "VEH-1000").

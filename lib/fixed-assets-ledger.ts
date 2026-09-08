@@ -265,6 +265,35 @@ export function repairLegacyAssetCosts(data: Ledger): Ledger {
   return next;
 }
 
+// Retroactively applies one Fixed Asset # to every voucher entry already posted on `asset`'s own
+// ledger, in one go, and links the tag straight onto this same asset record -- for an asset added
+// before tagging existed (own dedicated ledger, no Fixed Asset # yet) rather than creating a new
+// asset and carving this one down to $0 the way a genuinely shared ledger's siblings work.
+//
+// If another FixedAsset record on the SAME ledger already carries the chosen tag, that's a real
+// duplicate -- e.g. one manually added via + Add Asset, and a second created earlier by mistakenly
+// tagging one of its own vouchers with a brand-new tag instead of attaching it to the existing
+// asset (the exact scenario this function exists to fix). The two are merged into one: every entry
+// on the ledger ends up under the single chosen tag, the duplicate record is removed, and cost is
+// recomputed as the ledger's whole real GL balance (now the sole owner of every entry on it) --
+// exact by construction, not an incremental subtraction that could drift.
+export function tagExistingAsset(data: Ledger, asset: FixedAsset, tag: string): Ledger {
+  const cleanTag = tag.trim();
+  if (!cleanTag) return data;
+  const duplicate = (data.fixedAssets ?? []).find(
+    (a) => a.id !== asset.id && a.accountId === asset.accountId && a.sourceTag === cleanTag && !a.disposed
+  );
+  const transactions = data.transactions.map((t) => {
+    if (t.deleted || t.cancelled || !t.entries.some((e) => e.accountId === asset.accountId)) return t;
+    return { ...t, entries: t.entries.map((e) => (e.accountId === asset.accountId ? { ...e, assetTag: cleanTag } : e)) };
+  });
+  const realBalance = ledgerBalanceAsOf({ ...data, transactions }, asset.accountId, "9999-12-31");
+  const fixedAssets = (data.fixedAssets ?? [])
+    .filter((a) => !duplicate || a.id !== duplicate.id)
+    .map((a) => (a.id === asset.id ? { ...a, sourceAccountId: asset.accountId, sourceTag: cleanTag, cost: round2(realBalance) } : a));
+  return { ...data, transactions, fixedAssets };
+}
+
 export function createTaggedAsset(
   data: Ledger,
   group: TaggedAssetGroup,

@@ -38,7 +38,8 @@ export function AssetTagPicker({
     <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
       <select
         value={mode === "existing" && matchesExisting ? value : "__new__"}
-        style={{ maxWidth: 130 }}
+        title={mode === "existing" && matchesExisting ? `${value}${existing.find((a) => a.sourceTag === value) ? ` — ${existing.find((a) => a.sourceTag === value)!.name}` : ""}` : undefined}
+        style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}
         onChange={(e) => {
           if (e.target.value === "__new__") {
             setMode("new");

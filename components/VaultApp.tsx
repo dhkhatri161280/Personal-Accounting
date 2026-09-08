@@ -71,7 +71,7 @@ import {
   UNCLASSIFIED_LABEL,
   UNTAGGED_ASSET_FILTER,
 } from "@/lib/fixed-assets";
-import { autoSyncTaggedAssets } from "@/lib/fixed-assets-ledger";
+import { autoSyncTaggedAssets, tagExistingAsset } from "@/lib/fixed-assets-ledger";
 import { FinancialRatios } from "@/components/reports/FinancialRatios";
 import { CashFlowForecast } from "@/components/reports/CashFlowForecast";
 import type { BudgetRow } from "@/lib/budget";
@@ -1308,31 +1308,30 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // Masters, before tagging existed) into the tagging scheme -- tags EVERY entry on its ledger in
   // one go and links the tag straight onto this same asset record, instead of a new one being
   // created and this one carved down to $0 the way a genuinely-shared ledger's siblings work.
-  // Deliberately only ever offered (see FixedAssetRegister.tsx) when the asset is the sole
-  // occupant of its own ledger -- on a ledger multiple assets actually share, bulk-tagging every
-  // voucher with one tag would be wrong, which is exactly why per-voucher tagging exists.
+  // Also merges away a real duplicate (a second FixedAsset record on the same ledger already
+  // carrying the chosen tag -- see tagExistingAsset in lib/fixed-assets-ledger.ts) rather than
+  // leaving two masters for the same real-world purchase.
   async function bulkTagAsset(asset: FixedAsset, tag: string) {
     if (!data) return;
     const cleanTag = tag.trim();
     if (!cleanTag) return;
-    const touchedGuids = new Set<string>();
-    const transactions = data.transactions.map((t) => {
-      if (t.deleted || t.cancelled || !t.entries.some((e) => e.accountId === asset.accountId)) return t;
-      touchedGuids.add(t.guid);
-      return { ...t, entries: t.entries.map((e) => (e.accountId === asset.accountId ? { ...e, assetTag: cleanTag } : e)) };
+    const duplicate = (data.fixedAssets ?? []).find(
+      (a) => a.id !== asset.id && a.accountId === asset.accountId && a.sourceTag === cleanTag && !a.disposed
+    );
+    const touchedGuids = new Set(
+      data.transactions
+        .filter((t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === asset.accountId))
+        .map((t) => t.guid)
+    );
+    const next = tagExistingAsset(data, asset, cleanTag);
+    const audited = appendAuditEntry(next, {
+      entity: "account",
+      entityId: String(asset.accountId),
+      action: "edited",
+      summary: duplicate
+        ? `Fixed Asset # ${cleanTag} applied to all ${touchedGuids.size} voucher(s) on "${asset.name}"; merged duplicate asset record "${duplicate.name}" into this one`
+        : `Fixed Asset # ${cleanTag} applied to all ${touchedGuids.size} voucher(s) on "${asset.name}"`,
     });
-    const fixedAssets = (data.fixedAssets ?? []).map((a) =>
-      a.id === asset.id ? { ...a, sourceAccountId: asset.accountId, sourceTag: cleanTag } : a
-    );
-    const audited = appendAuditEntry(
-      { ...data, transactions, fixedAssets },
-      {
-        entity: "account",
-        entityId: String(asset.accountId),
-        action: "edited",
-        summary: `Fixed Asset # ${cleanTag} applied to all ${touchedGuids.size} voucher(s) on "${asset.name}"`,
-      }
-    );
     await save(audited, "reports", touchedGuids);
   }
 
@@ -3088,6 +3087,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             key={mastersSection}
             data={data}
             initialSection={mastersSection}
+            onTagAsset={bulkTagAsset}
             onSave={(next, message) => {
               const nextLedger = next as Ledger;
               // Auto-post the fiscal-year-close voucher (P&L A/c to Capital) the moment the
