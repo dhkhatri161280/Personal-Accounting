@@ -31,6 +31,7 @@ export function FixedAssetRegister({
   fmt,
   onSave,
   onSelectAccount,
+  onSelectTaggedAsset,
 }: {
   data: Ledger;
   fmt: (n: number) => string;
@@ -38,8 +39,14 @@ export function FixedAssetRegister({
   // Opens the same ledger drill-down popup used everywhere else in the app (Trial Balance, Net
   // Worth, ...) for this asset's own "Fixed Assets"-group account -- every voucher posted
   // against it (purchase + each depreciation entry) is exactly what makes up its Accum. Dep./
-  // Book Value, so this is the answer to "what's included in that" without a bespoke modal.
+  // Book Value, so this is the answer to "what's included in that" without a bespoke modal. Used
+  // for an asset with no sourceTag (a manually-added asset, or the account has only ever had one
+  // asset on it) -- see onSelectTaggedAsset for the narrower case.
   onSelectAccount?: (id: number) => void;
+  // Same popup, but narrowed to only the entries carrying this specific tag on this account --
+  // for a tag-derived asset sharing its GL ledger with sibling assets (e.g. several "Furniture
+  // Purchase" tags), the plain ledger drill-down would otherwise mix in every sibling's vouchers.
+  onSelectTaggedAsset?: (accountId: number, tag: string) => void;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState("");
@@ -50,6 +57,7 @@ export function FixedAssetRegister({
   const [salvageValue, setSalvageValue] = useState("0");
   const [saving, setSaving] = useState(false);
   const [disposingId, setDisposingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [disposalDate, setDisposalDate] = useState(new Date().toISOString().slice(0, 10));
   const [disposalProceeds, setDisposalProceeds] = useState("0");
   const [disposalCashAcct, setDisposalCashAcct] = useState<number | "">("");
@@ -168,9 +176,27 @@ export function FixedAssetRegister({
   const changedTaggedGroups = taggedGroups.filter((g) => g.costChanged);
   const groupKey = (g: TaggedAssetGroup) => `${g.accountId}::${g.tag}`;
 
+  // Defaults each new tag's Useful life/Salvage to whatever an existing sibling asset on the same
+  // ledger already uses (most recently added one, if there's more than one) -- e.g. two "Furniture
+  // Purchase" tags should depreciate on the same schedule unless deliberately changed, not a fixed
+  // "60 months" that has nothing to do with the ledger's own history. Falls back to 60/0 only when
+  // there's no sibling to copy from yet.
   function openSync() {
     setSyncDrafts(
-      Object.fromEntries(newTaggedGroups.map((g) => [groupKey(g), { usefulLifeMonths: "60", salvageValue: "0" }]))
+      Object.fromEntries(
+        newTaggedGroups.map((g) => {
+          const sibling = (data.fixedAssets ?? [])
+            .filter((a) => a.accountId === g.accountId)
+            .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))[0];
+          return [
+            groupKey(g),
+            {
+              usefulLifeMonths: String(sibling?.usefulLifeMonths ?? 60),
+              salvageValue: String(sibling?.salvageValue ?? 0),
+            },
+          ];
+        })
+      )
     );
     setShowSync(true);
   }
@@ -194,6 +220,22 @@ export function FixedAssetRegister({
       if (ok) setShowSync(false);
     } finally {
       setSyncing(false);
+    }
+  }
+
+  // Only removes the register entry itself -- never posts a voucher or touches the ledger
+  // account. Restricted to assets with nothing depreciated yet (Accum. Dep. = $0.00), so it's a
+  // pure no-side-effect undo of a bad "+ Add Asset"/Sync entry (e.g. the naming/useful-life
+  // mismatches fixed just now), not a way to erase real depreciation history. Same pattern as
+  // Prepaid Expense Register's Delete action.
+  async function confirmDeleteAsset(assetId: string) {
+    setSaving(true);
+    try {
+      const next: Ledger = { ...data, fixedAssets: (data.fixedAssets ?? []).filter((a) => a.id !== assetId) };
+      const ok = await onSave(next);
+      if (ok) setDeletingId(null);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -404,6 +446,7 @@ export function FixedAssetRegister({
                   </button>
                   Asset
                 </th>
+                <th>Fixed Asset #</th>
                 <th>Group / Class</th>
                 <th>Purchase Date</th>
                 <th className="right">Cost</th>
@@ -430,7 +473,7 @@ export function FixedAssetRegister({
                 return (
                   <Fragment key={cls}>
                     <tr className="ledger-subtotal-row" style={{ cursor: "pointer" }} onClick={() => toggleClass(cls)}>
-                      <td colSpan={2}>
+                      <td colSpan={3}>
                         {open ? "▾" : "▸"} {cls} ({groupAssets.length})
                       </td>
                       <td></td>
@@ -450,15 +493,19 @@ export function FixedAssetRegister({
                         return (
                           <tr key={a.id}>
                             <td>
-                              {onSelectAccount ? (
+                              {a.sourceTag && onSelectTaggedAsset ? (
+                                <button type="button" className="ledger-link" onClick={() => onSelectTaggedAsset(a.accountId, a.sourceTag!)}>
+                                  {a.name}
+                                </button>
+                              ) : onSelectAccount ? (
                                 <button type="button" className="ledger-link" onClick={() => onSelectAccount(a.accountId)}>
                                   {a.name}
                                 </button>
                               ) : (
                                 a.name
                               )}
-                              {a.sourceTag && <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.6 }}>#{a.sourceTag}</span>}
                             </td>
+                            <td>{a.sourceTag || "—"}</td>
                             <td>
                               {editingClassId === a.id ? (
                                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -540,9 +587,26 @@ export function FixedAssetRegister({
                                     </button>
                                   </div>
                                 ) : (
-                                  <button type="button" className="tr-refresh-btn" onClick={() => setDisposingId(a.id)}>
-                                    Dispose
-                                  </button>
+                                  <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                    <button type="button" className="tr-refresh-btn" onClick={() => setDisposingId(a.id)}>
+                                      Dispose
+                                    </button>
+                                    {accum === 0 &&
+                                      (deletingId === a.id ? (
+                                        <>
+                                          <button type="button" className="tr-refresh-btn" disabled={saving} onClick={() => confirmDeleteAsset(a.id)}>
+                                            Confirm Delete
+                                          </button>
+                                          <button type="button" className="tr-refresh-btn" onClick={() => setDeletingId(null)}>
+                                            Cancel
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button type="button" className="tr-refresh-btn" onClick={() => setDeletingId(a.id)}>
+                                          Delete
+                                        </button>
+                                      ))}
+                                  </div>
                                 ))}
                             </td>
                           </tr>
@@ -555,6 +619,7 @@ export function FixedAssetRegister({
             <tfoot>
               <tr>
                 <th>Total</th>
+                <th></th>
                 <th></th>
                 <th></th>
                 <th className="right">{fmt(totals.cost)}</th>

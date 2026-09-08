@@ -223,7 +223,10 @@ export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
 export function createTaggedAsset(data: Ledger, group: TaggedAssetGroup, usefulLifeMonths: number, salvageValue: number): Ledger {
   const asset: FixedAsset = {
     id: crypto.randomUUID(),
-    name: `${group.accountName} — ${group.tag}`,
+    // Same name as the ledger (and as any sibling asset already sharing it) -- the tag itself
+    // (sourceTag) is what tells them apart, shown in its own "Fixed Asset #" column, not baked
+    // into the name string.
+    name: group.accountName,
     accountId: group.accountId,
     purchaseDate: group.purchaseDate,
     cost: group.cost,

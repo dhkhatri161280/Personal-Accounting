@@ -167,6 +167,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [cashFlowDetail, setCashFlowDetail] = useState<{ group: string; ledger?: string } | null>(null),
     [columnarDrilldown, setColumnarDrilldown] = useState<DrilldownRequest | null>(null),
     [selected, setSelected] = useState<number | null>(null),
+    // Narrows the ledger drill-down popup (below) to only the entries carrying this specific
+    // Entry.assetTag on the selected account -- set only when opening the drill-down from a
+    // tagged Fixed Asset row; every other entry point into the popup (LedgerLink) clears it, so a
+    // stale tag filter never silently narrows an unrelated ledger's normal drill-down.
+    [selectedAssetTag, setSelectedAssetTag] = useState<string | null>(null),
     [selectedVoucher, setSelectedVoucher] = useState<Tx | null>(null),
     [uploadingAttachment, setUploadingAttachment] = useState(false),
     [editingTagEntryIndex, setEditingTagEntryIndex] = useState<number | null>(null),
@@ -1183,7 +1188,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const selectedRow = rows.find((a) => a.id === selected),
     selectedTx = selected
       ? calc.period
-          .filter((t) => t.entries.some((e) => e.accountId === selected))
+          .filter((t) => t.entries.some((e) => e.accountId === selected && (!selectedAssetTag || e.assetTag === selectedAssetTag)))
           .slice()
           .reverse()
       : [];
@@ -1271,7 +1276,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       action: "edited",
       summary: `Fixed Asset # tag ${tag.trim() ? `set to "${tag.trim()}"` : "cleared"} on ${t.type} ${t.date} (${t.entries[entryIndex]?.accountName})`,
     });
-    if (await save(audited, "reports", new Set([t.guid]))) setSelectedVoucher(nextTx);
+    if (await save(audited, "reports", new Set([t.guid]))) {
+      setSelectedVoucher(nextTx);
+      setEditingTagEntryIndex(null);
+    }
   }
 
   const capitalRows = active.filter(
@@ -1967,7 +1975,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   );
 
   const LedgerLink = ({ a }: { a: { id: number; name: string } }) => (
-    <button className="ledger-link" onClick={() => setSelected(a.id)}>
+    <button
+      className="ledger-link"
+      onClick={() => {
+        setSelected(a.id);
+        setSelectedAssetTag(null);
+      }}
+    >
       {a.name}
     </button>
   );
@@ -3918,7 +3932,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "balconfirm" && data && <BalanceConfirmationLetter data={data} fmt={fmt} />}
           {report === "fixedassets" && data && (
-            <FixedAssetRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} onSelectAccount={(id) => setSelected(id)} />
+            <FixedAssetRegister
+              data={data}
+              fmt={fmt}
+              onSave={(next) => save(next, "reports")}
+              onSelectAccount={(id) => {
+                setSelected(id);
+                setSelectedAssetTag(null);
+              }}
+              onSelectTaggedAsset={(id, tag) => {
+                setSelected(id);
+                setSelectedAssetTag(tag);
+              }}
+            />
           )}
           {report === "prepaid" && data && (
             <PrepaidExpenseRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
@@ -4299,11 +4325,26 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </FloatingWindow>
       )}
       {selectedRow && (
-        <FloatingWindow title={selectedRow.name} onClose={() => setSelected(null)} wide initialWidth={1300} initialHeight={700}>
+        <FloatingWindow
+          title={selectedAssetTag ? `${selectedRow.name} — Fixed Asset # ${selectedAssetTag}` : selectedRow.name}
+          onClose={() => {
+            setSelected(null);
+            setSelectedAssetTag(null);
+          }}
+          wide
+          initialWidth={1300}
+          initialHeight={700}
+        >
           <div className="ledger-drill-panel">
             <p>
               {selectedRow.parent || selectedRow.category} | <PeriodSelect />
             </p>
+            {selectedAssetTag && (
+              <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                Voucher list below is filtered to Fixed Asset # <strong>{selectedAssetTag}</strong> only. The Opening/Period/Closing
+                summary above still reflects the whole "{selectedRow.name}" ledger, not just this tag.
+              </p>
+            )}
             <section className="drill-summary">
               <span>
                 Opening
