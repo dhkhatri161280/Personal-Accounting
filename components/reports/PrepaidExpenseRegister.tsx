@@ -5,6 +5,7 @@ import { monthlyAmortization, amortizedToDate, remainingBalance } from "@/lib/pr
 import { getOrCreatePrepaidAccount, getOrCreateExpenseAccount, postAmortization, writeOffPrepaid } from "@/lib/prepaid-expense-ledger";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { fmtDate } from "@/lib/format-date";
 
 export function PrepaidExpenseRegister({
   data,
@@ -123,13 +124,13 @@ export function PrepaidExpenseRegister({
     const header = ["Name", "Start Date", "Total Amount", "Term (mo)", "Monthly Amort.", "Amortized", "Remaining", "Status"];
     const body = items.map((p) => [
       p.name,
-      p.startDate,
+      fmtDate(p.startDate),
       p.totalAmount,
       p.termMonths,
       monthlyAmortization(p),
       amortizedToDate(p, todayStr),
       remainingBalance(p, todayStr),
-      p.writtenOff ? `Written off ${p.writtenOff.date}` : "Active",
+      p.writtenOff ? `Written off ${fmtDate(p.writtenOff.date)}` : "Active",
     ]);
     await exportWorkbook("Prepaid Expense Amortization.xlsx", [{ name: "Prepaid Expenses", rows: [header, ...body] }]);
   }
@@ -226,7 +227,7 @@ export function PrepaidExpenseRegister({
                 return (
                   <tr key={p.id}>
                     <td>{p.name}</td>
-                    <td>{p.startDate}</td>
+                    <td>{fmtDate(p.startDate)}</td>
                     <td className="right">{fmt(p.totalAmount)}</td>
                     <td className="right">{p.termMonths} mo</td>
                     <td className="right">{fmt(monthly)}</td>
@@ -234,7 +235,7 @@ export function PrepaidExpenseRegister({
                     <td className="right">{fmt(remaining)}</td>
                     <td>
                       {p.writtenOff ? (
-                        <span style={{ opacity: 0.6, fontSize: 12 }}>Written off {p.writtenOff.date}</span>
+                        <span style={{ opacity: 0.6, fontSize: 12 }}>Written off {fmtDate(p.writtenOff.date)}</span>
                       ) : (
                         <span style={{ color: "#16a34a", fontSize: 12 }}>Active</span>
                       )}

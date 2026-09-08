@@ -13,6 +13,54 @@ export const EXPENSE_GROUP_NAME = "Indirect Expenses";
 export const DEPRECIATION_EXPENSE_ACCOUNT_NAME = "Depreciation Expense";
 export const ACCUMULATED_DEPRECIATION_ACCOUNT_NAME = "Accumulated Depreciation";
 
+// SAP/Oracle-style asset class labels -- offered as datalist suggestions and used to order the
+// grouped register view (any custom class the user types falls back to alphabetical order after
+// these; "Unclassified" always sorts last).
+export const ASSET_CLASS_SUGGESTIONS = [
+  "Furniture & Fixtures",
+  "Vehicles",
+  "Electronics & Appliances",
+  "IT Equipment",
+  "Machinery & Equipment",
+  "Buildings & Improvements",
+];
+export const UNCLASSIFIED_LABEL = "Unclassified";
+
+// Best-effort keyword match from an asset's own name to one of the classes above -- checked in
+// order, first match wins, so more specific categories (e.g. "washing machine") must be listed
+// before broader ones (e.g. "machine") that would otherwise also match. Returns undefined rather
+// than guessing when nothing matches, so a genuinely novel asset name isn't mis-tagged.
+const ASSET_CLASS_RULES: { pattern: RegExp; assetClass: string }[] = [
+  {
+    pattern:
+      /\b(activa|splendor|scooter|scooty|motorcycle|bullet|pulsar|apache|maruti|wagon\s*r|swift|innova|creta|nexon|verna|honda\s*city|jazz|amaze|thar|scorpio|alto|baleno|i20|i10|santro|figo|polo|vento|rapid|octavia|fortuner|xuv|ertiga|dzire|celerio|kwid|triber|venue|seltos|sonet|harrier|safari|tiago|tigor|punch)\b/i,
+    assetClass: "Vehicles",
+  },
+  {
+    pattern: /\b(mobile|smartphone|iphone|laptop|notebook|desktop|computer|tablet|ipad|printer|router|modem|monitor)\b/i,
+    assetClass: "IT Equipment",
+  },
+  {
+    pattern:
+      /\b(refrigerator|fridge|washing machine|air condition(er)?|\bac\b|microwave|oven|food processor|mixture|grinder|mixer|television|\btv\b|geyser|water heater|cooler|vacuum|dishwasher|speaker|music system|\biron\b)\b/i,
+    assetClass: "Electronics & Appliances",
+  },
+  {
+    pattern: /\b(sofa|furniture|dining table|chair|\bbed\b|cupboard|wardrobe|almirah|shelf|cabinet)\b/i,
+    assetClass: "Furniture & Fixtures",
+  },
+  {
+    pattern: /\b(building|\bhouse\b|\bflat\b|apartment|renovation|construction)\b/i,
+    assetClass: "Buildings & Improvements",
+  },
+  { pattern: /\b(machine|equipment|generator|\bpump\b|\btool\b)\b/i, assetClass: "Machinery & Equipment" },
+];
+
+export function guessAssetClass(name: string): string | undefined {
+  for (const rule of ASSET_CLASS_RULES) if (rule.pattern.test(name)) return rule.assetClass;
+  return undefined;
+}
+
 // Straight-line monthly depreciation. usefulLifeMonths <= 0 is treated as "not depreciable"
 // (e.g. land) -- returns 0 rather than dividing by zero/going negative.
 export function monthlyDepreciation(asset: FixedAsset): number {

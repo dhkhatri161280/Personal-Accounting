@@ -98,6 +98,65 @@ export function postDepreciation(data: Ledger, throughDate: string): { data: Led
   return { data: { ...workingLedger, transactions: workingTxs, fixedAssets: updatedAssets }, postedCount };
 }
 
+// Same pending-months math as postDepreciation, but posts ONE Journal Tx per asset -- dated
+// postDate (an open period the user picked) rather than each month's own historical date --
+// for the summed catch-up amount. For a backlog spanning years of already-closed/reported
+// periods, postDepreciation's month-by-month vouchers would land on dates the app refuses to
+// save into; this collapses the whole backlog into a single true-up entry per asset instead,
+// the same way a real ERP handles a large catch-up run. lastDepreciatedThrough still advances to
+// the last pending month, so later periodic runs (via postDepreciation) resume from here.
+export function postDepreciationConsolidated(data: Ledger, throughDate: string, postDate: string): { data: Ledger; postedCount: number } {
+  const { data: withAccounts, depreciationExpenseAcct, accumulatedDeprecAcct } = ensureFixedAssetAccounts(data);
+  const assets = withAccounts.fixedAssets ?? [];
+  let workingTxs = [...withAccounts.transactions];
+  let workingLedger = { ...withAccounts, transactions: workingTxs };
+  const updatedAssets: FixedAsset[] = [];
+  let postedCount = 0;
+
+  for (const asset of assets) {
+    if (asset.disposed) {
+      updatedAssets.push(asset);
+      continue;
+    }
+    const pending = pendingDepreciationMonths(asset, throughDate);
+    const total = round2(pending.reduce((s, m) => s + m.amount, 0));
+    if (!pending.length || total <= 0) {
+      updatedAssets.push(asset);
+      continue;
+    }
+    const lastThrough = pending[pending.length - 1].yearMonth;
+    const tx: Tx = {
+      id: nextTransactionIds(workingTxs, 1)[0],
+      guid: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      date: postDate,
+      number: nextVoucherNumber(workingLedger, "Journal", postDate),
+      type: "Journal",
+      narration: `Depreciation catch-up - ${asset.name} - through ${lastThrough}`,
+      historical: false,
+      cancelled: false,
+      syncStatus: "pending",
+      entries: [
+        { accountId: depreciationExpenseAcct.id, accountName: depreciationExpenseAcct.name, amount: -total },
+        { accountId: accumulatedDeprecAcct.id, accountName: accumulatedDeprecAcct.name, amount: total },
+      ],
+    };
+    workingTxs = [...workingTxs, tx];
+    workingLedger = { ...workingLedger, transactions: workingTxs };
+    workingLedger = appendAuditEntry(workingLedger, {
+      entity: "voucher",
+      entityId: tx.guid,
+      action: "created",
+      summary: `Depreciation catch-up posted for ${asset.name}: through ${lastThrough} (${total})`,
+    });
+    workingTxs = workingLedger.transactions;
+    postedCount++;
+    updatedAssets.push({ ...asset, lastDepreciatedThrough: lastThrough });
+  }
+
+  return { data: { ...workingLedger, transactions: workingTxs, fixedAssets: updatedAssets }, postedCount };
+}
+
 // Disposes an asset: posts a Journal Tx that zeroes the asset's own cost account and its
 // accumulated depreciation, records any cash proceeds, and plugs the difference to a Gain/Loss
 // on Disposal line (auto-created if missing, same pattern as the depreciation accounts).

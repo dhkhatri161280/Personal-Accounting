@@ -322,6 +322,10 @@ export type FixedAsset = {
   id: string;
   name: string;
   accountId: number;
+  // Asset Class/Group (SAP/Oracle/Rillet-style categorization, e.g. "Vehicles", "IT Equipment",
+  // "Furniture & Fixtures") -- purely a grouping/reporting label, not tied to any GL account or
+  // depreciation math. Optional so existing assets added before this field existed still work.
+  assetClass?: string;
   purchaseDate: string;
   cost: number;
   salvageValue: number;
