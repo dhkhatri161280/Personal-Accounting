@@ -5,6 +5,7 @@ import { voucherEntrySchema, type VoucherEntryFormValues } from "@/lib/voucher-e
 import { validateVoucher } from "@/lib/voucher-validation";
 import type { Account, Ledger, Tx, VoucherLineDraft } from "@/lib/vault-types";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
+import { autoSyncTaggedAssets } from "@/lib/fixed-assets-ledger";
 import {
   blankVoucherLines,
   draftLinesFromTx,
@@ -263,7 +264,17 @@ export function useVoucherForm({
       summary: summarize(changes, editTx ? undefined : `Voucher created: ${tx.type} ${tx.date} — ${tx.narration || "(no narration)"}`),
       changes: changes.length ? changes : undefined,
     });
-    if (await save(auditedNext)) {
+    // Creates/refreshes the Asset Master record for any Fixed Asset # tag this voucher just
+    // introduced or changed -- see lib/fixed-assets-ledger.ts's autoSyncTaggedAssets. A no-op
+    // scan when the voucher has no tagged Fixed-Assets lines at all. desiredNames carries any
+    // Name the user typed alongside a brand-new tag (AssetTagPicker's Name field) through to the
+    // new Master record, instead of it always defaulting to the ledger's own generic name.
+    const desiredNames = Object.fromEntries(
+      voucherLines
+        .filter((l) => l.assetTag?.trim() && l.assetName?.trim())
+        .map((l) => [`${Number(l.accountId)}::${l.assetTag!.trim()}`, l.assetName!.trim()])
+    );
+    if (await save(autoSyncTaggedAssets(auditedNext, desiredNames))) {
       setCopyTx(null);
       setEditTx(null);
       setVoucherLines(blankVoucherLines());

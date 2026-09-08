@@ -4,8 +4,19 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, AuditEntry } from "@/lib/vault-types";
+import type { RecurringTemplate, AuditEntry, FixedAsset, Ledger } from "@/lib/vault-types";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
+import { fmtDate } from "@/lib/format-date";
+import {
+  monthlyDepreciation,
+  accumulatedDepreciation,
+  bookValue,
+  guessAssetClass,
+  ACCUMULATED_DEPRECIATION_ACCOUNT_NAME,
+  ASSET_CLASS_SUGGESTIONS,
+  UNCLASSIFIED_LABEL,
+} from "@/lib/fixed-assets";
+import { getOrCreateAssetAccount, findLegacyCostMismatches, repairLegacyAssetCosts } from "@/lib/fixed-assets-ledger";
 
 export type MasterGroup = {
   name: string;
@@ -49,6 +60,7 @@ export type MasterLedger = {
   transactions?: Array<{ date: string; deleted?: boolean; entries: Array<{ accountId: number }> }>;
   recurringTemplates?: RecurringTemplate[];
   auditLog?: AuditEntry[];
+  fixedAssets?: FixedAsset[];
 };
 
 const standard: MasterGroup[] = [
@@ -402,13 +414,32 @@ export function MastersPanel({
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
-  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "settings";
+  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings";
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "settings">(initialSection ?? "ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings">(initialSection ?? "ledgers"),
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
     [recurringTemplateId, setRecurringTemplateId] = useState<string | null>(null),
-    [search, setSearch] = useState("");
+    [search, setSearch] = useState(""),
+    // Fixed Assets master data (name/class/useful life/salvage) -- Cost/Fixed Asset #/purchase
+    // date stay read-only here since they're derived facts from the real ledger/tag, not
+    // hand-typed master fields; see components/reports/FixedAssetRegister.tsx for the report
+    // view (Dispose/Run Depreciation/drill-down) this data feeds.
+    [showAddAsset, setShowAddAsset] = useState(false),
+    [assetName, setAssetName] = useState(""),
+    [assetClassInput, setAssetClassInput] = useState(""),
+    [assetCost, setAssetCost] = useState(""),
+    [assetPurchaseDate, setAssetPurchaseDate] = useState(new Date().toISOString().slice(0, 10)),
+    [assetUsefulLife, setAssetUsefulLife] = useState("36"),
+    [assetSalvage, setAssetSalvage] = useState("0"),
+    [editingAssetNameId, setEditingAssetNameId] = useState<string | null>(null),
+    [editingAssetNameValue, setEditingAssetNameValue] = useState(""),
+    [editingAssetClassId, setEditingAssetClassId] = useState<string | null>(null),
+    [editingAssetClassValue, setEditingAssetClassValue] = useState(""),
+    [editingAssetLifeId, setEditingAssetLifeId] = useState<string | null>(null),
+    [editingAssetLifeValue, setEditingAssetLifeValue] = useState(""),
+    [editingAssetSalvageValue, setEditingAssetSalvageValue] = useState(""),
+    [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
 
   // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
   // than kept inside PeriodControlPanel so the picker can render in this same tab row instead of
@@ -631,6 +662,84 @@ export function MastersPanel({
       linked ? `Group ${g.name} is pending deletion from Tally.` : `Group ${g.name} deleted.`
     );
   };
+  // MasterLedger is a deliberately-narrowed view of the real Ledger the caller actually passed in
+  // (see VaultApp.tsx's `next as Ledger` cast on this component's own onSave) -- these specific
+  // lib/fixed-assets*.ts helpers need the full Ledger shape (transactions with real Entry fields,
+  // not MasterLedger's trimmed-down transaction summary), so the same cast is used here rather
+  // than duplicating their logic against a narrower type.
+  const assetLedger = data as unknown as Ledger;
+  const fixedAssetsList = (data.fixedAssets ?? []).slice().sort((a, b) => (a.sourceTag || "").localeCompare(b.sourceTag || "") || a.name.localeCompare(b.name));
+  const legacyCostMismatches = findLegacyCostMismatches(assetLedger);
+  const unclassifiedAssetCount = fixedAssetsList.filter((a) => !a.assetClass).length;
+
+  function addAsset() {
+    const costNum = Number(assetCost);
+    const lifeNum = Number(assetUsefulLife);
+    const salvageNum = Number(assetSalvage) || 0;
+    if (!assetName.trim() || !costNum || costNum <= 0 || !lifeNum || lifeNum <= 0) return;
+    const { data: withAcct, account } = getOrCreateAssetAccount(assetLedger, assetName.trim(), costNum, assetPurchaseDate);
+    const resolvedClass = assetClassInput.trim() || guessAssetClass(assetName.trim());
+    const asset: FixedAsset = {
+      id: crypto.randomUUID(),
+      name: assetName.trim(),
+      accountId: account.id,
+      ...(resolvedClass ? { assetClass: resolvedClass } : {}),
+      purchaseDate: assetPurchaseDate,
+      cost: costNum,
+      salvageValue: salvageNum,
+      usefulLifeMonths: lifeNum,
+    };
+    const next: MasterLedger = { ...withAcct, fixedAssets: [...(withAcct.fixedAssets ?? []), asset] };
+    onSave(next, `Fixed asset ${asset.name} added.`);
+    setShowAddAsset(false);
+    setAssetName("");
+    setAssetClassInput("");
+    setAssetCost("");
+    setAssetSalvage("0");
+    setAssetUsefulLife("36");
+  }
+
+  function autoClassifyAssets() {
+    const updated = fixedAssetsList.map((a) => (a.assetClass ? a : { ...a, assetClass: guessAssetClass(a.name) || a.assetClass }));
+    if (updated.every((a, i) => a.assetClass === fixedAssetsList[i].assetClass)) return;
+    onSave({ ...data, fixedAssets: updated }, `${updated.filter((a, i) => a.assetClass !== fixedAssetsList[i].assetClass).length} asset(s) auto-classified.`);
+  }
+
+  function repairAssetCosts() {
+    if (!legacyCostMismatches.length) return;
+    const next = repairLegacyAssetCosts(assetLedger);
+    onSave(next as unknown as MasterLedger, `${legacyCostMismatches.length} ledger total(s) corrected.`);
+  }
+
+  function saveAssetName(asset: FixedAsset) {
+    const trimmed = editingAssetNameValue.trim();
+    const ledgerName = data.accounts.find((acc) => acc.id === asset.accountId)?.name || asset.name;
+    const updated = fixedAssetsList.map((a) => (a.id === asset.id ? { ...a, name: trimmed || ledgerName } : a));
+    onSave({ ...data, fixedAssets: updated }, `Renamed to "${trimmed || ledgerName}".`);
+    setEditingAssetNameId(null);
+  }
+
+  function saveAssetClass(assetId: string) {
+    const updated = fixedAssetsList.map((a) => (a.id === assetId ? { ...a, assetClass: editingAssetClassValue.trim() || undefined } : a));
+    onSave({ ...data, fixedAssets: updated }, "Group / Class updated.");
+    setEditingAssetClassId(null);
+  }
+
+  function saveAssetLife(assetId: string) {
+    const life = Number(editingAssetLifeValue);
+    const salvage = Number(editingAssetSalvageValue) || 0;
+    if (!life || life <= 0) return;
+    const updated = fixedAssetsList.map((a) => (a.id === assetId ? { ...a, usefulLifeMonths: life, salvageValue: salvage } : a));
+    onSave({ ...data, fixedAssets: updated }, "Useful life / salvage updated.");
+    setEditingAssetLifeId(null);
+  }
+
+  function deleteAsset(assetId: string) {
+    const updated = fixedAssetsList.filter((a) => a.id !== assetId);
+    onSave({ ...data, fixedAssets: updated }, "Fixed asset deleted.");
+    setDeletingAssetId(null);
+  }
+
   const saveRecurringTemplate = (form: FormData) => {
     const label = normalize(String(form.get("label") || "")),
       frequency = String(form.get("frequency") || "monthly") as RecurringTemplate["frequency"],
@@ -704,6 +813,12 @@ export function MastersPanel({
           onClick={() => setSection("recurring")}
         >
           Recurring Templates
+        </button>
+        <button
+          className={section === "fixedassets" ? "selected" : ""}
+          onClick={() => setSection("fixedassets")}
+        >
+          Fixed Assets
         </button>
         <button
           className={section === "settings" ? "selected" : ""}
@@ -897,6 +1012,218 @@ export function MastersPanel({
           closedPeriods={data.closedPeriods || []}
           onToggle={(next, message) => onSave({ ...data, closedPeriods: next }, message)}
         />
+      )}
+      {section === "fixedassets" && (
+        <>
+          <p className="field-hint" style={{ margin: "0 0 10px" }}>
+            Name, Group/Class, Useful Life, and Salvage are editable master data. Fixed Asset # and Cost are read-only here — the
+            tag comes from the voucher that created it, and Cost is a derived fact of the real ledger balance, not something to
+            hand-type. See Reports → Registers → Fixed Asset Register for depreciation, disposal, and drill-down.
+          </p>
+          <div className="master-toolbar">
+            <button type="button" className="tr-refresh-btn" onClick={() => setShowAddAsset((v) => !v)}>
+              {showAddAsset ? "Cancel" : "+ Add Asset"}
+            </button>
+            {unclassifiedAssetCount > 0 && (
+              <button type="button" className="tr-refresh-btn" onClick={autoClassifyAssets}>
+                🪄 Auto-classify {unclassifiedAssetCount}
+              </button>
+            )}
+            {legacyCostMismatches.length > 0 && (
+              <button
+                type="button"
+                onClick={repairAssetCosts}
+                title={`Fix ${legacyCostMismatches.length} incorrect ledger total(s): ${legacyCostMismatches
+                  .map((m) => `${m.name} ${m.currentCost.toFixed(2)} → ${m.correctCost.toFixed(2)}`)
+                  .join("; ")}`}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontSize: 13, color: "#dc2626" }}
+              >
+                🔧 ({legacyCostMismatches.length})
+              </button>
+            )}
+          </div>
+          <datalist id="master-asset-class-suggestions">
+            {ASSET_CLASS_SUGGESTIONS.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+          {showAddAsset && (
+            <div className="report-line" style={{ flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              <input placeholder="Asset name" value={assetName} onChange={(e) => setAssetName(e.target.value)} />
+              <input
+                list="master-asset-class-suggestions"
+                placeholder="Group / Class (optional)"
+                value={assetClassInput}
+                onChange={(e) => setAssetClassInput(e.target.value)}
+                style={{ width: 170 }}
+              />
+              <input placeholder="Cost" type="number" value={assetCost} onChange={(e) => setAssetCost(e.target.value)} style={{ width: 100 }} />
+              <input type="date" value={assetPurchaseDate} onChange={(e) => setAssetPurchaseDate(e.target.value)} />
+              <input
+                placeholder="Useful life (months)"
+                type="number"
+                value={assetUsefulLife}
+                onChange={(e) => setAssetUsefulLife(e.target.value)}
+                style={{ width: 140 }}
+              />
+              <input
+                placeholder="Salvage value"
+                type="number"
+                value={assetSalvage}
+                onChange={(e) => setAssetSalvage(e.target.value)}
+                style={{ width: 110 }}
+              />
+              <button type="button" className="tr-refresh-btn" onClick={addAsset}>
+                Save Asset
+              </button>
+            </div>
+          )}
+          {fixedAssetsList.length === 0 ? (
+            <p style={{ opacity: 0.7 }}>No fixed assets yet. Add one above, or tag a voucher line to create one automatically.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Fixed Asset #</th>
+                  <th>Group / Class</th>
+                  <th>Useful Life</th>
+                  <th>Salvage</th>
+                  <th className="right">Cost</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {fixedAssetsList.map((a) => (
+                  <tr key={a.id}>
+                    <td>
+                      {editingAssetNameId === a.id ? (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <input
+                            autoFocus
+                            value={editingAssetNameValue}
+                            onChange={(e) => setEditingAssetNameValue(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && saveAssetName(a)}
+                            style={{ width: 160 }}
+                          />
+                          <button className="master-edit" onClick={() => saveAssetName(a)}>
+                            Save
+                          </button>
+                          <button className="master-delete" onClick={() => setEditingAssetNameId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ledger-link"
+                          onClick={() => {
+                            setEditingAssetNameId(a.id);
+                            setEditingAssetNameValue(a.name);
+                          }}
+                        >
+                          {a.name}
+                        </button>
+                      )}
+                    </td>
+                    <td>{a.sourceTag || "—"}</td>
+                    <td>
+                      {editingAssetClassId === a.id ? (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <input
+                            list="master-asset-class-suggestions"
+                            autoFocus
+                            value={editingAssetClassValue}
+                            onChange={(e) => setEditingAssetClassValue(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && saveAssetClass(a.id)}
+                            style={{ width: 140 }}
+                          />
+                          <button className="master-edit" onClick={() => saveAssetClass(a.id)}>
+                            Save
+                          </button>
+                          <button className="master-delete" onClick={() => setEditingAssetClassId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ledger-link"
+                          onClick={() => {
+                            setEditingAssetClassId(a.id);
+                            setEditingAssetClassValue(a.assetClass || "");
+                          }}
+                        >
+                          {a.assetClass || UNCLASSIFIED_LABEL}
+                        </button>
+                      )}
+                    </td>
+                    <td colSpan={editingAssetLifeId === a.id ? 2 : 1}>
+                      {editingAssetLifeId === a.id ? (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <input
+                            autoFocus
+                            type="number"
+                            value={editingAssetLifeValue}
+                            onChange={(e) => setEditingAssetLifeValue(e.target.value)}
+                            style={{ width: 60 }}
+                          />
+                          mo, salvage
+                          <input
+                            type="number"
+                            value={editingAssetSalvageValue}
+                            onChange={(e) => setEditingAssetSalvageValue(e.target.value)}
+                            style={{ width: 70 }}
+                          />
+                          <button className="master-edit" onClick={() => saveAssetLife(a.id)}>
+                            Save
+                          </button>
+                          <button className="master-delete" onClick={() => setEditingAssetLifeId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ledger-link"
+                          onClick={() => {
+                            setEditingAssetLifeId(a.id);
+                            setEditingAssetLifeValue(String(a.usefulLifeMonths));
+                            setEditingAssetSalvageValue(String(a.salvageValue));
+                          }}
+                        >
+                          {a.usefulLifeMonths} mo
+                        </button>
+                      )}
+                    </td>
+                    {editingAssetLifeId !== a.id && <td>{a.salvageValue}</td>}
+                    <td className="right">{a.cost.toFixed(2)}</td>
+                    <td>{a.disposed ? `Disposed ${fmtDate(a.disposed.date)}` : "Active"}</td>
+                    <td>
+                      {!a.disposed && !a.lastDepreciatedThrough && (
+                        deletingAssetId === a.id ? (
+                          <span style={{ display: "flex", gap: 4 }}>
+                            <button className="master-delete" onClick={() => deleteAsset(a.id)}>
+                              Confirm
+                            </button>
+                            <button className="master-edit" onClick={() => setDeletingAssetId(null)}>
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button className="master-delete" onClick={() => setDeletingAssetId(a.id)}>
+                            Delete
+                          </button>
+                        )
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
       {section === "settings" && (
         <form

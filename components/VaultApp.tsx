@@ -16,6 +16,7 @@ import type {
   Budget,
   RecurringTemplate,
   Attachment,
+  FixedAsset,
 } from "@/lib/vault-types";
 import {
   bytes,
@@ -62,7 +63,15 @@ import { PrepaidExpenseRegister } from "@/components/reports/PrepaidExpenseRegis
 import { LoanRegister } from "@/components/reports/LoanRegister";
 import { PeriodCloseChecklist } from "@/components/reports/PeriodCloseChecklist";
 import { postAmortization } from "@/lib/prepaid-expense-ledger";
-import { FIXED_ASSETS_GROUP_NAME, guessAssetClass, suggestNextAssetTag, ASSET_CLASS_PREFIXES, UNCLASSIFIED_LABEL } from "@/lib/fixed-assets";
+import {
+  FIXED_ASSETS_GROUP_NAME,
+  guessAssetClass,
+  suggestNextAssetTag,
+  ASSET_CLASS_PREFIXES,
+  UNCLASSIFIED_LABEL,
+  UNTAGGED_ASSET_FILTER,
+} from "@/lib/fixed-assets";
+import { autoSyncTaggedAssets } from "@/lib/fixed-assets-ledger";
 import { FinancialRatios } from "@/components/reports/FinancialRatios";
 import { CashFlowForecast } from "@/components/reports/CashFlowForecast";
 import type { BudgetRow } from "@/lib/budget";
@@ -89,6 +98,7 @@ import { StatIcon, Icon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
+import { AssetTagPicker } from "@/components/AssetTagPicker";
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
@@ -126,7 +136,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [trashSubTab, setTrashSubTab] = useState<"deleted" | "duplicate">("deleted"),
     // Which Masters sub-tab to land on next time it mounts -- lets the Dashboard's period-open
     // badge jump straight to Periods instead of always defaulting to Ledgers.
-    [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "settings">("ledgers"),
+    [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings">("ledgers"),
     [searchOpen, setSearchOpen] = useState(false),
     [searchQuery, setSearchQuery] = useState(""),
     // Deep-link targets for report components with their own internal sub-tabs, set by the
@@ -176,6 +186,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [uploadingAttachment, setUploadingAttachment] = useState(false),
     [editingTagEntryIndex, setEditingTagEntryIndex] = useState<number | null>(null),
     [editingTagValue, setEditingTagValue] = useState(""),
+    [editingTagNameValue, setEditingTagNameValue] = useState(""),
     [r2Usage, setR2Usage] = useState<{ totalBytes: number; objectCount: number } | null>(null),
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
@@ -1188,7 +1199,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const selectedRow = rows.find((a) => a.id === selected),
     selectedTx = selected
       ? calc.period
-          .filter((t) => t.entries.some((e) => e.accountId === selected && (!selectedAssetTag || e.assetTag === selectedAssetTag)))
+          .filter((t) =>
+            t.entries.some((e) => {
+              if (e.accountId !== selected) return false;
+              if (!selectedAssetTag) return true;
+              return selectedAssetTag === UNTAGGED_ASSET_FILTER ? !e.assetTag : e.assetTag === selectedAssetTag;
+            })
+          )
           .slice()
           .reverse()
       : [];
@@ -1265,8 +1282,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // from the closed-period check (findClosedPeriodViolations) via the voucher's own guid: a tag is
   // metadata, not a financial change, so it's fine to add or correct one on a voucher dated in an
   // already-closed period.
-  async function saveEntryAssetTag(t: Tx, entryIndex: number, tag: string) {
+  async function saveEntryAssetTag(t: Tx, entryIndex: number, tag: string, name?: string) {
     if (!data) return;
+    const entry = t.entries[entryIndex];
     const nextEntries = t.entries.map((e, i) => (i === entryIndex ? { ...e, assetTag: tag.trim() || undefined } : e));
     const nextTx: Tx = { ...t, entries: nextEntries };
     const next = { ...data, transactions: data.transactions.map((x) => (x.guid === t.guid ? nextTx : x)) };
@@ -1276,10 +1294,46 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       action: "edited",
       summary: `Fixed Asset # tag ${tag.trim() ? `set to "${tag.trim()}"` : "cleared"} on ${t.type} ${t.date} (${t.entries[entryIndex]?.accountName})`,
     });
-    if (await save(audited, "reports", new Set([t.guid]))) {
+    // Same auto-create/refresh as a normal voucher save -- fixedAssets never touches
+    // data.transactions, so this doesn't need its own closed-period exemption. desiredNames
+    // carries the tag picker's optional Name field through to a brand-new Master record.
+    const desiredNames = tag.trim() && name?.trim() ? { [`${entry.accountId}::${tag.trim()}`]: name.trim() } : undefined;
+    if (await save(autoSyncTaggedAssets(audited, desiredNames), "reports", new Set([t.guid]))) {
       setSelectedVoucher(nextTx);
       setEditingTagEntryIndex(null);
     }
+  }
+
+  // Retroactively adopts an already-registered asset (added manually, e.g. via + Add Asset in
+  // Masters, before tagging existed) into the tagging scheme -- tags EVERY entry on its ledger in
+  // one go and links the tag straight onto this same asset record, instead of a new one being
+  // created and this one carved down to $0 the way a genuinely-shared ledger's siblings work.
+  // Deliberately only ever offered (see FixedAssetRegister.tsx) when the asset is the sole
+  // occupant of its own ledger -- on a ledger multiple assets actually share, bulk-tagging every
+  // voucher with one tag would be wrong, which is exactly why per-voucher tagging exists.
+  async function bulkTagAsset(asset: FixedAsset, tag: string) {
+    if (!data) return;
+    const cleanTag = tag.trim();
+    if (!cleanTag) return;
+    const touchedGuids = new Set<string>();
+    const transactions = data.transactions.map((t) => {
+      if (t.deleted || t.cancelled || !t.entries.some((e) => e.accountId === asset.accountId)) return t;
+      touchedGuids.add(t.guid);
+      return { ...t, entries: t.entries.map((e) => (e.accountId === asset.accountId ? { ...e, assetTag: cleanTag } : e)) };
+    });
+    const fixedAssets = (data.fixedAssets ?? []).map((a) =>
+      a.id === asset.id ? { ...a, sourceAccountId: asset.accountId, sourceTag: cleanTag } : a
+    );
+    const audited = appendAuditEntry(
+      { ...data, transactions, fixedAssets },
+      {
+        entity: "account",
+        entityId: String(asset.accountId),
+        action: "edited",
+        summary: `Fixed Asset # ${cleanTag} applied to all ${touchedGuids.size} voucher(s) on "${asset.name}"`,
+      }
+    );
+    await save(audited, "reports", touchedGuids);
   }
 
   const capitalRows = active.filter(
@@ -1519,6 +1573,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "masters-ledgers", label: "Ledger Accounts", group: "Masters", keywords: ["chart of accounts", "new ledger", "edit ledger"], go: () => { setMastersSection("ledgers"); setTab("masters"); } },
     { id: "masters-groups", label: "Account Groups", group: "Masters", keywords: ["groups"], go: () => { setMastersSection("groups"); setTab("masters"); } },
     { id: "masters-periods", label: "Periods", group: "Masters", keywords: ["close period", "open period", "fiscal year"], go: () => { setMastersSection("periods"); setTab("masters"); } },
+    { id: "masters-fixedassets", label: "Fixed Assets", group: "Masters", keywords: ["fixed asset", "asset tag", "asset class", "useful life", "salvage"], go: () => { setMastersSection("fixedassets"); setTab("masters"); } },
     { id: "masters-settings", label: "Company Settings", group: "Masters", keywords: ["settings", "company", "currency", "voucher types"], go: () => { setMastersSection("settings"); setTab("masters"); } },
   ];
   const searchResults = (() => {
@@ -3944,6 +3999,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 setSelected(id);
                 setSelectedAssetTag(tag);
               }}
+              onBulkTagAsset={bulkTagAsset}
             />
           )}
           {report === "prepaid" && data && (
@@ -4141,50 +4197,26 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   </div>
                 )}
                 {line.accountId &&
-                  data.accounts.find((a) => a.id === Number(line.accountId))?.parent === FIXED_ASSETS_GROUP_NAME &&
-                  (() => {
-                    // Suggests tags recently used on this SAME ledger (within ~100 days of the
-                    // voucher date) so a later installment of the same purchase can be grouped
-                    // under the same asset # instead of retyping it -- see the Fixed Asset
-                    // Register's "Sync tagged assets" action, which turns these into individually
-                    // depreciable assets without ever touching the underlying voucher.
-                    const cutoff = new Date(voucherDate);
-                    cutoff.setDate(cutoff.getDate() - 100);
-                    const cutoffStr = cutoff.toISOString().slice(0, 10);
-                    const recentTags = [
-                      ...new Set(
-                        data.transactions
-                          .filter((t) => !t.deleted && !t.cancelled && t.date >= cutoffStr && t.date <= voucherDate)
-                          .flatMap((t) => t.entries)
-                          .filter((e) => e.accountId === Number(line.accountId) && e.assetTag)
-                          .map((e) => e.assetTag as string)
-                      ),
-                    ];
-                    return (
-                      <div className="voucher-line-balance" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          Fixed Asset #
-                          <input
-                            list={`asset-tag-suggestions-${index}`}
-                            value={line.assetTag || ""}
-                            placeholder="e.g. FA-2026-014"
-                            style={{ width: 150 }}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setVoucherLines((lines) => lines.map((row, i) => (i === index ? { ...row, assetTag: val } : row)));
-                            }}
-                          />
-                        </label>
-                        {recentTags.length > 0 && (
-                          <datalist id={`asset-tag-suggestions-${index}`}>
-                            {recentTags.map((t) => (
-                              <option key={t} value={t} />
-                            ))}
-                          </datalist>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  data.accounts.find((a) => a.id === Number(line.accountId))?.parent === FIXED_ASSETS_GROUP_NAME && (
+                    <div className="voucher-line-balance" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        Fixed Asset #
+                        <AssetTagPicker
+                          fixedAssets={data.fixedAssets ?? []}
+                          accountId={Number(line.accountId)}
+                          value={line.assetTag || ""}
+                          onChange={(val) =>
+                            setVoucherLines((lines) => lines.map((row, i) => (i === index ? { ...row, assetTag: val } : row)))
+                          }
+                          suggestedNewTag={suggestedAssetTagFor(Number(line.accountId))}
+                          nameValue={line.assetName}
+                          onNameChange={(val) =>
+                            setVoucherLines((lines) => lines.map((row, i) => (i === index ? { ...row, assetName: val } : row)))
+                          }
+                        />
+                      </label>
+                    </div>
+                  )}
                 </div>
               ))}
               <div
@@ -4326,7 +4358,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       )}
       {selectedRow && (
         <FloatingWindow
-          title={selectedAssetTag ? `${selectedRow.name} — Fixed Asset # ${selectedAssetTag}` : selectedRow.name}
+          title={
+            selectedAssetTag === UNTAGGED_ASSET_FILTER
+              ? `${selectedRow.name} — Untagged only`
+              : selectedAssetTag
+                ? `${selectedRow.name} — Fixed Asset # ${selectedAssetTag}`
+                : selectedRow.name
+          }
           onClose={() => {
             setSelected(null);
             setSelectedAssetTag(null);
@@ -4339,11 +4377,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <p>
               {selectedRow.parent || selectedRow.category} | <PeriodSelect />
             </p>
-            {selectedAssetTag && (
+            {selectedAssetTag === UNTAGGED_ASSET_FILTER ? (
               <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-                Voucher list below is filtered to Fixed Asset # <strong>{selectedAssetTag}</strong> only. The Opening/Period/Closing
-                summary above still reflects the whole "{selectedRow.name}" ledger, not just this tag.
+                Voucher list below excludes every entry tagged with another Fixed Asset # on this ledger, matching this asset's own
+                Cost after those tags were carved out. The Opening/Period/Closing summary above still reflects the whole "
+                {selectedRow.name}" ledger, not just the untagged remainder.
               </p>
+            ) : (
+              selectedAssetTag && (
+                <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                  Voucher list below is filtered to Fixed Asset # <strong>{selectedAssetTag}</strong> only. The Opening/Period/Closing
+                  summary above still reflects the whole "{selectedRow.name}" ledger, not just this tag.
+                </p>
+              )
             )}
             <section className="drill-summary">
               <span>
@@ -4386,6 +4432,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           onClose={() => {
             setSelectedVoucher(null);
             setEditingTagEntryIndex(null);
+            setEditingTagNameValue("");
           }}
           wide
         >
@@ -4452,27 +4499,34 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             )}
             {selectedVoucher.entries.some((e) => data.accounts.find((a) => a.id === e.accountId)?.parent === FIXED_ASSETS_GROUP_NAME) && (
               <>
-                <h3>Fixed Asset Tags</h3>
-                <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-                  Tagging a line doesn't change its date, amount, or ledger — it's metadata only, so it's allowed even if this
-                  voucher is dated in a closed period.
-                </p>
-                <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+                <h3 style={{ marginBottom: 2 }}>
+                  Fixed Asset Tags{" "}
+                  <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.6 }} title="Tagging a line doesn't change its date, amount, or ledger — it's metadata only, so it's allowed even in a closed period.">
+                    ⓘ
+                  </span>
+                </h3>
+                <div style={{ display: "grid", gap: 4, marginBottom: 10 }}>
                   {selectedVoucher.entries.map((e, i) => {
                     if (data.accounts.find((a) => a.id === e.accountId)?.parent !== FIXED_ASSETS_GROUP_NAME) return null;
                     return (
-                      <div key={`${e.accountId}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ minWidth: 160 }}>{e.accountName}</span>
+                      <div key={`${e.accountId}-${i}`} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span style={{ minWidth: 140, fontSize: 13 }}>{e.accountName}</span>
                         {editingTagEntryIndex === i ? (
                           <>
-                            <input
-                              autoFocus
+                            <AssetTagPicker
+                              fixedAssets={data.fixedAssets ?? []}
+                              accountId={e.accountId}
                               value={editingTagValue}
-                              onChange={(ev) => setEditingTagValue(ev.target.value)}
-                              onKeyDown={(ev) => ev.key === "Enter" && saveEntryAssetTag(selectedVoucher, i, editingTagValue)}
-                              style={{ width: 150 }}
+                              onChange={setEditingTagValue}
+                              suggestedNewTag={suggestedAssetTagFor(e.accountId)}
+                              nameValue={editingTagNameValue}
+                              onNameChange={setEditingTagNameValue}
                             />
-                            <button type="button" className="tr-refresh-btn" onClick={() => saveEntryAssetTag(selectedVoucher, i, editingTagValue)}>
+                            <button
+                              type="button"
+                              className="tr-refresh-btn"
+                              onClick={() => saveEntryAssetTag(selectedVoucher, i, editingTagValue, editingTagNameValue)}
+                            >
                               Save
                             </button>
                             <button type="button" className="tr-refresh-btn" onClick={() => setEditingTagEntryIndex(null)}>
@@ -4486,9 +4540,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                             onClick={() => {
                               setEditingTagEntryIndex(i);
                               setEditingTagValue(e.assetTag || "");
+                              setEditingTagNameValue("");
                             }}
                           >
-                            {e.assetTag || "+ Add tag"}
+                            {e.assetTag
+                              ? (() => {
+                                  const linked = (data.fixedAssets ?? []).find((a) => a.accountId === e.accountId && a.sourceTag === e.assetTag);
+                                  return linked && linked.name !== e.accountName ? `${e.assetTag} — ${linked.name}` : e.assetTag;
+                                })()
+                              : "+ Add tag"}
                           </button>
                         )}
                       </div>

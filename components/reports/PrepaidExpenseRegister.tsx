@@ -106,9 +106,14 @@ export function PrepaidExpenseRegister({
   }
 
   // Only removes the register entry itself -- never touches a voucher. Restricted to items with
-  // nothing amortized yet (Amortized = $0.00), so it's a pure no-side-effect undo of a bad "+ Add
-  // Prepaid Expense" entry (e.g. a name collision that silently reused another item's ledger --
-  // see lib/prepaid-expense-ledger.ts's getOrCreatePrepaidAccount), not a way to erase real history.
+  // nothing actually posted yet -- gated on `!lastAmortizedThrough`, NOT on Amortized, since
+  // amortizedToDate() is a live straight-line calculation independent of whether any voucher was
+  // ever actually saved (can be nonzero even when every save was rejected, e.g. a start date deep
+  // in an already-closed period). lastAmortizedThrough only advances when a save genuinely
+  // succeeds, so it's the only reliable "has this really been posted" signal -- a pure
+  // no-side-effect undo of a bad "+ Add Prepaid Expense" entry (e.g. a name collision that
+  // silently reused another item's ledger -- see lib/prepaid-expense-ledger.ts's
+  // getOrCreatePrepaidAccount), not a way to erase real history.
   async function confirmDelete(id: string) {
     setSaving(true);
     try {
@@ -257,7 +262,7 @@ export function PrepaidExpenseRegister({
                             <button type="button" className="tr-refresh-btn" onClick={() => setWritingOffId(p.id)}>
                               Write Off
                             </button>
-                            {amortized === 0 &&
+                            {!p.lastAmortizedThrough &&
                               (deletingId === p.id ? (
                                 <>
                                   <button type="button" className="tr-refresh-btn" disabled={saving} onClick={() => confirmDelete(p.id)}>

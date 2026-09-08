@@ -7,7 +7,18 @@ import type { MasterGroup } from "@/components/MastersPanel";
 // Only ever set going forward at entry time; never backfilled onto historical vouchers.
 export type Entry = { accountId: number; accountName: string; amount: number; assetTag?: string };
 
-export type VoucherLineDraft = { id: string; side: "debit" | "credit"; accountId: string; amount: string; assetTag?: string };
+export type VoucherLineDraft = {
+  id: string;
+  side: "debit" | "credit";
+  accountId: string;
+  amount: string;
+  assetTag?: string;
+  // Only meaningful when assetTag is a brand-new (not-yet-registered) tag -- the desired name for
+  // its Asset Master record, e.g. "Dining Table - Living Spaces" instead of the ledger's own
+  // generic name. Not itself stored on the Entry; useVoucherForm's add() reads it once to name
+  // the record autoSyncTaggedAssets creates, same as the voucher detail popup's tag editor does.
+  assetName?: string;
+};
 
 export type Tx = {
   id: number;

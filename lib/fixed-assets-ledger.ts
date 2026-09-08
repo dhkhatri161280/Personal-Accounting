@@ -1,5 +1,5 @@
 import type { Account, FixedAsset, Ledger, Tx } from "./vault-types";
-import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting";
+import { nextTransactionIds, nextVoucherNumber, ledgerBalanceAsOf } from "./vault-accounting";
 import { appendAuditEntry } from "./audit";
 import {
   ACCUMULATED_DEPRECIATION_ACCOUNT_NAME,
@@ -9,6 +9,8 @@ import {
   accumulatedDepreciation,
   pendingDepreciationMonths,
   round2,
+  assetClassFromTag,
+  guessAssetClass,
 } from "./fixed-assets";
 import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity";
 
@@ -215,19 +217,75 @@ export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
     .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
 }
 
-// Registers a brand-new tagged group as its own FixedAsset -- unlike getOrCreateAssetAccount,
-// this never posts an Opening-Balance-Equity funding voucher, since the tagged entries themselves
-// already ARE the real funding (the whole point of tagging instead of re-ledgering). Useful
-// life/salvage value can't be derived from a GL posting, so the caller collects those from the
-// user before calling this.
-export function createTaggedAsset(data: Ledger, group: TaggedAssetGroup, usefulLifeMonths: number, salvageValue: number): Ledger {
+// Recomputes the ledger's one untagged/legacy asset (if it has one) as: this account's real,
+// full GL balance minus every OTHER (tagged) asset's cost on the same ledger. Exact by
+// construction, so it can't drift regardless of how many tags exist, what order they were synced
+// in, or whether a tag's own net is a credit (a return/refund) rather than a debit -- unlike
+// incrementally subtracting each new tag's cost one at a time, which clamped at zero and silently
+// discarded the remainder once enough tags had been carved out of the same legacy sibling.
+function reconcileLegacyAssetCost(data: Ledger, accountId: number): Ledger {
+  const fixedAssets = data.fixedAssets ?? [];
+  const legacy = fixedAssets.find((a) => a.accountId === accountId && !a.sourceTag && !a.disposed);
+  if (!legacy) return data;
+  const realBalance = ledgerBalanceAsOf(data, accountId, "9999-12-31");
+  const othersCost = fixedAssets
+    .filter((a) => a.accountId === accountId && a.id !== legacy.id && !a.disposed)
+    .reduce((s, a) => s + a.cost, 0);
+  return {
+    ...data,
+    fixedAssets: fixedAssets.map((a) => (a.id === legacy.id ? { ...a, cost: round2(realBalance - othersCost) } : a)),
+  };
+}
+
+// One legacy asset per already-tagged ledger, whose stored cost doesn't match what
+// reconcileLegacyAssetCost would now compute -- surfaces the pre-existing bug's damage (assets
+// synced before the fix used the old incremental-subtraction approach, which could clamp at zero
+// and lose money) so it can be repaired with one click instead of silently staying wrong.
+export function findLegacyCostMismatches(data: Ledger): { accountId: number; name: string; currentCost: number; correctCost: number }[] {
+  const fixedAssets = data.fixedAssets ?? [];
+  const accountIds = new Set(fixedAssets.filter((a) => a.sourceTag && !a.disposed).map((a) => a.accountId));
+  const out: { accountId: number; name: string; currentCost: number; correctCost: number }[] = [];
+  for (const accountId of accountIds) {
+    const legacy = fixedAssets.find((a) => a.accountId === accountId && !a.sourceTag && !a.disposed);
+    if (!legacy) continue;
+    const realBalance = ledgerBalanceAsOf(data, accountId, "9999-12-31");
+    const othersCost = fixedAssets
+      .filter((a) => a.accountId === accountId && a.id !== legacy.id && !a.disposed)
+      .reduce((s, a) => s + a.cost, 0);
+    const correctCost = round2(realBalance - othersCost);
+    if (Math.abs(correctCost - legacy.cost) > 0.005) out.push({ accountId, name: legacy.name, currentCost: legacy.cost, correctCost });
+  }
+  return out;
+}
+
+// Applies findLegacyCostMismatches's fix to every affected ledger in one save.
+export function repairLegacyAssetCosts(data: Ledger): Ledger {
+  let next = data;
+  for (const { accountId } of findLegacyCostMismatches(data)) next = reconcileLegacyAssetCost(next, accountId);
+  return next;
+}
+
+export function createTaggedAsset(
+  data: Ledger,
+  group: TaggedAssetGroup,
+  usefulLifeMonths: number,
+  salvageValue: number,
+  name?: string
+): Ledger {
+  // The tag's own prefix (e.g. "FUR-002") already declares its class -- that's the whole point of
+  // class-prefixed numbering -- so it's the authoritative source, ahead of guessing from the
+  // ledger name. Falls back to the name guess only for a freehand tag that doesn't follow the
+  // PREFIX-NNN convention (e.g. typed before this feature existed), and is left unset (not forced
+  // to "Unclassified") when neither can tell, same as a manually-added asset today.
+  const assetClass = assetClassFromTag(group.tag) || guessAssetClass(group.accountName);
   const asset: FixedAsset = {
     id: crypto.randomUUID(),
-    // Same name as the ledger (and as any sibling asset already sharing it) -- the tag itself
-    // (sourceTag) is what tells them apart, shown in its own "Fixed Asset #" column, not baked
-    // into the name string.
-    name: group.accountName,
+    // Defaults to the ledger's own name (same as every sibling asset), but the caller can supply
+    // a more descriptive one (e.g. "Dining Table") since sourceTag, not the name, is what
+    // actually identifies this asset -- the name is purely for the user's own readability.
+    name: name?.trim() || group.accountName,
     accountId: group.accountId,
+    ...(assetClass ? { assetClass } : {}),
     purchaseDate: group.purchaseDate,
     cost: group.cost,
     salvageValue,
@@ -235,7 +293,8 @@ export function createTaggedAsset(data: Ledger, group: TaggedAssetGroup, usefulL
     sourceAccountId: group.accountId,
     sourceTag: group.tag,
   };
-  return { ...data, fixedAssets: [...(data.fixedAssets ?? []), asset] };
+  const withNewAsset: Ledger = { ...data, fixedAssets: [...(data.fixedAssets ?? []), asset] };
+  return reconcileLegacyAssetCost(withNewAsset, group.accountId);
 }
 
 // Refreshes an already-synced asset's cost/purchaseDate from its tag group -- e.g. a 2nd
@@ -246,7 +305,40 @@ export function updateTaggedAssetCost(data: Ledger, group: TaggedAssetGroup): Le
   const updated = (data.fixedAssets ?? []).map((a) =>
     a.id === group.existingAssetId ? { ...a, cost: group.cost, purchaseDate: group.purchaseDate } : a
   );
-  return { ...data, fixedAssets: updated };
+  return reconcileLegacyAssetCost({ ...data, fixedAssets: updated }, group.accountId);
+}
+
+// Called from every save path that can introduce or change an Entry.assetTag (a new voucher, an
+// edited one, or a tag added/changed on an already-posted voucher) -- creates the Asset Master
+// record for any newly-tagged group and refreshes cost/date for any tag that grew, with no
+// separate manual "Sync" step. Useful life/salvage for a brand-new tag are inherited from a
+// sibling asset already on the same ledger (or default to 60/0 if there's no sibling yet) --
+// same defaults the old manual review used, just applied silently. Correctable afterward in
+// Masters > Fixed Assets if the inherited default isn't right for that specific item.
+// `desiredNames` (keyed by "accountId::tag") lets a caller that just typed a brand-new tag also
+// supply the name for its Master record in the same action -- e.g. the voucher-line/voucher-
+// detail tag pickers' optional Name field -- instead of it always defaulting to the ledger's own
+// generic name and requiring a separate rename in Masters afterward.
+export function autoSyncTaggedAssets(data: Ledger, desiredNames?: Record<string, string>): Ledger {
+  const groups = discoverTaggedAssetGroups(data);
+  let next = data;
+  for (const g of groups) {
+    if (g.existingAssetId) {
+      if (g.costChanged) next = updateTaggedAssetCost(next, g);
+      continue;
+    }
+    const sibling = (next.fixedAssets ?? [])
+      .filter((a) => a.accountId === g.accountId)
+      .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))[0];
+    next = createTaggedAsset(
+      next,
+      g,
+      sibling?.usefulLifeMonths ?? 60,
+      sibling?.salvageValue ?? 0,
+      desiredNames?.[`${g.accountId}::${g.tag}`]
+    );
+  }
+  return next;
 }
 
 // Disposes an asset: posts a Journal Tx that zeroes the asset's own cost account and its

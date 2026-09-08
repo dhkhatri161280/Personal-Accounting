@@ -26,6 +26,13 @@ export const ASSET_CLASS_SUGGESTIONS = [
 ];
 export const UNCLASSIFIED_LABEL = "Unclassified";
 
+// Sentinel passed to the ledger drill-down's tag filter for an asset with NO sourceTag (a legacy
+// asset added before tagging existed, or a plain manual one). Since createTaggedAsset carves a
+// tagged sibling's cost out of a legacy asset's cost (see fixed-assets-ledger.ts), the legacy
+// asset's own total no longer equals the whole ledger once it has any tagged siblings -- so its
+// drill-down needs to exclude every OTHER entry's tag too, not show the raw whole-ledger history.
+export const UNTAGGED_ASSET_FILTER = "__untagged__";
+
 // Best-effort keyword match from an asset's own name to one of the classes above -- checked in
 // order, first match wins, so more specific categories (e.g. "washing machine") must be listed
 // before broader ones (e.g. "machine") that would otherwise also match. Returns undefined rather
@@ -83,6 +90,19 @@ export function suggestNextAssetTag(existingTags: string[], prefix: string): str
   const used = existingTags.map((t) => re.exec(t.trim())?.[1]).filter((n): n is string => !!n).map(Number);
   const next = (used.length ? Math.max(...used) : 0) + 1;
   return `${prefix}-${String(next).padStart(3, "0")}`;
+}
+
+// Reverse of ASSET_CLASS_PREFIXES: the tag's own prefix already tells you which class it was
+// assigned under (that's the whole point of class-prefixed numbering), so a synced asset's class
+// can be derived straight from its tag instead of re-guessing from the ledger name or leaving it
+// Unclassified until someone runs auto-classify by hand. Only matches the "PREFIX-NNN" shape --
+// a freehand tag that doesn't follow the convention (e.g. typed before this scheme existed)
+// correctly falls through to undefined, so the caller's own name-based guess still applies.
+export function assetClassFromTag(tag: string): string | undefined {
+  const prefix = /^([A-Za-z]+)-\d+$/.exec(tag.trim())?.[1]?.toUpperCase();
+  if (!prefix) return undefined;
+  for (const [cls, p] of Object.entries(ASSET_CLASS_PREFIXES)) if (p === prefix) return cls;
+  return undefined;
 }
 
 // Straight-line monthly depreciation. usefulLifeMonths <= 0 is treated as "not depreciable"
