@@ -120,11 +120,15 @@ export function ReconReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: num
       const displayName = data.accounts.find((a) => a.name.trim().toLowerCase() === key)?.name
         || snapshot?.balances.find((b) => b.name.trim().toLowerCase() === key)?.name
         || key;
+      // Status is driven by the actual numeric gap (missing side treated as an implicit 0),
+      // not by mere existence -- a ledger that's ₹0 in the app and was never created in Tally
+      // has nothing to reconcile, and shouldn't be flagged the same as a real one-sided balance.
+      const diff = (app ?? 0) - (tally ?? 0);
       let status: ReconRow["status"];
-      let diff: number;
-      if (app === null) { status = "tally-only"; diff = -(tally || 0); }
-      else if (tally === null) { status = "app-only"; diff = app; }
-      else { diff = app - tally; status = Math.abs(diff) > tol ? "difference" : "matched"; }
+      if (Math.abs(diff) <= tol) status = "matched";
+      else if (app === null) status = "tally-only";
+      else if (tally === null) status = "app-only";
+      else status = "difference";
       out.push({ name: displayName, parent, appBalance: app, tallyBalance: tally, diff, status });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

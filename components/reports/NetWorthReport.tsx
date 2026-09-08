@@ -164,32 +164,29 @@ export function NetWorthReport({
   const zeroY = PLOT_BOTTOM - ((0 - min) / range) * plotHeight;
   const lineColor = netWorth >= 0 ? "#16a34a" : "#dc2626";
 
+  async function exportNetWorth() {
+    const summaryHeader = ["Metric", "Amount"];
+    const summaryBody = summaryCards.map((c) => [c.label, c.value]);
+    const assetHeader = ["Category", "Amount"];
+    const assetBody = [...assetGroups.entries()]
+      .sort((a, b) => ASSET_ORDER.indexOf(a[0]) - ASSET_ORDER.indexOf(b[0]))
+      .map(([cat, v]) => [cat, v]);
+    const liabHeader = ["Category", "Amount"];
+    const liabBody = [...liabGroups.entries()]
+      .sort((a, b) => LIAB_ORDER.indexOf(a[0]) - LIAB_ORDER.indexOf(b[0]))
+      .map(([cat, v]) => [cat, v]);
+    const trendHeader = ["Period", "Net Worth"];
+    const trendBody = trend.map((p) => [p.label, p.netWorth]);
+    await exportWorkbook("Net Worth.xlsx", [
+      { name: "Summary", rows: [summaryHeader, ...summaryBody] },
+      { name: "Assets", rows: [assetHeader, ...assetBody] },
+      { name: "Liabilities", rows: [liabHeader, ...liabBody] },
+      ...(trendBody.length > 0 ? [{ name: "Trend", rows: [trendHeader, ...trendBody] }] : []),
+    ]);
+  }
+
   return (
     <>
-      <div className="master-toolbar">
-        <ExportButton
-          onExport={async () => {
-            const summaryHeader = ["Metric", "Amount"];
-            const summaryBody = summaryCards.map((c) => [c.label, c.value]);
-            const assetHeader = ["Category", "Amount"];
-            const assetBody = [...assetGroups.entries()]
-              .sort((a, b) => ASSET_ORDER.indexOf(a[0]) - ASSET_ORDER.indexOf(b[0]))
-              .map(([cat, v]) => [cat, v]);
-            const liabHeader = ["Category", "Amount"];
-            const liabBody = [...liabGroups.entries()]
-              .sort((a, b) => LIAB_ORDER.indexOf(a[0]) - LIAB_ORDER.indexOf(b[0]))
-              .map(([cat, v]) => [cat, v]);
-            const trendHeader = ["Period", "Net Worth"];
-            const trendBody = trend.map((p) => [p.label, p.netWorth]);
-            await exportWorkbook("Net Worth.xlsx", [
-              { name: "Summary", rows: [summaryHeader, ...summaryBody] },
-              { name: "Assets", rows: [assetHeader, ...assetBody] },
-              { name: "Liabilities", rows: [liabHeader, ...liabBody] },
-              ...(trendBody.length > 0 ? [{ name: "Trend", rows: [trendHeader, ...trendBody] }] : []),
-            ]);
-          }}
-        />
-      </div>
       <div className="equity-summary-row">
         {summaryCards.map((c) => (
           <div key={c.label} className="equity-summary-col">
@@ -207,6 +204,7 @@ export function NetWorthReport({
 
       <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
         <h4>Breakdown</h4>
+        <ExportButton onExport={exportNetWorth} />
       </div>
       <div className="equity-summary-row" style={{ alignItems: "stretch" }}>
         {hasTrend && (

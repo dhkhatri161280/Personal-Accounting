@@ -61,6 +61,7 @@ import { FixedAssetRegister } from "@/components/reports/FixedAssetRegister";
 import { PrepaidExpenseRegister } from "@/components/reports/PrepaidExpenseRegister";
 import { LoanRegister } from "@/components/reports/LoanRegister";
 import { PeriodCloseChecklist } from "@/components/reports/PeriodCloseChecklist";
+import { postAmortization } from "@/lib/prepaid-expense-ledger";
 import { FinancialRatios } from "@/components/reports/FinancialRatios";
 import { CashFlowForecast } from "@/components/reports/CashFlowForecast";
 import type { BudgetRow } from "@/lib/budget";
@@ -244,8 +245,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // is one save too late. This is what makes "starts the new FY without asking" actually work
     // for the voucher-entry flow, not just for imports (which save() alone already covers).
     const today = new Date().toISOString().slice(0, 10);
-    const decrypted = ensureHouseHoldAccountsForFiscalYears(decryptedRaw, [fiscalYearOf(today)]);
-    const newAccountCount = decrypted.accounts.length - decryptedRaw.accounts.length;
+    const withHousehold = ensureHouseHoldAccountsForFiscalYears(decryptedRaw, [fiscalYearOf(today)]);
+    const newAccountCount = withHousehold.accounts.length - decryptedRaw.accounts.length;
+    // Auto-catch-up any prepaid-expense amortization months that came due since the last time the
+    // vault was opened, so it never depends on remembering to click "Run Amortization" -- posting
+    // happens here (on unlock, when the vault is actually decrypted) rather than on a server-side
+    // schedule, since the server never holds the password and can't touch the vault unattended.
+    const { data: decrypted, postedCount: amortizationPosted } = postAmortization(withHousehold, today);
     const repaired = recomputeVoucherNumbers(decrypted);
     setVaultEtag(etag);
     setPassword(pw);
@@ -257,11 +263,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     sessionStorage.setItem(sessionKey, pw);
     await cacheUnifiedVaultPassword(pw).catch(() => {});
     setLastSynced(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    if (repaired || newAccountCount > 0) {
+    if (repaired || newAccountCount > 0 || amortizationPosted > 0) {
       setStatus(
         repaired
           ? "Correcting duplicate voucher number and saving securely..."
-          : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
+          : amortizationPosted > 0
+            ? `Posting ${amortizationPosted} pending prepaid amortization voucher(s)...`
+            : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
       );
       const corrected = await encryptVault(decrypted, pw),
         saved = await fetch(apiUrl, {
@@ -274,7 +282,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       if (repairedSave?.etag) setVaultEtag(repairedSave.etag);
       const infoMsg = repaired
         ? "Auto-fixed a duplicate voucher number — no action needed."
-        : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
+        : amortizationPosted > 0
+          ? `Auto-posted ${amortizationPosted} pending prepaid amortization voucher(s).`
+          : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
       setStatus(infoMsg);
       setTimeout(() => setStatus((s) => (s === infoMsg ? "" : s)), 5000);
     } else setStatus("");
@@ -1559,7 +1569,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     </th>
   );
 
-  const tableFiltersJsx = (
+  // Takes an optional trailing node (e.g. an ExportButton) so a report can share this same
+  // filter row instead of giving it a separate `master-toolbar` row of its own -- `.table-filters`
+  // is already a flex row with the ledger-count `span` pushed to the right via margin-left:auto,
+  // so anything appended after it just lands on that same line.
+  const tableFiltersJsx = (extra?: React.ReactNode) => (
     <div className="table-filters">
       <label>
         Filter ledger or group
@@ -1593,6 +1607,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       <span>
         {adjustedFilteredRows.length} of {active.length} ledgers
       </span>
+      {extra}
     </div>
   );
 
@@ -2849,7 +2864,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       )}
       {tab === "ledgers" && (
         <div className="data-panel">
-          {tableFiltersJsx}
+          {tableFiltersJsx()}
           {(() => {
             const ledgerRows = filteredActive
                 .map((a) => {
@@ -3325,7 +3340,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <h3>
                 Trial Balance — <PeriodSelect />
               </h3>
-              {tableFiltersJsx}
               {(() => {
                 const tR = adjustedFilteredRows.map((a) => ({
                   ...a,
@@ -3338,7 +3352,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   tCCr = tR.reduce((s, a) => s + (a.tC > 0 ? a.tC : 0), 0);
                 return (
                   <>
-                  <div className="master-toolbar">
+                  {tableFiltersJsx(
                     <ExportButton
                       onExport={async () => {
                         const header = ["Ledger", "Opening Dr", "Opening Cr", "Period Dr", "Period Cr", "Closing Dr", "Closing Cr"];
@@ -3355,7 +3369,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                         await exportWorkbook("Trial Balance.xlsx", [{ name: "Trial Balance", rows: [header, ...body, totals] }]);
                       }}
                     />
-                  </div>
+                  )}
                   <table>
                     <thead>
                       <tr>
@@ -3568,10 +3582,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               .reduce((s, a) => s - a.closing, 0);
             return (
               <div className="data-panel">
-                <h3>
-                  Cash and Bank Closing Balances — <PeriodSelect />
-                </h3>
-                <div className="master-toolbar">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                  <h3 style={{ margin: 0 }}>
+                    Cash and Bank Closing Balances — <PeriodSelect />
+                  </h3>
                   <ExportButton
                     onExport={async () => {
                       const header = ["Ledger", "Closing Balance"];

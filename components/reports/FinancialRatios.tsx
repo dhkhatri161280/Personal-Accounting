@@ -63,14 +63,14 @@ export function FinancialRatios({ data, fmt }: { data: Ledger; fmt: (n: number) 
 
   return (
     <div className="data-panel grouped-report columnar-report-section">
-      <h3>Financial Ratios</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+        <h3 style={{ margin: 0 }}>Financial Ratios</h3>
+        <ExportButton onExport={exportRatios} />
+      </div>
+      <p style={{ fontSize: 12, opacity: 0.7, margin: "8px 0 10px" }}>
         Emergency Fund = liquid assets ÷ monthly expense (3+ months is a common baseline). Debt-to-Income = total debt ÷ annual
         income (lower is better; includes the mortgage balance when this book has a "Home" account).
       </p>
-      <div className="master-toolbar">
-        <ExportButton onExport={exportRatios} />
-      </div>
       <div className="columnar-report-scroll">
         <table className="columnar-report-table">
           <thead>

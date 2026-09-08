@@ -81,8 +81,8 @@ export function MultiYearTrend({
 
   return (
     <div className="data-panel grouped-report columnar-report-section">
-      <h3>Multi-Year Trend</h3>
-      <div className="master-toolbar">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+        <h3 style={{ margin: 0 }}>Multi-Year Trend</h3>
         <ExportButton onExport={exportTrend} />
       </div>
       <div className="columnar-report-scroll">
