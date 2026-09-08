@@ -83,6 +83,7 @@ import { RetirementReport } from "@/components/reports/RetirementReport";
 import { TaxReport } from "@/components/reports/TaxReport";
 import { IndiaTaxReport } from "@/components/reports/IndiaTaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
+import { BalanceConfirmationLetter } from "@/components/reports/BalanceConfirmationLetter";
 import { StatIcon, Icon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
@@ -1456,6 +1457,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-prepaid", label: "Prepaid Expenses", group: "Reports", keywords: ["prepaid", "amortization", "insurance", "subscription"], go: () => { setReport("prepaid"); setTab("reports"); } },
     { id: "report-loans", label: "Loan / Debt Register", group: "Reports", keywords: ["loan", "debt", "amortization", "car loan", "personal loan"], go: () => { setReport("loans"); setTab("reports"); } },
     { id: "report-closechecklist", label: "Period-Close Checklist", group: "Reports", keywords: ["checklist", "close", "period", "ready to close"], go: () => { setReport("closechecklist"); setTab("reports"); } },
+    { id: "report-balconfirm", label: "Balance Confirmation Letter", group: "Reports", keywords: ["confirmation", "letter", "print", "balance confirmation", "audit"], go: () => { setReport("balconfirm"); setTab("reports"); } },
     { id: "report-ratios", label: "Financial Ratios", group: "Reports", keywords: ["ratio", "kpi", "savings rate", "debt to income", "emergency fund"], go: () => { setReport("ratios"); setTab("reports"); } },
     { id: "report-cashforecast", label: "Cash Flow Forecast", group: "Reports", keywords: ["forecast", "cash flow", "projection", "runway"], go: () => { setReport("cashforecast"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
@@ -3063,6 +3065,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   { id: "fyclose", label: "FY Close", onClick: () => setReport("fyclose") },
                   { id: "closechecklist", label: "Close Checklist", onClick: () => setReport("closechecklist") },
                   { id: "auditlog", label: "Audit Log", onClick: () => setReport("auditlog") },
+                  { id: "balconfirm", label: "Balance Confirmation", onClick: () => setReport("balconfirm") },
                   { id: "trash", label: "Trash", onClick: () => setReport("trash") },
                 ],
               },
@@ -3871,6 +3874,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "auditlog" && data && (
             <AuditLog data={data} onViewVoucher={(t) => setSelectedVoucher(t)} />
           )}
+          {report === "balconfirm" && data && <BalanceConfirmationLetter data={data} fmt={fmt} />}
           {report === "fixedassets" && data && (
             <FixedAssetRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
           )}

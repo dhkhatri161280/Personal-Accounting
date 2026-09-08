@@ -401,6 +401,12 @@ export type TallyLedgerSnapshot = {
 export type Ledger = {
   version: number;
   company: string;
+  // Optional company profile fields (Masters > Settings), shown on the voucher print view and
+  // usable as the default sender letterhead for the Balance Confirmation Letter -- same generic
+  // "company details" block any ERP's settings screen has, absent here until now.
+  companyAddress?: string;
+  companyPhone?: string;
+  companyEmail?: string;
   currency: string;
   createdAt: string;
   accounts: Account[];

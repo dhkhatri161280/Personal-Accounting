@@ -35,6 +35,10 @@ export type MasterAccount = {
   masterDeletePending?: boolean;
 };
 export type MasterLedger = {
+  company?: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  companyEmail?: string;
   currency: string;
   accounts: MasterAccount[];
   groups?: MasterGroup[];
@@ -908,13 +912,50 @@ export function MastersPanel({
                 .split(",")
                 .map(normalize)
                 .filter(Boolean),
-              fiscalYearStartMonth = Number(f.get("fiscalMonth") || 4);
+              fiscalYearStartMonth = Number(f.get("fiscalMonth") || 4),
+              company = String(f.get("company") || "").trim(),
+              companyAddress = String(f.get("companyAddress") || "").trim(),
+              companyPhone = String(f.get("companyPhone") || "").trim(),
+              companyEmail = String(f.get("companyEmail") || "").trim();
             onSave(
-              { ...data, currencies, voucherTypes, fiscalYearStartMonth },
+              {
+                ...data,
+                currencies,
+                voucherTypes,
+                fiscalYearStartMonth,
+                ...(company ? { company } : {}),
+                companyAddress,
+                companyPhone,
+                companyEmail,
+              },
               "Other masters updated."
             );
           }}
         >
+          <h3>Company profile</h3>
+          <label>
+            Company / entity name
+            <input name="company" defaultValue={data.company} autoComplete="off" />
+          </label>
+          <label>
+            Address
+            <textarea
+              name="companyAddress"
+              rows={2}
+              defaultValue={data.companyAddress || ""}
+              placeholder="Street, City, State, ZIP"
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            Phone
+            <input name="companyPhone" defaultValue={data.companyPhone || ""} placeholder="(555) 555-5555" autoComplete="off" />
+          </label>
+          <label>
+            Email
+            <input type="email" name="companyEmail" defaultValue={data.companyEmail || ""} placeholder="you@example.com" autoComplete="off" />
+          </label>
+
           <h3>Company accounting settings</h3>
           <label>
             Base currency

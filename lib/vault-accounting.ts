@@ -141,7 +141,14 @@ export function buildFiscalYearCloseVoucher(ledger: Ledger, fy: number): FiscalY
   const activeAccounts = ledger.accounts.filter((a) => a.active !== false);
 
   const plAccounts = activeAccounts.filter((a) => isProfitAndLossAccountName(a.name));
-  const capitalAccounts = activeAccounts.filter((a) => nature(a) === "Capital" && !isProfitAndLossAccountName(a.name));
+  // "Opening Balance Equity" (see lib/opening-balance-equity.ts) is a technical suspense account
+  // auto-created whenever a new ledger -- e.g. a Prepaid Expense item -- needs a starting balance
+  // with a proper double-entry counterpart. It lives under the same "Capital Account" group as the
+  // real owner's-capital ledger but isn't a candidate for where the year's P&L should close into,
+  // so it's excluded here the same way the P&L account itself is.
+  const capitalAccounts = activeAccounts.filter(
+    (a) => nature(a) === "Capital" && !isProfitAndLossAccountName(a.name) && a.name.trim().toLowerCase() !== "opening balance equity"
+  );
   if (plAccounts.length !== 1) {
     return { status: "error", message: `expected exactly 1 active "Profit & Loss A/c" ledger, found ${plAccounts.length}` };
   }

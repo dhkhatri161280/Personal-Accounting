@@ -25,6 +25,7 @@ export function PrepaidExpenseRegister({
   const [saving, setSaving] = useState(false);
   const [writingOffId, setWritingOffId] = useState<string | null>(null);
   const [writeOffDate, setWriteOffDate] = useState(new Date().toISOString().slice(0, 10));
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const items = (data.prepaidExpenses ?? []).slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -98,6 +99,21 @@ export function PrepaidExpenseRegister({
         const ok = await onSave(result.data);
         if (ok) setWritingOffId(null);
       }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Only removes the register entry itself -- never touches a voucher. Restricted to items with
+  // nothing amortized yet (Amortized = $0.00), so it's a pure no-side-effect undo of a bad "+ Add
+  // Prepaid Expense" entry (e.g. a name collision that silently reused another item's ledger --
+  // see lib/prepaid-expense-ledger.ts's getOrCreatePrepaidAccount), not a way to erase real history.
+  async function confirmDelete(id: string) {
+    setSaving(true);
+    try {
+      const next: Ledger = { ...data, prepaidExpenses: (data.prepaidExpenses ?? []).filter((p) => p.id !== id) };
+      const ok = await onSave(next);
+      if (ok) setDeletingId(null);
     } finally {
       setSaving(false);
     }
@@ -236,9 +252,26 @@ export function PrepaidExpenseRegister({
                             </button>
                           </div>
                         ) : (
-                          <button type="button" className="tr-refresh-btn" onClick={() => setWritingOffId(p.id)}>
-                            Write Off
-                          </button>
+                          <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                            <button type="button" className="tr-refresh-btn" onClick={() => setWritingOffId(p.id)}>
+                              Write Off
+                            </button>
+                            {amortized === 0 &&
+                              (deletingId === p.id ? (
+                                <>
+                                  <button type="button" className="tr-refresh-btn" disabled={saving} onClick={() => confirmDelete(p.id)}>
+                                    Confirm Delete
+                                  </button>
+                                  <button type="button" className="tr-refresh-btn" onClick={() => setDeletingId(null)}>
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button type="button" className="tr-refresh-btn" onClick={() => setDeletingId(p.id)}>
+                                  Delete
+                                </button>
+                              ))}
+                          </div>
                         ))}
                     </td>
                   </tr>
