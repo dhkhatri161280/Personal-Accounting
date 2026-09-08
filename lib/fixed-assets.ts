@@ -42,7 +42,7 @@ const ASSET_CLASS_RULES: { pattern: RegExp; assetClass: string }[] = [
   },
   {
     pattern:
-      /\b(refrigerator|fridge|washing machine|air condition(er)?|\bac\b|microwave|oven|food processor|mixture|grinder|mixer|television|\btv\b|geyser|water heater|cooler|vacuum|dishwasher|speaker|music system|\biron\b)\b/i,
+      /\b(refrigerator|fridge|washing machine|air condition(er)?|\bac\b|microwave|oven|food processor|mixture|grinder|mixer|television|\btv\b|geyser|water heater|cooler|vacuum|dishwasher|speaker|music system|\biron\b|key\s*board|casio|synthesizer|piano)\b/i,
     assetClass: "Electronics & Appliances",
   },
   {

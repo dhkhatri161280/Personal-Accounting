@@ -41,6 +41,8 @@ export function FixedAssetRegister({
   // elsewhere in this app (NetWorthReport's Assets/Liabilities breakdown).
   const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set());
   const [classifying, setClassifying] = useState(false);
+  const [editingClassId, setEditingClassId] = useState<string | null>(null);
+  const [editingClassValue, setEditingClassValue] = useState("");
 
   const assets = (data.fixedAssets ?? []).slice().sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -124,6 +126,21 @@ export function FixedAssetRegister({
       await onSave({ ...data, fixedAssets: updated });
     } finally {
       setClassifying(false);
+    }
+  }
+
+  // Manual correction for whatever autoClassify's keyword guesser can't cover (or got wrong) --
+  // an empty value clears the class back to Unclassified rather than being rejected.
+  async function saveClass(assetId: string) {
+    setSaving(true);
+    try {
+      const updated = (data.fixedAssets ?? []).map((a) =>
+        a.id === assetId ? { ...a, assetClass: editingClassValue.trim() || undefined } : a
+      );
+      const ok = await onSave({ ...data, fixedAssets: updated });
+      if (ok) setEditingClassId(null);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -256,6 +273,12 @@ export function FixedAssetRegister({
         <ExportButton onExport={exportAssets} />
       </div>
 
+      <datalist id="asset-class-suggestions">
+        {ASSET_CLASS_SUGGESTIONS.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+
       {showAdd && (
         <div className="report-line" style={{ flexWrap: "wrap", gap: 8 }}>
           <input placeholder="Asset name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -266,11 +289,6 @@ export function FixedAssetRegister({
             onChange={(e) => setAssetClass(e.target.value)}
             style={{ width: 170 }}
           />
-          <datalist id="asset-class-suggestions">
-            {ASSET_CLASS_SUGGESTIONS.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
           <input placeholder="Cost" type="number" value={cost} onChange={(e) => setCost(e.target.value)} style={{ width: 100 }} />
           <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
           <input
@@ -347,7 +365,38 @@ export function FixedAssetRegister({
                         return (
                           <tr key={a.id}>
                             <td>{a.name}</td>
-                            <td>{a.assetClass || "—"}</td>
+                            <td>
+                              {editingClassId === a.id ? (
+                                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                  <input
+                                    list="asset-class-suggestions"
+                                    autoFocus
+                                    value={editingClassValue}
+                                    onChange={(e) => setEditingClassValue(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && saveClass(a.id)}
+                                    style={{ width: 130 }}
+                                  />
+                                  <button type="button" className="tr-refresh-btn" disabled={saving} onClick={() => saveClass(a.id)}>
+                                    Save
+                                  </button>
+                                  <button type="button" className="tr-refresh-btn" onClick={() => setEditingClassId(null)}>
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="ledger-link"
+                                  title="Edit Group / Class"
+                                  onClick={() => {
+                                    setEditingClassId(a.id);
+                                    setEditingClassValue(a.assetClass || "");
+                                  }}
+                                >
+                                  {a.assetClass || "—"}
+                                </button>
+                              )}
+                            </td>
                             <td>{fmtDate(a.purchaseDate)}</td>
                             <td className="right">{fmt(a.cost)}</td>
                             <td className="right">{a.usefulLifeMonths} mo</td>
