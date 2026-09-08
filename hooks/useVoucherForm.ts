@@ -202,6 +202,7 @@ export function useVoucherForm({
             accountId,
             accountName: byId.get(accountId) || "",
             amount: line.side === "debit" ? -amount : amount,
+            ...(line.assetTag?.trim() ? { assetTag: line.assetTag.trim() } : {}),
           };
         })
         .filter((e) => e.accountId && centsOf(e.amount) !== 0),

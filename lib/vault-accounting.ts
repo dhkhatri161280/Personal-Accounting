@@ -12,6 +12,7 @@ export const draftLinesFromTx = (tx: Tx | null): VoucherLineDraft[] =>
         side: e.amount < 0 ? ("debit" as const) : ("credit" as const),
         accountId: String(e.accountId),
         amount: String(Math.abs(e.amount)),
+        assetTag: e.assetTag,
       }))
     : blankVoucherLines();
 

@@ -61,6 +61,30 @@ export function guessAssetClass(name: string): string | undefined {
   return undefined;
 }
 
+// SAP/Oracle-style: each Asset Class gets its own short number-range prefix, so the tag itself
+// tells you the class at a glance (e.g. "VEH-003"). Same prefixes/logic in every book -- only the
+// sequence within a prefix is book-local, since each book's vault is an independent store with no
+// shared counter between them.
+export const ASSET_CLASS_PREFIXES: Record<string, string> = {
+  "Furniture & Fixtures": "FUR",
+  Vehicles: "VEH",
+  "Electronics & Appliances": "ELEC",
+  "IT Equipment": "IT",
+  "Machinery & Equipment": "MACH",
+  "Buildings & Improvements": "BLDG",
+  [UNCLASSIFIED_LABEL]: "MISC",
+};
+
+// Next sequential "PREFIX-NNN" tag not already present in `existingTags` (any tag under that
+// prefix, case-insensitive, however it originated -- freehand or previously auto-suggested).
+// Zero-padded to 3 digits up to 999, then grows naturally (e.g. "VEH-1000").
+export function suggestNextAssetTag(existingTags: string[], prefix: string): string {
+  const re = new RegExp(`^${prefix}-(\\d+)$`, "i");
+  const used = existingTags.map((t) => re.exec(t.trim())?.[1]).filter((n): n is string => !!n).map(Number);
+  const next = (used.length ? Math.max(...used) : 0) + 1;
+  return `${prefix}-${String(next).padStart(3, "0")}`;
+}
+
 // Straight-line monthly depreciation. usefulLifeMonths <= 0 is treated as "not depreciable"
 // (e.g. land) -- returns 0 rather than dividing by zero/going negative.
 export function monthlyDepreciation(asset: FixedAsset): number {

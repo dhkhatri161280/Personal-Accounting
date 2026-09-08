@@ -1,8 +1,13 @@
 import type { MasterGroup } from "@/components/MastersPanel";
 
-export type Entry = { accountId: number; accountName: string; amount: number };
+// assetTag is an optional sub-ledger marker (SAP/Oracle "Asset Number" style): a free-text tag
+// the user assigns when the debit ledger is a Fixed-Assets-nature account, letting several
+// entries posted to the SAME GL ledger (e.g. "Furniture Purchase") still be tracked as distinct
+// depreciable assets underneath -- see lib/fixed-assets-ledger.ts's discoverTaggedAssetGroups.
+// Only ever set going forward at entry time; never backfilled onto historical vouchers.
+export type Entry = { accountId: number; accountName: string; amount: number; assetTag?: string };
 
-export type VoucherLineDraft = { id: string; side: "debit" | "credit"; accountId: string; amount: string };
+export type VoucherLineDraft = { id: string; side: "debit" | "credit"; accountId: string; amount: string; assetTag?: string };
 
 export type Tx = {
   id: number;
@@ -334,6 +339,13 @@ export type FixedAsset = {
   // none posted yet (depreciation starts accruing from purchaseDate's month).
   lastDepreciatedThrough?: string;
   disposed?: { date: string; proceeds: number; txGuid?: string };
+  // Set only when this asset was created via "Sync tagged assets" (lib/fixed-assets-ledger.ts's
+  // discoverTaggedAssetGroups) rather than the manual "+ Add Asset" form -- identifies which
+  // (accountId, Entry.assetTag) group funds it, so a later sync can find and update it (cost grows
+  // as new tagged entries post) instead of creating a duplicate. Absent for manually-added assets,
+  // whose cost/purchaseDate the user typed directly rather than derived from tagged entries.
+  sourceAccountId?: number;
+  sourceTag?: string;
 };
 
 // A prepaid expense (an annual insurance premium, a subscription paid upfront) -- same

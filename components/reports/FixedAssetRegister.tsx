@@ -11,19 +11,35 @@ import {
   ASSET_CLASS_SUGGESTIONS,
   UNCLASSIFIED_LABEL,
 } from "@/lib/fixed-assets";
-import { getOrCreateAssetAccount, postDepreciation, postDepreciationConsolidated, disposeAsset } from "@/lib/fixed-assets-ledger";
+import {
+  getOrCreateAssetAccount,
+  postDepreciation,
+  postDepreciationConsolidated,
+  disposeAsset,
+  discoverTaggedAssetGroups,
+  createTaggedAsset,
+  updateTaggedAssetCost,
+  type TaggedAssetGroup,
+} from "@/lib/fixed-assets-ledger";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { fmtDate } from "@/lib/format-date";
+import { FloatingWindow } from "@/components/FloatingWindow";
 
 export function FixedAssetRegister({
   data,
   fmt,
   onSave,
+  onSelectAccount,
 }: {
   data: Ledger;
   fmt: (n: number) => string;
   onSave: (next: Ledger) => Promise<boolean> | boolean;
+  // Opens the same ledger drill-down popup used everywhere else in the app (Trial Balance, Net
+  // Worth, ...) for this asset's own "Fixed Assets"-group account -- every voucher posted
+  // against it (purchase + each depreciation entry) is exactly what makes up its Accum. Dep./
+  // Book Value, so this is the answer to "what's included in that" without a bespoke modal.
+  onSelectAccount?: (id: number) => void;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState("");
@@ -43,6 +59,9 @@ export function FixedAssetRegister({
   const [classifying, setClassifying] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editingClassValue, setEditingClassValue] = useState("");
+  const [showSync, setShowSync] = useState(false);
+  const [syncDrafts, setSyncDrafts] = useState<Record<string, { usefulLifeMonths: string; salvageValue: string }>>({});
+  const [syncing, setSyncing] = useState(false);
 
   const assets = (data.fixedAssets ?? []).slice().sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -144,6 +163,40 @@ export function FixedAssetRegister({
     }
   }
 
+  const taggedGroups = discoverTaggedAssetGroups(data);
+  const newTaggedGroups = taggedGroups.filter((g) => !g.existingAssetId);
+  const changedTaggedGroups = taggedGroups.filter((g) => g.costChanged);
+  const groupKey = (g: TaggedAssetGroup) => `${g.accountId}::${g.tag}`;
+
+  function openSync() {
+    setSyncDrafts(
+      Object.fromEntries(newTaggedGroups.map((g) => [groupKey(g), { usefulLifeMonths: "60", salvageValue: "0" }]))
+    );
+    setShowSync(true);
+  }
+
+  // Creates a FixedAsset for every newly-discovered tag (using the useful life/salvage the user
+  // entered per row) and, in the same save, refreshes cost/purchaseDate for any already-synced
+  // asset whose tag group grew (e.g. a 2nd installment posted since the last sync) -- no funding
+  // voucher posted either way, since the tagged entries themselves already are the real funding.
+  async function runSync() {
+    setSyncing(true);
+    try {
+      let next = data;
+      for (const g of newTaggedGroups) {
+        const draft = syncDrafts[groupKey(g)];
+        const life = Number(draft?.usefulLifeMonths) || 0;
+        if (!life) continue;
+        next = createTaggedAsset(next, g, life, Number(draft?.salvageValue) || 0);
+      }
+      for (const g of changedTaggedGroups) next = updateTaggedAssetCost(next, g);
+      const ok = await onSave(next);
+      if (ok) setShowSync(false);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function confirmDispose(assetId: string) {
     if (disposalCashAcct === "") return;
     setSaving(true);
@@ -214,9 +267,10 @@ export function FixedAssetRegister({
   const toggleAllClasses = () => setExpandedClasses(allClassesExpanded ? new Set() : new Set(classGroups.map(([cls]) => cls)));
 
   async function exportAssets() {
-    const header = ["Asset", "Group / Class", "Purchase Date", "Cost", "Useful Life (mo)", "Monthly Dep.", "Accum. Dep.", "Book Value", "Status"];
+    const header = ["Asset", "Fixed Asset #", "Group / Class", "Purchase Date", "Cost", "Useful Life (mo)", "Monthly Dep.", "Accum. Dep.", "Book Value", "Status"];
     const body = assets.map((a) => [
       a.name,
+      a.sourceTag || "",
       a.assetClass || "",
       fmtDate(a.purchaseDate),
       a.cost,
@@ -226,7 +280,7 @@ export function FixedAssetRegister({
       bookValue(a, todayStr),
       a.disposed ? `Disposed ${fmtDate(a.disposed.date)}` : "Active",
     ]);
-    const totalsRow = ["Total", "", "", totals.cost, "", totals.monthly, totals.accum, totals.bookValue, ""];
+    const totalsRow = ["Total", "", "", "", totals.cost, "", totals.monthly, totals.accum, totals.bookValue, ""];
     await exportWorkbook("Fixed Asset Register.xlsx", [{ name: "Fixed Assets", rows: [header, ...body, totalsRow] }]);
   }
 
@@ -253,6 +307,13 @@ export function FixedAssetRegister({
         {unclassifiedCount > 0 && (
           <button type="button" className="tr-refresh-btn" disabled={classifying} onClick={autoClassify}>
             {classifying ? "Classifying…" : `🪄 Auto-classify ${unclassifiedCount}`}
+          </button>
+        )}
+        {(newTaggedGroups.length > 0 || changedTaggedGroups.length > 0) && (
+          <button type="button" className="tr-refresh-btn" onClick={openSync}>
+            🏷 Sync tagged assets
+            {newTaggedGroups.length > 0 ? ` (${newTaggedGroups.length} new` : " ("}
+            {changedTaggedGroups.length > 0 ? `${newTaggedGroups.length > 0 ? ", " : ""}${changedTaggedGroups.length} updated)` : ")"}
           </button>
         )}
         <ExportButton onExport={exportAssets} />
@@ -388,7 +449,16 @@ export function FixedAssetRegister({
                         const bv = bookValue(a, todayStr);
                         return (
                           <tr key={a.id}>
-                            <td>{a.name}</td>
+                            <td>
+                              {onSelectAccount ? (
+                                <button type="button" className="ledger-link" onClick={() => onSelectAccount(a.accountId)}>
+                                  {a.name}
+                                </button>
+                              ) : (
+                                a.name
+                              )}
+                              {a.sourceTag && <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.6 }}>#{a.sourceTag}</span>}
+                            </td>
                             <td>
                               {editingClassId === a.id ? (
                                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
@@ -498,6 +568,76 @@ export function FixedAssetRegister({
             </tfoot>
           </table>
         </div>
+      )}
+
+      {showSync && (
+        <FloatingWindow title="Sync tagged assets" onClose={() => setShowSync(false)}>
+          <div style={{ padding: 4, display: "grid", gap: 14, maxWidth: 640 }}>
+            {newTaggedGroups.length > 0 && (
+              <div>
+                <h4 style={{ margin: "0 0 8px" }}>New ({newTaggedGroups.length})</h4>
+                <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
+                  Cost and purchase date come from the tagged vouchers themselves — enter useful life and salvage value for each.
+                </p>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {newTaggedGroups.map((g) => {
+                    const key = groupKey(g);
+                    const draft = syncDrafts[key] ?? { usefulLifeMonths: "60", salvageValue: "0" };
+                    return (
+                      <div key={key} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", borderBottom: "1px solid #edf0f4", paddingBottom: 8 }}>
+                        <div style={{ flex: "1 1 220px" }}>
+                          <strong>{g.tag}</strong>
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>
+                            {g.accountName} · {fmtDate(g.purchaseDate)} · {fmt(g.cost)}
+                          </div>
+                        </div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#53627a" }}>
+                          Useful life (mo)
+                          <input
+                            type="number"
+                            value={draft.usefulLifeMonths}
+                            onChange={(e) => setSyncDrafts((d) => ({ ...d, [key]: { ...draft, usefulLifeMonths: e.target.value } }))}
+                            style={{ width: 70, marginLeft: 6 }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#53627a" }}>
+                          Salvage
+                          <input
+                            type="number"
+                            value={draft.salvageValue}
+                            onChange={(e) => setSyncDrafts((d) => ({ ...d, [key]: { ...draft, salvageValue: e.target.value } }))}
+                            style={{ width: 70, marginLeft: 6 }}
+                          />
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {changedTaggedGroups.length > 0 && (
+              <div>
+                <h4 style={{ margin: "0 0 8px" }}>Cost updated ({changedTaggedGroups.length})</h4>
+                <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>A later installment posted under an already-synced tag.</p>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {changedTaggedGroups.map((g) => (
+                    <div key={groupKey(g)} style={{ fontSize: 13 }}>
+                      <strong>{g.tag}</strong> ({g.accountName}) → {fmt(g.cost)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="tr-refresh-btn" onClick={() => setShowSync(false)}>
+                Cancel
+              </button>
+              <button type="button" className="tr-refresh-btn" disabled={syncing} onClick={runSync}>
+                {syncing ? "Syncing…" : "Sync"}
+              </button>
+            </div>
+          </div>
+        </FloatingWindow>
       )}
     </div>
   );

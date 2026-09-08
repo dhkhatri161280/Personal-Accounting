@@ -157,6 +157,95 @@ export function postDepreciationConsolidated(data: Ledger, throughDate: string, 
   return { data: { ...workingLedger, transactions: workingTxs, fixedAssets: updatedAssets }, postedCount };
 }
 
+export type TaggedAssetGroup = {
+  accountId: number;
+  accountName: string;
+  tag: string;
+  cost: number;
+  purchaseDate: string;
+  existingAssetId?: string;
+  costChanged: boolean;
+};
+
+// Scans every posted voucher entry carrying an Entry.assetTag (set at entry time in the New
+// Voucher form when the debit ledger is a Fixed-Assets-nature account -- see VaultApp.tsx's
+// voucher-line rendering) and groups them by (accountId, tag). Several tagged entries on the same
+// GL ledger (e.g. two installments of one sofa, both posted to "Furniture Purchase") net into one
+// group: cost = the net Dr amount, purchaseDate = the earliest entry's date. Cross-references
+// data.fixedAssets (matched via sourceAccountId/sourceTag) so a caller can tell a genuinely new
+// tag apart from one that already has an asset and just needs its cost/date refreshed.
+export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
+  const accountById = new Map(data.accounts.map((a) => [a.id, a]));
+  const groups = new Map<string, { accountId: number; tag: string; cost: number; earliestDate: string }>();
+  for (const t of data.transactions) {
+    if (t.deleted || t.cancelled) continue;
+    for (const e of t.entries) {
+      if (!e.assetTag) continue;
+      const acc = accountById.get(e.accountId);
+      if (!acc || acc.parent !== FIXED_ASSETS_GROUP_NAME) continue;
+      const key = `${e.accountId}::${e.assetTag}`;
+      const cost = round2(-e.amount); // Dr (negative) increases the asset, mirrors ledgerBalanceAsOf's convention
+      const existing = groups.get(key);
+      if (existing) {
+        existing.cost = round2(existing.cost + cost);
+        if (t.date < existing.earliestDate) existing.earliestDate = t.date;
+      } else {
+        groups.set(key, { accountId: e.accountId, tag: e.assetTag, cost, earliestDate: t.date });
+      }
+    }
+  }
+  const linkedByKey = new Map<string, FixedAsset>(
+    (data.fixedAssets ?? [])
+      .filter((a) => a.sourceAccountId != null && a.sourceTag)
+      .map((a) => [`${a.sourceAccountId}::${a.sourceTag}`, a])
+  );
+  return [...groups.entries()]
+    .map(([key, g]) => {
+      const linked = linkedByKey.get(key);
+      return {
+        accountId: g.accountId,
+        accountName: accountById.get(g.accountId)?.name || "",
+        tag: g.tag,
+        cost: g.cost,
+        purchaseDate: g.earliestDate,
+        existingAssetId: linked?.id,
+        costChanged: !!linked && round2(linked.cost) !== g.cost,
+      };
+    })
+    .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
+}
+
+// Registers a brand-new tagged group as its own FixedAsset -- unlike getOrCreateAssetAccount,
+// this never posts an Opening-Balance-Equity funding voucher, since the tagged entries themselves
+// already ARE the real funding (the whole point of tagging instead of re-ledgering). Useful
+// life/salvage value can't be derived from a GL posting, so the caller collects those from the
+// user before calling this.
+export function createTaggedAsset(data: Ledger, group: TaggedAssetGroup, usefulLifeMonths: number, salvageValue: number): Ledger {
+  const asset: FixedAsset = {
+    id: crypto.randomUUID(),
+    name: `${group.accountName} — ${group.tag}`,
+    accountId: group.accountId,
+    purchaseDate: group.purchaseDate,
+    cost: group.cost,
+    salvageValue,
+    usefulLifeMonths,
+    sourceAccountId: group.accountId,
+    sourceTag: group.tag,
+  };
+  return { ...data, fixedAssets: [...(data.fixedAssets ?? []), asset] };
+}
+
+// Refreshes an already-synced asset's cost/purchaseDate from its tag group -- e.g. a 2nd
+// installment posted later under the same tag. Useful life/salvage are left untouched (already
+// set from the first sync).
+export function updateTaggedAssetCost(data: Ledger, group: TaggedAssetGroup): Ledger {
+  if (!group.existingAssetId) return data;
+  const updated = (data.fixedAssets ?? []).map((a) =>
+    a.id === group.existingAssetId ? { ...a, cost: group.cost, purchaseDate: group.purchaseDate } : a
+  );
+  return { ...data, fixedAssets: updated };
+}
+
 // Disposes an asset: posts a Journal Tx that zeroes the asset's own cost account and its
 // accumulated depreciation, records any cash proceeds, and plugs the difference to a Gain/Loss
 // on Disposal line (auto-created if missing, same pattern as the depreciation accounts).
