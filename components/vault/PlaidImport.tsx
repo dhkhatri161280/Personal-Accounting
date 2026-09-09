@@ -282,7 +282,7 @@ function buildHistoryIndex(ledger: Ledger): HistoryIndex {
 function matchFromHistory(
   tx: PlaidTxRaw,
   index: HistoryIndex
-): { debitId: number; creditId: number; confidence: number; fromPaymentHistory: boolean } | null {
+): { debitId: number; creditId: number; confidence: number; fromPaymentHistory: boolean; voteCount: number } | null {
   const merchantTokens = tokenise(tx.merchant_name || tx.name || "");
   if (!merchantTokens.length) return null;
 
@@ -329,6 +329,13 @@ function matchFromHistory(
     creditId: +cStr,
     confidence: Math.min(agreement * 0.6 + depth * 0.4, 0.9),
     fromPaymentHistory: (pairPaymentVotes.get(bestKey) || 0) > 0,
+    // Exposed separately from `confidence` -- a single, uncontested match (no competing pairs)
+    // computes a deceptively HIGH confidence (100% "agreement" against nothing), even though it's
+    // exactly the case a coincidental short-word overlap with an unrelated merchant looks like
+    // (e.g. "hold" from "ACH HOLD ENCLAVE..." matching one unrelated voucher by chance). Callers
+    // that have a stronger, independent signal available (see matchFromHistoryByAmount below) can
+    // use this raw vote count to tell "one real match" apart from "one coincidence."
+    voteCount: bestCount,
   };
 }
 
@@ -872,12 +879,35 @@ function buildDraft(
     const currentHH = () => allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase());
     let debitAcc = finalDebitId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalDebitId);
     let creditAcc = finalCreditId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalCreditId);
-    // Institution guard: for expense transactions the credit side must come from
-    // the same institution as the Plaid transaction. If history suggested a card
-    // from a different bank (e.g. Citi for a BofA charge), substitute cardAcc.
+    // Institution guard: for expense transactions the credit side must come from the same
+    // institution as the Plaid transaction. If history suggested a card from a different bank
+    // (e.g. Citi for a BofA charge), substitute cardAcc.
+    //
+    // For a DEPOSITORY (checking/savings) transaction specifically, this always substitutes
+    // cardAcc outright, not just on an institution mismatch -- unlike credit cards, where a
+    // single issuer can have several distinct physical cards/GL accounts a same-family match
+    // could legitimately (if imprecisely) refer to, a checking transaction has exactly one real
+    // account it can be, and Plaid's own account type/id (already resolved into cardAcc above)
+    // is a stronger, more specific signal than history's own merchant-text guess. Confirmed live:
+    // a genuine BofA checking ACH debit's history match (a coincidental short-word overlap with
+    // an unrelated merchant, not this specific bill) surfaced a completely different BofA credit
+    // card, which passed the plain "same institution" check below and went uncorrected.
     if (tx.amount > 0 && creditAcc && cardAcc && creditAcc.id !== cardAcc.id) {
-      if (!accountMatchesInstitution(creditAcc.name, tx.institution_name)) {
+      if (!isCreditAcct || !accountMatchesInstitution(creditAcc.name, tx.institution_name)) {
         creditAcc = cardAcc;
+      }
+    }
+    // A single, uncontested text match (matchFromHistory's own voteCount === 1 -- see its
+    // definition) is trusted immediately by design, but that's exactly what a coincidental
+    // short-word overlap with one unrelated voucher looks like too (no competing candidates to
+    // catch it). When a stronger, independent signal is available -- this same dollar amount
+    // recurring 2+ times against a DIFFERENT debit account -- prefer that over the single
+    // coincidental word match.
+    if (tx.amount > 0 && match.voteCount === 1) {
+      const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
+      if (amtMatch && amtMatch.debitId !== debitAcc?.id) {
+        const amtDebitAcc = accounts.find((a) => a.id === amtMatch.debitId);
+        if (amtDebitAcc) debitAcc = amtDebitAcc;
       }
     }
     // Same-institution, wrong-physical-card guard: matchFromHistory has no idea which of two

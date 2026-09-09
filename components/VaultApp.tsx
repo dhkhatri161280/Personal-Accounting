@@ -74,6 +74,7 @@ import {
 import { autoSyncTaggedAssets, tagExistingAsset } from "@/lib/fixed-assets-ledger";
 import { FinancialRatios } from "@/components/reports/FinancialRatios";
 import { CashFlowForecast } from "@/components/reports/CashFlowForecast";
+import { FundSummary } from "@/components/reports/FundSummary";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
@@ -119,13 +120,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     biometricSessionKey = "personal-ledger-biometric-session",
     unifiedSecretKey = "fintech-unified-prf-secret",
     unifiedSealKey = "fintech-unified-vault-seal";
-  const autoBiometricStarted = useRef(false),
+  const
     // Guards against a second navigator.credentials.get() firing while one is already awaiting
     // the fingerprint/face prompt -- WebAuthn only allows one ceremony at a time per page, and a
     // second concurrent call throws "OperationError: A request is already pending" instead of
-    // queuing. This app auto-triggers biometricUnlock() on load (see autoBiometricStarted below)
-    // while the "Unlock with fingerprint..." button stays enabled the whole time, so an auto-
-    // trigger + a tap (or two taps) racing each other reproduced this exact error live.
+    // queuing. Unlock is only ever tapped now (see the mount effect below), but this still
+    // guards against a rapid double-tap.
     biometricInFlight = useRef(false),
     entryFormRef = useRef<HTMLFormElement>(null),
     newVoucherMenuRef = useRef<HTMLDivElement>(null),
@@ -402,21 +402,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     }
   }
 
-  // `auto`: true only for the unattended attempt fired on page load, with no real user tap behind
-  // it. Some browsers/Android WebAuthn stacks never surface a visible prompt for a request that
-  // lacks genuine user activation -- the request just sits pending forever from the browser's own
-  // point of view, which (combined with the in-flight guard below) made a real, gesture-backed tap
-  // on the button look completely dead: no prompt, no error, nothing (confirmed live). Abandoning
-  // the unattended attempt after a few seconds -- via AbortController, not just giving up locally,
-  // so the browser's own "one ceremony at a time" slot actually frees up -- keeps the convenient
-  // auto-unlock for the common case where it DOES work, while guaranteeing a manual tap can always
-  // start a fresh request instead of being blocked by a hung automatic one.
-  async function biometricUnlock(auto = false) {
-    if (biometricInFlight.current) return;
+  // biometricInFlight guards against two overlapping WebAuthn ceremonies (the auto-attempt on
+  // load and a tap, or two rapid taps) -- a second concurrent request throws "OperationError: A
+  // request is already pending" instead of either one completing. A blocked attempt still says
+  // so on screen rather than silently doing nothing, so a tap during the auto-attempt is never
+  // mistaken for the button being unresponsive.
+  async function biometricUnlock() {
+    if (biometricInFlight.current) {
+      setStatus("Already confirming your identity — please wait a moment and try again.");
+      return;
+    }
     biometricInFlight.current = true;
     setBiometricPending(true);
-    const controller = new AbortController();
-    const autoAbandonTimer = auto ? setTimeout(() => controller.abort(), 4000) : null;
     try {
       setStatus("Confirm your identity on this device...");
       const stored =
@@ -432,8 +429,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       if (stored && !localStorage.getItem(sharedBiometricKey))
         localStorage.setItem(sharedBiometricKey, stored);
       if (!config) throw Error("Biometric unlock is not configured on this device");
+      // Naming the exact credential (allowCredentials) instead of an open discoverable request --
+      // when the stored credentialId is a valid, current registration, this skips the platform's
+      // "choose a saved passkey" picker entirely (there's nothing to choose between) and goes
+      // straight to the authenticator's own confirmation prompt. Confirmed live that this hung
+      // silently the one time it was tried against a STALE credentialId left over from repeated
+      // enable/delete cycles -- but enableBiometric always overwrites this with a fresh id on
+      // every successful setup, so as long as that's the last thing that ran, it should be valid.
       const assertion = (await navigator.credentials.get({
-          signal: controller.signal,
           publicKey: {
             challenge: crypto.getRandomValues(new Uint8Array(32)),
             allowCredentials: [{ id: fromUrl64(config.credentialId), type: "public-key" }],
@@ -459,20 +462,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       sessionStorage.setItem(biometricSessionKey, "1");
       await openVault(pw);
     } catch (e) {
-      // An abandoned unattended attempt never showed the user anything to explain -- silently
-      // reset instead of alarming them with "AbortError" for a prompt they never saw.
-      if (auto && e instanceof DOMException && e.name === "AbortError") {
-        setStatus("");
-      } else {
-        // Surface the real WebAuthn/decrypt error (name + message) instead of one generic string
-        // -- this step can fail for structurally different reasons (prompt cancelled/timed out vs.
-        // the PRF extension not returned vs. a stale sealed password that no longer decrypts), and
-        // a silent catch made every one of them look identical and undiagnosable from a live device.
-        const detail = e instanceof DOMException ? `${e.name}: ${e.message}` : e instanceof Error ? e.message : String(e);
-        setStatus(`Biometric unlock failed (${detail}). Use your vault password instead.`);
-      }
+      // Surface the real WebAuthn/decrypt error (name + message) instead of one generic string --
+      // this step can fail for structurally different reasons (prompt cancelled/timed out vs. the
+      // PRF extension not returned vs. a stale sealed password that no longer decrypts), and a
+      // silent catch made every one of them look identical and undiagnosable from a live device.
+      const detail = e instanceof DOMException ? `${e.name}: ${e.message}` : e instanceof Error ? e.message : String(e);
+      setStatus(`Biometric unlock failed (${detail}). Use your vault password instead.`);
     } finally {
-      if (autoAbandonTimer) clearTimeout(autoAbandonTimer);
       biometricInFlight.current = false;
       setBiometricPending(false);
     }
@@ -658,17 +654,21 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setHasBiometric(configured);
     setBiometricChecked(true);
     setShowPasswordFallback(!configured);
-    const cached = sessionStorage.getItem(sessionKey) || sessionStorage.getItem(sharedSessionKey),
-      biometricSession = sessionStorage.getItem(biometricSessionKey) === "1";
-    if (configured && (!cached || !biometricSession) && !autoBiometricStarted.current) {
-      autoBiometricStarted.current = true;
-      void biometricUnlock(true);
-    } else if (cached) {
+    // Re-enabled after previously being removed for hanging unattended (no real user gesture)
+    // against a stale/duplicated credential -- now that biometricUnlock() names one specific,
+    // freshly-registered credential (see its own comment) rather than an ambiguous discoverable
+    // request, auto-firing here is worth trying again. If this ever goes back to a silent,
+    // unresponsive "nothing happens" state, that's a real platform wall (not a credential-staleness
+    // symptom this time) and this call should be removed again rather than re-chased further.
+    const cached = sessionStorage.getItem(sessionKey) || sessionStorage.getItem(sharedSessionKey);
+    if (cached) {
       openVault(cached).catch(() => {
         sessionStorage.removeItem(sessionKey);
         sessionStorage.removeItem(sharedSessionKey);
         sessionStorage.removeItem(biometricSessionKey);
       });
+    } else if (configured) {
+      void biometricUnlock();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -971,11 +971,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         status={status}
         onPasswordChange={setPassword}
         onPasswordSubmit={unlock}
-        // Explicit no-args wrapper -- UnlockScreen's button passes this straight to onClick, and
-        // biometricUnlock's first param is the `auto` flag, so passing the bare function
-        // reference here would forward the click's MouseEvent as a truthy `auto` and wrongly
-        // apply the unattended-abandon timeout to a real, user-initiated tap.
-        onBiometricUnlock={() => biometricUnlock()}
+        onBiometricUnlock={biometricUnlock}
         onShowPasswordFallback={setShowPasswordFallback}
       />
     );
@@ -1590,6 +1586,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-balconfirm", label: "Balance Confirmation Letter", group: "Reports", keywords: ["confirmation", "letter", "print", "balance confirmation", "audit"], go: () => { setReport("balconfirm"); setTab("reports"); } },
     { id: "report-ratios", label: "Financial Ratios", group: "Reports", keywords: ["ratio", "kpi", "savings rate", "debt to income", "emergency fund"], go: () => { setReport("ratios"); setTab("reports"); } },
     { id: "report-cashforecast", label: "Cash Flow Forecast", group: "Reports", keywords: ["forecast", "cash flow", "projection", "runway"], go: () => { setReport("cashforecast"); setTab("reports"); } },
+    { id: "report-fundsummary", label: "Fund Summary", group: "Reports", keywords: ["fund", "sources and uses", "incoming", "outgoing", "summary"], go: () => { setReport("fundsummary"); setTab("reports"); } },
     { id: "report-equity", label: "Equity", group: "Reports", keywords: ["espp", "rsu", "vest", "stock", "nvda", "grant"], go: () => { setReport("equity"); setTab("reports"); } },
     ...(book !== "india"
       ? [
@@ -1764,6 +1761,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     year === "custom" ? `${customStart}-01` : year.length === 7 ? `${year}-01` : `${year}-04-01`;
   const columnarEnd =
     year === "custom" ? `${customEnd}-31` : year.length === 7 ? `${year}-31` : `${Number(year) + 1}-03-31`;
+  // Same start/end resolution as `calc`'s own internal start/end above, duplicated here (rather
+  // than exposing it from `calc`) so the Fund Summary report can follow the header's own
+  // Financial period selector -- unlike columnarStart/End above, this also handles "all periods".
+  const fundSummaryStart =
+    year === "all" ? "0000-00-00" : year === "custom" ? `${customStart}-01` : year.length === 7 ? `${year}-01` : `${year}-04-01`;
+  const fundSummaryEnd =
+    year === "all" ? "9999-99-99" : year === "custom" ? `${customEnd}-31` : year.length === 7 ? `${year}-31` : `${Number(year) + 1}-03-31`;
   const columnarRangeLabel =
     year === "custom" ? `${customStart} to ${customEnd}` : year.length === 7 ? year : `FY ${year}`;
 
@@ -3185,6 +3189,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   { id: "balance", label: "Balance Sheet", onClick: () => setReport("balance") },
                   { id: "cashflow", label: "Cash Flow", onClick: () => setReport("cashflow") },
                   { id: "cash", label: "Cash and Bank", onClick: () => setReport("cash") },
+                  { id: "fundsummary", label: "Fund Summary", onClick: () => setReport("fundsummary") },
                 ],
               },
               {
@@ -4065,6 +4070,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "ratios" && data && <FinancialRatios data={data} fmt={fmt} />}
           {report === "cashforecast" && data && <CashFlowForecast data={data} fmt={fmt} />}
+          {report === "fundsummary" && data && (
+            <FundSummary data={data} fmt={fmt} periodStart={fundSummaryStart} periodEnd={fundSummaryEnd} />
+          )}
         </>
       )}
       {tab === "new" && (

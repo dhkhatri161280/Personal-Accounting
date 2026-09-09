@@ -51,6 +51,52 @@ const gridTrack = (spec: ColSpec) =>
 const FILTER_KEYS: SortKey[] = ["date", "type", "number", "debit", "credit", "narration", "amount"];
 const FILTER_GRID_TEMPLATE = FILTER_KEYS.map((k) => gridTrack(COLUMN_SPECS[k])).join(" ");
 
+// The `virtualized` plain-<table> path's own column widths (see below) -- separate from
+// COLUMN_SPECS above, which only feeds the DataGrid path and the filter-row grid template.
+// Amount defaults wider than COLUMN_SPECS' 120px: a 6-7 figure running total ("$1,316,183.59")
+// genuinely needs the room DataGrid's own cell padding gave it for free but this plain table,
+// with fixed pixel columns instead of DataGrid's flexible cell sizing, does not.
+const PLAIN_COLUMN_KEYS = ["date", "type", "number", "debit", "credit", "narration", "amount"] as const;
+type PlainColKey = (typeof PLAIN_COLUMN_KEYS)[number];
+const DEFAULT_PLAIN_WIDTHS: Record<PlainColKey, number> = {
+  date: 95,
+  type: 90,
+  number: 55,
+  debit: 170,
+  credit: 170,
+  narration: 380,
+  amount: 130,
+};
+
+// Excel-style drag-to-resize column border. A plain (non-DataGrid) <table> has no built-in
+// resize affordance, and the fixed proportions that replaced content-width auto-sizing (see the
+// `virtualized` doc comment below) won't fit every account name/narration length for every user
+// -- this lets anyone adjust it themselves instead of the app guessing one static layout for all.
+function ColResizeHandle({ onResize }: { onResize: (deltaX: number) => void }) {
+  return (
+    <span
+      className="col-resize-handle"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        let lastX = startX;
+        const onMove = (ev: MouseEvent) => {
+          onResize(ev.clientX - lastX);
+          lastX = ev.clientX;
+        };
+        const onUp = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      }}
+    />
+  );
+}
+
 // Tally's own Day Book order within a date: Contra, Payment, Receipt, Journal -- fixed, never
 // reversed even when the date sort direction is descending (only the date itself, and voucher
 // number within a type, follow the chosen direction). Each voucher type has its own independent
@@ -239,6 +285,9 @@ export function TransactionTable({
   virtualized?: boolean;
 }) {
   const isClosed = (t: VoucherRow) => !!closedPeriods?.includes(t.date.slice(0, 7));
+  const [colWidths, setColWidths] = useState<Record<PlainColKey, number>>(DEFAULT_PLAIN_WIDTHS);
+  const resizeCol = (key: PlainColKey, deltaX: number) =>
+    setColWidths((w) => ({ ...w, [key]: Math.max(40, w[key] + deltaX) }));
   const [filters, setFilters] = useState<Record<SortKey, string>>({
     date: "",
     type: "",
@@ -628,29 +677,47 @@ export function TransactionTable({
         // never used in Day Book -- no selectedLedgerName/openingBalance is passed for it).
         <div className="plain-voucher-table-scroll">
           <table className="plain-voucher-table">
-            {/* Fixed proportions instead of content-width auto-sizing, matching the Tally-style
-                Day Book convention already used throughout this app (see the DataGrid column's
-                own COLUMN_SPECS above): Debit/Credit Ledger stay compact, Narration -- the column
-                someone actually reads -- gets the most room, not whatever's left over. */}
+            {/* Default proportions match the Tally-style Day Book convention already used
+                elsewhere in this app (see the DataGrid column's own COLUMN_SPECS above): compact
+                Debit/Credit Ledger, Narration -- the column someone actually reads -- widest. Each
+                is a starting point, not a fixed layout -- drag a column border (like Excel) to
+                adjust it, since no single static width fits every account name for every user. */}
             <colgroup>
-              <col style={{ width: "95px" }} />
-              <col style={{ width: "90px" }} />
-              <col style={{ width: "55px" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "auto" }} />
-              <col style={{ width: "95px" }} />
+              {PLAIN_COLUMN_KEYS.map((k) => (
+                <col key={k} style={{ width: `${colWidths[k]}px` }} />
+              ))}
               <col style={{ width: "50px" }} />
             </colgroup>
             <thead>
               <tr>
-                <th onClick={() => toggleSort("date")}>Date{sortArrow("date")}</th>
-                <th onClick={() => toggleSort("type")}>Type{sortArrow("type")}</th>
-                <th onClick={() => toggleSort("number")}>#{sortArrow("number")}</th>
-                <th onClick={() => toggleSort("debit")}>Debit Ledger{sortArrow("debit")}</th>
-                <th onClick={() => toggleSort("credit")}>Credit Ledger{sortArrow("credit")}</th>
-                <th onClick={() => toggleSort("narration")}>Narration{sortArrow("narration")}</th>
-                <th className="right" onClick={() => toggleSort("amount")}>Amount{sortArrow("amount")}</th>
+                <th onClick={() => toggleSort("date")}>
+                  Date{sortArrow("date")}
+                  <ColResizeHandle onResize={(dx) => resizeCol("date", dx)} />
+                </th>
+                <th onClick={() => toggleSort("type")}>
+                  Type{sortArrow("type")}
+                  <ColResizeHandle onResize={(dx) => resizeCol("type", dx)} />
+                </th>
+                <th onClick={() => toggleSort("number")}>
+                  #{sortArrow("number")}
+                  <ColResizeHandle onResize={(dx) => resizeCol("number", dx)} />
+                </th>
+                <th onClick={() => toggleSort("debit")}>
+                  Debit Ledger{sortArrow("debit")}
+                  <ColResizeHandle onResize={(dx) => resizeCol("debit", dx)} />
+                </th>
+                <th onClick={() => toggleSort("credit")}>
+                  Credit Ledger{sortArrow("credit")}
+                  <ColResizeHandle onResize={(dx) => resizeCol("credit", dx)} />
+                </th>
+                <th onClick={() => toggleSort("narration")}>
+                  Narration{sortArrow("narration")}
+                  <ColResizeHandle onResize={(dx) => resizeCol("narration", dx)} />
+                </th>
+                <th className="right" onClick={() => toggleSort("amount")}>
+                  Amount{sortArrow("amount")}
+                  <ColResizeHandle onResize={(dx) => resizeCol("amount", dx)} />
+                </th>
                 <th></th>
               </tr>
             </thead>
