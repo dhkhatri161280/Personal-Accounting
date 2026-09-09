@@ -4,6 +4,10 @@ import type React from "react";
 interface UnlockScreenProps {
   biometricChecked: boolean;
   hasBiometric: boolean;
+  // A navigator.credentials.get() call is already awaiting the fingerprint/face prompt --
+  // disables the button so a tap here can't fire a second, concurrent WebAuthn ceremony (which
+  // throws "OperationError: A request is already pending" instead of either one completing).
+  biometricPending: boolean;
   showPasswordFallback: boolean;
   password: string;
   status: string;
@@ -16,6 +20,7 @@ interface UnlockScreenProps {
 export function UnlockScreen({
   biometricChecked,
   hasBiometric,
+  biometricPending,
   showPasswordFallback,
   password,
   status,
@@ -33,8 +38,8 @@ export function UnlockScreen({
       ) : hasBiometric && !showPasswordFallback ? (
         <>
           <p>Use your device biometric to unlock both US and India Books.</p>
-          <button className="biometric-primary" onClick={onBiometricUnlock}>
-            Unlock with fingerprint, face, or Windows Hello
+          <button className="biometric-primary" onClick={onBiometricUnlock} disabled={biometricPending}>
+            {biometricPending ? "Confirming..." : "Unlock with fingerprint, face, or Windows Hello"}
           </button>
           <button className="password-fallback" onClick={() => onShowPasswordFallback(true)}>
             Use vault password instead

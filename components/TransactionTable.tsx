@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { ThemeProvider } from "@mui/material/styles";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
-import { DataGrid, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
+import { DataGrid, GridPagination, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
 import { fiscalYearOf } from "@/lib/vault-accounting";
 import { exportWorkbook } from "@/lib/export-excel";
@@ -212,6 +212,7 @@ export function TransactionTable({
   openingBalance,
   onClearSearch,
   closedPeriods,
+  virtualized,
 }: {
   transactions: VoucherRow[];
   formatAmount: (n: number) => string;
@@ -226,6 +227,16 @@ export function TransactionTable({
   // "YYYY-MM" periods -- see isPeriodClosed in lib/vault-accounting.ts, same source of truth
   // the actual save-time enforcement uses.
   closedPeriods?: string[];
+  // Opt-in for a large, standalone list (Day Book) -- starts the page size at the MIT/Community
+  // DataGrid's own maximum (100; a larger pageSize literally throws "You need to upgrade to
+  // DataGridPro/Premium" -- confirmed directly, this is a hard product-tier limit, not something
+  // configurable away) instead of a smaller default sized for a FloatingWindow drill-down's
+  // handful of rows. The real fix for "Day Book stops early" wasn't this flag at all, though --
+  // it was that the custom `footer` slot below fully replaced DataGrid's default footer,
+  // including its Prev/Next page controls, leaving pagination fully ACTIVE but with no visible
+  // way to reach page 2+. The footer now renders <GridPagination /> alongside the totals so every
+  // page is reachable regardless of row count.
+  virtualized?: boolean;
 }) {
   const isClosed = (t: VoucherRow) => !!closedPeriods?.includes(t.date.slice(0, 7));
   const [filters, setFilters] = useState<Record<SortKey, string>>({
@@ -537,6 +548,15 @@ export function TransactionTable({
 
   const sortModel: GridSortModel = [{ field: sort.key, sort: sort.direction }];
 
+  // Plain-table sort header, used only in `virtualized` mode (see below) -- DataGrid's own
+  // sortModel/onSortModelChange only makes sense wired to an actual <DataGrid>.
+  function toggleSort(key: SortKey) {
+    setSort((s) => (s.key === key ? { key, direction: s.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" }));
+  }
+  function sortArrow(key: SortKey) {
+    return sort.key === key ? <span className="plain-table-sort-arrow">{sort.direction === "asc" ? " ▲" : " ▼"}</span> : null;
+  }
+
   // Exports the currently filtered/sorted rows (not the collapsed Sub-total grouping -- Excel
   // itself can subtotal/pivot, and a flat transaction list is more useful pasted elsewhere than a
   // pre-collapsed one). Same column set as the on-screen table, split Dr/Cr amounts included when
@@ -595,6 +615,80 @@ export function TransactionTable({
         {filterField("narration", "Narration", "narration")}
         {filterField("amount", "Amount", "amount")}
       </div>
+      {virtualized ? (
+        // A large standalone list (Day Book) wants genuine "scroll to see everything," not
+        // click-through paging -- but MIT/Community DataGrid hard-caps pageSize at 100 (a larger
+        // value throws outright: "You need to upgrade to DataGridPro/Premium", confirmed directly
+        // against a live reproduction) and `pagination` itself can't be turned off in the free
+        // tier (it's in DataGrid's own DataGridForcedPropsKey list). So this renders every row as
+        // a plain, ordinary <table> instead -- no page-size ceiling to hit, no virtualization
+        // math to get wrong, just a native scrollbar over real rendered rows. A few hundred rows
+        // is trivial for a browser; this app doesn't need DataGrid's paid-tier features here
+        // (subtotal grouping and the running-balance column, both DataGrid-rendered above, are
+        // never used in Day Book -- no selectedLedgerName/openingBalance is passed for it).
+        <div className="plain-voucher-table-scroll">
+          <table className="plain-voucher-table">
+            {/* Fixed proportions instead of content-width auto-sizing, matching the Tally-style
+                Day Book convention already used throughout this app (see the DataGrid column's
+                own COLUMN_SPECS above): Debit/Credit Ledger stay compact, Narration -- the column
+                someone actually reads -- gets the most room, not whatever's left over. */}
+            <colgroup>
+              <col style={{ width: "95px" }} />
+              <col style={{ width: "90px" }} />
+              <col style={{ width: "55px" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "auto" }} />
+              <col style={{ width: "95px" }} />
+              <col style={{ width: "50px" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th onClick={() => toggleSort("date")}>Date{sortArrow("date")}</th>
+                <th onClick={() => toggleSort("type")}>Type{sortArrow("type")}</th>
+                <th onClick={() => toggleSort("number")}>#{sortArrow("number")}</th>
+                <th onClick={() => toggleSort("debit")}>Debit Ledger{sortArrow("debit")}</th>
+                <th onClick={() => toggleSort("credit")}>Credit Ledger{sortArrow("credit")}</th>
+                <th onClick={() => toggleSort("narration")}>Narration{sortArrow("narration")}</th>
+                <th className="right" onClick={() => toggleSort("amount")}>Amount{sortArrow("amount")}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((t) => (
+                <tr key={t.guid}>
+                  <td>{t.date.split("-").reverse().join("-")}</td>
+                  <td>
+                    <span className={`pill ${t.cancelled ? "cancelled" : ""}`}>
+                      {t.type}
+                      {t.cancelled ? " - Cancelled" : ""}
+                    </span>
+                  </td>
+                  <td>
+                    <button className="voucher-reference" onClick={() => onView(t)}>
+                      {t.number || "-"}
+                    </button>
+                  </td>
+                  <td title={debit(t)}>{debit(t)}</td>
+                  <td title={credit(t)}>{credit(t)}</td>
+                  <td>{text(t.narration) || "-"}</td>
+                  <td className="right">{formatAmount(ledgerSignedAmount(t, selectedLedgerName))}</td>
+                  <td>
+                    <ActionMenuCell t={t} closed={isClosed(t)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={6}>Displayed voucher total</th>
+                <th className="right">{formatAmount(filteredTotal)}</th>
+                <th></th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : (
       <ThemeProvider theme={appMuiTheme}>
         <DataGrid
           rows={displayRows}
@@ -603,6 +697,8 @@ export function TransactionTable({
           disableRowSelectionOnClick
           disableColumnFilter
           hideFooterSelectedRowCount
+          pageSizeOptions={[10, 25, 50, 100]}
+          initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
           getRowClassName={(params) => (params.row.isSubtotal ? "ledger-subtotal-row" : "")}
           onRowClick={(params) => {
             if (!params.row.isGroupHeader) return;
@@ -622,16 +718,22 @@ export function TransactionTable({
             setSort({ key: next.field as SortKey, direction: next.sort });
           }}
           slots={{
+            // Replacing DataGrid's default footer entirely (rather than just adding to it) is
+            // what silently disabled page navigation in the first place -- <GridPagination />
+            // restores the real Prev/Next/page-size controls the default footer would have had,
+            // alongside the totals summary this app actually wants shown too.
             footer: () => (
               <div className="ledger-grid-totals">
                 <strong>Displayed voucher total</strong>
                 <span>{formatAmount(filteredTotal)}</span>
+                <GridPagination />
               </div>
             ),
           }}
           autoHeight
         />
       </ThemeProvider>
+      )}
     </div>
   );
 }

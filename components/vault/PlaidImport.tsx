@@ -206,6 +206,7 @@ type HistoryRecord = {
   debitId: number;
   creditId: number;
   isReceipt: boolean; // true = Tally "Receipt" (money IN); false = "Payment" (money OUT)
+  amount: number; // absolute value of the debit/credit side -- feeds matchFromHistoryByAmount below
 };
 type HistoryIndex = HistoryRecord[];
 
@@ -266,7 +267,13 @@ function buildHistoryIndex(ledger: Ledger): HistoryIndex {
     if (!debitE || !creditE) continue;
     const tokens = tokenise(v.narration || "");
     if (tokens.length) {
-      index.push({ tokens, debitId: normalize(debitE.accountId), creditId: normalize(creditE.accountId), isReceipt: v.type === "Receipt" });
+      index.push({
+        tokens,
+        debitId: normalize(debitE.accountId),
+        creditId: normalize(creditE.accountId),
+        isReceipt: v.type === "Receipt",
+        amount: Math.abs(debitE.amount),
+      });
     }
   }
   return index;
@@ -323,6 +330,38 @@ function matchFromHistory(
     confidence: Math.min(agreement * 0.6 + depth * 0.4, 0.9),
     fromPaymentHistory: (pairPaymentVotes.get(bestKey) || 0) > 0,
   };
+}
+
+// Recurring bills (HOA dues, subscriptions, insurance) commonly repeat at the exact same dollar
+// amount every period even when the bank's own raw descriptor text shares nothing with what the
+// user typed into past vouchers' narration -- e.g. Plaid reports a real HOA payment as "ACH HOLD
+// ENCLAVE AT MISSI ENCLAVI" while the user's own prior vouchers just say "HOA Charges", so
+// matchFromHistory's token-overlap check above finds no match at all. This is a narrower,
+// text-independent fallback: when the SAME debit (expense) account has been posted 2+ times at
+// this exact amount (±$1), that's a strong enough recurring-bill signal to beat the generic "most
+// common expense on this card" fallback below.
+//
+// Deliberately keyed on the debit side ONLY, not (debit, credit) together -- unlike the
+// text-based matchFromHistory above, which is confident enough in a real merchant-name match to
+// trust its whole historical pair. Here the only signal is a bare dollar amount, which says
+// nothing about which bank account/card actually paid it this time (the same recurring bill can
+// legitimately move from an ACH debit on checking to a card autopay between one occurrence and
+// the next) -- so the caller always pairs this debit match with the CURRENT correctly-resolved
+// `cardAcc`/bank account, never a historical credit id that might now be stale or simply wrong
+// for this specific transaction.
+function matchFromHistoryByAmount(tx: PlaidTxRaw, index: HistoryIndex): { debitId: number; confidence: number } | null {
+  const amt = Math.abs(tx.amount);
+  const txIsReceipt = tx.amount < 0;
+  const counts = new Map<number, number>();
+  for (const { debitId, isReceipt, amount } of index) {
+    if (isReceipt !== txIsReceipt || Math.abs(amount - amt) > 1) continue;
+    counts.set(debitId, (counts.get(debitId) || 0) + 1);
+  }
+  let bestId = 0;
+  let bestCount = 0;
+  counts.forEach((c, id) => { if (c > bestCount) { bestCount = c; bestId = id; } });
+  if (bestCount < 2) return null; // one prior occurrence at this amount could still be a coincidence
+  return { debitId: bestId, confidence: Math.min(0.5 + bestCount * 0.1, 0.75) };
 }
 
 // For purchases with no strong merchant match, find the most common expense account
@@ -863,6 +902,25 @@ function buildDraft(
         voucherType: tx.amount < 0 ? "Receipt" : "Payment",
         narration: tx.merchant_name || tx.name,
         confidence: match.confidence,
+        source: "history",
+      };
+    }
+  }
+
+  // ── Amount-only match from vault history (no merchant-text overlap, but a repeat amount) ──
+  if (tx.amount > 0 && cardAcc) {
+    const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
+    const debitAcc = amtMatch ? accounts.find((a) => a.id === amtMatch.debitId) : undefined;
+    if (amtMatch && debitAcc) {
+      const amt = Math.abs(tx.amount);
+      return {
+        entries: [
+          { accountId: debitAcc.id, accountName: debitAcc.name, amount: -amt },
+          { accountId: cardAcc.id, accountName: cardAcc.name, amount: amt },
+        ],
+        voucherType: "Payment",
+        narration: tx.merchant_name || tx.name,
+        confidence: amtMatch.confidence,
         source: "history",
       };
     }
@@ -2339,7 +2397,15 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       <span className={`plaid-tx-amt ${row.plaidTx.amount < 0 ? "credit" : "debit"}`}>
                         {row.plaidTx.amount < 0 ? "+" : "−"}${Math.abs(row.plaidTx.amount).toFixed(2)}
                       </span>
-                      <span className="plaid-tx-bank">{row.plaidTx.institution_name}</span>
+                      <span
+                        className="plaid-tx-bank"
+                        title={(() => {
+                          const acct = plaidAccounts.find((a) => a.account_id === row.plaidTx.account_id);
+                          return acct ? `${acct.name} ••${acct.mask || "????"} — Plaid reports this as ${acct.type}/${acct.subtype}` : "Account details unavailable";
+                        })()}
+                      >
+                        {row.plaidTx.institution_name}
+                      </span>
                     </div>
                     <div className="plaid-je-meta">
                       <select

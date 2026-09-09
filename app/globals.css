@@ -1125,6 +1125,9 @@ a.action {
 .ledger-grid-totals strong {
   color: #0f1b2d;
 }
+.ledger-grid-totals .MuiTablePagination-root {
+  margin-left: auto;
+}
 .ledger-subtotal-row {
   background: #eef3fb;
   font-weight: 600;
@@ -2588,6 +2591,74 @@ aside .install-app {
 }
 
 /* Unified Excel-style voucher tables */
+/* Plain, natively-scrolling table for a large standalone list (Day Book) -- see the `virtualized`
+   prop on TransactionTable. Real DOM rows, no page-size ceiling to hit (unlike MUI DataGrid
+   Community, capped at 100 rows/page) and no virtualization math to get wrong. */
+.plain-voucher-table-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid #e4e9f1;
+  border-radius: 8px;
+}
+.plain-voucher-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+.plain-voucher-table th,
+.plain-voucher-table td {
+  padding: 7px 10px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plain-voucher-table th.right,
+.plain-voucher-table td.right {
+  text-align: right;
+}
+/* Debit Ledger / Credit Ledger (columns 4-5): compact by design (colgroup above), so a longer
+   account name ellipsizes rather than forcing the column wide -- hover shows the full name. */
+.plain-voucher-table td:nth-child(4),
+.plain-voucher-table td:nth-child(5) {
+  cursor: default;
+}
+/* Narration (column 6): the widest column and the one someone actually reads in full, so it
+   wraps instead of truncating. */
+.plain-voucher-table td:nth-child(6) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.plain-voucher-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f8faff;
+  font-size: 11px;
+  color: #64748b;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #dce2eb;
+  z-index: 1;
+}
+.plain-table-sort-arrow {
+  color: #2f6fed;
+}
+.plain-voucher-table tbody tr {
+  border-bottom: 1px solid #edf0f4;
+}
+.plain-voucher-table tbody tr:hover {
+  background: #f8faff;
+}
+.plain-voucher-table tfoot th {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  border-top: 2px solid #dce2eb;
+  font-size: 12px;
+  padding-top: 8px;
+}
 .excel-toolbar {
   display: flex;
   align-items: center;

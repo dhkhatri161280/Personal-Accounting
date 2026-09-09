@@ -120,6 +120,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     unifiedSecretKey = "fintech-unified-prf-secret",
     unifiedSealKey = "fintech-unified-vault-seal";
   const autoBiometricStarted = useRef(false),
+    // Guards against a second navigator.credentials.get() firing while one is already awaiting
+    // the fingerprint/face prompt -- WebAuthn only allows one ceremony at a time per page, and a
+    // second concurrent call throws "OperationError: A request is already pending" instead of
+    // queuing. This app auto-triggers biometricUnlock() on load (see autoBiometricStarted below)
+    // while the "Unlock with fingerprint..." button stays enabled the whole time, so an auto-
+    // trigger + a tap (or two taps) racing each other reproduced this exact error live.
+    biometricInFlight = useRef(false),
     entryFormRef = useRef<HTMLFormElement>(null),
     newVoucherMenuRef = useRef<HTMLDivElement>(null),
     reportPickerRef = useRef<HTMLDivElement>(null),
@@ -130,6 +137,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [lastSynced, setLastSynced] = useState(""),
     [hasBiometric, setHasBiometric] = useState(false),
     [biometricChecked, setBiometricChecked] = useState(false),
+    [biometricPending, setBiometricPending] = useState(false),
     [showPasswordFallback, setShowPasswordFallback] = useState(false),
     [tab, setTab] = useState("dashboard"),
     [importSource, setImportSource] = useState<"plaid" | "schwab" | "retirement">("plaid"),
@@ -321,6 +329,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   }
 
   async function enableBiometric() {
+    // Same "only one WebAuthn ceremony at a time" guard as biometricUnlock -- e.g. tapping
+    // "Enable biometric" right after load, while the auto-unlock attempt is still pending.
+    if (biometricInFlight.current) return;
+    biometricInFlight.current = true;
     try {
       if (!window.PublicKeyCredential) throw Error("WebAuthn is unavailable");
       setStatus("Waiting for device biometric confirmation...");
@@ -383,15 +395,28 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       setHasBiometric(true);
       setStatus("Biometric unlock enabled on this device.");
     } catch (e) {
-      setStatus(
-        e instanceof Error
-          ? e.message
-          : "Biometric setup failed. Password unlock remains available."
-      );
+      const detail = e instanceof DOMException ? `${e.name}: ${e.message}` : e instanceof Error ? e.message : undefined;
+      setStatus(detail ? `Biometric setup failed (${detail}). Password unlock remains available.` : "Biometric setup failed. Password unlock remains available.");
+    } finally {
+      biometricInFlight.current = false;
     }
   }
 
-  async function biometricUnlock() {
+  // `auto`: true only for the unattended attempt fired on page load, with no real user tap behind
+  // it. Some browsers/Android WebAuthn stacks never surface a visible prompt for a request that
+  // lacks genuine user activation -- the request just sits pending forever from the browser's own
+  // point of view, which (combined with the in-flight guard below) made a real, gesture-backed tap
+  // on the button look completely dead: no prompt, no error, nothing (confirmed live). Abandoning
+  // the unattended attempt after a few seconds -- via AbortController, not just giving up locally,
+  // so the browser's own "one ceremony at a time" slot actually frees up -- keeps the convenient
+  // auto-unlock for the common case where it DOES work, while guaranteeing a manual tap can always
+  // start a fresh request instead of being blocked by a hung automatic one.
+  async function biometricUnlock(auto = false) {
+    if (biometricInFlight.current) return;
+    biometricInFlight.current = true;
+    setBiometricPending(true);
+    const controller = new AbortController();
+    const autoAbandonTimer = auto ? setTimeout(() => controller.abort(), 4000) : null;
     try {
       setStatus("Confirm your identity on this device...");
       const stored =
@@ -408,6 +433,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         localStorage.setItem(sharedBiometricKey, stored);
       if (!config) throw Error("Biometric unlock is not configured on this device");
       const assertion = (await navigator.credentials.get({
+          signal: controller.signal,
           publicKey: {
             challenge: crypto.getRandomValues(new Uint8Array(32)),
             allowCredentials: [{ id: fromUrl64(config.credentialId), type: "public-key" }],
@@ -432,8 +458,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       sessionStorage.setItem("personal-ledger-session-india", pw);
       sessionStorage.setItem(biometricSessionKey, "1");
       await openVault(pw);
-    } catch {
-      setStatus("Biometric unlock failed. Use your vault password instead.");
+    } catch (e) {
+      // An abandoned unattended attempt never showed the user anything to explain -- silently
+      // reset instead of alarming them with "AbortError" for a prompt they never saw.
+      if (auto && e instanceof DOMException && e.name === "AbortError") {
+        setStatus("");
+      } else {
+        // Surface the real WebAuthn/decrypt error (name + message) instead of one generic string
+        // -- this step can fail for structurally different reasons (prompt cancelled/timed out vs.
+        // the PRF extension not returned vs. a stale sealed password that no longer decrypts), and
+        // a silent catch made every one of them look identical and undiagnosable from a live device.
+        const detail = e instanceof DOMException ? `${e.name}: ${e.message}` : e instanceof Error ? e.message : String(e);
+        setStatus(`Biometric unlock failed (${detail}). Use your vault password instead.`);
+      }
+    } finally {
+      if (autoAbandonTimer) clearTimeout(autoAbandonTimer);
+      biometricInFlight.current = false;
+      setBiometricPending(false);
     }
   }
 
@@ -621,7 +662,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       biometricSession = sessionStorage.getItem(biometricSessionKey) === "1";
     if (configured && (!cached || !biometricSession) && !autoBiometricStarted.current) {
       autoBiometricStarted.current = true;
-      void biometricUnlock();
+      void biometricUnlock(true);
     } else if (cached) {
       openVault(cached).catch(() => {
         sessionStorage.removeItem(sessionKey);
@@ -924,12 +965,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       <UnlockScreen
         biometricChecked={biometricChecked}
         hasBiometric={hasBiometric}
+        biometricPending={biometricPending}
         showPasswordFallback={showPasswordFallback}
         password={password}
         status={status}
         onPasswordChange={setPassword}
         onPasswordSubmit={unlock}
-        onBiometricUnlock={biometricUnlock}
+        // Explicit no-args wrapper -- UnlockScreen's button passes this straight to onClick, and
+        // biometricUnlock's first param is the `auto` flag, so passing the bare function
+        // reference here would forward the click's MouseEvent as a truthy `auto` and wrongly
+        // apply the unattended-abandon timeout to a real, user-initiated tap.
+        onBiometricUnlock={() => biometricUnlock()}
         onShowPasswordFallback={setShowPasswordFallback}
       />
     );
@@ -2971,6 +3017,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onDelete={(t) => deleteVoucher(t as Tx)}
             onClearSearch={() => setQuery("")}
             closedPeriods={data.closedPeriods}
+            virtualized
           />
         </div>
       )}
