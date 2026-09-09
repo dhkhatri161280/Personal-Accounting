@@ -5,6 +5,7 @@ import {
   accumulatedDepreciation,
   bookValue,
   pendingDepreciationMonths,
+  round2,
 } from "../lib/fixed-assets.ts";
 import type { FixedAsset } from "../lib/vault-types.ts";
 
@@ -41,6 +42,16 @@ test("accumulatedDepreciation: caps at disposal date, not asOfDate, when dispose
   assert.equal(accumulatedDepreciation(disposedAsset, "2027-01-01"), 300); // Jan+Feb+Mar
 });
 
+test("accumulatedDepreciation: fully-elapsed asset lands on the exact depreciable base, not a rounding-residue undershoot", () => {
+  // 7000/36 = 194.4444... -> monthly rounds to 194.44, and 194.44 * 36 = 6999.84, 16 cents short of
+  // 7000 -- accumulatedDepreciation must still report the full 7000 once every month has elapsed,
+  // the same way a real last-period depreciation voucher absorbs that residue.
+  const a = asset({ cost: 7000, salvageValue: 0, usefulLifeMonths: 36 });
+  assert.equal(monthlyDepreciation(a), 194.44);
+  assert.equal(accumulatedDepreciation(a, "2030-01-15"), 7000);
+  assert.equal(bookValue(a, "2030-01-15"), 0);
+});
+
 test("bookValue: cost minus accumulated depreciation", () => {
   assert.equal(bookValue(asset(), "2026-03-15"), 1000);
 });
@@ -70,6 +81,19 @@ test("pendingDepreciationMonths: stops at useful life even if throughDate is muc
   const pending = pendingDepreciationMonths(a, "2027-01-01");
   assert.equal(pending.length, 2);
   assert.equal(pending.reduce((s, p) => s + p.amount, 0), 1200);
+});
+
+test("pendingDepreciationMonths: a one-shot catch-up spanning the whole useful life posts the exact depreciable base, not a rounding-residue shortfall", () => {
+  // 446000/60 = 7433.3333... -> monthly rounds to 7433.33, and 60 * 7433.33 = 445999.80, 20 cents
+  // short of 446000 -- the final month must absorb that residue so the total posted matches
+  // accumulatedDepreciation exactly (the real bug reported live: report showed accum. dep. of
+  // 446000 exactly, but the one-shot catch-up run's preview totaled 445999.80).
+  const a = asset({ cost: 446000, salvageValue: 0, usefulLifeMonths: 60, purchaseDate: "2014-04-13" });
+  const pending = pendingDepreciationMonths(a, "2026-09-09");
+  assert.equal(pending.length, 60);
+  const total = round2(pending.reduce((s, p) => s + p.amount, 0));
+  assert.equal(total, 446000);
+  assert.equal(total, accumulatedDepreciation(a, "2026-09-09"));
 });
 
 test("pendingDepreciationMonths: nothing pending once fully depreciated and re-run later", () => {

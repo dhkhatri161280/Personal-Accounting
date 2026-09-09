@@ -12,6 +12,7 @@ import {
   accumulatedDepreciation,
   bookValue,
   guessAssetClass,
+  assetClassFromTag,
   ACCUMULATED_DEPRECIATION_ACCOUNT_NAME,
   ASSET_CLASS_SUGGESTIONS,
   UNCLASSIFIED_LABEL,
@@ -746,7 +747,13 @@ export function MastersPanel({
   }
 
   function autoClassifyAssets() {
-    const updated = fixedAssetsList.map((a) => (a.assetClass ? a : { ...a, assetClass: guessAssetClass(a.name) || a.assetClass }));
+    // The tag's own prefix (e.g. "ELE-003") already declares its class -- same precedence as
+    // createTaggedAsset/tagExistingAsset use when a tag is first applied -- so it's tried ahead
+    // of guessing from the asset's own name, which only catches specific keywords (e.g. "TV",
+    // "refrigerator") and misses a generic name like "Other Misc Item" or "Kitchen Appliance".
+    const updated = fixedAssetsList.map((a) =>
+      a.assetClass ? a : { ...a, assetClass: (a.sourceTag && assetClassFromTag(a.sourceTag)) || guessAssetClass(a.name) || a.assetClass }
+    );
     if (updated.every((a, i) => a.assetClass === fixedAssetsList[i].assetClass)) return;
     onSave({ ...data, fixedAssets: updated }, `${updated.filter((a, i) => a.assetClass !== fixedAssetsList[i].assetClass).length} asset(s) auto-classified.`);
   }

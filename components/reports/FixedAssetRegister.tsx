@@ -18,6 +18,7 @@ import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { fmtDate } from "@/lib/format-date";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
+import { FloatingWindow } from "@/components/FloatingWindow";
 
 // Report/operational view over the Fixed Asset master data maintained in Masters > Fixed Assets
 // (name, Fixed Asset #, Group/Class, Useful Life, Salvage -- all read-only here). This screen is
@@ -91,18 +92,25 @@ export function FixedAssetRegister({
   // catch-up voucher per asset instead, dated `throughDate` itself -- needed when the backlog
   // spans already-closed periods that per-month vouchers can't be dated into.
   const [consolidate, setConsolidate] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const active = assets.filter((a) => !a.disposed);
   // postDepreciation/postDepreciationConsolidated are pure (return a new object, never mutate
-  // `data`) -- calling here just to read postedCount/pendingAmount for the button label is safe
-  // and cheap for a personal-scale register.
-  const pendingCount = consolidate
-    ? postDepreciationConsolidated(data, throughDate, throughDate).postedCount
-    : postDepreciation(data, throughDate).postedCount;
+  // `data`) -- calling here just to read postedCount/pendingAmount for the button label, and for
+  // the Preview window below, is safe and cheap for a personal-scale register. Nothing here ever
+  // calls onSave -- Preview is read-only by construction, not a separate "dry run" mode to keep
+  // in sync with the real posting logic.
+  const runResult = consolidate ? postDepreciationConsolidated(data, throughDate, throughDate) : postDepreciation(data, throughDate);
+  const pendingCount = runResult.postedCount;
   const pendingAmount = active.reduce(
     (s, a) => s + pendingDepreciationMonths(a, throughDate).reduce((ss, m) => ss + m.amount, 0),
     0
   );
+  // The vouchers runDepreciation would post, without posting them -- just the new transactions
+  // runResult.data carries beyond what's already in `data` (postDepreciation*/appends, never
+  // removes or reorders existing ones, so a guid-based diff is exact).
+  const existingGuids = new Set(data.transactions.map((t) => t.guid));
+  const previewTxs = runResult.data.transactions.filter((t) => !existingGuids.has(t.guid));
 
   async function runDepreciation() {
     setSaving(true);
@@ -250,6 +258,9 @@ export function FixedAssetRegister({
           <input type="checkbox" checked={consolidate} onChange={(e) => setConsolidate(e.target.checked)} />
           Consolidate into 1 voucher/asset
         </label>
+        <button type="button" className="tr-refresh-btn" disabled={pendingCount === 0} onClick={() => setShowPreview(true)} title="See the vouchers this run would post, without posting them">
+          👁 Preview{pendingCount > 0 ? ` (${pendingCount})` : ""}
+        </button>
         <button type="button" className="tr-refresh-btn" disabled={saving || pendingCount === 0} onClick={runDepreciation}>
           {saving
             ? "Posting…"
@@ -472,6 +483,57 @@ export function FixedAssetRegister({
             </tfoot>
           </table>
         </div>
+      )}
+      {showPreview && (
+        <FloatingWindow
+          title={`Depreciation Run Preview (${previewTxs.length} voucher${previewTxs.length === 1 ? "" : "s"})`}
+          onClose={() => setShowPreview(false)}
+          wide
+          initialWidth={1180}
+          initialHeight={640}
+        >
+          <p style={{ opacity: 0.75, margin: "0 0 10px", fontSize: 12 }}>
+            Nothing has been posted. This is exactly what "Run Depreciation" would create through {fmtDate(throughDate)}
+            {consolidate ? " (consolidated, 1 voucher/asset)" : " (1 voucher per pending asset-month)"} — close this and click
+            "Run Depreciation" to actually post it.
+          </p>
+          <div className="columnar-report-scroll">
+            <table className="columnar-report-table budget-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Dr</th>
+                  <th>Cr</th>
+                  <th>Fixed Asset #</th>
+                  <th>Narration</th>
+                  <th className="right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewTxs.map((t) => {
+                  const dr = t.entries.find((e) => e.amount < 0);
+                  const cr = t.entries.find((e) => e.amount > 0);
+                  return (
+                    <tr key={t.guid}>
+                      <td>{fmtDate(t.date)}</td>
+                      <td>{dr?.accountName}</td>
+                      <td>{cr?.accountName}</td>
+                      <td>{cr?.assetTag || dr?.assetTag || "—"}</td>
+                      <td>{t.narration}</td>
+                      <td className="right">{fmt(cr?.amount ?? 0)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th colSpan={5}>Total</th>
+                  <th className="right">{fmt(previewTxs.reduce((s, t) => s + (t.entries.find((e) => e.amount > 0)?.amount ?? 0), 0))}</th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </FloatingWindow>
       )}
     </div>
   );

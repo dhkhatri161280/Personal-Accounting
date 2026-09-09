@@ -7195,7 +7195,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-recon-detail-title { font-size: 11px; font-weight: 700; color: #1e40af; margin-bottom: 8px; letter-spacing: 0.02em; text-transform: uppercase; }
 .plaid-recon-detail-empty { font-size: 11px; color: #94a3b8; padding: 4px 0; font-style: italic; }
 .plaid-recon-detail-item { display: grid; grid-template-columns: 90px 1fr 90px 80px; gap: 6px; align-items: center; font-size: 11px; padding: 4px 6px; border-radius: 5px; margin-bottom: 3px; }
-.plaid-recon-detail-item.di-vault { background: #f0fdf4; }
+.plaid-recon-detail-item.di-vault { background: #f0fdf4; grid-template-columns: 90px 1fr 90px 60px 90px; }
 .plaid-recon-detail-item.di-missing { background: #fff7ed; }
 .plaid-recon-detail-total { font-weight: 700; margin-left: 4px; font-variant-numeric: tabular-nums; }
 .plaid-recon-detail-total.debit { color: #dc2626; }
@@ -7213,6 +7213,8 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .di-missing .di-status { color: #ea580c; }
 .plaid-recon-reject-btn { font-size: 10px; font-weight: 600; padding: 2px 7px; border: 1px solid #fca5a5; border-radius: 5px; background: #fef2f2; color: #b91c1c; cursor: pointer; white-space: nowrap; justify-self: end; }
 .plaid-recon-reject-btn:hover { background: #fee2e2; }
+.di-mark-reconciled-btn { font-size: 10px; font-weight: 600; padding: 2px 7px; border: 1px solid #86efac; border-radius: 5px; background: #f0fdf4; color: #15803d; cursor: pointer; white-space: nowrap; justify-self: end; }
+.di-mark-reconciled-btn:hover { background: #dcfce7; }
 /* Duplicates tab */
 .plaid-dupe-section { padding: 16px; }
 .plaid-dupe-empty { color: #16a34a; font-weight: 600; padding: 24px; text-align: center; }

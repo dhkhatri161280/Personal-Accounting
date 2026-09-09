@@ -75,8 +75,13 @@ export function guessAssetClass(name: string): string | undefined {
 export const ASSET_CLASS_PREFIXES: Record<string, string> = {
   "Furniture & Fixtures": "FUR",
   Vehicles: "VEH",
-  "Electronics & Appliances": "ELEC",
-  "IT Equipment": "IT",
+  // "ELE", not "ELEC" -- matches the 3-letter convention already established across this book's
+  // real, already-numbered Electronics & Appliances assets rather than inventing a longer one.
+  "Electronics & Appliances": "ELE",
+  // "MOB", not "IT" -- matches the convention already established across the real, already-
+  // numbered IT Equipment assets (phones, tablets, laptops -- MOB-001, MOB-002, ...) in this
+  // book, same as the ELE alias above.
+  "IT Equipment": "MOB",
   "Machinery & Equipment": "MACH",
   "Buildings & Improvements": "BLDG",
   [UNCLASSIFIED_LABEL]: "MISC",
@@ -158,6 +163,14 @@ export function addMonths(yearMonth: string, n: number): string {
 // Accumulated depreciation as of asOfDate: whole months elapsed since the purchase month,
 // capped at usefulLifeMonths and at the disposal month if disposed, capped again at the
 // depreciable base so it never overshoots (rounding-safe).
+//
+// Once every month of the useful life has fully elapsed (asset not disposed early), this returns
+// the depreciable base exactly rather than monthly * usefulLifeMonths -- that product can UNDERshoot
+// the true base by a few cents (monthly is itself round2(depreciableBase / usefulLifeMonths), and
+// that per-month rounding compounds over many months), which is exactly what a real last-period
+// depreciation voucher is supposed to absorb so book value lands on precise $0.00 (or salvage), not
+// a leftover residue. Mirrors pendingDepreciationMonths, whose own last posted month already caps
+// at the true remaining balance rather than a flat `monthly` amount.
 export function accumulatedDepreciation(asset: FixedAsset, asOfDate: string): number {
   const monthly = monthlyDepreciation(asset);
   if (monthly <= 0) return 0;
@@ -165,6 +178,7 @@ export function accumulatedDepreciation(asset: FixedAsset, asOfDate: string): nu
   let months = monthsBetween(ym(asset.purchaseDate), ym(capDate));
   months = Math.max(0, Math.min(months, asset.usefulLifeMonths));
   const depreciableBase = Math.max(0, asset.cost - asset.salvageValue);
+  if (months >= asset.usefulLifeMonths) return round2(depreciableBase);
   return Math.min(round2(monthly * months), depreciableBase);
 }
 
@@ -195,7 +209,16 @@ export function pendingDepreciationMonths(asset: FixedAsset, throughDate: string
   let cursor = startYm;
   let monthIndex = monthsBetween(purchaseYm, startYm);
   while (cursor < throughYm && monthIndex < asset.usefulLifeMonths && remaining > 0) {
-    const amount = Math.min(monthly, remaining);
+    // The asset's very last useful-life month (this iteration is the last chance to ever post
+    // against it) takes whatever's actually left, not a flat `monthly` amount -- monthly is
+    // itself round2(depreciableBase / usefulLifeMonths), so usefulLifeMonths copies of it can
+    // undershoot the true depreciable base by a few cents. Without this, a one-shot catch-up run
+    // spanning the entire useful life in one go would post that residue as a permanent shortfall
+    // (lastDepreciatedThrough advances past it, so nothing ever catches it up later) -- exactly
+    // matching accumulatedDepreciation's own exact-at-full-term behavior above, so what actually
+    // gets posted always agrees with what the report displays.
+    const isFinalMonth = monthIndex === asset.usefulLifeMonths - 1;
+    const amount = isFinalMonth ? remaining : Math.min(monthly, remaining);
     out.push({ yearMonth: cursor, amount });
     remaining = round2(remaining - amount);
     cursor = addMonths(cursor, 1);

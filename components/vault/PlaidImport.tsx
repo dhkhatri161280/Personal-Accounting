@@ -12,7 +12,7 @@ import {
 } from "@/lib/mortgage-amortization";
 import { isCcAcct, isBankAcct, enforceContraType } from "@/lib/plaid-classify";
 import { matchRecurringTemplate, buildVoucherFromTemplate, currentPeriodKey } from "@/lib/recurring";
-import { vaultBookBalance, findAcct, matchVaultAccount, bofaCardGlAccountName } from "@/lib/plaid-recon";
+import { vaultBookBalance, findAcct, matchVaultAccount, bofaCardGlAccountName, vaultExceptionKey } from "@/lib/plaid-recon";
 import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -1844,6 +1844,20 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     setPickerSearch("");
   }
 
+  // "This vault voucher will never have a matching Plaid transaction" -- e.g. a same-day,
+  // self-offsetting Receipt/Payment adjustment pair with no real bank movement behind it. Shares
+  // ledger.bankReconExceptions with the Bank Reconciliation report's own "Mark as reconciled"
+  // action (lib/plaid-recon.ts) rather than a second, separate exception list.
+  async function markVaultException(txGuid: string, label: string) {
+    const key = vaultExceptionKey(txGuid);
+    if ((data.bankReconExceptions ?? []).some((e) => e.key === key)) return;
+    const next: Ledger = {
+      ...data,
+      bankReconExceptions: [...(data.bankReconExceptions ?? []), { key, label, markedAt: new Date().toISOString() }],
+    };
+    await onSave(next);
+  }
+
   async function confirmPendingMatch(rowIdx: number, vault: { id: number; narration: string; entries: { amount: number; accountId: number }[] }) {
     const tx = pendingRows[rowIdx]?.plaidTx;
     if (!tx) return;
@@ -2808,8 +2822,14 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       }
                       // Drilldown display only -- combines both matching passes so this panel
                       // agrees with whichever one actually ran for this account's Plaid type.
+                      // Also excludes anything the user has explicitly marked "Reconciled" below
+                      // (e.g. a same-day, self-offsetting Receipt/Payment adjustment pair with no
+                      // real bank movement, so no Plaid transaction will ever exist for it) --
+                      // shared with the Bank Reconciliation report's own "Mark as reconciled"
+                      // exceptions (see lib/plaid-recon.ts), one list either screen can add to.
+                      const reconExceptionKeys = new Set((data.bankReconExceptions ?? []).map((e) => e.key));
                       const onlyInVault = recentVaultEntries.filter(
-                        (_, vi) => !matchedVaultIdx.has(vi) && !matchedAgainstInvestment.has(vi)
+                        (ve, vi) => !matchedVaultIdx.has(vi) && !matchedAgainstInvestment.has(vi) && !reconExceptionKeys.has(vaultExceptionKey(ve.guid))
                       );
 
                       // Credit cards — Plaid current balance behaviour. Everything pending that Plaid's
@@ -2897,9 +2917,31 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                   // still-unmatched Contra past that window surfaces as a real diff to
                                   // investigate instead of being silently absorbed forever.
                                   const contraCutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+                                  // matchedVaultIdx (above) only pairs a vault entry against a Plaid tx within
+                                  // ±3 days -- too tight for a written check, which routinely clears days or
+                                  // weeks after the Contra voucher's own date. Without this second check, an
+                                  // already-cleared check (visible as "0 to import" on the Transactions tab,
+                                  // and already reflected via alreadyImported's own looser ±2-day/merchant-token
+                                  // matching -- see the `alreadyImported` computation above) would wrongly sit
+                                  // here forever as "awaiting Plaid", inflating Uncleared/Difference by an
+                                  // amount that's actually already settled on both sides. Bounded to 21 days
+                                  // (past typical check-clearing time) so a genuine same-amount coincidence
+                                  // from an unrelated, older already-imported transaction can't falsely
+                                  // suppress a real still-outstanding check.
+                                  const checkClearingWindowMs = 21 * 86400000;
                                   return recentVaultEntries
                                     .map((ve, vi) => ({ ve, vi }))
-                                    .filter(({ ve, vi }) => !matchedVaultIdx.has(vi) && ve.type.toLowerCase() === "contra" && ve.date >= contraCutoff)
+                                    .filter(({ ve, vi }) => {
+                                      if (matchedVaultIdx.has(vi) || ve.type.toLowerCase() !== "contra" || ve.date < contraCutoff) return false;
+                                      const vMs = new Date(ve.date + "T12:00:00Z").getTime();
+                                      const alreadySettled = plaidTxsForGroup.some(
+                                        (pr) =>
+                                          pr.alreadyImported &&
+                                          Math.abs(pr.plaidTx.amount - ve.amount) < 0.05 &&
+                                          Math.abs(new Date(pr.plaidTx.date + "T12:00:00Z").getTime() - vMs) <= checkClearingWindowMs
+                                      );
+                                      return !alreadySettled;
+                                    })
                                     .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true }));
                                 })()
                               : [];
@@ -3098,6 +3140,14 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                             {ve.amount < 0 ? "Dr" : "Cr"} ${Math.abs(ve.amount).toFixed(2)}
                                           </span>
                                           <span className="di-status">{ve.type}</span>
+                                          <button
+                                            type="button"
+                                            className="di-mark-reconciled-btn"
+                                            title="Mark reconciled -- this voucher will never have a matching Plaid transaction (e.g. an internal adjustment), so stop flagging it here"
+                                            onClick={() => markVaultException(ve.guid, `${fmtDate(ve.date)} — ${ve.narration || ve.type}`)}
+                                          >
+                                            ✓ Reconciled
+                                          </button>
                                         </div>
                                       ))
                                     }

@@ -78,8 +78,8 @@ export function postDepreciation(data: Ledger, throughDate: string): { data: Led
         cancelled: false,
         syncStatus: "pending",
         entries: [
-          { accountId: depreciationExpenseAcct.id, accountName: depreciationExpenseAcct.name, amount: -amount },
-          { accountId: accumulatedDeprecAcct.id, accountName: accumulatedDeprecAcct.name, amount },
+          { accountId: depreciationExpenseAcct.id, accountName: depreciationExpenseAcct.name, amount: -amount, ...(asset.sourceTag ? { assetTag: asset.sourceTag } : {}) },
+          { accountId: accumulatedDeprecAcct.id, accountName: accumulatedDeprecAcct.name, amount, ...(asset.sourceTag ? { assetTag: asset.sourceTag } : {}) },
         ],
       };
       workingTxs = [...workingTxs, tx];
@@ -139,8 +139,8 @@ export function postDepreciationConsolidated(data: Ledger, throughDate: string, 
       cancelled: false,
       syncStatus: "pending",
       entries: [
-        { accountId: depreciationExpenseAcct.id, accountName: depreciationExpenseAcct.name, amount: -total },
-        { accountId: accumulatedDeprecAcct.id, accountName: accumulatedDeprecAcct.name, amount: total },
+        { accountId: depreciationExpenseAcct.id, accountName: depreciationExpenseAcct.name, amount: -total, ...(asset.sourceTag ? { assetTag: asset.sourceTag } : {}) },
+        { accountId: accumulatedDeprecAcct.id, accountName: accumulatedDeprecAcct.name, amount: total, ...(asset.sourceTag ? { assetTag: asset.sourceTag } : {}) },
       ],
     };
     workingTxs = [...workingTxs, tx];
@@ -184,7 +184,12 @@ export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
     for (const e of t.entries) {
       if (!e.assetTag) continue;
       const acc = accountById.get(e.accountId);
-      if (!acc || acc.parent !== FIXED_ASSETS_GROUP_NAME) continue;
+      // Accumulated Depreciation is a single shared contra-asset account, tagged on its own
+      // entries purely so a depreciation posting can be traced back to the asset that generated
+      // it (see postDepreciation/postDepreciationConsolidated) -- it must never be treated as a
+      // "purchase" ledger to sync a Fixed Asset master from, or every asset's own depreciation
+      // vouchers would spawn a second, spurious asset record keyed off this shared account.
+      if (!acc || acc.parent !== FIXED_ASSETS_GROUP_NAME || acc.name === ACCUMULATED_DEPRECIATION_ACCOUNT_NAME) continue;
       const key = `${e.accountId}::${e.assetTag}`;
       const cost = round2(-e.amount); // Dr (negative) increases the asset, mirrors ledgerBalanceAsOf's convention
       const existing = groups.get(key);
