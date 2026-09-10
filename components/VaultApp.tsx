@@ -44,6 +44,7 @@ import {
   buildFiscalYearCloseVoucher,
   isProfitAndLossAccountName,
   nextTransactionIds,
+  nextVoucherNumber,
 } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
@@ -496,20 +497,100 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setPassword("");
   }
 
+  // Whenever a mortgage payment voucher (Dr "Home" principal + Dr "Interest on Home Loan") is
+  // newly saved -- via Plaid import, manual New Voucher entry, or an edit, whichever -- this
+  // posts a companion Journal the SAME date, transferring that exact principal amount from the
+  // real mortgage payable ("CCU Home Loan") into "Home Mortgage". Mirrors the user's own
+  // already-established manual pattern (confirmed against a real example voucher: Dr CCU Home
+  // Loan / Cr Home Mortgage, narration "Mortgage for Home") -- runs on every save() the same way
+  // ensureHouseHoldAccountsForFiscalYears already does below, so it's covered no matter how the
+  // payment itself gets entered, with no separate step needed. Idempotent: a date that already
+  // has a Journal voucher with this exact narration is left alone, so re-saving/editing that
+  // month's payment later never double-posts.
+  function ensureMortgagePrincipalVouchers(next: Ledger, prev: Ledger | null): { data: Ledger; addedGuids: Set<string> } {
+    const addedGuids = new Set<string>();
+    const byName = (name: string) =>
+      next.accounts.find((a) => a.active !== false && a.name.trim().toLowerCase() === name.toLowerCase());
+    const homeAcc = byName("Home"), interestAcc = byName("Interest on Home Loan");
+    const loanAcc = byName("CCU Home Loan"), mortgageAcc = byName("Home Mortgage");
+    if (!homeAcc || !interestAcc || !loanAcc || !mortgageAcc) return { data: next, addedGuids };
+
+    const prevGuids = new Set((prev?.transactions ?? []).map((t) => t.guid));
+    const newPaymentTxs = next.transactions.filter(
+      (t) =>
+        !t.deleted &&
+        !t.cancelled &&
+        !prevGuids.has(t.guid) &&
+        t.entries.some((e) => e.accountId === homeAcc.id && e.amount < 0) &&
+        t.entries.some((e) => e.accountId === interestAcc.id && e.amount < 0)
+    );
+    if (!newPaymentTxs.length) return { data: next, addedGuids };
+
+    let working = next;
+    for (const paymentTx of newPaymentTxs) {
+      const alreadyPosted = working.transactions.some(
+        (t) =>
+          !t.deleted &&
+          !t.cancelled &&
+          t.date === paymentTx.date &&
+          t.type.toLowerCase() === "journal" &&
+          (t.narration || "").trim().toLowerCase() === "mortgage for home"
+      );
+      if (alreadyPosted) continue;
+      const homeEntry = paymentTx.entries.find((e) => e.accountId === homeAcc.id && e.amount < 0);
+      const principal = homeEntry ? Math.round(-homeEntry.amount * 100) / 100 : 0;
+      if (principal <= 0) continue;
+      const tx: Tx = {
+        id: nextTransactionIds(working.transactions, 1)[0],
+        guid: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        syncStatus: "pending",
+        date: paymentTx.date,
+        number: nextVoucherNumber(working, "Journal", paymentTx.date),
+        type: "Journal",
+        narration: "Mortgage for Home",
+        historical: false,
+        cancelled: false,
+        entries: [
+          { accountId: loanAcc.id, accountName: loanAcc.name, amount: -principal },
+          { accountId: mortgageAcc.id, accountName: mortgageAcc.name, amount: principal },
+        ],
+      };
+      working = appendAuditEntry(
+        { ...working, transactions: [...working.transactions, tx] },
+        {
+          entity: "voucher",
+          entityId: tx.guid,
+          action: "created",
+          summary: `Auto-posted mortgage principal transfer for ${fmtDate(paymentTx.date)}: $${principal.toFixed(2)} CCU Home Loan → Home Mortgage`,
+        }
+      );
+      addedGuids.add(tx.guid);
+    }
+    return { data: working, addedGuids };
+  }
+
   async function save(
     next: Ledger,
     destination = "daybook",
     exemptFromPeriodCheck?: Set<string>
   ): Promise<boolean> {
+    const mortgageResult = ensureMortgagePrincipalVouchers(next, data);
+    next = mortgageResult.data;
+    const exemptGuids =
+      mortgageResult.addedGuids.size > 0
+        ? new Set([...(exemptFromPeriodCheck ?? []), ...mortgageResult.addedGuids])
+        : exemptFromPeriodCheck;
     // Period close: blocks a create/edit/delete that touches a voucher dated in a closed period.
     // Runs here (the one function every save path funnels through) rather than in each
     // individual caller, so it's enforced uniformly across manual entry, Trash, Plaid/Schwab/
     // Teller import, and bulk report posting alike. Reads/reports never call save(), so they're
-    // completely unaffected. `exemptFromPeriodCheck` carves out one specific exception: the
-    // fiscal-year-close voucher itself is deliberately dated inside the very period this same
-    // save() call is closing -- see the MastersPanel onSave wrapper below.
+    // completely unaffected. `exemptFromPeriodCheck` carves out specific exceptions: the
+    // fiscal-year-close voucher (see the MastersPanel onSave wrapper below) and the mortgage
+    // principal-transfer voucher above are both deliberately dated inside the very period this
+    // same save() call may be closing/already-closed for.
     if (data) {
-      const violation = findClosedPeriodViolations(data.transactions, next.transactions, next.closedPeriods, exemptFromPeriodCheck);
+      const violation = findClosedPeriodViolations(data.transactions, next.transactions, next.closedPeriods, exemptGuids);
       if (violation) {
         setStatus(
           `Blocked: ${violation.count} voucher(s) in closed period ${violation.examplePeriod} would be ` +
@@ -556,11 +637,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (saved?.etag) setVaultEtag(saved.etag);
     setData(next);
     setLastSynced(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    setStatus(
-      newAccountCount > 0
-        ? `Encrypted save complete — created ${newAccountCount} new House Hold Exps account(s) for the new fiscal year`
-        : "Encrypted save complete"
-    );
+    const notes: string[] = [];
+    if (newAccountCount > 0) notes.push(`created ${newAccountCount} new House Hold Exps account(s) for the new fiscal year`);
+    if (mortgageResult.addedGuids.size > 0)
+      notes.push(`auto-posted ${mortgageResult.addedGuids.size} mortgage principal transfer voucher(s) (CCU Home Loan → Home Mortgage)`);
+    setStatus(notes.length ? `Encrypted save complete — ${notes.join("; ")}` : "Encrypted save complete");
     setTab(destination);
     scheduleAutoSyncTrigger();
     return true;
@@ -4071,7 +4152,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "ratios" && data && <FinancialRatios data={data} fmt={fmt} />}
           {report === "cashforecast" && data && <CashFlowForecast data={data} fmt={fmt} />}
           {report === "fundsummary" && data && (
-            <FundSummary data={data} fmt={fmt} periodStart={fundSummaryStart} periodEnd={fundSummaryEnd} />
+            <FundSummary
+              data={data}
+              fmt={fmt}
+              periodStart={fundSummaryStart}
+              periodEnd={fundSummaryEnd}
+              onDrilldown={(req) => setColumnarDrilldown(req)}
+            />
           )}
         </>
       )}
