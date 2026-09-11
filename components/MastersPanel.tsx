@@ -1208,7 +1208,14 @@ export function MastersPanel({
                       ) : a.sourceTag ? (
                         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                           <span>{a.sourceTag}</span>
-                          {onTagAsset && (
+                          {/* Only offered while this ledger still has an untagged sibling entry
+                              to sweep up -- once everything's tagged this naturally disappears
+                              instead of sitting on every fully-tagged asset as permanent clutter,
+                              and reappears on its own if a new untagged voucher lands later. */}
+                          {onTagAsset &&
+                            assetLedger.transactions.some(
+                              (t) => !t.deleted && !t.cancelled && t.entries.some((e) => e.accountId === a.accountId && !e.assetTag)
+                            ) && (
                             <button
                               type="button"
                               className="master-edit"
