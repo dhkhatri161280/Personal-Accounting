@@ -222,7 +222,11 @@ export function ColumnarNetRow({
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 }) {
   return (
-    <div className="data-panel columnar-report-section">
+    // "grouped-report" matches ColumnarSection's own wrapper class above -- without it, this
+    // panel keeps .data-panel's default 18px padding while ColumnarSection's zeroes it out (see
+    // .grouped-report in globals.css), leaving this row's table ~36px narrower than the Assets/
+    // Liabilities tables stacked above it and visibly out of alignment despite identical columns.
+    <div className="data-panel grouped-report columnar-report-section">
       <div className="columnar-report-scroll" ref={scrollRef} onScroll={onScroll}>
         <table className="columnar-report-table">
           <tfoot>

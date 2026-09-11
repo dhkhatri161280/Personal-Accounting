@@ -161,6 +161,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     ),
     [report, setReport] = useState("trial"),
     [reportView, setReportView] = useState<"single" | "monthly" | "quarterly">("single"),
+    [bsViewMode, setBsViewMode] = useState<"ending" | "incremental">("ending"),
     [columnarData, setColumnarData] = useState<{ periods: PeriodBoundary[]; incomeRows: ColumnarRow[]; expenseRows: ColumnarRow[] } | null>(null),
     [exportingIncomeExpenditure, setExportingIncomeExpenditure] = useState(false),
     [columnarBSData, setColumnarBSData] = useState<{ periods: PeriodBoundary[]; assetRows: ColumnarRow[]; liabilityRows: ColumnarRow[] } | null>(null),
@@ -2102,30 +2103,50 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     }
   }
 
-  const ReportViewToggle = ({ exporting, onExport }: { exporting: boolean; onExport: () => void }) => (
+  // Title + Single Period/Monthly/Quarterly + any report-specific `extra` toggle (e.g. Balance
+  // Sheet's Ending Balance/Incremental) + Export, all on ONE row -- the period itself is already
+  // controlled by the top "Financial period" field (see PeriodSelect's removal from every report
+  // heading below), so there's no separate per-report period control competing for space here.
+  const ReportViewToggle = ({
+    title,
+    exporting,
+    onExport,
+    extra,
+  }: {
+    title: string;
+    exporting: boolean;
+    onExport: () => void;
+    extra?: React.ReactNode;
+  }) => (
     <div className="report-view-toggle-row">
-      <span className="report-view-toggle" role="group" aria-label="Report view">
-        <button type="button" className={reportView === "single" ? "selected" : ""} onClick={() => setReportView("single")}>
-          Single Period
-        </button>
-        <button
-          type="button"
-          className={reportView === "monthly" ? "selected" : ""}
-          disabled={!columnarViewAvailable}
-          title={!columnarViewAvailable ? "Select a specific period (not \"All periods\") to view monthly columns" : undefined}
-          onClick={() => setReportView("monthly")}
-        >
-          Monthly
-        </button>
-        <button
-          type="button"
-          className={reportView === "quarterly" ? "selected" : ""}
-          disabled={!columnarViewAvailable}
-          title={!columnarViewAvailable ? "Select a specific period (not \"All periods\") to view quarterly columns" : undefined}
-          onClick={() => setReportView("quarterly")}
-        >
-          Quarterly
-        </button>
+      <span style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <h3 className="report-inline-heading" style={{ margin: 0 }}>
+          {title}
+        </h3>
+        <span className="report-view-toggle" role="group" aria-label="Report view">
+          <button type="button" className={reportView === "single" ? "selected" : ""} onClick={() => setReportView("single")}>
+            Single Period
+          </button>
+          <button
+            type="button"
+            className={reportView === "monthly" ? "selected" : ""}
+            disabled={!columnarViewAvailable}
+            title={!columnarViewAvailable ? "Select a specific period (not \"All periods\") to view monthly columns" : undefined}
+            onClick={() => setReportView("monthly")}
+          >
+            Monthly
+          </button>
+          <button
+            type="button"
+            className={reportView === "quarterly" ? "selected" : ""}
+            disabled={!columnarViewAvailable}
+            title={!columnarViewAvailable ? "Select a specific period (not \"All periods\") to view quarterly columns" : undefined}
+            onClick={() => setReportView("quarterly")}
+          >
+            Quarterly
+          </button>
+        </span>
+        {extra}
       </span>
       <button type="button" className="tr-refresh-btn" disabled={exporting} onClick={onExport}>
         {exporting ? "Exporting…" : "⬇ Export to Excel"}
@@ -3593,9 +3614,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           })()}
           {report === "trial" && (
             <div className="data-panel">
-              <h3>
-                Trial Balance — <PeriodSelect />
-              </h3>
+              <h3>Trial Balance</h3>
               {(() => {
                 const tR = adjustedFilteredRows.map((a) => ({
                   ...a,
@@ -3684,10 +3703,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "income" && (
             <>
-              <h3 className="report-inline-heading">
-                Income &amp; Expenditure — <PeriodSelect />
-              </h3>
-              <ReportViewToggle exporting={exportingIncomeExpenditure} onExport={exportIncomeExpenditure} />
+              <ReportViewToggle title="Income & Expenditure" exporting={exportingIncomeExpenditure} onExport={exportIncomeExpenditure} />
               {(reportView === "single" || !columnarViewAvailable) && (
               <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
                 <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
@@ -3764,10 +3780,33 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}{" "}
           {report === "balance" && (
             <>
-              <h3 className="report-inline-heading">
-                Balance Sheet — <PeriodSelect />
-              </h3>
-              <ReportViewToggle exporting={exportingBalanceSheet} onExport={exportBalanceSheet} />
+              <ReportViewToggle
+                title="Balance Sheet"
+                exporting={exportingBalanceSheet}
+                onExport={exportBalanceSheet}
+                extra={
+                  (reportView === "monthly" || reportView === "quarterly") && columnarViewAvailable ? (
+                    <span className="report-view-toggle" role="group" aria-label="Balance Sheet view">
+                      <button
+                        type="button"
+                        className={bsViewMode === "ending" ? "selected" : ""}
+                        onClick={() => setBsViewMode("ending")}
+                        title="Each column is the running closing balance as of that period's end"
+                      >
+                        Ending Balance
+                      </button>
+                      <button
+                        type="button"
+                        className={bsViewMode === "incremental" ? "selected" : ""}
+                        onClick={() => setBsViewMode("incremental")}
+                        title="Each column is what moved during that period only, not the running balance"
+                      >
+                        Incremental
+                      </button>
+                    </span>
+                  ) : undefined
+                }
+              />
               {reportView === "single" || !columnarViewAvailable ? (
                 <BalanceSheetReport
                   assets={assetRows}
@@ -3786,6 +3825,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   end={columnarEnd}
                   granularity={reportView}
                   fmt={fmt}
+                  viewMode={bsViewMode}
                   onComputed={(periods, assetRows, liabilityRows) => setColumnarBSData({ periods, assetRows, liabilityRows })}
                   onDrilldown={setColumnarDrilldown}
                 />
@@ -3794,10 +3834,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}{" "}
           {report === "cashflow" && (
             <>
-              <h3 className="report-inline-heading">
-                Cash Flow — <PeriodSelect />
-              </h3>
-              <ReportViewToggle exporting={exportingCashFlow} onExport={exportCashFlow} />
+              <ReportViewToggle title="Cash Flow" exporting={exportingCashFlow} onExport={exportCashFlow} />
               {reportView !== "single" && columnarViewAvailable && (
                 <ColumnarCashFlow
                   data={data}
@@ -3839,9 +3876,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             return (
               <div className="data-panel">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                  <h3 style={{ margin: 0 }}>
-                    Cash and Bank Closing Balances — <PeriodSelect />
-                  </h3>
+                  <h3 style={{ margin: 0 }}>Cash and Bank Closing Balances</h3>
                   <ExportButton
                     onExport={async () => {
                       const header = ["Ledger", "Closing Balance"];
@@ -3894,10 +3929,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           })()}
           {report === "budget" && (
             <>
-              <h3 className="report-inline-heading">
-                Budget vs Actual — <PeriodSelect />
-              </h3>
-              <ReportViewToggle exporting={exportingBudget} onExport={exportBudget} />
+              <ReportViewToggle title="Budget vs Actual" exporting={exportingBudget} onExport={exportBudget} />
               <BudgetVsActual
                 data={data}
                 fy={budgetFy}
@@ -4096,9 +4128,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           })()}
           {report === "networth" && (
             <>
-              <h3 className="report-inline-heading">
-                Net Worth — <PeriodSelect />
-              </h3>
+              <h3 className="report-inline-heading">Net Worth</h3>
               <NetWorthReport
                 assets={netWorthAssetRows}
                 liabilities={realLiabilityRows}

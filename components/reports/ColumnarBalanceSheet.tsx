@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import {
   periodBoundariesForRange,
@@ -49,6 +49,7 @@ export function ColumnarBalanceSheet({
   end,
   granularity,
   fmt,
+  viewMode = "ending",
   onComputed,
   onDrilldown,
 }: {
@@ -57,6 +58,10 @@ export function ColumnarBalanceSheet({
   end: string;
   granularity: "monthly" | "quarterly";
   fmt: (n: number) => string;
+  // Controlled by the caller (rendered alongside the Single Period/Monthly/Quarterly toggle, on
+  // the same row, rather than as a second toggle row owned by this component) -- see
+  // toIncremental below for what "incremental" actually does to the rows.
+  viewMode?: "ending" | "incremental";
   onComputed?: (periods: PeriodBoundary[], assetRows: ColumnarRow[], liabilityRows: ColumnarRow[]) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
 }) {
@@ -73,7 +78,6 @@ export function ColumnarBalanceSheet({
   // end) and Incremental (what moved WITHIN each period) -- see toIncremental above. Purely a
   // local view transform; onComputed above still always reports the raw Ending Balance rows
   // (e.g. for Export to Excel), regardless of which view is on screen.
-  const [viewMode, setViewMode] = useState<"ending" | "incremental">("ending");
   const displayAssetRows = viewMode === "incremental" ? toIncremental(assetRows, periods) : assetRows;
   const displayLiabilityRows = viewMode === "incremental" ? toIncremental(liabilityRows, periods) : liabilityRows;
   const totalLabel = viewMode === "incremental" ? "Net Change" : "Closing";
@@ -86,26 +90,6 @@ export function ColumnarBalanceSheet({
 
   return (
     <div className="columnar-report">
-      <div className="report-view-toggle-row" style={{ marginBottom: "0.5rem" }}>
-        <span className="report-view-toggle" role="group" aria-label="Balance Sheet view">
-          <button
-            type="button"
-            className={viewMode === "ending" ? "selected" : ""}
-            onClick={() => setViewMode("ending")}
-            title="Each column is the running closing balance as of that period's end"
-          >
-            Ending Balance
-          </button>
-          <button
-            type="button"
-            className={viewMode === "incremental" ? "selected" : ""}
-            onClick={() => setViewMode("incremental")}
-            title="Each column is what moved during that period only, not the running balance"
-          >
-            Incremental
-          </button>
-        </span>
-      </div>
       <ColumnarSection
         title="Assets"
         rows={displayAssetRows}
