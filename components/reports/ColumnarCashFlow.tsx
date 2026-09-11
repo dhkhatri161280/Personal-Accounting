@@ -2,7 +2,7 @@
 import { useEffect, useMemo } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { periodBoundariesForRange, trimToLatestActivity, buildCashFlowColumns, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
-import { ColumnarSection, ColumnarNetRow, useSyncedScroll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
+import { ColumnarSection, ColumnarNetRow, useSyncedScroll, computeColumnarWidths, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -40,13 +40,31 @@ export function ColumnarCashFlow({
   const closingValues = periods.map((p) => closingByPeriod[p.key] || 0);
   const lastClosing = closingValues[closingValues.length - 1] || 0;
   const [sIn, sOut, sNet, sClosing] = useSyncedScroll(4);
+  const netRowLabel = "Net increase / (decrease) in cash";
+  const closingRowLabel = "Closing cash and bank balance";
+  const { labelWidth, valueWidth } = useMemo(
+    () =>
+      computeColumnarWidths(
+        [
+          { title: "Cash Inflows", rows: inflowRows },
+          { title: "Cash Outflows", rows: outflowRows },
+        ],
+        [
+          { label: netRowLabel, values: netByPeriod, total: netTotal },
+          { label: closingRowLabel, values: closingValues, total: lastClosing },
+        ],
+        periods,
+        fmt
+      ),
+    [inflowRows, outflowRows, netByPeriod, netTotal, closingValues, lastClosing, periods, fmt]
+  );
 
   return (
     <div className="columnar-report">
-      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} onDrilldown={onDrilldown} />
-      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} onDrilldown={onDrilldown} />
+      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} />
+      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} />
       <ColumnarNetRow
-        label="Net increase / (decrease) in cash"
+        label={netRowLabel}
         values={netByPeriod}
         total={netTotal}
         periods={periods}
@@ -54,9 +72,11 @@ export function ColumnarCashFlow({
         colorOf={(v) => (v >= 0 ? MONEY_IN : MONEY_OUT)}
         scrollRef={sNet.ref}
         onScroll={sNet.onScroll}
+        labelWidth={labelWidth}
+        valueWidth={valueWidth}
       />
       <ColumnarNetRow
-        label="Closing cash and bank balance"
+        label={closingRowLabel}
         values={closingValues}
         total={lastClosing}
         periods={periods}
@@ -64,6 +84,8 @@ export function ColumnarCashFlow({
         colorOf={() => "#1e40af"}
         scrollRef={sClosing.ref}
         onScroll={sClosing.onScroll}
+        labelWidth={labelWidth}
+        valueWidth={valueWidth}
       />
     </div>
   );

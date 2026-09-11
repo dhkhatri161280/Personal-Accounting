@@ -2,6 +2,64 @@
 import { Fragment, useRef, useState } from "react";
 import type React from "react";
 import type { ColumnarRow, PeriodBoundary } from "@/lib/columnar-report";
+import { measureTextWidth } from "@/lib/text-measure";
+
+// Excel-style auto-fit for a whole columnar report GROUP (e.g. Balance Sheet's Assets section +
+// Liabilities section + Balance Check row -- 3 separate <table> elements that must render at
+// IDENTICAL widths to stay aligned, per ColumnarSection/ColumnarNetRow below). Computed ONCE
+// across every row/label/value that will appear in ANY of those tables, then applied identically
+// to all of them via labelWidth/valueWidth props -- content-aware sizing (a long label actually
+// widens the column instead of wrapping to 2 lines) without losing cross-table alignment, since
+// every table receives the exact same two numbers regardless of its own individual content.
+// 900 weight matches the heaviest actual render weight (.shell table tfoot th forces
+// font-weight: 900 !important on "Total X"/net-row labels and totals) -- measuring at the
+// heaviest weight in use guarantees we never UNDER-measure a label/value that's actually bold.
+const LABEL_FONT = "900 11px var(--font-sans), Arial, sans-serif";
+const VALUE_FONT = "900 11px var(--font-sans), Arial, sans-serif";
+const LEAF_INDENT = 26; // matches .columnar-ledger-name's own padding-left
+const CELL_PADDING = 24; // matches td/th's 10px horizontal padding on both sides + a little room
+const MIN_LABEL_WIDTH = 220;
+const MIN_VALUE_WIDTH = 90;
+
+export function computeColumnarWidths(
+  groups: { title: string; rows: ColumnarRow[] }[],
+  netRows: { label: string; values: number[]; total: number }[],
+  periods: PeriodBoundary[],
+  fmt: (n: number) => string
+): { labelWidth: number; valueWidth: number } {
+  let maxLabel = 0;
+  let maxValue = 0;
+  const bumpLabel = (text: string, indent = 0) => {
+    maxLabel = Math.max(maxLabel, measureTextWidth(text, LABEL_FONT) + indent);
+  };
+  const bumpValue = (n: number) => {
+    maxValue = Math.max(maxValue, measureTextWidth(fmt(n), VALUE_FONT));
+  };
+
+  for (const g of groups) {
+    bumpLabel(`Total ${g.title}`);
+    const groupNames = new Set<string>();
+    for (const r of g.rows) {
+      bumpLabel(r.name, LEAF_INDENT);
+      groupNames.add(r.parent || r.category || "Other");
+      for (const p of periods) bumpValue(r.values[p.key] || 0);
+      bumpValue(r.total);
+    }
+    for (const name of groupNames) bumpLabel(name);
+    for (const p of periods) bumpValue(g.rows.reduce((s, r) => s + (r.values[p.key] || 0), 0));
+    bumpValue(g.rows.reduce((s, r) => s + r.total, 0));
+  }
+  for (const n of netRows) {
+    bumpLabel(n.label);
+    for (const v of n.values) bumpValue(v);
+    bumpValue(n.total);
+  }
+
+  return {
+    labelWidth: Math.max(MIN_LABEL_WIDTH, Math.ceil(maxLabel) + CELL_PADDING),
+    valueWidth: Math.max(MIN_VALUE_WIDTH, Math.ceil(maxValue) + CELL_PADDING),
+  };
+}
 
 // Keeps every section's (and the net row's) horizontal scroll position in lockstep -- on mobile
 // each table has its own scrollbar, so without this, scrolling the Income table right to see a
@@ -55,6 +113,8 @@ export function ColumnarSection({
   scrollRef,
   onScroll,
   onDrilldown,
+  labelWidth,
+  valueWidth,
 }: {
   title: string;
   rows: ColumnarRow[];
@@ -66,6 +126,11 @@ export function ColumnarSection({
   scrollRef?: (el: HTMLDivElement | null) => void;
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
+  // Excel-style auto-fit, computed ONCE across the whole report group (see computeColumnarWidths
+  // above) and applied identically to every stacked table so they stay aligned -- falls back to
+  // the plain CSS defaults (220px/110px) when a caller doesn't pass them.
+  labelWidth?: number;
+  valueWidth?: number;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (k: string) =>
@@ -115,7 +180,23 @@ export function ColumnarSection({
     <div className="data-panel grouped-report columnar-report-section">
       <h3>{title}</h3>
       <div className="columnar-report-scroll" ref={scrollRef} onScroll={onScroll}>
-        <table className="columnar-report-table">
+        <table
+          className="columnar-report-table"
+          style={
+            labelWidth || valueWidth
+              ? { width: (labelWidth || 0) + (valueWidth || 0) * (periods.length + 1) }
+              : undefined
+          }
+        >
+          {(labelWidth || valueWidth) && (
+            <colgroup>
+              <col style={{ width: labelWidth }} />
+              {periods.map((p) => (
+                <col key={p.key} style={{ width: valueWidth }} />
+              ))}
+              <col style={{ width: valueWidth }} />
+            </colgroup>
+          )}
           <thead>
             <tr>
               <th></th>
@@ -211,6 +292,8 @@ export function ColumnarNetRow({
   colorOf,
   scrollRef,
   onScroll,
+  labelWidth,
+  valueWidth,
 }: {
   label: string;
   values: number[];
@@ -220,6 +303,8 @@ export function ColumnarNetRow({
   colorOf: (n: number) => string;
   scrollRef?: (el: HTMLDivElement | null) => void;
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
+  labelWidth?: number;
+  valueWidth?: number;
 }) {
   return (
     // "grouped-report" matches ColumnarSection's own wrapper class above -- without it, this
@@ -228,7 +313,23 @@ export function ColumnarNetRow({
     // Liabilities tables stacked above it and visibly out of alignment despite identical columns.
     <div className="data-panel grouped-report columnar-report-section">
       <div className="columnar-report-scroll" ref={scrollRef} onScroll={onScroll}>
-        <table className="columnar-report-table">
+        <table
+          className="columnar-report-table"
+          style={
+            labelWidth || valueWidth
+              ? { width: (labelWidth || 0) + (valueWidth || 0) * (periods.length + 1) }
+              : undefined
+          }
+        >
+          {(labelWidth || valueWidth) && (
+            <colgroup>
+              <col style={{ width: labelWidth }} />
+              {periods.map((p) => (
+                <col key={p.key} style={{ width: valueWidth }} />
+              ))}
+              <col style={{ width: valueWidth }} />
+            </colgroup>
+          )}
           <tfoot>
             <tr>
               <th>{label}</th>

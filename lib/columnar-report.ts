@@ -162,6 +162,34 @@ export function natureFor(a: { parent: string }, groups: Ledger["groups"]) {
   return "Asset";
 }
 
+// Same duplicated-per-file convention as isProfitLoss/natureFor above (node --test can't resolve
+// a cross-lib-file runtime import here -- confirmed directly, this file must stay import-free to
+// keep its own tests runnable). Mirrors fiscalYearOf/isFiscalYearAlreadyClosed in
+// lib/vault-accounting.ts -- see buildBalanceSheetColumns below for why this is needed here too.
+function fiscalYearOf(date: string): number {
+  const y = Number(date.slice(0, 4)), m = Number(date.slice(5, 7));
+  return m >= 4 ? y : y - 1;
+}
+function isFiscalYearAlreadyClosed(data: Ledger, fy: number): boolean {
+  const fyEnd = `${fy + 1}-03-31`;
+  const activeAccounts = data.accounts.filter((a) => a.active !== false);
+  const plAccounts = activeAccounts.filter((a) => isProfitLoss(a.name));
+  const capitalAccounts = activeAccounts.filter(
+    (a) => natureFor(a, data.groups) === "Capital" && !isProfitLoss(a.name) && a.name.trim().toLowerCase() !== "opening balance equity"
+  );
+  if (plAccounts.length !== 1 || capitalAccounts.length !== 1) return false;
+  const plAccount = plAccounts[0], capitalAccount = capitalAccounts[0];
+  return data.transactions.some(
+    (t) =>
+      !t.deleted &&
+      !t.cancelled &&
+      t.date === fyEnd &&
+      t.type.toLowerCase() === "journal" &&
+      t.entries.some((e) => e.accountId === plAccount.id) &&
+      t.entries.some((e) => e.accountId === capitalAccount.id)
+  );
+}
+
 const TOL = 0.005;
 
 // Builds the Income and Expense row sets for the columnar report -- one row per ledger account
@@ -246,18 +274,43 @@ export function buildBalanceSheetColumns(
   const liabilityRows: ColumnarRow[] = [];
 
   let cumSurplus = 0;
+  let trackedFy: number | null = null;
+  const closedFyCache = new Map<number, boolean>();
   const surplusValues: Record<string, number> = {};
   for (const p of periods) {
-    let periodSurplus = 0;
-    for (const a of data.accounts) {
-      if (isProfitLoss(a.name)) continue;
-      const nat = natureFor(a, data.groups);
-      if (nat !== "Income" && nat !== "Expense") continue;
-      const c = cellMap.get(a.id)?.get(p.key);
-      if (!c) continue;
-      periodSurplus += nat === "Income" ? c.credit - c.debit : -(c.debit - c.credit);
+    const fy = fiscalYearOf(p.start);
+    // A new fiscal year starts this synthetic row fresh at 0 -- without this, a multi-year range
+    // (e.g. "All periods") would keep accumulating every year's surplus on top of the last
+    // forever, instead of each year's own real closing voucher (once posted) resetting it.
+    if (fy !== trackedFy) {
+      cumSurplus = 0;
+      trackedFy = fy;
     }
-    cumSurplus += periodSurplus;
+    if (!closedFyCache.has(fy)) closedFyCache.set(fy, isFiscalYearAlreadyClosed(data, fy));
+    // Once this FY's real closing voucher exists AND the displayed period reaches/passes that FY's
+    // own last day, the Capital account's own ledger balance already carries this FY's whole
+    // surplus for real (posted as a single lump-sum Journal dated the FY's last day) -- keeping
+    // this synthetic row's cumulative total on TOP of that double-counts the exact same surplus a
+    // second time, landing entirely in the closing period's column (confirmed live: FY2025's real
+    // $132,389.75 closing voucher plus this row's own independently-accumulated $132,389.75 threw
+    // that period's Balance Check off by precisely that amount). Earlier (not-yet-closed) periods
+    // within the same FY still need the normal live accumulation below -- Capital's real balance
+    // doesn't reflect any of it until the close date arrives.
+    const fyEnd = `${fy + 1}-03-31`;
+    if (p.end >= fyEnd && closedFyCache.get(fy)) {
+      cumSurplus = 0;
+    } else {
+      let periodSurplus = 0;
+      for (const a of data.accounts) {
+        if (isProfitLoss(a.name)) continue;
+        const nat = natureFor(a, data.groups);
+        if (nat !== "Income" && nat !== "Expense") continue;
+        const c = cellMap.get(a.id)?.get(p.key);
+        if (!c) continue;
+        periodSurplus += nat === "Income" ? c.credit - c.debit : -(c.debit - c.credit);
+      }
+      cumSurplus += periodSurplus;
+    }
     surplusValues[p.key] = cumSurplus;
   }
 

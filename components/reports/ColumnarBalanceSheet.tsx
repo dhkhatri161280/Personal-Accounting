@@ -10,7 +10,7 @@ import {
   type ColumnarRow,
   type PeriodBoundary,
 } from "@/lib/columnar-report";
-import { ColumnarSection, ColumnarNetRow, useSyncedScroll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
+import { ColumnarSection, ColumnarNetRow, useSyncedScroll, computeColumnarWidths, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -87,6 +87,23 @@ export function ColumnarBalanceSheet({
   const diffByPeriod = assetTotals.map((v, i) => v - liabilityTotals[i]);
   const lastDiff = diffByPeriod[diffByPeriod.length - 1] || 0;
   const [sAsset, sLiab, sNet] = useSyncedScroll(3);
+  const netRowLabel = "Balance check (Assets − Liabilities & Equity)";
+  // One shared width pair, computed across Assets + Liabilities + the Balance Check row together,
+  // applied identically to all 3 stacked tables -- see computeColumnarWidths for why this is what
+  // keeps auto-fit sizing from re-breaking the cross-table alignment fixed earlier.
+  const { labelWidth, valueWidth } = useMemo(
+    () =>
+      computeColumnarWidths(
+        [
+          { title: "Assets", rows: displayAssetRows },
+          { title: "Liabilities & Equity", rows: displayLiabilityRows },
+        ],
+        [{ label: netRowLabel, values: diffByPeriod, total: lastDiff }],
+        periods,
+        fmt
+      ),
+    [displayAssetRows, displayLiabilityRows, diffByPeriod, lastDiff, periods, fmt]
+  );
 
   return (
     <div className="columnar-report">
@@ -101,6 +118,8 @@ export function ColumnarBalanceSheet({
         scrollRef={sAsset.ref}
         onScroll={sAsset.onScroll}
         onDrilldown={onDrilldown}
+        labelWidth={labelWidth}
+        valueWidth={valueWidth}
       />
       <ColumnarSection
         title="Liabilities & Equity"
@@ -113,9 +132,11 @@ export function ColumnarBalanceSheet({
         scrollRef={sLiab.ref}
         onScroll={sLiab.onScroll}
         onDrilldown={onDrilldown}
+        labelWidth={labelWidth}
+        valueWidth={valueWidth}
       />
       <ColumnarNetRow
-        label="Balance check (Assets − Liabilities & Equity)"
+        label={netRowLabel}
         values={diffByPeriod}
         total={lastDiff}
         periods={periods}
@@ -123,6 +144,8 @@ export function ColumnarBalanceSheet({
         colorOf={(v) => (Math.abs(v) < 0.01 ? "#16a34a" : "#dc2626")}
         scrollRef={sNet.ref}
         onScroll={sNet.onScroll}
+        labelWidth={labelWidth}
+        valueWidth={valueWidth}
       />
     </div>
   );

@@ -8617,7 +8617,24 @@ details[open] > .tp-cat-label--collapsible::before { transform: rotate(90deg); }
   overflow-x: auto;
 }
 .columnar-report-table {
-  width: auto;
+  /* max-content, not auto -- with table-layout:fixed and every column's width declared in px
+     below, `width: auto` still let the browser proportionally SQUEEZE all columns to fit
+     whatever width each panel happened to offer (varying with padding/overflow differences
+     between panels, e.g. the .grouped-report fix above), instead of rendering at the columns'
+     true declared size -- confirmed live: even with matching panel padding, three stacked
+     report tables measured 8px narrower than their real 220+110*N content width, and any
+     further per-panel difference reintroduces visible misalignment. max-content forces the
+     table to its true intrinsic width always; the scroll wrapper's own overflow-x:auto handles
+     the rest exactly like the plain Day Book table (components/TransactionTable.tsx) already
+     does -- this is only a fallback now for any caller that doesn't pass labelWidth/valueWidth
+     (ColumnarSection/ColumnarNetRow apply an explicit inline width when they do, which wins).
+     margin:0 auto centers the table under its section's centered <h3> when it's narrower than
+     the panel -- safe now that every stacked table in a report group (Assets/Liabilities/
+     Balance Check) shares the SAME computed width (see computeColumnarWidths), so they all
+     center identically instead of drifting relative to each other. Auto margins still collapse
+     to 0 once a table needs to actually scroll (narrow viewport), which is the correct/expected
+     degrade -- flush-left only kicks in when there genuinely isn't room to center. */
+  width: max-content;
   margin: 0 auto;
   border-collapse: collapse;
   table-layout: fixed;
