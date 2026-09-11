@@ -39,6 +39,7 @@ import {
   isPeriodClosed,
   ensureHouseHoldAccountsForFiscalYears,
   buildFiscalYearCloseVoucher,
+  isFiscalYearAlreadyClosed,
   isProfitAndLossAccountName,
   nextTransactionIds,
   nextVoucherNumber,
@@ -1289,10 +1290,22 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       })
     : netWorthTrend;
 
+  // Once this FY's real closing voucher already exists (the viewed period reaches/covers the
+  // FY's own last day, and buildFiscalYearCloseVoucher's own idempotency check finds it already
+  // posted -- see isFiscalYearAlreadyClosed), the Capital account's own ledger balance already
+  // includes that transferred surplus for real. Still summing the year's nominal (Income/Expense)
+  // activity live on TOP of that double-counts the exact same surplus a second time -- confirmed
+  // live: FY2025's real $132,389.75 closing voucher plus this synthetic re-add produced a
+  // Balance Sheet check off by precisely that amount. A mid-year snapshot (balanceEnd short of
+  // the FY's own end) still computes this live as before -- the closing voucher is dated the
+  // FY's last day, so an earlier snapshot hasn't "seen" it yet either way.
+  const fyEndForBalance = `${balanceFY + 1}-03-31`;
+  const alreadyClosedForBalance = balanceEnd >= fyEndForBalance && isFiscalYearAlreadyClosed(data, balanceFY);
   let capitalTransfer = 0;
-  for (const t of data.transactions)
-    if (!t.deleted && !t.cancelled && t.date >= balanceFYStart && t.date <= balanceEnd)
-      for (const e of t.entries) if (nominalIds.has(e.accountId)) capitalTransfer += e.amount;
+  if (!alreadyClosedForBalance)
+    for (const t of data.transactions)
+      if (!t.deleted && !t.cancelled && t.date >= balanceFYStart && t.date <= balanceEnd)
+        for (const e of t.entries) if (nominalIds.has(e.accountId)) capitalTransfer += e.amount;
 
   // Tally Day Book order: Date ascending, then Voucher Type in Tally's default
   // sequence (Contra, Payment, Receipt, Journal), then Voucher Number ascending.

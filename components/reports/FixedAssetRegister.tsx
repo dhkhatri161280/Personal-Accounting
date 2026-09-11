@@ -6,6 +6,7 @@ import {
   accumulatedDepreciation,
   bookValue,
   pendingDepreciationMonths,
+  depreciationStartDate,
   ACCUMULATED_DEPRECIATION_ACCOUNT_NAME,
   ASSET_CLASS_SUGGESTIONS,
   UNCLASSIFIED_LABEL,
@@ -220,12 +221,13 @@ export function FixedAssetRegister({
   const toggleAllClasses = () => setExpandedClasses(allClassesExpanded ? new Set() : new Set(classGroups.map(([cls]) => cls)));
 
   async function exportAssets() {
-    const header = ["Asset", "Fixed Asset #", "Group / Class", "Purchase Date", "Cost", "Useful Life (mo)", "Monthly Dep.", "Accum. Dep.", "Book Value", "Status"];
+    const header = ["Asset", "Fixed Asset #", "Group / Class", "Purchase Date", "In Service", "Cost", "Useful Life (mo)", "Monthly Dep.", "Accum. Dep.", "Book Value", "Status"];
     const body = assets.map((a) => [
       a.name,
       a.sourceTag || "",
       a.assetClass || "",
       fmtDate(a.purchaseDate),
+      a.inServiceDate ? fmtDate(a.inServiceDate) : "",
       a.cost,
       a.usefulLifeMonths,
       monthlyDepreciation(a),
@@ -233,7 +235,7 @@ export function FixedAssetRegister({
       bookValue(a, todayStr),
       a.disposed ? `Disposed ${fmtDate(a.disposed.date)}` : "Active",
     ]);
-    const totalsRow = ["Total", "", "", "", totals.cost, "", totals.monthly, totals.accum, totals.bookValue, ""];
+    const totalsRow = ["Total", "", "", "", "", totals.cost, "", totals.monthly, totals.accum, totals.bookValue, ""];
     await exportWorkbook("Fixed Asset Register.xlsx", [{ name: "Fixed Assets", rows: [header, ...body, totalsRow] }]);
   }
 
@@ -310,6 +312,7 @@ export function FixedAssetRegister({
                 <th>Fixed Asset #</th>
                 <th>Group / Class</th>
                 <th>Purchase Date</th>
+                <th>In Service</th>
                 <th className="right">Cost</th>
                 <th className="right">Useful Life</th>
                 <th className="right">Monthly Dep.</th>
@@ -337,6 +340,7 @@ export function FixedAssetRegister({
                       <td colSpan={3}>
                         {open ? "▾" : "▸"} {cls} ({groupAssets.length})
                       </td>
+                      <td></td>
                       <td></td>
                       <td className="right">{fmt(groupTotals.cost)}</td>
                       <td></td>
@@ -437,6 +441,9 @@ export function FixedAssetRegister({
                             </td>
                             <td>{a.assetClass || "—"}</td>
                             <td>{fmtDate(a.purchaseDate)}</td>
+                            <td title="The date depreciation actually starts accruing from -- set in Masters > Fixed Assets. Defaults to Purchase Date when not overridden.">
+                              {a.inServiceDate ? fmtDate(depreciationStartDate(a)) : "—"}
+                            </td>
                             <td className="right">{fmt(a.cost)}</td>
                             <td className="right">{a.usefulLifeMonths} mo</td>
                             <td className="right">{fmt(monthly)}</td>
@@ -500,6 +507,7 @@ export function FixedAssetRegister({
             <tfoot>
               <tr>
                 <th>Total</th>
+                <th></th>
                 <th></th>
                 <th></th>
                 <th></th>

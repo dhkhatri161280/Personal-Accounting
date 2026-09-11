@@ -152,6 +152,37 @@ export type FiscalYearCloseResult =
 // unambiguous (returns an "error" result instead of posting against the wrong account), and is
 // idempotent -- if a matching voucher already exists for this FY (e.g. entered manually in
 // Tally and already synced in), or the year's net P&L is zero, it's a no-op.
+// True when fiscal year `fy` already has a real posted closing voucher (a Journal dated the
+// FY's last day, touching both the "Profit & Loss A/c" ledger and the real Capital account) --
+// same detection buildFiscalYearCloseVoucher itself uses to stay idempotent, extracted so a
+// report can ALSO check it before adding its own live-computed "current period surplus" on top
+// (see the capitalTransfer fix in VaultApp.tsx this was pulled out for: once the real closing
+// voucher exists, Capital's own ledger balance already includes that surplus for real, so
+// re-adding a synthetic copy of it double-counts the exact same amount).
+export function isFiscalYearAlreadyClosed(ledger: Ledger, fy: number): boolean {
+  const fyEnd = `${fy + 1}-03-31`;
+  const masterGroups = new Map((ledger.groups || []).map((g) => [g.name.toLowerCase(), g]));
+  const nature = (a: Account) => accountNature(a, masterGroups);
+  const activeAccounts = ledger.accounts.filter((a) => a.active !== false);
+
+  const plAccounts = activeAccounts.filter((a) => isProfitAndLossAccountName(a.name));
+  const capitalAccounts = activeAccounts.filter(
+    (a) => nature(a) === "Capital" && !isProfitAndLossAccountName(a.name) && a.name.trim().toLowerCase() !== "opening balance equity"
+  );
+  if (plAccounts.length !== 1 || capitalAccounts.length !== 1) return false;
+  const plAccount = plAccounts[0], capitalAccount = capitalAccounts[0];
+
+  return ledger.transactions.some(
+    (t) =>
+      !t.deleted &&
+      !t.cancelled &&
+      t.date === fyEnd &&
+      t.type.toLowerCase() === "journal" &&
+      t.entries.some((e) => e.accountId === plAccount.id) &&
+      t.entries.some((e) => e.accountId === capitalAccount.id)
+  );
+}
+
 export function buildFiscalYearCloseVoucher(ledger: Ledger, fy: number): FiscalYearCloseResult {
   const fyStart = `${fy}-04-01`;
   const fyEnd = `${fy + 1}-03-31`;
@@ -177,16 +208,7 @@ export function buildFiscalYearCloseVoucher(ledger: Ledger, fy: number): FiscalY
   }
   const plAccount = plAccounts[0], capitalAccount = capitalAccounts[0];
 
-  const alreadyClosed = ledger.transactions.some(
-    (t) =>
-      !t.deleted &&
-      !t.cancelled &&
-      t.date === fyEnd &&
-      t.type.toLowerCase() === "journal" &&
-      t.entries.some((e) => e.accountId === plAccount.id) &&
-      t.entries.some((e) => e.accountId === capitalAccount.id)
-  );
-  if (alreadyClosed) return { status: "no-op" };
+  if (isFiscalYearAlreadyClosed(ledger, fy)) return { status: "no-op" };
 
   const nominalIds = new Set(
     activeAccounts

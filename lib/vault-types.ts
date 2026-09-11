@@ -343,6 +343,15 @@ export type FixedAsset = {
   // depreciation math. Optional so existing assets added before this field existed still work.
   assetClass?: string;
   purchaseDate: string;
+  // Optional override for when depreciation actually starts accruing, distinct from
+  // `purchaseDate` (which for a tagged asset is always re-derived as the earliest tagged
+  // transaction's date -- e.g. an earnest-money deposit -- and gets silently overwritten back to
+  // that on every future re-sync, so a manual edit to `purchaseDate` itself would never stick).
+  // Real-world case this exists for: a home's EMD/down-payment vouchers predate actual
+  // possession/move-in by months, but depreciation should only start once the asset is genuinely
+  // placed in service. Undefined means "same as purchaseDate" -- see depreciationStartDate in
+  // lib/fixed-assets.ts, the one place this should ever be read from.
+  inServiceDate?: string;
   cost: number;
   salvageValue: number;
   usefulLifeMonths: number;

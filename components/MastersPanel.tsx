@@ -447,6 +447,8 @@ export function MastersPanel({
     [editingAssetLifeId, setEditingAssetLifeId] = useState<string | null>(null),
     [editingAssetLifeValue, setEditingAssetLifeValue] = useState(""),
     [editingAssetSalvageValue, setEditingAssetSalvageValue] = useState(""),
+    [editingAssetInServiceId, setEditingAssetInServiceId] = useState<string | null>(null),
+    [editingAssetInServiceValue, setEditingAssetInServiceValue] = useState(""),
     [deletingAssetId, setDeletingAssetId] = useState<string | null>(null),
     [taggingAssetId, setTaggingAssetId] = useState<string | null>(null),
     [taggingValue, setTaggingValue] = useState(""),
@@ -794,6 +796,19 @@ export function MastersPanel({
     const updated = fixedAssetsList.map((a) => (a.id === assetId ? { ...a, usefulLifeMonths: life, salvageValue: salvage } : a));
     onSave({ ...data, fixedAssets: updated }, "Useful life / salvage updated.");
     setEditingAssetLifeId(null);
+  }
+
+  // In Service Date: when depreciation should actually start accruing, separate from Purchase
+  // Date (which for a tagged asset always re-derives as the earliest tagged transaction's date --
+  // e.g. an earnest-money deposit -- and would silently revert any direct edit on the next
+  // re-sync). Blank clears the override back to "same as Purchase Date".
+  function saveAssetInServiceDate(assetId: string) {
+    const value = editingAssetInServiceValue.trim();
+    const updated = fixedAssetsList.map((a) =>
+      a.id === assetId ? { ...a, inServiceDate: value || undefined } : a
+    );
+    onSave({ ...data, fixedAssets: updated }, value ? "In Service Date updated." : "In Service Date cleared.");
+    setEditingAssetInServiceId(null);
   }
 
   function deleteAsset(assetId: string) {
@@ -1148,6 +1163,7 @@ export function MastersPanel({
                   <th>Name</th>
                   <th>Fixed Asset #</th>
                   <th>Group / Class</th>
+                  <th>In Service Date</th>
                   <th>Useful Life</th>
                   <th>Salvage</th>
                   <th className="right">Cost</th>
@@ -1267,6 +1283,37 @@ export function MastersPanel({
                           }}
                         >
                           {a.assetClass || UNCLASSIFIED_LABEL}
+                        </button>
+                      )}
+                    </td>
+                    <td>
+                      {editingAssetInServiceId === a.id ? (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <input
+                            autoFocus
+                            type="date"
+                            value={editingAssetInServiceValue}
+                            onChange={(e) => setEditingAssetInServiceValue(e.target.value)}
+                            style={{ width: 140 }}
+                          />
+                          <button className="master-edit" onClick={() => saveAssetInServiceDate(a.id)}>
+                            Save
+                          </button>
+                          <button className="master-delete" onClick={() => setEditingAssetInServiceId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ledger-link"
+                          title={a.inServiceDate ? "Depreciation start override -- click to change or clear" : "Depreciation starts from Purchase Date -- click to override"}
+                          onClick={() => {
+                            setEditingAssetInServiceId(a.id);
+                            setEditingAssetInServiceValue(a.inServiceDate || "");
+                          }}
+                        >
+                          {a.inServiceDate ? fmtDate(a.inServiceDate) : fmtDate(a.purchaseDate)}
                         </button>
                       )}
                     </td>

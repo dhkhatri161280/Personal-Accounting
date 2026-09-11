@@ -5,6 +5,7 @@ import {
   accumulatedDepreciation,
   bookValue,
   pendingDepreciationMonths,
+  depreciationStartDate,
   round2,
 } from "../lib/fixed-assets.ts";
 import type { FixedAsset } from "../lib/vault-types.ts";
@@ -34,6 +35,23 @@ test("monthlyDepreciation: non-depreciable (usefulLifeMonths 0) returns 0, no di
 test("accumulatedDepreciation: counts only fully-elapsed months, caps at useful life", () => {
   assert.equal(accumulatedDepreciation(asset(), "2026-03-15"), 200); // Jan+Feb fully elapsed
   assert.equal(accumulatedDepreciation(asset(), "2027-06-01"), 1200); // well past 12 months, capped
+});
+
+test("depreciationStartDate: falls back to purchaseDate when inServiceDate isn't set", () => {
+  assert.equal(depreciationStartDate(asset()), "2026-01-15");
+});
+
+test("depreciationStartDate: prefers inServiceDate when set (e.g. a home's EMD predates possession)", () => {
+  assert.equal(depreciationStartDate(asset({ inServiceDate: "2022-12-28" })), "2022-12-28");
+});
+
+test("accumulatedDepreciation: uses inServiceDate, not purchaseDate, as the depreciation start when set", () => {
+  const a = asset({ purchaseDate: "2021-10-27", inServiceDate: "2022-12-28", usefulLifeMonths: 60, cost: 6000 });
+  // As of the in-service date itself: 0 months elapsed, nothing accrued yet -- even though
+  // purchaseDate was over a year earlier.
+  assert.equal(accumulatedDepreciation(a, "2022-12-28"), 0);
+  // One full month after in-service (Jan 28 2023): exactly one month's depreciation.
+  assert.equal(accumulatedDepreciation(a, "2023-01-28"), 100);
 });
 
 test("accumulatedDepreciation: caps at disposal date, not asOfDate, when disposed", () => {

@@ -160,6 +160,14 @@ export function addMonths(yearMonth: string, n: number): string {
   return `${ny}-${String(nm).padStart(2, "0")}`;
 }
 
+// The date depreciation actually starts accruing from -- `inServiceDate` when set, else
+// `purchaseDate`. Every depreciation calculation below must read the start date through this,
+// never `asset.purchaseDate` directly, so a manual in-service override (see FixedAsset's own
+// doc comment) is actually honored.
+export function depreciationStartDate(asset: FixedAsset): string {
+  return asset.inServiceDate || asset.purchaseDate;
+}
+
 // Accumulated depreciation as of asOfDate: whole months elapsed since the purchase month,
 // capped at usefulLifeMonths and at the disposal month if disposed, capped again at the
 // depreciable base so it never overshoots (rounding-safe).
@@ -175,7 +183,7 @@ export function accumulatedDepreciation(asset: FixedAsset, asOfDate: string): nu
   const monthly = monthlyDepreciation(asset);
   if (monthly <= 0) return 0;
   const capDate = asset.disposed?.date && asset.disposed.date < asOfDate ? asset.disposed.date : asOfDate;
-  let months = monthsBetween(ym(asset.purchaseDate), ym(capDate));
+  let months = monthsBetween(ym(depreciationStartDate(asset)), ym(capDate));
   months = Math.max(0, Math.min(months, asset.usefulLifeMonths));
   const depreciableBase = Math.max(0, asset.cost - asset.salvageValue);
   if (months >= asset.usefulLifeMonths) return round2(depreciableBase);
@@ -193,21 +201,21 @@ export function bookValue(asset: FixedAsset, asOfDate: string): number {
 export function pendingDepreciationMonths(asset: FixedAsset, throughDate: string): { yearMonth: string; amount: number }[] {
   const monthly = monthlyDepreciation(asset);
   if (monthly <= 0) return [];
-  const purchaseYm = ym(asset.purchaseDate);
+  const depStartYm = ym(depreciationStartDate(asset));
   const capYm = asset.disposed?.date ? ym(asset.disposed.date) : ym(throughDate);
   const throughYm = ym(throughDate) < capYm ? ym(throughDate) : capYm;
-  const startYm = asset.lastDepreciatedThrough ? addMonths(asset.lastDepreciatedThrough, 1) : purchaseYm;
+  const startYm = asset.lastDepreciatedThrough ? addMonths(asset.lastDepreciatedThrough, 1) : depStartYm;
   if (startYm >= throughYm) return [];
 
   const depreciableBase = Math.max(0, asset.cost - asset.salvageValue);
   const alreadyPosted = asset.lastDepreciatedThrough
-    ? Math.min(round2(monthly * monthsBetween(purchaseYm, addMonths(asset.lastDepreciatedThrough, 1))), depreciableBase)
+    ? Math.min(round2(monthly * monthsBetween(depStartYm, addMonths(asset.lastDepreciatedThrough, 1))), depreciableBase)
     : 0;
   let remaining = round2(depreciableBase - alreadyPosted);
 
   const out: { yearMonth: string; amount: number }[] = [];
   let cursor = startYm;
-  let monthIndex = monthsBetween(purchaseYm, startYm);
+  let monthIndex = monthsBetween(depStartYm, startYm);
   while (cursor < throughYm && monthIndex < asset.usefulLifeMonths && remaining > 0) {
     // The asset's very last useful-life month (this iteration is the last chance to ever post
     // against it) takes whatever's actually left, not a flat `monthly` amount -- monthly is

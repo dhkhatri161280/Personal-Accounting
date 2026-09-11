@@ -133,6 +133,12 @@ export type ColumnarRow = {
   category: string;
   values: Record<string, number>;
   total: number;
+  // Balance Sheet rows only (see buildBalanceSheetColumns): the row's closing balance immediately
+  // before the first displayed period began -- what an "Incremental" view (vs. this report's
+  // default cumulative Ending Balance view) needs to compute a true period-over-period delta for
+  // the FIRST column too, not just every column after it. Undefined for Income/Expense/Cash Flow
+  // rows, which are already period flows, not running balances.
+  openingBeforeRange?: number;
 };
 
 // Same nature-classification rules as components/VaultApp.tsx's `natureFor`/`isProfitLoss`
@@ -268,6 +274,7 @@ export function buildBalanceSheetColumns(
       const raw = cells.get(p.key)?.closing || 0;
       values[p.key] = isAssetNat ? -raw : raw;
     }
+    const rawOpening = cells.get(periods[0].key)?.opening || 0;
     const lastValue = values[periods[periods.length - 1].key] || 0;
     if (Math.abs(lastValue) > TOL || Object.values(values).some((v) => Math.abs(v) > TOL))
       (isAssetNat ? assetRows : liabilityRows).push({
@@ -277,6 +284,7 @@ export function buildBalanceSheetColumns(
         category: a.category,
         values,
         total: lastValue,
+        openingBeforeRange: isAssetNat ? -rawOpening : rawOpening,
       });
   }
 
@@ -288,6 +296,10 @@ export function buildBalanceSheetColumns(
       category: "",
       values: surplusValues,
       total: surplusValues[periods[periods.length - 1].key] || 0,
+      // The FY-scoped surplus accumulation (cumSurplus above) already starts fresh at 0 for the
+      // first displayed period, not carried from before it -- so there's no separate pre-range
+      // balance to subtract; the first period's own value already IS its true incremental delta.
+      openingBeforeRange: 0,
     });
 
   return { assetRows, liabilityRows };
