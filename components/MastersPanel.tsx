@@ -727,6 +727,15 @@ export function MastersPanel({
   }
 
   function openTagAsset(a: FixedAsset) {
+    // Already-tagged asset (e.g. one line tagged by hand already) -- reuse that SAME tag so
+    // "Apply" extends it to this ledger's remaining untagged lines, instead of suggesting a
+    // brand-new one (only right for adopting a genuinely untagged asset into tagging for the
+    // first time).
+    if (a.sourceTag) {
+      setTaggingValue(a.sourceTag);
+      setTaggingAssetId(a.id);
+      return;
+    }
     const cls = a.assetClass || UNCLASSIFIED_LABEL;
     const prefix = ASSET_CLASS_PREFIXES[cls] || ASSET_CLASS_PREFIXES[UNCLASSIFIED_LABEL];
     const existingTags = fixedAssetsList.map((x) => x.sourceTag).filter((t): t is string => !!t);
@@ -1197,7 +1206,19 @@ export function MastersPanel({
                           </button>
                         </div>
                       ) : a.sourceTag ? (
-                        a.sourceTag
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <span>{a.sourceTag}</span>
+                          {onTagAsset && (
+                            <button
+                              type="button"
+                              className="master-edit"
+                              title="Apply this same Fixed Asset # to every OTHER voucher on this ledger that isn't tagged yet"
+                              onClick={() => openTagAsset(a)}
+                            >
+                              🏷 Tag remaining
+                            </button>
+                          )}
+                        </div>
                       ) : onTagAsset ? (
                         <button
                           type="button"

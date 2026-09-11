@@ -6,6 +6,8 @@ import { validateVoucher } from "@/lib/voucher-validation";
 import type { Account, Ledger, Tx, VoucherLineDraft } from "@/lib/vault-types";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { autoSyncTaggedAssets } from "@/lib/fixed-assets-ledger";
+import { inferReversalVoucherType } from "@/lib/plaid-classify";
+import { fmtDate } from "@/lib/format-date";
 import {
   blankVoucherLines,
   draftLinesFromTx,
@@ -15,6 +17,7 @@ import {
   nextTransactionIds,
   cleanText,
   isPeriodClosed,
+  currentMonthSiblingAccount,
 } from "@/lib/vault-accounting";
 
 export function autoBalance(lines: VoucherLineDraft[], changedIndex: number): VoucherLineDraft[] {
@@ -65,6 +68,7 @@ export function useVoucherForm({
 }) {
   const [copyTx, setCopyTx] = useState<Tx | null>(null),
     [editTx, setEditTx] = useState<Tx | null>(null),
+    [reverseTx, setReverseTx] = useState<Tx | null>(null),
     [newVoucherType, setNewVoucherType] = useState<string | null>(null),
     [newVoucherMenuOpen, setNewVoucherMenuOpen] = useState(false),
     [inlineLedgerSide, setInlineLedgerSide] = useState<"debit" | "credit" | null>(null),
@@ -192,6 +196,54 @@ export function useVoucherForm({
     return true;
   }
 
+  // Posts the exact inverse of an existing voucher -- e.g. the Amazon-order-never-shipped case:
+  // last month's already-closed-period voucher can't be edited or deleted, and shouldn't be
+  // (that would silently rewrite closed-period history); a reversal dated *today* is the correct
+  // way to correct it without touching the closed period. Always dated to the current system/
+  // device date (never the original voucher's date, and never user-editable to a past date by
+  // default -- the whole point is "record the correction now"), with every entry's Dr/Cr side
+  // flipped and the voucher type re-inferred from those flipped sides rather than reused from the
+  // original (see inferReversalVoucherType) -- a reversed Payment is a Receipt, not a Payment.
+  // Any House Hold Exps monthly account is also redirected to THIS month's own sibling (see
+  // currentMonthSiblingAccount) -- reversing today shouldn't silently reopen a stale prior
+  // month's already-reported bucket just because that's what the original voucher touched.
+  // Same "caller must check the return value before closing" contract as editVoucher/copyVoucher.
+  function reverseVoucher(t: Tx): boolean {
+    if (!data) return false;
+    if (!t.entries.some((e) => e.amount < 0) || !t.entries.some((e) => e.amount > 0)) {
+      setStatus("This voucher does not contain both debit and credit lines.");
+      return false;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const accountById = new Map(data.accounts.map((a) => [a.id, a]));
+    const redirectedAccountId = (originalId: number) => {
+      const original = accountById.get(originalId);
+      return original ? currentMonthSiblingAccount(original, data.accounts, today).id : originalId;
+    };
+    const reversedEntries = t.entries.map((e) => ({ accountId: redirectedAccountId(e.accountId), amount: -e.amount }));
+    const reversedType = inferReversalVoucherType(reversedEntries, data.accounts);
+    setVoucherLines(
+      draftLinesFromTx(t).map((line, i) => ({
+        ...line,
+        side: line.side === "debit" ? "credit" : "debit",
+        accountId: String(reversedEntries[i].accountId),
+      }))
+    );
+    setVoucherDate(today);
+    voucherForm.reset({
+      type: reversedType,
+      date: today,
+      narration: `Reversal of ${t.type} ${t.number} (${fmtDate(t.date)}) — ${cleanText(t.narration || "") || "no narration"}`,
+    });
+    setReverseTx(t);
+    setCopyTx(null);
+    setEditTx(null);
+    setSelected(null);
+    setTab("new");
+    setStatus("Reversal drafted with every line flipped, dated today. Review, then save as a new voucher.");
+    return true;
+  }
+
   async function add(values: VoucherEntryFormValues) {
     if (!data) return;
     const byId = new Map(data.accounts.map((a) => [a.id, a.name])),
@@ -277,6 +329,7 @@ export function useVoucherForm({
     if (await save(autoSyncTaggedAssets(auditedNext, desiredNames))) {
       setCopyTx(null);
       setEditTx(null);
+      setReverseTx(null);
       setVoucherLines(blankVoucherLines());
     }
   }
@@ -284,6 +337,7 @@ export function useVoucherForm({
   const startNewVoucher = (type?: string) => {
     setEditTx(null);
     setCopyTx(null);
+    setReverseTx(null);
     setSelected(null);
     setSelectedVoucher(null);
     setNewVoucherType(type || null);
@@ -307,6 +361,8 @@ export function useVoucherForm({
     setCopyTx,
     editTx,
     setEditTx,
+    reverseTx,
+    setReverseTx,
     newVoucherType,
     setNewVoucherType,
     newVoucherMenuOpen,
@@ -321,6 +377,7 @@ export function useVoucherForm({
     createLedgerInsideVoucher,
     editVoucher,
     copyVoucher,
+    reverseVoucher,
     add,
     startNewVoucher,
     voucherDebitDraftTotal,

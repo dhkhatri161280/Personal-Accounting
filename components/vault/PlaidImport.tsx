@@ -564,9 +564,15 @@ function buildDraft(
       // (e.g. an escrow adjustment) from what MORTGAGE_STANDARD_PAYMENT currently assumes.
       const principal = netDeposit - split.interest;
       const monthLabel = new Date(tx.date + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+      // Auto-carries the Home ledger's own registered Fixed Asset # (e.g. "HOM-001") onto every
+      // future mortgage-principal line, instead of it needing to be tagged by hand each month --
+      // looked up live from the ledger's own Asset Master record rather than a hardcoded tag, so
+      // it stays correct even if the tag is ever renumbered. Untagged (no Fixed Asset # yet
+      // registered against "Home") simply omits the field, same as any other untagged entry.
+      const homeAssetTag = (ledger.fixedAssets ?? []).find((fa) => fa.accountId === homeAcc.id && !fa.disposed)?.sourceTag;
       return {
         entries: [
-          { accountId: homeAcc.id, accountName: homeAcc.name, amount: -principal },
+          { accountId: homeAcc.id, accountName: homeAcc.name, amount: -principal, ...(homeAssetTag ? { assetTag: homeAssetTag } : {}) },
           { accountId: interestAcc.id, accountName: interestAcc.name, amount: -split.interest },
           { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
         ],
@@ -2857,27 +2863,38 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                             .sort((a, b) => b.date.localeCompare(a.date))
                         : [];
 
-                      // Match vault entries against Plaid transactions (amount ±$0.05, date ±3 days)
-                      // For credit cards: charge = positive on both Plaid and vault Cr entry
-                      // For depository: deposit = negative on both Plaid and vault Dr entry
-                      const usedPlaidForMatch = new Set<number>();
-                      const matchedVaultIdx = new Set<number>();
-                      const matchedPairs: { vi: number; pi: number }[] = [];
+                      // Match vault entries against Plaid transactions (amount ±$0.05, date ±3 days).
+                      // For credit cards: charge = positive on both Plaid and vault Cr entry.
+                      // For depository: deposit = negative on both Plaid and vault Dr entry.
+                      //
+                      // Best-candidate-first, not first-found: a naive vault-order-then-Plaid-order
+                      // nested loop grabs whichever tolerance-satisfying pair it meets first, which
+                      // can steal a nearby transaction's rightful partner when several small,
+                      // similarly-named entries land within days of each other (e.g. a cluster of
+                      // "Amazon" charges) -- both sides then look fully matched (0/0 unmatched) while
+                      // the true pairing, and the real unmatched entry behind it, stays hidden. Every
+                      // tolerance-satisfying pair is scored (closer date, then closer amount, wins)
+                      // and assigned in that order instead, so the exact/closest pair always wins the
+                      // match before a looser coincidental one can claim either side.
+                      const candidatePairs: { vi: number; pi: number; dayDiff: number; amtDiff: number }[] = [];
                       recentVaultEntries.forEach((ve, vi) => {
                         const vMs = new Date(ve.date + "T12:00:00Z").getTime();
                         plaidTxsForGroup.forEach((pr, pi) => {
-                          if (matchedVaultIdx.has(vi) || usedPlaidForMatch.has(pi)) return;
-                          const pMs = new Date(pr.plaidTx.date + "T12:00:00Z").getTime();
-                          if (
-                            Math.abs(pMs - vMs) / 86400000 <= 3 &&
-                            Math.abs(pr.plaidTx.amount - ve.amount) < 0.05
-                          ) {
-                            matchedVaultIdx.add(vi);
-                            usedPlaidForMatch.add(pi);
-                            matchedPairs.push({ vi, pi });
-                          }
+                          const dayDiff = Math.abs(new Date(pr.plaidTx.date + "T12:00:00Z").getTime() - vMs) / 86400000;
+                          const amtDiff = Math.abs(pr.plaidTx.amount - ve.amount);
+                          if (dayDiff <= 3 && amtDiff < 0.05) candidatePairs.push({ vi, pi, dayDiff, amtDiff });
                         });
                       });
+                      candidatePairs.sort((a, b) => a.dayDiff - b.dayDiff || a.amtDiff - b.amtDiff);
+                      const usedPlaidForMatch = new Set<number>();
+                      const matchedVaultIdx = new Set<number>();
+                      const matchedPairs: { vi: number; pi: number }[] = [];
+                      for (const { vi, pi } of candidatePairs) {
+                        if (matchedVaultIdx.has(vi) || usedPlaidForMatch.has(pi)) continue;
+                        matchedVaultIdx.add(vi);
+                        usedPlaidForMatch.add(pi);
+                        matchedPairs.push({ vi, pi });
+                      }
 
                       // Unmatched settled transactions — Plaid pending are shown in Uncleared column, not here
                       const notInVault = plaidTxsForGroup.filter((r) => !r.alreadyImported && !r.plaidTx.pending);
@@ -3103,7 +3120,14 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
                             <td
                               className={`plaid-recon-pending${unclearedItems.length > 0 || investmentMatchedEntries.length > 0 ? " plaid-recon-clickable" : ""}`}
-                              onClick={() => (unclearedItems.length > 0 || investmentMatchedEntries.length > 0) && setExpandedUnclearedIdx(isUnclearedExpanded ? null : i)}
+                              onClick={(e) => {
+                                // Without this, the click also bubbles up to the row's own onClick
+                                // (below), which toggles the unrelated Difference breakdown at the
+                                // same time -- so clicking this cell could open/close BOTH panels in
+                                // one click instead of just this one, looking like nothing happened.
+                                e.stopPropagation();
+                                if (unclearedItems.length > 0 || investmentMatchedEntries.length > 0) setExpandedUnclearedIdx(isUnclearedExpanded ? null : i);
+                              }}
                               title={pendingClearingTotal > 0 ? `Net of ${unclearedItems.length} pending transaction(s) — $${pendingClearingTotal.toFixed(2)} gross before refunds/credits` : undefined}
                             >
                               {unclearedItems.length > 0

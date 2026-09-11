@@ -34,9 +34,6 @@ import {
   cleanText,
   isDebitNatureAccount,
   displayLedgerBalance,
-  cleanVoucherDisplay,
-  formatVoucherDisplayDate,
-  voucherSideLedgerNames,
   ledgerBalanceAsOf,
   findClosedPeriodViolations,
   isPeriodClosed,
@@ -181,7 +178,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [sortKey, setSortKey] = useState("name"),
     [sortDir, setSortDir] = useState<"asc" | "desc">("asc"),
     [dashboardDetail, setDashboardDetail] = useState<
-      "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "period" | "attention" | null
+      "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "loans" | "attention" | null
     >(null),
     [cashFlowDetail, setCashFlowDetail] = useState<{ group: string; ledger?: string } | null>(null),
     [columnarDrilldown, setColumnarDrilldown] = useState<DrilldownRequest | null>(null),
@@ -214,6 +211,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setCopyTx,
     editTx,
     setEditTx,
+    reverseTx,
+    setReverseTx,
     newVoucherType,
     setNewVoucherType,
     newVoucherMenuOpen,
@@ -228,6 +227,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     createLedgerInsideVoucher,
     editVoucher,
     copyVoucher,
+    reverseVoucher,
     add,
     startNewVoucher,
     voucherDebitDraftTotal,
@@ -1144,7 +1144,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     investmentRows = rows.filter(
       (a) => /^investments$/i.test(a.parent || "") && Math.abs(a.closing) > tol
     ),
-    investments = investmentRows.reduce((s, a) => s - a.closing, 0);
+    investments = investmentRows.reduce((s, a) => s - a.closing, 0),
+    loansAdvancesRows = rows.filter(
+      (a) => /^loans & advances \(asset\)$/i.test(a.parent || "") && Math.abs(a.closing) > tol
+    ),
+    loansAdvances = loansAdvancesRows.reduce((s, a) => s - a.closing, 0);
 
   const compact = (label: string, items: typeof rows, pattern: RegExp) => ({
       label,
@@ -2191,13 +2195,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   }
 
   const toggleDashboardDetail = (
-    kind: "cash" | "investments" | "capital" | "salary" | "active" | "period"
+    kind: "cash" | "investments" | "capital" | "salary" | "active" | "loans"
   ) => setDashboardDetail((current) => (current === kind ? null : kind));
 
   const DashboardInline = ({
     kind,
   }: {
-    kind: "cash" | "investments" | "capital" | "salary" | "active" | "period";
+    kind: "cash" | "investments" | "capital" | "salary" | "active" | "loans";
   }) => {
     if (dashboardDetail !== kind) return null;
     const titles = {
@@ -2206,7 +2210,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       capital: "Capital Account Composition",
       salary: `Salary Income - ${periodLabel}`,
       active: "Active Ledgers",
-      period: `Period Vouchers - ${periodLabel}`,
+      loans: "Loans (Asset) Ledgers",
     };
     const detailRows =
       kind === "cash"
@@ -2224,38 +2228,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               ? salaryDetail
               : kind === "active"
                 ? [...active].sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing))
-                : [];
+                : kind === "loans"
+                  ? [...loansAdvancesRows].sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing))
+                  : [];
     return (
       <div className="dashboard-inline-detail">
         <div className="dashboard-inline-heading">
           <strong>{titles[kind]}</strong>
           <small>Tap card again to close</small>
         </div>
-        {kind === "period" ? (
-          calc.period
-            .slice()
-            .reverse()
-            .slice(0, 20)
-            .map((t) => (
-              <button
-                type="button"
-                className="dashboard-inline-row dashboard-inline-button"
-                key={t.guid}
-                onClick={() => setSelectedVoucher(t)}
-              >
-                <span>
-                  {formatVoucherDisplayDate(t.date)} | {cleanVoucherDisplay(t.type)} {t.number}
-                  <small className="period-voucher-meta">
-                    <span>Dr: {voucherSideLedgerNames(t, "dr") || "-"}</span>
-                    <span>Cr: {voucherSideLedgerNames(t, "cr") || "-"}</span>
-                    <span>{cleanVoucherDisplay(t.narration) || "-"}</span>
-                  </small>
-                </span>
-                <b>{fmt(Math.max(...t.entries.map((e) => Math.abs(e.amount)), 0))}</b>
-              </button>
-            ))
-        ) : (
-          <>
+        <>
             {detailRows.slice(0, 20).map((a) => (
               <button
                 type="button"
@@ -2267,7 +2249,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   {a.name}
                   <small>{a.parent || a.category}</small>
                 </span>
-                <b>{fmt(kind === "cash" || kind === "investments" ? -a.closing : a.closing)}</b>
+                <b>{fmt(kind === "cash" || kind === "investments" || kind === "loans" ? -a.closing : a.closing)}</b>
               </button>
             ))}
             {kind === "capital" && (
@@ -2289,8 +2271,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <b>{fmt(dashboardCapitalResult)}</b>
               </button>
             )}
-          </>
-        )}
+        </>
       </div>
     );
   };
@@ -2880,16 +2861,31 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <DashboardInline kind="active" />
           </div>
           {book === "india" && (
-            <div className="dashboard-card-slot period-slot">
+            <div className="dashboard-card-slot loans-slot">
               <button
-                className={`dashboard-card-period${dashboardDetail === "period" ? " dashboard-card-open" : ""}`}
-                onClick={() => toggleDashboardDetail("period")}
+                className={`dashboard-balance-card loans-card${dashboardDetail === "loans" ? " dashboard-card-open" : ""}`}
+                onClick={() => toggleDashboardDetail("loans")}
               >
-                <span>Period vouchers</span>
-                <strong>{calc.period.length}</strong>
-                <small>View Day Book - {periodLabel}</small>
+                {uiTheme === "refresh" && <StatIcon kind="receipt" color="#0891b2" />}
+                <div className="dashboard-card-main">
+                  <span>Loans (Asset) closing</span>
+                  <strong>{fmt(loansAdvances)}</strong>
+                  <small>View loan &amp; advance ledgers</small>
+                </div>
+                <div className="dashboard-card-highlights">
+                  {loansAdvancesRows
+                    .slice()
+                    .sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing))
+                    .slice(0, 3)
+                    .map((a) => (
+                      <span key={a.id}>
+                        <b>{a.name.trim().split(/\s+/)[0]}</b>
+                        <em>{fmt(-a.closing)}</em>
+                      </span>
+                    ))}
+                </div>
               </button>
-              <DashboardInline kind="period" />
+              <DashboardInline kind="loans" />
             </div>
           )}
           {book !== "india" && <div className="dashboard-card-slot equity-slot">
@@ -4168,15 +4164,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <h3>
               {editTx
                 ? "Edit posted voucher"
-                : copyTx
-                  ? "Copy and edit voucher"
-                  : "Record balanced voucher"}
+                : reverseTx
+                  ? "Post reversal voucher"
+                  : copyTx
+                    ? "Copy and edit voucher"
+                    : "Record balanced voucher"}
             </h3>
             <button
               onClick={() => {
                 setCopyTx(null);
                 setEditTx(null);
-                if (!copyTx && !editTx) setTab("dashboard");
+                setReverseTx(null);
+                if (!copyTx && !editTx && !reverseTx) setTab("dashboard");
               }}
             >
               Cancel
@@ -4188,7 +4187,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               this voucher and recalculate all affected reports.
             </p>
           )}
-          {copyTx && (
+          {reverseTx && (
+            <p className="copy-note">
+              This reverses {reverseTx.type} {reverseTx.number} ({fmtDate(reverseTx.date)}) — every
+              line's Dr/Cr side is flipped, dated today. The original voucher is left untouched;
+              review the lines below, then save as a new voucher.
+            </p>
+          )}
+          {copyTx && !reverseTx && (
             <p className="copy-note">
               This is a new voucher based on {copyTx.type} {copyTx.number}. Change any field below;
               the original will not be changed.
@@ -4196,7 +4202,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           <form
             ref={entryFormRef}
-            key={editTx?.guid || copyTx?.guid || newVoucherType || "new"}
+            key={editTx?.guid || copyTx?.guid || reverseTx?.guid || newVoucherType || "new"}
             className="entry-form voucher-lines-form"
             onSubmit={voucherForm.handleSubmit(add)}
           >
@@ -4387,9 +4393,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <button className="primary wide">
               {editTx
                 ? "Encrypt and update voucher"
-                : copyTx
-                  ? "Encrypt and save as new voucher"
-                  : "Encrypt and save voucher"}
+                : reverseTx
+                  ? "Encrypt and save reversal"
+                  : copyTx
+                    ? "Encrypt and save as new voucher"
+                    : "Encrypt and save voucher"}
             </button>
           </form>
           {inlineLedgerSide && (
@@ -4453,8 +4461,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
         </div>
       )}
-      {cashFlowDetail && (
-        <FloatingWindow title={cashFlowDetail?.ledger ?? cashFlowDetail?.group ?? ""} onClose={() => setCashFlowDetail(null)} wide initialWidth={1300} initialHeight={700}>
+      {cashFlowDetail && (() => {
+        const cfAccountId = cashFlowItems.find((x) =>
+          cashFlowDetail.ledger
+            ? x.group === cashFlowDetail.group && x.ledger === cashFlowDetail.ledger
+            : x.group === cashFlowDetail.group
+        )?.entry.accountId;
+        const cfAccount = cfAccountId !== undefined ? accountById.get(cfAccountId) : undefined;
+        const cfTitle = cashFlowDetail?.ledger ?? cashFlowDetail?.group ?? "";
+        const cfGroupLabel = cfAccount ? `${cfAccount.parent || cashFlowDetail.group} — ${natureFor(cfAccount)}` : cashFlowDetail.group;
+        return (
+        <FloatingWindow title={cfGroupLabel ? `${cfTitle} (${cfGroupLabel})` : cfTitle} onClose={() => setCashFlowDetail(null)} wide initialWidth={1300} initialHeight={700}>
           <div className="ledger-drill-panel">
             <p>
               Cash Flow | <PeriodSelect />
@@ -4476,12 +4493,31 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDelete={(t) => deleteVoucher(t as Tx)}
               closedPeriods={data.closedPeriods}
               selectedLedgerName={cashFlowDetail?.ledger}
+              virtualized
             />
           </div>
         </FloatingWindow>
-      )}
-      {columnarDrilldown && (
-        <FloatingWindow title={columnarDrilldown.label} onClose={() => setColumnarDrilldown(null)} wide initialWidth={1300} initialHeight={700}>
+        );
+      })()}
+      {columnarDrilldown && (() => {
+        const ddAccounts = columnarDrilldown.accountIds
+          .map((id) => accountById.get(id))
+          .filter((a): a is NonNullable<typeof a> => !!a);
+        const ddParents = new Set(ddAccounts.map((a) => a.parent || ""));
+        const ddGroupLabel =
+          ddAccounts.length === 0
+            ? null
+            : ddParents.size === 1
+              ? `${[...ddParents][0]} — ${natureFor(ddAccounts[0])}`
+              : "Multiple groups";
+        return (
+        <FloatingWindow
+          title={ddGroupLabel ? `${columnarDrilldown.label} (${ddGroupLabel})` : columnarDrilldown.label}
+          onClose={() => setColumnarDrilldown(null)}
+          wide
+          initialWidth={1300}
+          initialHeight={700}
+        >
           <div className="ledger-drill-panel">
             <p>
               {fmtDate(columnarDrilldown.start)} – {fmtDate(columnarDrilldown.end)}
@@ -4494,19 +4530,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onCopy={(t) => copyVoucher(t as Tx)}
               onDelete={(t) => deleteVoucher(t as Tx)}
               closedPeriods={data.closedPeriods}
+              virtualized
             />
           </div>
         </FloatingWindow>
-      )}
-      {selectedRow && (
+        );
+      })()}
+      {selectedRow && (() => {
+        const selectedRowGroupLabel = selectedRow.parent ? `${selectedRow.parent} — ${natureFor(selectedRow)}` : selectedRow.category;
+        const selectedRowTitleBase =
+          selectedAssetTag === UNTAGGED_ASSET_FILTER
+            ? `${selectedRow.name} — Untagged only`
+            : selectedAssetTag
+              ? `${selectedRow.name} — Fixed Asset # ${selectedAssetTag}`
+              : selectedRow.name;
+        return (
         <FloatingWindow
-          title={
-            selectedAssetTag === UNTAGGED_ASSET_FILTER
-              ? `${selectedRow.name} — Untagged only`
-              : selectedAssetTag
-                ? `${selectedRow.name} — Fixed Asset # ${selectedAssetTag}`
-                : selectedRow.name
-          }
+          title={selectedRowGroupLabel ? `${selectedRowTitleBase} (${selectedRowGroupLabel})` : selectedRowTitleBase}
           onClose={() => {
             setSelected(null);
             setSelectedAssetTag(null);
@@ -4517,7 +4557,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         >
           <div className="ledger-drill-panel">
             <p>
-              {selectedRow.parent || selectedRow.category} | <PeriodSelect />
+              <PeriodSelect />
             </p>
             {selectedAssetTag === UNTAGGED_ASSET_FILTER ? (
               <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
@@ -4559,10 +4599,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onCopy={(t) => copyVoucher(t as Tx)}
               onDelete={(t) => deleteVoucher(t as Tx)}
               closedPeriods={data.closedPeriods}
+              virtualized
             />
           </div>
         </FloatingWindow>
-      )}
+        );
+      })()}
       {selectedVoucher && (
         <FloatingWindow
           title={
@@ -4754,6 +4796,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               >
                 Copy
               </button>
+              {!selectedVoucher.cancelled && (
+                <button
+                  className="copy-voucher"
+                  title="Post the exact inverse of this voucher, dated today -- the correct way to correct a closed-period voucher without editing closed history"
+                  onClick={() => {
+                    if (reverseVoucher(selectedVoucher)) setSelectedVoucher(null);
+                  }}
+                >
+                  Reverse
+                </button>
+              )}
               {!isPeriodClosed(data?.closedPeriods, selectedVoucher.date) && (
                 <button
                   className="delete-voucher"

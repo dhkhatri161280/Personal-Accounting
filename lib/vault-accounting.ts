@@ -94,6 +94,25 @@ export const ensureHouseHoldAccountsForFiscalYears = (ledger: Ledger, extraFisca
   return { ...ledger, accounts: [...ledger.accounts, ...newAccounts] };
 };
 
+// Redirects a REVERSAL's account to the current month's own "House Hold Exps - <Mon> <YY>"
+// sibling instead of keeping the original (now-stale) month's account -- e.g. reversing today in
+// September a voucher originally posted against "House Hold Exps - Aug 26" should land in
+// "... - Sep 26", not silently reopen last month's already-reported bucket. Only the House Hold
+// Exps monthly family is redirected this way (same /^house hold exps/i convention used
+// throughout -- see houseHoldAccountNamesForFiscalYear/ensureHouseHoldAccountsForFiscalYears
+// above and lib/fund-summary.ts's CONSOLIDATED_FAMILIES); an employer-keyed family like
+// "Salary Income - <Employer>" isn't month-based at all and must never be redirected here. Falls
+// back to the original account unchanged if this month's sibling doesn't exist yet in the ledger
+// (shouldn't normally happen -- ensureHouseHoldAccountsForFiscalYears provisions the whole
+// current fiscal year up front -- but never silently posts against a made-up account either way).
+export function currentMonthSiblingAccount(account: Account, accounts: Account[], todayIso: string): Account {
+  if (!/^house hold exps/i.test(account.name)) return account;
+  const [year, month] = todayIso.split("-");
+  const todayName = `House Hold Exps - ${MONTH_ABBR[parseInt(month, 10) - 1]} ${year.slice(-2)}`;
+  if (account.name.toLowerCase() === todayName.toLowerCase()) return account;
+  return accounts.find((a) => a.active !== false && a.name.toLowerCase() === todayName.toLowerCase()) || account;
+}
+
 // The "Profit & Loss A/c" ledger is never posted to directly for its own balance -- Tally (and
 // this app's reports) compute it live as the current fiscal year's net Income - Expense. It IS,
 // however, one leg of the year-end closing voucher below. Matches the identical pattern already

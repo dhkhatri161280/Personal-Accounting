@@ -55,3 +55,27 @@ export function enforceContraType<T extends { voucherType: string; narration: st
     narration: cardName ? `${cardName} Payment` : result.narration,
   };
 }
+
+// Picks the correct voucher type for a REVERSAL, i.e. for entries whose Dr/Cr sides have already
+// been flipped from the original voucher (see reverseVoucher in hooks/useVoucherForm.ts) -- not a
+// blind copy of the original's own type. The same Payment/Receipt/Contra/Journal rules the Plaid
+// import pipeline already uses apply equally well here: a voucher's type is a function of *which
+// side* the bank/credit-card account sits on, not an inherent property of the transaction, so
+// flipping the sides can flip the correct type too (a Payment's reversal is a Receipt, and vice
+// versa) -- e.g. reversing Dr HouseHold(-11.06)/Cr AMEX(+11.06) [Payment] yields
+// Dr AMEX(-11.06)/Cr HouseHold(+11.06), where AMEX is now on the Dr side: a Receipt.
+export function inferReversalVoucherType(
+  entries: { accountId: number; amount: number }[],
+  accounts: { id: number; name: string; parent?: string }[]
+): "Payment" | "Receipt" | "Contra" | "Journal" {
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const isFinancial = (id: number) => {
+    const a = accountById.get(id);
+    return !!a && (isCcAcct(a) || isBankAcct(a));
+  };
+  const financialEntries = entries.filter((e) => isFinancial(e.accountId));
+  if (financialEntries.length === 0) return "Journal";
+  if (financialEntries.length === entries.length) return "Contra";
+  const netFinancial = financialEntries.reduce((s, e) => s + e.amount, 0);
+  return netFinancial >= 0 ? "Payment" : "Receipt";
+}

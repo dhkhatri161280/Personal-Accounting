@@ -88,6 +88,7 @@ export function FundSummary({
       [`  ${s.outgoingExpenses.label}`, s.outgoingExpenses.total, s.outgoingExpenses.pctOfIncoming],
       [`  ${s.outgoingFixedAssets.label}`, s.outgoingFixedAssets.total, s.outgoingFixedAssets.pctOfIncoming],
       [`  ${s.outgoingInvestments.label}`, s.outgoingInvestments.total, s.outgoingInvestments.pctOfIncoming],
+      [`  ${s.outgoingLoans.label}`, s.outgoingLoans.total, s.outgoingLoans.pctOfIncoming],
       ["Total Outgoing Fund", s.totalOutgoing, s.totalOutgoingPct],
       [],
       ["Liquidity Balance", s.liquidityBalance, s.liquidityBalancePct],
@@ -104,8 +105,10 @@ export function FundSummary({
       ...groupRows(s.outgoingExpenses),
       ...groupRows(s.outgoingFixedAssets),
       ...groupRows(s.outgoingInvestments),
+      ...groupRows(s.outgoingLoans),
     ];
-    await exportWorkbook(`Fund Summary ${fmtDate(s.periodStart)} to ${fmtDate(s.periodEnd)}.xlsx`, [
+    const rangeLabel = s.periodStart <= "0001-01-01" ? "All periods" : `${fmtDate(s.periodStart)} to ${fmtDate(s.periodEnd)}`;
+    await exportWorkbook(`Fund Summary ${rangeLabel}.xlsx`, [
       { name: "Summary", rows: [header, ...summaryRows] },
       { name: "Detail", rows: [header, ...detailRows] },
     ]);
@@ -150,7 +153,7 @@ export function FundSummary({
             <tr className="ledger-subtotal-row">
               <td colSpan={3}>Outgoing Fund</td>
             </tr>
-            {[s.outgoingExpenses, s.outgoingFixedAssets, s.outgoingInvestments].map((g) => (
+            {[s.outgoingExpenses, s.outgoingFixedAssets, s.outgoingInvestments, s.outgoingLoans].map((g) => (
               <tr key={g.label}>
                 <td style={{ paddingLeft: 24 }}>
                   <button type="button" className="ledger-link" onClick={() => drill(g.label, g.accountIds)}>
@@ -212,6 +215,7 @@ export function FundSummary({
             <DetailGroupRows group={s.outgoingExpenses} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
             <DetailGroupRows group={s.outgoingFixedAssets} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
             <DetailGroupRows group={s.outgoingInvestments} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
+            <DetailGroupRows group={s.outgoingLoans} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
           </tbody>
         </table>
       </div>

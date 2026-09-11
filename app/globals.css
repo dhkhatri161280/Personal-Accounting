@@ -2047,6 +2047,9 @@ tfoot th {
 .dashboard-card-period {
   grid-area: period;
 }
+.loans-card {
+  grid-area: period;
+}
 .equity-slot {
   grid-area: period;
 }
@@ -2601,12 +2604,13 @@ aside .install-app {
   border-radius: 8px;
 }
 .plain-voucher-table {
-  /* Deliberately NOT width:100% -- with table-layout:fixed, a 100%-wide table treats colgroup
-     widths as relative proportions and redistributes them to keep filling that 100%, which would
-     silently shrink every other column back down after dragging one wider. min-width instead lets
-     the table grow past its container (the scroll wrapper above goes horizontal, Excel-style)
-     while each column keeps the exact pixel width it was dragged to. */
-  min-width: 100%;
+  /* Width is set inline (see TransactionTable.tsx), an explicit px sum of the same colWidths the
+     filter row's own grid template uses -- neither `width: 100%` nor `min-width: 100%` here:
+     either one lets a container wider than the declared columns stretch them to fill it (the
+     standard table-layout:fixed behavior for an unconstrained table width), which would silently
+     pull this table's columns out of alignment with the filter row above it again. The inline
+     pixel width keeps both rows reading from one source of truth at every viewport width; the
+     scroll wrapper above goes horizontal once dragged columns exceed the container, Excel-style. */
   border-collapse: collapse;
   font-size: 12px;
   table-layout: fixed;
@@ -3295,7 +3299,8 @@ aside .install-options .install-app {
 .active-slot {
   grid-area: active;
 }
-.period-slot {
+.period-slot,
+.loans-slot {
   grid-area: period;
 }
 .dashboard-card-slot > button {

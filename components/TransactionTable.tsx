@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ThemeProvider } from "@mui/material/styles";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -288,6 +288,22 @@ export function TransactionTable({
   const [colWidths, setColWidths] = useState<Record<PlainColKey, number>>(DEFAULT_PLAIN_WIDTHS);
   const resizeCol = (key: PlainColKey, deltaX: number) =>
     setColWidths((w) => ({ ...w, [key]: Math.max(40, w[key] + deltaX) }));
+  // Narration -- the widest, most-read column -- grows to fill any leftover width on a screen
+  // wider than the other 6 columns' declared sum, instead of leaving a dead gap to the right
+  // (every column, Narration included, is still independently drag-resizable via
+  // ColResizeHandle; this only ever ADDS to whatever width the user last set it to, via `Math.max`
+  // below, so a manual resize is never silently overridden by this fill). Measured against the
+  // scroll wrapper's own clientWidth, not the window, so this still behaves inside a narrower
+  // FloatingWindow drill-down, not just the full-page Day Book.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => setContainerWidth(entries[0].contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [filters, setFilters] = useState<Record<SortKey, string>>({
     date: "",
     type: "",
@@ -416,6 +432,13 @@ export function TransactionTable({
     }
     return map;
   }, [rows, transactions, openingBalance, selectedLedgerName, sort]);
+
+  const plainFixedWidth =
+    PLAIN_COLUMN_KEYS.filter((k) => k !== "narration").reduce((s, k) => s + colWidths[k], 0) +
+    (balanceMap ? BALANCE_COL_WIDTH : 0) +
+    50;
+  const effectiveNarrationWidth = Math.max(colWidths.narration, containerWidth - plainFixedWidth);
+  const plainTableWidth = plainFixedWidth + effectiveNarrationWidth;
 
   const gridRows = useMemo(
     () =>
@@ -655,7 +678,28 @@ export function TransactionTable({
           </label>
         )}
       </div>
-      <div className="table-filters grid-aligned-filters" style={{ gridTemplateColumns: FILTER_GRID_TEMPLATE }}>
+      {/* In `virtualized` mode the table itself uses `colWidths` (user drag-resizable, see
+          ColResizeHandle below), not the static DataGrid-derived FILTER_GRID_TEMPLATE -- pinning
+          the filter row to that same static template let it silently fall out of sync the moment
+          a column got resized (or even just from DEFAULT_PLAIN_WIDTHS differing from
+          COLUMN_SPECS' own DataGrid-flex widths to begin with). Building the template from
+          colWidths here instead means both rows are always driven by the one live source of
+          truth, in sync automatically -- no separate constant to remember to update. */}
+      <div
+        className="table-filters grid-aligned-filters"
+        style={{
+          gridTemplateColumns: virtualized
+            ? PLAIN_COLUMN_KEYS.map((k) => (k === "narration" ? `${effectiveNarrationWidth}px` : `${colWidths[k]}px`)).join(" ")
+            : FILTER_GRID_TEMPLATE,
+          // This row sits OUTSIDE the table's own scroll wrapper (no vertical scrollbar of its
+          // own), so left to its natural block width it fills the full, un-narrowed parent --
+          // wider than the table whenever enough rows trigger a vertical scrollbar inside
+          // .plain-voucher-table-scroll (that scrollbar eats ~16px from the wrapper's clientWidth,
+          // which is what containerWidth/plainTableWidth are measured from). Pinning this row to
+          // that exact same computed width keeps the two aligned regardless of scrollbar state.
+          ...(virtualized ? { width: plainTableWidth } : {}),
+        }}
+      >
         {filterField("date", "Date", "date")}
         {filterField("type", "Type", "voucher type")}
         {filterField("number", "#", "voucher number")}
@@ -675,8 +719,18 @@ export function TransactionTable({
         // is trivial for a browser; this app doesn't need DataGrid's paid-tier features here
         // (subtotal grouping and the running-balance column, both DataGrid-rendered above, are
         // never used in Day Book -- no selectedLedgerName/openingBalance is passed for it).
-        <div className="plain-voucher-table-scroll">
-          <table className="plain-voucher-table">
+        <div className="plain-voucher-table-scroll" ref={scrollRef}>
+          {/* Explicit pixel width, summed from the exact same `colWidths` the filter row's own
+              grid template uses -- table-layout:fixed + the CSS's min-width:100% otherwise lets
+              the browser proportionally stretch every column to fill a container wider than the
+              declared widths (the standard fixed-layout behavior when the table's own width is
+              unconstrained), which the filter row's plain CSS Grid never does. That silently
+              pulled the two rows apart again on any screen wider than the columns' natural sum,
+              even though both were nominally reading from the same colWidths state. Pinning the
+              table to this same computed sum keeps both rows honest at every viewport width.
+              Narration uses `effectiveNarrationWidth` (see above), not the raw dragged value, so
+              any leftover width on a wide screen goes into it rather than sitting empty. */}
+          <table className="plain-voucher-table" style={{ width: plainTableWidth }}>
             {/* Default proportions match the Tally-style Day Book convention already used
                 elsewhere in this app (see the DataGrid column's own COLUMN_SPECS above): compact
                 Debit/Credit Ledger, Narration -- the column someone actually reads -- widest. Each
@@ -684,8 +738,9 @@ export function TransactionTable({
                 adjust it, since no single static width fits every account name for every user. */}
             <colgroup>
               {PLAIN_COLUMN_KEYS.map((k) => (
-                <col key={k} style={{ width: `${colWidths[k]}px` }} />
+                <col key={k} style={{ width: `${k === "narration" ? effectiveNarrationWidth : colWidths[k]}px` }} />
               ))}
+              {balanceMap && <col style={{ width: `${BALANCE_COL_WIDTH}px` }} />}
               <col style={{ width: "50px" }} />
             </colgroup>
             <thead>
@@ -718,38 +773,66 @@ export function TransactionTable({
                   Amount{sortArrow("amount")}
                   <ColResizeHandle onResize={(dx) => resizeCol("amount", dx)} />
                 </th>
+                {balanceMap && <th className="right">Balance</th>}
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => (
-                <tr key={t.guid}>
-                  <td>{t.date.split("-").reverse().join("-")}</td>
-                  <td>
-                    <span className={`pill ${t.cancelled ? "cancelled" : ""}`}>
-                      {t.type}
-                      {t.cancelled ? " - Cancelled" : ""}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="voucher-reference" onClick={() => onView(t)}>
-                      {t.number || "-"}
-                    </button>
-                  </td>
-                  <td title={debit(t)}>{debit(t)}</td>
-                  <td title={credit(t)}>{credit(t)}</td>
-                  <td>{text(t.narration) || "-"}</td>
-                  <td className="right">{formatAmount(ledgerSignedAmount(t, selectedLedgerName))}</td>
-                  <td>
-                    <ActionMenuCell t={t} closed={isClosed(t)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
-                  </td>
-                </tr>
-              ))}
+              {/* `displayRows` (not the flat `rows`) so the same subtotal grouping and running
+                  balance the DataGrid path offers is available here too -- a ledger drilldown
+                  with a real opening balance shouldn't lose that just because it's virtualized. */}
+              {displayRows.map((t) =>
+                t.isGroupHeader ? (
+                  <tr
+                    key={t.id}
+                    className="ledger-subtotal-row"
+                    onClick={() => {
+                      const key = t.periodKeyValue as string;
+                      setExpandedPeriods((prev) => {
+                        const next = new Set(prev);
+                        next.has(key) ? next.delete(key) : next.add(key);
+                        return next;
+                      });
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <td colSpan={5}>{t.narration}</td>
+                    <td></td>
+                    <td className="right">{formatAmount(t.amount)}</td>
+                    {balanceMap && <td className="right">{t.balance === null ? "" : formatAmount(t.balance)}</td>}
+                    <td></td>
+                  </tr>
+                ) : (
+                  <tr key={t.id}>
+                    <td>{t.voucher.date.split("-").reverse().join("-")}</td>
+                    <td>
+                      <span className={`pill ${t.voucher.cancelled ? "cancelled" : ""}`}>
+                        {t.voucher.type}
+                        {t.voucher.cancelled ? " - Cancelled" : ""}
+                      </span>
+                    </td>
+                    <td>
+                      <button className="voucher-reference" onClick={() => onView(t.voucher)}>
+                        {t.voucher.number || "-"}
+                      </button>
+                    </td>
+                    <td title={t.debit}>{t.debit}</td>
+                    <td title={t.credit}>{t.credit}</td>
+                    <td>{t.narration}</td>
+                    <td className="right">{formatAmount(t.amount)}</td>
+                    {balanceMap && <td className="right">{t.balance === null ? "" : formatAmount(t.balance)}</td>}
+                    <td>
+                      <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
+                    </td>
+                  </tr>
+                )
+              )}
             </tbody>
             <tfoot>
               <tr>
                 <th colSpan={6}>Displayed voucher total</th>
                 <th className="right">{formatAmount(filteredTotal)}</th>
+                {balanceMap && <th></th>}
                 <th></th>
               </tr>
             </tfoot>

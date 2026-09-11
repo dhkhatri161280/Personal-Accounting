@@ -37,26 +37,36 @@ function GroupColumn({
       return n;
     });
 
+  // A line's `closing` is already signed so that the column's *expected* direction is positive
+  // (Expense column: Dr-heavy = positive; Income column: Cr-heavy = positive) -- see
+  // periodExpenseRows/periodIncomeRows in VaultApp.tsx. A negative closing here is a real contra
+  // movement (e.g. an Income-nature account that was net-debited more than credited this period)
+  // and must be shown as negative, not silently flipped positive -- taking Math.abs() before
+  // display was masking exactly that case (confirmed against Fund Summary, which shows the same
+  // account's true signed value for the same period).
+  const contraColor = kind === "in" ? MONEY_OUT : MONEY_IN;
+  const colorFor = (value: number) => (value >= 0 ? color : contraColor);
+
   const groups = new Map<string, ReportRow[]>();
   for (const row of rows) {
     const key = row.parent || row.category || "Other";
     groups.set(key, [...(groups.get(key) || []), row]);
   }
   const sorted = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const grand = rows.reduce((s, a) => s + Math.abs(a.closing), 0);
+  const grand = rows.reduce((s, a) => s + a.closing, 0);
 
   return (
     <div className="data-panel grouped-report">
       <h3>{title}</h3>
       {sorted.map(([group, items]) => {
         const isE = expanded.has(group);
-        const groupTotal = items.reduce((s, a) => s + Math.abs(a.closing), 0);
+        const groupTotal = items.reduce((s, a) => s + a.closing, 0);
         return (
           <section className="report-group" key={group}>
             <button className="group-heading" onClick={() => toggle(group)}>
               <span className="bs-arr">{isE ? "-" : "+"}</span>
               <strong>{group}</strong>
-              <span style={{ color }}>{fmt(groupTotal)}</span>
+              <span style={{ color: colorFor(groupTotal) }}>{fmt(groupTotal)}</span>
             </button>
             {isE &&
               items
@@ -65,7 +75,7 @@ function GroupColumn({
                 .map((a) => (
                   <div className="report-line" key={a.id}>
                     {link(a)}
-                    <strong style={{ color }}>{fmt(Math.abs(a.closing))}</strong>
+                    <strong style={{ color: colorFor(a.closing) }}>{fmt(a.closing)}</strong>
                   </div>
                 ))}
           </section>
@@ -73,7 +83,7 @@ function GroupColumn({
       })}
       <div className="report-grand">
         <span>Total {title}</span>
-        <strong style={{ color }}>{fmt(grand)}</strong>
+        <strong style={{ color: colorFor(grand) }}>{fmt(grand)}</strong>
       </div>
     </div>
   );

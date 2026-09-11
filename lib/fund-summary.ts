@@ -25,6 +25,7 @@ export type FundSummaryResult = {
   outgoingExpenses: FundGroup;
   outgoingFixedAssets: FundGroup;
   outgoingInvestments: FundGroup;
+  outgoingLoans: FundGroup;
   totalOutgoing: number;
   totalOutgoingPct: number;
   totalOutgoingAccountIds: number[];
@@ -114,9 +115,14 @@ function earliestFiscalYear(data: Ledger): number | null {
 // once at the top of the page carries through to every report, this one included.
 export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: string): FundSummaryResult {
   const groupMap = new Map((data.groups ?? []).map((g) => [g.name.toLowerCase(), { nature: g.nature }]));
-  const today = new Date().toISOString().slice(0, 10);
+  // Uses the raw period bounds as-is -- same as every other report (Income & Expenditure,
+  // Balance Sheet, Cash Flow) -- rather than capping at today's date. An earlier version capped
+  // periodEnd at today to avoid "projecting into the future," but that silently excluded any
+  // transaction dated later in an in-progress fiscal year (e.g. a pre-dated/planned transfer)
+  // from THIS report only, producing a real mismatch against every other report showing the
+  // same selected period.
   const periodStart = rawStart;
-  const periodEnd = rawEnd < today ? rawEnd : today; // never project into the future
+  const periodEnd = rawEnd;
   const active = data.accounts.filter((a) => a.active !== false);
   const earliest = earliestFiscalYear(data);
   const isFirstTrackedYear = earliest !== null && fiscalYearOf(periodStart) <= earliest;
@@ -154,9 +160,22 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
 
   // ── Outgoing Fund: Fixed Assets (rolled up by class, matching the Fixed Asset Register) ─────
   const fixedAssetAccounts = active.filter((a) => a.parent === FIXED_ASSETS_GROUP_NAME);
+  // "Home" and "Home Mortgage" (US Books only -- both no-op via `.find` returning undefined
+  // elsewhere) get combined into one "Home" line, netted against the real "CCU Home Loan"
+  // liability it offsets, instead of falling into the generic per-class "Unclassified" bucket.
+  // ensureMortgagePrincipalVouchers in components/VaultApp.tsx posts Dr CCU Home Loan / Cr Home
+  // Mortgage each month for the mortgage payment's principal -- Home Mortgage's balance is a pure
+  // mirror of what's still owed on CCU Home Loan, not a real distinct asset, so summing all three
+  // accounts' own periodNetDebit together (no extra sign flip needed -- the liability's naturally
+  // opposite-signed movement cancels the mirrored asset entry out on its own) leaves exactly the
+  // home's true standalone value instead of an inflated, unexplained "Unclassified" figure.
+  const homeAcc = fixedAssetAccounts.find((a) => a.name.toLowerCase() === "home");
+  const homeMortgageAcc = fixedAssetAccounts.find((a) => a.name.toLowerCase() === "home mortgage");
+  const ccuHomeLoanAcc = active.find((a) => a.name.toLowerCase() === "ccu home loan");
   const classOrder = [...ASSET_CLASS_SUGGESTIONS, UNCLASSIFIED_LABEL];
   const fixedAssetByClass = new Map<string, { amount: number; accountIds: number[] }>();
   for (const acc of fixedAssetAccounts) {
+    if (acc.id === homeAcc?.id || acc.id === homeMortgageAcc?.id) continue; // handled below instead
     const net = periodNetDebit(data, acc.id, periodStart, periodEnd);
     if (Math.abs(net) < 0.005) continue;
     const asset = (data.fixedAssets ?? []).find((fa) => fa.accountId === acc.id);
@@ -175,6 +194,19 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
       const ai = classOrder.indexOf(a.label), bi = classOrder.indexOf(b.label);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
+  if (homeAcc || homeMortgageAcc) {
+    const homeNet =
+      (homeAcc ? periodNetDebit(data, homeAcc.id, periodStart, periodEnd) : 0) +
+      (homeMortgageAcc ? periodNetDebit(data, homeMortgageAcc.id, periodStart, periodEnd) : 0) +
+      (ccuHomeLoanAcc ? periodNetDebit(data, ccuHomeLoanAcc.id, periodStart, periodEnd) : 0);
+    if (Math.abs(homeNet) > 0.005) {
+      fixedAssetLines.unshift({
+        label: "Home",
+        amount: homeNet,
+        accountIds: [homeAcc?.id, homeMortgageAcc?.id, ccuHomeLoanAcc?.id].filter((id): id is number => id !== undefined),
+      });
+    }
+  }
   const outgoingFixedAssets = groupOf("Fixed Assets", toLines(fixedAssetLines, incomingTotal), incomingTotal);
 
   // ── Outgoing Fund: Investments ─────────────────────────────────────────────────────────────
@@ -183,7 +215,17 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
     .map((a) => ({ label: a.name, amount: periodNetDebit(data, a.id, periodStart, periodEnd), accountIds: [a.id] }));
   const outgoingInvestments = groupOf("Investments", toLines(investmentLines, incomingTotal), incomingTotal);
 
-  const totalOutgoing = outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total;
+  // ── Outgoing Fund: Loans (Asset) -- money lent out (advances, personal loans given), a real
+  // use of funds distinct from Investments even though both grow an Asset-nature account ──────
+  const loansAccounts = active.filter((a) => /^loans & advances \(asset\)$/i.test(a.parent || ""));
+  const loansLines: RawLine[] = loansAccounts.map((a) => ({
+    label: a.name,
+    amount: periodNetDebit(data, a.id, periodStart, periodEnd),
+    accountIds: [a.id],
+  }));
+  const outgoingLoans = groupOf("Loans (Asset)", toLines(loansLines, incomingTotal), incomingTotal);
+
+  const totalOutgoing = outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total + outgoingLoans.total;
   const liquidityBalance = incomingTotal - totalOutgoing;
 
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(accountNature(a, groupMap)));
@@ -196,9 +238,15 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
     outgoingExpenses,
     outgoingFixedAssets,
     outgoingInvestments,
+    outgoingLoans,
     totalOutgoing,
     totalOutgoingPct: incomingTotal > 0.5 ? totalOutgoing / incomingTotal : 0,
-    totalOutgoingAccountIds: [...outgoingExpenses.accountIds, ...outgoingFixedAssets.accountIds, ...outgoingInvestments.accountIds],
+    totalOutgoingAccountIds: [
+      ...outgoingExpenses.accountIds,
+      ...outgoingFixedAssets.accountIds,
+      ...outgoingInvestments.accountIds,
+      ...outgoingLoans.accountIds,
+    ],
     liquidityBalance,
     liquidityBalancePct: incomingTotal > 0.5 ? liquidityBalance / incomingTotal : 0,
     bankCashChange,

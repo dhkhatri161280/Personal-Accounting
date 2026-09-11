@@ -139,6 +139,15 @@ export function FixedAssetRegister({
   }
 
   function openBulkTag(a: FixedAsset) {
+    // Already-tagged asset (one line tagged by hand, e.g. via the voucher's own AssetTagPicker) --
+    // pre-fill with that SAME tag so "Apply" extends it to the rest of this ledger's untagged
+    // lines, instead of suggesting a brand-new one (which is only right for a genuinely untagged
+    // asset, added manually via + Add Asset, being adopted into tagging for the first time).
+    if (a.sourceTag) {
+      setBulkTagValue(a.sourceTag);
+      setBulkTaggingId(a.id);
+      return;
+    }
     const prefix = ASSET_CLASS_PREFIXES[a.assetClass || UNCLASSIFIED_LABEL] || ASSET_CLASS_PREFIXES[UNCLASSIFIED_LABEL];
     const existingTags = (data.fixedAssets ?? []).map((x) => x.sourceTag).filter((t): t is string => !!t);
     setBulkTagValue(suggestNextAssetTag(existingTags, prefix));
@@ -342,12 +351,16 @@ export function FixedAssetRegister({
                         const monthly = monthlyDepreciation(a);
                         const accum = accumulatedDepreciation(a, todayStr);
                         const bv = bookValue(a, todayStr);
-                        // Offered for any untagged asset with real remaining cost. The tag picker
-                        // itself only offers a NEW tag or one of THIS ledger's own existing tags
-                        // (a real duplicate -- see tagExistingAsset in lib/fixed-assets-ledger.ts,
-                        // which merges the two in that case), so this never risks bulk-applying one
-                        // tag across a genuinely shared ledger's distinct, unrelated assets.
-                        const canBulkTag = !a.sourceTag && !!onBulkTagAsset;
+                        // Offered for any asset, tagged or not: an untagged one gets a NEW
+                        // suggested tag (adopting it into the tagging scheme for the first time);
+                        // an already-tagged one (e.g. only one line tagged by hand so far) reuses
+                        // its OWN existing tag, extending it to the rest of this ledger's still-
+                        // untagged lines -- see openBulkTag. The tag picker itself only offers a
+                        // NEW tag or one of THIS ledger's own existing tags (a real duplicate --
+                        // see tagExistingAsset in lib/fixed-assets-ledger.ts, which merges the two
+                        // in that case), so this never risks bulk-applying one tag across a
+                        // genuinely shared ledger's distinct, unrelated assets.
+                        const canBulkTag = !!onBulkTagAsset;
                         return (
                           <tr key={a.id}>
                             <td>
@@ -390,7 +403,19 @@ export function FixedAssetRegister({
                                   </button>
                                 </div>
                               ) : a.sourceTag ? (
-                                a.sourceTag
+                                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                  <span>{a.sourceTag}</span>
+                                  {canBulkTag && (
+                                    <button
+                                      type="button"
+                                      className="tr-refresh-btn"
+                                      title="Apply this same Fixed Asset # to every OTHER voucher on this ledger that isn't tagged yet"
+                                      onClick={() => openBulkTag(a)}
+                                    >
+                                      🏷 Tag remaining
+                                    </button>
+                                  )}
+                                </div>
                               ) : canBulkTag ? (
                                 <button
                                   type="button"

@@ -122,8 +122,12 @@ export type ReconAccountStatus = {
 export const DIFF_TOL = 0.005;
 // A vault voucher and the Plaid transaction it corresponds to don't always land on the exact
 // same date -- pending-to-posted transitions and weekend/holiday posting delays commonly shift
-// it by a day or two either side (confirmed live: a DoorDash charge landed 2 days apart).
-const DATE_TOL_DAYS = 3;
+// it by a day or two either side (confirmed live: a DoorDash charge landed 2 days apart). ACH
+// bank-to-bank transfers (Contra vouchers -- e.g. a credit card bill payment) can lag even
+// longer: confirmed live, a Citi Card Online Payment Contra voucher posted to the vault on
+// 04-09-2026 while Plaid didn't report the ACH leg until 08-09-2026 -- 4 days apart, just past
+// the old 3-day window, so it showed up as genuinely unmatched despite being the same transfer.
+const DATE_TOL_DAYS = 5;
 
 function daysApart(a: string, b: string): number {
   return Math.abs(new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) / 86400000;
