@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type React from "react";
 
 interface BSRow {
@@ -88,6 +88,8 @@ export function BalanceSheetReport({
   link,
   fmt,
   onNavigateToIE,
+  expandSignal,
+  collapseSignal,
 }: {
   assets: BSRow[];
   liabilities: BSRow[];
@@ -97,6 +99,10 @@ export function BalanceSheetReport({
   link: (a: BSRow) => React.ReactNode;
   fmt: (n: number) => string;
   onNavigateToIE?: () => void;
+  // Owned by the caller and rendered on the existing toolbar row -- see the matching comment in
+  // components/reports/ColumnarBalanceSheet.tsx.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (k: string) =>
@@ -115,6 +121,17 @@ export function BalanceSheetReport({
   const liabSide = liabLedg + (PLdisp < 0 ? -PLdisp : 0);
   const diff = assetSide - liabSide;
   const showPL = Math.abs(PLdisp) > tol;
+
+  const visibleL = L_ORDER.filter((s) => lMap.has(s) && [...lMap.get(s)!.values()].flat().length > 0);
+  const visibleR = R_ORDER.filter((s) => rMap.has(s) && [...rMap.get(s)!.values()].flat().length > 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (expandSignal) setExpanded(new Set([...visibleL, ...visibleR, ...(showPL ? ["__pl__"] : [])]));
+  }, [expandSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (collapseSignal) setExpanded(new Set());
+  }, [collapseSignal]);
 
   const renderSection = (sk: string, side: "L" | "R", sub: Map<string, BSRow[]>) => {
     const sign = side === "L" ? 1 : -1;
@@ -205,9 +222,7 @@ export function BalanceSheetReport({
       <div className="bs-grid">
         <div className="bs-col">
           <div className="bs-col-head">Liabilities</div>
-          {L_ORDER.filter((s) => lMap.has(s) && [...lMap.get(s)!.values()].flat().length > 0).map(
-            (s) => renderSection(s, "L", lMap.get(s)!)
-          )}
+          {visibleL.map((s) => renderSection(s, "L", lMap.get(s)!))}
           {showPL && PLdisp < 0 && renderPL("L")}
           <div className="bs-total">
             <span>Total Capital and Liabilities</span>
@@ -216,9 +231,7 @@ export function BalanceSheetReport({
         </div>
         <div className="bs-col">
           <div className="bs-col-head">Assets</div>
-          {R_ORDER.filter((s) => rMap.has(s) && [...rMap.get(s)!.values()].flat().length > 0).map(
-            (s) => renderSection(s, "R", rMap.get(s)!)
-          )}
+          {visibleR.map((s) => renderSection(s, "R", rMap.get(s)!))}
           {showPL && PLdisp >= 0 && renderPL("R")}
           <div className="bs-total">
             <span>Total Assets</span>

@@ -52,6 +52,8 @@ export function ColumnarBalanceSheet({
   viewMode = "ending",
   onComputed,
   onDrilldown,
+  expandSignal,
+  collapseSignal,
 }: {
   data: Ledger;
   start: string;
@@ -64,6 +66,11 @@ export function ColumnarBalanceSheet({
   viewMode?: "ending" | "incremental";
   onComputed?: (periods: PeriodBoundary[], assetRows: ColumnarRow[], liabilityRows: ColumnarRow[]) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
+  // "Expand All"/"Collapse All" signals -- owned by the caller (rendered as buttons on the
+  // existing Single Period/Monthly/Quarterly toolbar row, not a row of our own) and shared with
+  // whichever report is currently on screen. See useExpandCollapseAll in ColumnarSection.tsx.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const periods = useMemo(() => trimToLatestActivity(periodBoundariesForRange(start, end, granularity), data), [start, end, granularity, data]);
   const { assetRows, liabilityRows } = useMemo(() => buildBalanceSheetColumns(data, periods), [data, periods]);
@@ -120,6 +127,8 @@ export function ColumnarBalanceSheet({
         onDrilldown={onDrilldown}
         labelWidth={labelWidth}
         valueWidth={valueWidth}
+        expandSignal={expandSignal}
+        collapseSignal={collapseSignal}
       />
       <ColumnarSection
         title="Liabilities & Equity"
@@ -134,6 +143,8 @@ export function ColumnarBalanceSheet({
         onDrilldown={onDrilldown}
         labelWidth={labelWidth}
         valueWidth={valueWidth}
+        expandSignal={expandSignal}
+        collapseSignal={collapseSignal}
       />
       <ColumnarNetRow
         label={netRowLabel}

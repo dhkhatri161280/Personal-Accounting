@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StatIcon, type IconKind } from "@/components/Icon";
 
 interface CashFlowGroup {
@@ -24,6 +24,8 @@ export function CashFlowReport({
   onGroup,
   onLedger,
   uiTheme,
+  expandSignal,
+  collapseSignal,
 }: {
   periodLabel: string;
   cashOpening: number;
@@ -38,6 +40,10 @@ export function CashFlowReport({
   onGroup: (group: string) => void;
   onLedger: (group: string, ledger: string) => void;
   uiTheme?: "classic" | "refresh";
+  // Owned by the caller and rendered on the existing toolbar row -- see the matching comment in
+  // components/reports/ColumnarBalanceSheet.tsx.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["inflows", "outflows"]));
   const toggle = (k: string) =>
@@ -105,6 +111,25 @@ export function CashFlowReport({
     );
   };
 
+  const inflowGroups = cashFlowGroups.filter((g) => g.inflow > tol);
+  const outflowGroups = cashFlowGroups.filter((g) => g.outflow > tol);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (expandSignal)
+      setExpanded(
+        new Set([
+          "inflows",
+          "outflows",
+          ...inflowGroups.map((g) => "inflows:" + g.group),
+          ...outflowGroups.map((g) => "outflows:" + g.group),
+        ])
+      );
+  }, [expandSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (collapseSignal) setExpanded(new Set());
+  }, [collapseSignal]);
+
   const summaryCards: { label: string; value: number; icon: IconKind; color: string }[] = [
     { label: "Opening Balance", value: cashOpening, icon: "bank", color: "#64748b" },
     { label: "Cash Inflows", value: cashInflows, icon: "trending-up", color: "#16a34a" },
@@ -129,20 +154,8 @@ export function CashFlowReport({
         ))}
       </div>
       <div className="cash-flow-columns">
-        {renderSection(
-          "inflows",
-          "Cash inflows",
-          cashInflows,
-          cashFlowGroups.filter((g) => g.inflow > tol),
-          "inflow"
-        )}
-        {renderSection(
-          "outflows",
-          "Cash outflows",
-          cashOutflows,
-          cashFlowGroups.filter((g) => g.outflow > tol),
-          "outflow"
-        )}
+        {renderSection("inflows", "Cash inflows", cashInflows, inflowGroups, "inflow")}
+        {renderSection("outflows", "Cash outflows", cashOutflows, outflowGroups, "outflow")}
       </div>
       <div className="report-total">
         <span>Net increase / (decrease) in cash</span>

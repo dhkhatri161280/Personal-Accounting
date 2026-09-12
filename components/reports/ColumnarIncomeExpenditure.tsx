@@ -15,6 +15,8 @@ export function ColumnarIncomeExpenditure({
   fmt,
   onComputed,
   onDrilldown,
+  expandSignal,
+  collapseSignal,
 }: {
   data: Ledger;
   start: string;
@@ -23,6 +25,10 @@ export function ColumnarIncomeExpenditure({
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], incomeRows: ColumnarRow[], expenseRows: ColumnarRow[]) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
+  // Owned by the caller and rendered on the existing toolbar row -- see the matching comment in
+  // ColumnarBalanceSheet.tsx.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const periods = useMemo(() => trimToLatestActivity(periodBoundariesForRange(start, end, granularity), data), [start, end, granularity, data]);
   const { incomeRows, expenseRows } = useMemo(() => buildIncomeExpenseColumns(data, periods), [data, periods]);
@@ -54,8 +60,8 @@ export function ColumnarIncomeExpenditure({
 
   return (
     <div className="columnar-report">
-      <ColumnarSection title="Income" rows={incomeRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIncome.ref} onScroll={sIncome.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} />
-      <ColumnarSection title="Expense" rows={expenseRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sExpense.ref} onScroll={sExpense.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} />
+      <ColumnarSection title="Income" rows={incomeRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIncome.ref} onScroll={sIncome.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
+      <ColumnarSection title="Expense" rows={expenseRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sExpense.ref} onScroll={sExpense.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
       <ColumnarNetRow
         label={netRowLabel}
         values={surplusByPeriod}

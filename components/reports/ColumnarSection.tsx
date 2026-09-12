@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import type { ColumnarRow, PeriodBoundary } from "@/lib/columnar-report";
 import { measureTextWidth } from "@/lib/text-measure";
@@ -86,6 +86,21 @@ export function useSyncedScroll(count: number) {
   return Array.from({ length: count }, (_, i) => ({ ref: makeRef(i), onScroll: makeOnScroll(i) }));
 }
 
+// Drives a report's "Expand All"/"Collapse All" buttons. Exposes two monotonically-increasing
+// counters (not booleans) so clicking the same button twice in a row -- e.g. Expand All after a
+// user already hand-expanded then hand-collapsed one group -- still fires the effect that resets
+// every ColumnarSection's expanded-groups state; a boolean toggling true->true wouldn't.
+export function useExpandCollapseAll() {
+  const [expandSignal, setExpandSignal] = useState(0);
+  const [collapseSignal, setCollapseSignal] = useState(0);
+  return {
+    expandSignal,
+    collapseSignal,
+    expandAll: () => setExpandSignal((s) => s + 1),
+    collapseAll: () => setCollapseSignal((s) => s + 1),
+  };
+}
+
 // Zero cells are the majority in a monthly/quarterly grid (most ledgers only post in a few
 // periods), so rendering "$0.00" everywhere buries the handful of real numbers. A plain dash
 // (Tally's own convention, and the one the user asked for) reads as "nothing happened here"
@@ -115,6 +130,8 @@ export function ColumnarSection({
   onDrilldown,
   labelWidth,
   valueWidth,
+  expandSignal,
+  collapseSignal,
 }: {
   title: string;
   rows: ColumnarRow[];
@@ -131,6 +148,11 @@ export function ColumnarSection({
   // the plain CSS defaults (220px/110px) when a caller doesn't pass them.
   labelWidth?: number;
   valueWidth?: number;
+  // Bumped by the report's "Expand All"/"Collapse All" buttons (see ColumnarBalanceSheet etc.) --
+  // a plain boolean can't retrigger the effect on repeated clicks of the same button, so the
+  // caller increments a counter instead. Undefined/0 on mount means neither has fired yet.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (k: string) =>
@@ -145,6 +167,15 @@ export function ColumnarSection({
     const key = row.parent || row.category || "Other";
     groups.set(key, [...(groups.get(key) || []), row]);
   }
+  const groupKeys = useMemo(() => [...groups.keys()], [rows]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (expandSignal) setExpanded(new Set(groupKeys));
+  }, [expandSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (collapseSignal) setExpanded(new Set());
+  }, [collapseSignal]);
   const sorted = groupOrder
     ? [...groups.entries()].sort((a, b) => {
         const ia = groupOrder.indexOf(a[0]), ib = groupOrder.indexOf(b[0]);

@@ -79,7 +79,7 @@ import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTempl
 import { appendAuditEntry } from "@/lib/audit";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
-import type { DrilldownRequest } from "@/components/reports/ColumnarSection";
+import { useExpandCollapseAll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
@@ -207,6 +207,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // book-value ledger row in that case rather than silently showing $0.
     [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null),
     [openReportGroup, setOpenReportGroup] = useState<string | null>(null);
+
+  // Only one grouped report (Income & Expenditure, Balance Sheet, or Cash Flow) is ever on
+  // screen at a time (gated by `report` below), so one shared "Expand All"/"Collapse All" signal
+  // pair is safe to reuse across all of them -- rendered as buttons on each report's existing
+  // Single Period/Monthly/Quarterly toolbar row (see ReportViewToggle's `extra` prop) rather than
+  // a row of its own.
+  const reportExpandAll = useExpandCollapseAll();
 
   const {
     copyTx,
@@ -2148,9 +2155,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </span>
         {extra}
       </span>
-      <button type="button" className="tr-refresh-btn" disabled={exporting} onClick={onExport}>
-        {exporting ? "Exporting…" : "⬇ Export to Excel"}
-      </button>
+      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button type="button" className="report-expand-all-btn" onClick={reportExpandAll.expandAll}>
+          Expand All
+        </button>
+        <button type="button" className="report-expand-all-btn" onClick={reportExpandAll.collapseAll}>
+          Collapse All
+        </button>
+        <button type="button" className="tr-refresh-btn" disabled={exporting} onClick={onExport}>
+          {exporting ? "Exporting…" : "⬇ Export to Excel"}
+        </button>
+      </span>
     </div>
   );
 
@@ -3764,6 +3779,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   rows2={periodIncomeRows}
                   link={(a) => <LedgerLink a={a} />}
                   fmt={fmt}
+                  expandSignal={reportExpandAll.expandSignal}
+                  collapseSignal={reportExpandAll.collapseSignal}
                 />
               ) : (
                 <ColumnarIncomeExpenditure
@@ -3774,6 +3791,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   fmt={fmt}
                   onComputed={(periods, incomeRows, expenseRows) => setColumnarData({ periods, incomeRows, expenseRows })}
                   onDrilldown={setColumnarDrilldown}
+                  expandSignal={reportExpandAll.expandSignal}
+                  collapseSignal={reportExpandAll.collapseSignal}
                 />
               )}
             </>
@@ -3817,6 +3836,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   link={(a) => <LedgerLink a={a} />}
                   fmt={fmt}
                   onNavigateToIE={() => setReport("income")}
+                  expandSignal={reportExpandAll.expandSignal}
+                  collapseSignal={reportExpandAll.collapseSignal}
                 />
               ) : (
                 <ColumnarBalanceSheet
@@ -3828,6 +3849,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   viewMode={bsViewMode}
                   onComputed={(periods, assetRows, liabilityRows) => setColumnarBSData({ periods, assetRows, liabilityRows })}
                   onDrilldown={setColumnarDrilldown}
+                  expandSignal={reportExpandAll.expandSignal}
+                  collapseSignal={reportExpandAll.collapseSignal}
                 />
               )}
             </>
@@ -3844,6 +3867,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   fmt={fmt}
                   onComputed={(periods, inflowRows, outflowRows) => setColumnarCFData({ periods, inflowRows, outflowRows })}
                   onDrilldown={setColumnarDrilldown}
+                  expandSignal={reportExpandAll.expandSignal}
+                  collapseSignal={reportExpandAll.collapseSignal}
                 />
               )}
               {(reportView === "single" || !columnarViewAvailable) && (
@@ -3858,6 +3883,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 cashFlowGroups={cashFlowGroups}
                 tol={tol}
                 fmt={fmt}
+                expandSignal={reportExpandAll.expandSignal}
+                collapseSignal={reportExpandAll.collapseSignal}
                 onGroup={(group) => setCashFlowDetail({ group })}
                 onLedger={(group, ledger) => setCashFlowDetail({ group, ledger })}
                 uiTheme={uiTheme}
@@ -3941,6 +3968,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 onDrilldown={setColumnarDrilldown}
                 onComputed={(periods, incomeRows, expenseRows) => setBudgetData({ periods, incomeRows, expenseRows })}
                 reportView={reportView}
+                expandSignal={reportExpandAll.expandSignal}
+                collapseSignal={reportExpandAll.collapseSignal}
               />
             </>
           )}

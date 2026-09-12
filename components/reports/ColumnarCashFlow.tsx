@@ -16,6 +16,8 @@ export function ColumnarCashFlow({
   fmt,
   onComputed,
   onDrilldown,
+  expandSignal,
+  collapseSignal,
 }: {
   data: Ledger;
   start: string;
@@ -24,6 +26,10 @@ export function ColumnarCashFlow({
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], inflowRows: ColumnarRow[], outflowRows: ColumnarRow[]) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
+  // Owned by the caller and rendered on the existing toolbar row -- see the matching comment in
+  // ColumnarBalanceSheet.tsx.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const periods = useMemo(() => trimToLatestActivity(periodBoundariesForRange(start, end, granularity), data), [start, end, granularity, data]);
   const { inflowRows, outflowRows, closingByPeriod } = useMemo(() => buildCashFlowColumns(data, periods), [data, periods]);
@@ -61,8 +67,8 @@ export function ColumnarCashFlow({
 
   return (
     <div className="columnar-report">
-      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} />
-      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} />
+      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
+      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
       <ColumnarNetRow
         label={netRowLabel}
         values={netByPeriod}

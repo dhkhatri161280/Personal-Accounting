@@ -13,6 +13,7 @@ import {
 } from "@/lib/plaid-recon";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { useExpandCollapseAll } from "@/components/reports/ColumnarSection";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -71,6 +72,15 @@ export function BankReconciliation({
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  const { expandSignal, collapseSignal, expandAll, collapseAll } = useExpandCollapseAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (expandSignal) setExpanded(new Set((rows ?? []).map((r) => r.account.id)));
+  }, [expandSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (collapseSignal) setExpanded(new Set());
+  }, [collapseSignal]);
 
   async function markException(key: string, label: string) {
     const entry: BankReconException = { key, label, markedAt: new Date().toISOString() };
@@ -121,6 +131,16 @@ export function BankReconciliation({
         <button type="button" className="tr-refresh-btn" disabled={fetching} onClick={load}>
           {fetching ? "Refreshing…" : "⟳ Refresh"}
         </button>
+        {rows !== null && total > 0 && (
+          <>
+            <button type="button" className="report-expand-all-btn" onClick={expandAll}>
+              Expand All
+            </button>
+            <button type="button" className="report-expand-all-btn" onClick={collapseAll}>
+              Collapse All
+            </button>
+          </>
+        )}
         {rows !== null && total > 0 && (
           <ExportButton
             onExport={async () => {

@@ -146,6 +146,8 @@ function BudgetSection({
   onEditCell,
   onDrilldown,
   columnar,
+  expandSignal,
+  collapseSignal,
 }: {
   title: string;
   kind: "in" | "out";
@@ -158,6 +160,8 @@ function BudgetSection({
   onEditCell: (accountId: number, monthIndex: number, value: number) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
   columnar: boolean;
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const editableCells = periods.length === 12;
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -174,6 +178,14 @@ function BudgetSection({
     groups.set(key, [...(groups.get(key) || []), row]);
   }
   const sorted = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (expandSignal) setOpenGroups(new Set(groups.keys()));
+  }, [expandSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (collapseSignal) setOpenGroups(new Set());
+  }, [collapseSignal]);
   const sum = (items: BudgetRow[], field: "totalBudget" | "totalActual") => items.reduce((s, r) => s + r[field], 0);
   const grandBudget = sum(rows, "totalBudget"), grandActual = sum(rows, "totalActual");
   const grandVariance = grandActual - grandBudget;
@@ -382,6 +394,8 @@ export function BudgetVsActual({
   onDrilldown,
   onComputed,
   reportView = "single",
+  expandSignal,
+  collapseSignal,
 }: {
   data: Ledger;
   fy: string | null; // null when the selected period isn't a plain fiscal year -- budgets need one
@@ -393,6 +407,10 @@ export function BudgetVsActual({
   // today's annual-summary-with-expand behavior; monthly/quarterly render every account's
   // Budget/Actual/Variance grid across periods directly (see BudgetSection's `columnar` prop).
   reportView?: "single" | "monthly" | "quarterly";
+  // Owned by the caller (VaultApp's shared "Expand All"/"Collapse All" toolbar buttons) -- see
+  // the matching comment in components/reports/ColumnarBalanceSheet.tsx.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const columnar = reportView !== "single";
   const granularity = reportView === "quarterly" ? "quarterly" : "monthly";
@@ -494,6 +512,15 @@ export function BudgetVsActual({
       return next;
     });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (expandSignal) setExpanded(new Set([...incomeRows, ...expenseRows].map((r) => r.id)));
+  }, [expandSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (collapseSignal) setExpanded(new Set());
+  }, [collapseSignal]);
+
   return (
     <div className="columnar-report budget-vs-actual">
       <div className="report-view-toggle-row">
@@ -535,6 +562,8 @@ export function BudgetVsActual({
         onEditCell={updateCell}
         onDrilldown={onDrilldown}
         columnar={columnar}
+        expandSignal={expandSignal}
+        collapseSignal={collapseSignal}
       />
       <BudgetSection
         title="Expense"
@@ -548,6 +577,8 @@ export function BudgetVsActual({
         onEditCell={updateCell}
         onDrilldown={onDrilldown}
         columnar={columnar}
+        expandSignal={expandSignal}
+        collapseSignal={collapseSignal}
       />
     </div>
   );

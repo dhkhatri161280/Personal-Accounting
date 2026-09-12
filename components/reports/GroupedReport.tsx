@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 
 interface ReportRow {
@@ -21,12 +21,16 @@ function GroupColumn({
   link,
   fmt,
   kind,
+  expandSignal,
+  collapseSignal,
 }: {
   title: string;
   rows: ReportRow[];
   link: (a: ReportRow) => React.ReactNode;
   fmt: (n: number) => string;
   kind: "in" | "out";
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   const color = kind === "in" ? MONEY_IN : MONEY_OUT;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -54,6 +58,15 @@ function GroupColumn({
   }
   const sorted = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const grand = rows.reduce((s, a) => s + a.closing, 0);
+  const groupKeys = useMemo(() => [...groups.keys()], [rows]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (expandSignal) setExpanded(new Set(groupKeys));
+  }, [expandSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (collapseSignal) setExpanded(new Set());
+  }, [collapseSignal]);
 
   return (
     <div className="data-panel grouped-report">
@@ -96,6 +109,8 @@ export function GroupedReport({
   rows2,
   link,
   fmt,
+  expandSignal,
+  collapseSignal,
 }: {
   title1: string;
   rows1: ReportRow[];
@@ -103,11 +118,15 @@ export function GroupedReport({
   rows2: ReportRow[];
   link: (a: ReportRow) => React.ReactNode;
   fmt: (n: number) => string;
+  // Owned by the caller and rendered on the existing toolbar row -- see the matching comment in
+  // ColumnarBalanceSheet.tsx.
+  expandSignal?: number;
+  collapseSignal?: number;
 }) {
   return (
     <div className="report-grid">
-      <GroupColumn title={title1} rows={rows1} link={link} fmt={fmt} kind="out" />
-      <GroupColumn title={title2} rows={rows2} link={link} fmt={fmt} kind="in" />
+      <GroupColumn title={title1} rows={rows1} link={link} fmt={fmt} kind="out" expandSignal={expandSignal} collapseSignal={collapseSignal} />
+      <GroupColumn title={title2} rows={rows2} link={link} fmt={fmt} kind="in" expandSignal={expandSignal} collapseSignal={collapseSignal} />
     </div>
   );
 }
