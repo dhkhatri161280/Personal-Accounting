@@ -1370,6 +1370,13 @@ td strong {
   color: #fff;
   border-color: #2f6fed;
 }
+/* The Reports nav's 6 themed group buttons (Statements/Reconciliation/Registers/...) used to sit
+   next to the Dashboard card grid and were stretched via CSS grid to match its edge-to-edge
+   width. Reports now renders in the full-width stacked layout (see .workspace-split--stacked),
+   not next to that grid at all, so stretching them across the whole page just spread 6 short
+   buttons out with huge gaps between them -- reverted to the same compact flex-wrap every other
+   .report-picker instance already uses (Plaid/Schwab import-source picker, Trash's Deleted/
+   Duplicate picker), so the buttons sit close together instead. */
 .report-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1406,12 +1413,67 @@ tfoot th {
   padding: 12px 10px;
   border-top: 2px solid #ccd5e2;
 }
+/* One combined row for every global toolbar control -- previously the 5 icon-mask buttons
+   (biometric/theme/privacy/sync/lock) lived in .header-actions up here, while Search/Needs
+   Attention/New Voucher lived in a separate .period-bar-footer row below the nav, two visually
+   disconnected icon rows for what's conceptually one toolbar. .header-actions-row groups both
+   groups side by side in the header; they stay in separate inner divs (.header-actions vs.
+   .toolbar-icons) rather than merging into one flat list because .header-actions button below
+   forces every button into a blank 48px icon-mask square (font-size:0, color:transparent, a
+   ::before mask-image) tuned specifically for those 5 -- Search/Attention/New Voucher use their
+   own visible-text/colored-circle style (.search-fab/.attention-bell/.new-voucher-fab) and would
+   have their "!"/"+"/label silently hidden if they inherited that rule. */
+.header-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+.toolbar-icons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .header-actions {
   display: flex;
   gap: 8px;
 }
 .header-actions button {
   margin: 0;
+}
+/* Financial period selector + Open/Closed badge + info tooltip, relocated here from their own
+   full-width .period-bar row (see .period-bar below, still used by components/GrApp.tsx's
+   separate PeriodBar) so that row no longer costs a full line of vertical height on every tab.
+   Deliberately blends into the plain header row (no card border/background) rather than keeping
+   the old bordered-card look, to sit naturally next to the plain icon buttons beside it. */
+.header-period {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+.header-period strong {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.header-period select {
+  border: 1px solid #d8dfe9;
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: #f8fafd;
+  color: #1d2b45;
+  font-size: 10.5px;
+}
+.header-period .custom-range {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid #dfe5ee;
+  border-radius: 9px;
+  padding: 10px;
+  box-shadow: 0 8px 20px #10223f22;
 }
 @media (max-width: 800px) {
   .report-grid {
@@ -1440,6 +1502,116 @@ tfoot th {
   color: #fff;
   border-color: #10223f;
 }
+/* Primary section nav (Dashboard/Day Book/Import/Reports/Masters/Ledgers) as a left sidebar
+   inside the workspace, matching how QuickBooks/Xero/Zoho/NetSuite lay out primary nav (a
+   persistent vertical rail) instead of a horizontal tab row that runs out of room as sections
+   grow -- this is the same reason Reports itself already had to become grouped dropdowns rather
+   than a flat row. The existing dark `<aside>` (components/Nav.tsx) is a separate, book-level
+   switcher (US/India/GR) one level up in the page shell -- this is a second, lighter rail one
+   level in, scoped to sections within the current book, the same "app switcher rail + in-app
+   nav" two-tier pattern used by SAP Fiori/ServiceNow/Atlassian products. */
+.workspace-split {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+.tab-sidebar {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 168px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 20px;
+}
+/* Dashboard only: no card background, just the plain buttons spread out with
+   justify-content: space-between so the first button's top and the last button's bottom line up
+   with the dashboard card grid's top/bottom edges. `align-items: stretch` on the split makes
+   .tab-sidebar's box the same height as .workspace-content's; the 17px top/bottom padding here
+   matches .stats's own `margin: 17px 0` (see .stats above) so the two grids' actual content
+   edges -- not just their outer boxes -- line up. Every other tab (Day Book/Import/Reports/
+   Masters/Ledgers) reverts to the plain top-packed nav above -- their content isn't a fixed-height
+   card grid, so stretching+spreading the buttons to match it would leave huge gaps between
+   buttons on a short screen (e.g. Masters) or too little gap on a long one (e.g. a big Ledger
+   table), neither of which reads as "aligned" the way it does on Dashboard specifically. */
+.workspace-split--dashboard {
+  align-items: stretch;
+}
+.workspace-split--dashboard .tab-sidebar {
+  justify-content: space-between;
+  padding: 17px 0;
+}
+.tab-sidebar button {
+  margin: 0;
+  padding: 11px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: left;
+}
+.tab-sidebar button.selected {
+  background: #10223f;
+  color: #fff;
+  border-color: #10223f;
+}
+.workspace-content {
+  min-width: 0;
+  flex: 1;
+}
+/* Every tab except Dashboard: the vertical rail costs 168px + 20px gap of horizontal room that
+   wide data tables (Day Book, Ledgers, Reports) badly need -- it was forcing users to scroll the
+   table sideways to see columns that used to fit. Dashboard is the one screen whose content is a
+   fixed-width card grid that doesn't need extra horizontal room, so it keeps the side rail; every
+   other tab drops to a full-width horizontal nav row (same row-of-buttons layout already used at
+   narrow viewports, just applied here regardless of viewport width) so the table below gets the
+   full page width instead of sharing it with a column of buttons. */
+.workspace-split--stacked {
+  flex-direction: column;
+  /* `.workspace-split`'s base `align-items: flex-start` is tuned for the row layout (Dashboard),
+     where it's a vertical (cross-axis) rule. In this column layout the cross-axis is horizontal,
+     so that same flex-start makes every child -- .tab-sidebar and, worse, .workspace-content --
+     shrink to its own content width instead of filling the page, which is exactly what silently
+     squeezed the Reports group picker and every .data-panel table down to a few hundred px
+     wide. `stretch` makes both children fill the full row width as intended. */
+  align-items: stretch;
+}
+.workspace-split--stacked .tab-sidebar {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  width: 100%;
+  position: static;
+  padding: 0;
+}
+.workspace-split--stacked .tab-sidebar button {
+  flex: 1 1 auto;
+  text-align: center;
+}
+@media (max-width: 900px) {
+  .workspace-split {
+    flex-direction: column;
+  }
+  .tab-sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    width: 100%;
+    position: static;
+    align-self: stretch;
+    padding: 0;
+  }
+  .tab-sidebar button {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+  /* Overrides the dashboard-only space-between/padding rule above at equal specificity --
+     the sidebar becomes a wrapping horizontal tab row here regardless of which tab is active, so
+     the desktop "spread to match the card grid" treatment doesn't apply at this width. */
+  .workspace-split--dashboard .tab-sidebar {
+    justify-content: flex-start;
+    padding: 0;
+  }
+}
 .period-bar {
   display: flex;
   align-items: center;
@@ -1460,17 +1632,6 @@ tfoot th {
   background: #f8fafd;
   color: #1d2b45;
 }
-.period-bar-footer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: auto;
-}
-.period-bar-note {
-  color: #69778e;
-  font-size: 9px;
-  white-space: nowrap;
-}
 .period-open-summary {
   font-size: 10.5px; font-weight: 700; color: #16a34a;
   background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;
@@ -1486,11 +1647,6 @@ tfoot th {
   .period-bar {
     align-items: flex-start;
     flex-direction: column;
-  }
-  .period-bar-footer {
-    margin-left: 0;
-    width: 100%;
-    justify-content: space-between;
   }
 }
 .ledger-link {
@@ -2098,9 +2254,11 @@ tfoot th {
   color: #69778e;
 }
 .dashboard-stats button strong {
-  font-size: 19px;
+  font-size: clamp(14px, 1.35vw, 19px);
   margin: 6px 0;
   color: #14213d;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
 }
 .dashboard-stats button small {
   font-size: 8px;
@@ -2116,21 +2274,28 @@ tfoot th {
 .dashboard-card-main {
   min-width: 0;
   flex: 1;
+  overflow: hidden;
 }
+/* One chip system for every dashboard card (Cash, Investments, Capital, Salary, Fixed Assets,
+   Loans, Equity) -- same column widths, same label-pill treatment (centered, ellipsized, fixed
+   width so a row of 3 or 4 chips always lines up), same value typography, same color-cycle by
+   position. Previously each card layered its own width/grid-template/alignment overrides
+   (salary-highlights, capital-highlights, fixed-asset-highlights), so chips visibly differed
+   card to card; this replaces all of them with the one class every card now uses. */
 .dashboard-card-highlights {
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: stretch;
   gap: 5px;
-  width: min(46%, 150px);
-  min-width: 138px;
+  width: min(48%, 172px);
+  min-width: 150px;
   padding-left: 12px;
   border-left: 1px solid #e6edf7;
 }
 .dashboard-stats button .dashboard-card-highlights span {
   display: grid;
-  grid-template-columns: 40px minmax(78px, 1fr);
+  grid-template-columns: 58px 1fr;
   align-items: center;
   column-gap: 8px;
   width: 100%;
@@ -2143,18 +2308,28 @@ tfoot th {
   font-style: normal;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  font-size: clamp(9px, 0.72vw, 11px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: #243958;
+  letter-spacing: -0.01em;
 }
 .dashboard-card-highlights b {
-  display: inline-grid;
-  place-items: center;
-  min-width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   height: 17px;
-  padding: 0 5px;
+  padding: 0 6px;
   border-radius: 9px;
   background: #eaf2ff;
   color: #245fb6;
   font-size: 7px;
   letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
 }
 .dashboard-card-highlights span:nth-child(2) b {
   background: #fff3db;
@@ -2164,76 +2339,17 @@ tfoot th {
   background: #ffe9ec;
   color: #b53a4b;
 }
-.salary-highlights {
-  width: min(54%, 190px);
-  min-width: 170px;
+.dashboard-card-highlights span:nth-child(4) b {
+  background: #e0f2fe;
+  color: #0c6b93;
 }
-.dashboard-stats button .salary-highlights span {
-  grid-template-columns: minmax(62px, 1fr) minmax(78px, auto);
-}
-.salary-highlights b {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-}
-.salary-highlights em {
-  padding-left: 5px;
-}
-.salary-card .dashboard-card-main {
-  overflow: hidden;
-}
-.dashboard-stats .salary-card .dashboard-card-main strong {
-  font-size: clamp(13px, 1.25vw, 17px);
-  white-space: nowrap;
-  letter-spacing: -0.02em;
-}
-.salary-card .dashboard-card-main small {
+.dashboard-card-main small {
   white-space: normal;
-}
-.salary-highlights {
-  flex: 0 0 min(54%, 190px);
-}
-.capital-highlights {
-  width: min(50%, 176px);
-  min-width: 158px;
-}
-.dashboard-stats button .capital-highlights span {
-  grid-template-columns: 48px minmax(82px, 1fr);
-}
-.capital-card .dashboard-card-main {
-  overflow: hidden;
-  padding-right: 8px;
-}
-.dashboard-stats .capital-card .dashboard-card-main strong {
-  font-size: clamp(13px, 1.2vw, 16px);
-  white-space: nowrap;
-  letter-spacing: -0.025em;
-}
-.capital-card .dashboard-card-main small {
-  white-space: normal;
-}
-.capital-highlights b {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
 }
 @media (max-width: 600px) {
   .dashboard-card-highlights {
-    width: min(52%, 150px);
-    min-width: 132px;
-  }
-  .salary-highlights {
-    width: min(56%, 190px);
-    min-width: 162px;
-  }
-  .capital-highlights {
-    width: min(54%, 176px);
-    min-width: 154px;
+    width: min(54%, 172px);
+    min-width: 140px;
   }
 }
 .dashboard-detail {
@@ -2307,6 +2423,14 @@ tfoot th {
   }
   .period-bar select {
     width: 100%;
+  }
+  .header-period {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .header-period select {
+    flex: 1;
+    min-width: 0;
   }
   .header-actions {
     display: grid;
@@ -2969,6 +3093,44 @@ aside .install-app span {
   gap: 12px;
   margin-bottom: 14px;
 }
+.info-icon-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.info-icon-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #93a5c2;
+  background: #fff;
+  color: #4a5b7d;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.info-icon-btn:hover {
+  background: #eef4ff;
+}
+.info-icon-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: 360px;
+  max-width: min(360px, 80vw);
+  background: #fff;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(20, 33, 61, 0.15);
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #45526b;
+}
 .master-toolbar input {
   min-width: 280px;
   border: 1px solid #d8e0eb;
@@ -3478,13 +3640,23 @@ aside .install-options .install-app {
   .period-bar select {
     width: 100%;
   }
+  .header-period {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .header-period select {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
-/* Uniform dashboard card geometry across desktop, tablet and mobile. */
+/* Uniform dashboard card geometry across desktop, tablet and mobile -- 156px (was 148px) gives
+   the 4-chip Equity card the same comfortable row spacing as every 3-chip card now that all
+   cards share one chip system (see .dashboard-card-highlights above). */
 .dashboard-card-slot > button {
-  height: 148px;
-  min-height: 148px;
-  max-height: 148px;
+  height: 156px;
+  min-height: 156px;
+  max-height: 156px;
 }
 .dashboard-card-main {
   display: flex;
@@ -3501,38 +3673,19 @@ aside .install-options .install-app {
 .dashboard-card-main > small {
   max-width: 100%;
 }
-.dashboard-card-active,
-.dashboard-card-period {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.dashboard-stats .salary-card .dashboard-card-main strong,
-.dashboard-stats .capital-card .dashboard-card-main strong {
-  margin: 6px 0;
-}
+/* .dashboard-card-active is only ever combined with .dashboard-balance-card on the Fixed Assets
+   button (VaultApp.tsx) -- it should lay out exactly like every other card's button (row, via
+   .dashboard-balance-card), not get its own column layout. The old rule here set
+   flex-direction:column on the button itself, which silently broke Fixed Assets' row layout;
+   it only ever looked right because a separate !important override block (removed -- see the
+   unified .dashboard-card-highlights comment above) was independently forcing it back to a row.
+   .dashboard-card-period is unused in current JSX. */
 @media (max-width: 760px) {
   .dashboard-card-slot > button {
-    height: 142px;
-    min-height: 142px;
-    max-height: 142px;
+    height: 150px;
+    min-height: 150px;
+    max-height: 150px;
   }
-}
-
-/* Improve dashboard highlight amount readability without changing card geometry. */
-.dashboard-card-highlights em {
-  font-size: clamp(9px, 0.72vw, 11px);
-  font-weight: 800;
-  line-height: 1.2;
-  color: #243958;
-  letter-spacing: -0.01em;
-}
-.dashboard-stats button .dashboard-card-highlights span {
-  line-height: 1.2;
-}
-.salary-highlights em,
-.capital-highlights em {
-  font-weight: 800;
 }
 @media (max-width: 760px) {
   .dashboard-card-highlights em {
@@ -3572,29 +3725,42 @@ aside .install-options .install-app {
   justify-content: flex-end;
   flex-shrink: 0;
 }
-.new-voucher-fab {
-  width: 32px;
-  height: 32px;
+/* Shared icon-button geometry for every toolbar FAB (New Voucher, Search, Needs Attention) --
+   same size and rounded-square shape as the biometric/theme/privacy/sync/lock buttons right next
+   to them in .header-actions-row (48px, 14px radius), not the old mismatched 32px circle, so the
+   whole combined toolbar row reads as ONE consistent icon system. Colors stay distinct on
+   purpose (see the "Icon-row color convention" note below) -- that's meaningful (blue=primary
+   action, green/red=status, purple=utility), unlike the shape/size, which was just drift. */
+.new-voucher-fab,
+.search-fab,
+.attention-bell {
+  width: 36px;
+  height: 36px;
   margin: 0;
   padding: 0;
-  position: relative;
-  z-index: 46;
   border: none;
-  border-radius: 50%;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1;
   color: #fff;
+  font-size: 15px;
   cursor: pointer;
   box-shadow: 0 6px 18px rgba(16, 34, 63, 0.32);
   transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
 }
-.new-voucher-fab:hover {
+.new-voucher-fab:hover,
+.search-fab:hover,
+.attention-bell:hover {
   box-shadow: 0 8px 22px rgba(16, 34, 63, 0.4);
   transform: scale(1.06);
+}
+.new-voucher-fab {
+  position: relative;
+  z-index: 46;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
 }
 .new-voucher-fab.menu-open {
   transform: rotate(45deg);
@@ -3616,11 +3782,11 @@ aside .install-options .install-app {
 .new-voucher-fab-india.selected {
   background: #c97800;
 }
-/* Needs Attention: a small icon in the period bar (visible on every tab, not just Dashboard)
+/* Needs Attention: a small icon in the header toolbar (visible on every tab, not just Dashboard)
    instead of a full-width card -- same relative/absolute popover pattern as the new-voucher FAB
-   above, so it inherits the same proven mobile/tablet behavior (period-bar-footer already wraps
-   to full-width flex on small screens; this is just one more compact icon within that row, not a
-   new breakpoint to maintain). */
+   above, so it inherits the same proven mobile/tablet behavior (.toolbar-icons/.header-actions-row
+   already wrap on small screens; this is just one more compact icon within that row, not a new
+   breakpoint to maintain). */
 .attention-bell-wrap {
   position: relative;
   z-index: 30;
@@ -3629,7 +3795,7 @@ aside .install-options .install-app {
   flex-shrink: 0;
 }
 /* Reuses .attention-bell's proven round-icon-button sizing/mobile behavior (same
-   .period-bar-footer row).
+   .toolbar-icons row).
    Icon-row color convention -- keep each button visually distinct, and pick a genuinely unused,
    visually-separated color for the next one instead of defaulting back to blue:
      - Blue (#2f6fed / india #e99518) = primary book action (New Voucher) -- matches the book's
@@ -3642,25 +3808,10 @@ aside .install-options .install-app {
      - Unclaimed so far: amber, or a neutral slate. Avoid blue/green/red/purple for anything new
        in this row. */
 .search-fab {
-  width: 32px;
-  height: 32px;
-  margin: 0;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: #7c3aed;
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(16, 34, 63, 0.32);
-  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 .search-fab:hover {
   background: #6425c7;
-  box-shadow: 0 8px 22px rgba(16, 34, 63, 0.4);
-  transform: scale(1.06);
 }
 .search-palette {
   display: flex;
@@ -3710,25 +3861,8 @@ aside .install-options .install-app {
   color: #8291a8;
 }
 .attention-bell {
-  width: 32px;
-  height: 32px;
-  margin: 0;
-  padding: 0;
   position: relative;
-  border: none;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: #16a34a;
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(16, 34, 63, 0.32);
-  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
-}
-.attention-bell:hover {
-  box-shadow: 0 8px 22px rgba(16, 34, 63, 0.4);
-  transform: scale(1.06);
 }
 .attention-bell--flagged {
   background: #dc2626;
@@ -4503,12 +4637,12 @@ button.group-heading:hover {
   align-items: center !important;
 }
 .header-actions button {
-  width: 48px !important;
-  height: 48px !important;
-  min-width: 48px !important;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
   padding: 0 !important;
   margin: 0 !important;
-  border-radius: 14px !important;
+  border-radius: 11px !important;
   font-size: 0 !important;
   color: transparent !important;
   overflow: hidden !important;
@@ -4520,8 +4654,8 @@ button.group-heading:hover {
 }
 .header-actions button::before {
   content: "";
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   display: block;
   background: #28405f;
   -webkit-mask: center/contain no-repeat;
@@ -4576,87 +4710,92 @@ button.group-heading:hover {
   mask-image: var(--dk-fingerprint);
 }
 
-/* Phone/tablet: move icons beside the book badge area, small and separated. */
+/* Phone/tablet: the toolbar row (.header-actions-row -- both icon groups) wraps onto its own
+   full-width line below the book name/badge instead of the old trick of absolutely-positioning
+   just .header-actions into a reserved top-right corner -- that corner was sized for exactly 5
+   buttons and had no room for the 3 more (Search/Needs Attention/New Voucher) now sharing this
+   row (see .header-actions-row above), so it's a plain wrap instead. */
 @media (max-width: 1100px) {
   header {
-    position: relative !important;
-    padding-right: 185px !important;
+    flex-wrap: wrap;
+    row-gap: 10px;
   }
-  header .book-heading {
-    padding-right: 4px !important;
+  .header-actions-row {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
   .header-actions {
-    position: absolute !important;
-    right: 0 !important;
-    top: 48px !important;
-    width: auto !important;
     display: flex !important;
     gap: 8px !important;
   }
-  .header-actions button {
-    width: 34px !important;
-    height: 34px !important;
-    min-width: 34px !important;
+  /* `header` prefix bumps specificity above the unconditional (any-width) base
+     `.header-actions button` rule elsewhere in this file -- without it, this and the base rule
+     have IDENTICAL specificity (one class + one type selector) and both `!important`, so which
+     one wins depends on which is textually later in the file, not which one the browser should
+     actually apply at this width. That source-order tie is exactly what let the wrong (48px,
+     unconditional) rule silently win at ≤1100px before this fix -- deterministic specificity
+     instead of relying on staying below it in the file forever. */
+  header .header-actions button {
+    flex: none !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
     border-radius: 10px !important;
   }
-  .header-actions button::before {
-    width: 17px;
-    height: 17px;
+  header .header-actions button::before {
+    width: 16px;
+    height: 16px;
   }
-  .header-actions .secure-icon {
-    width: 17px !important;
-    height: 17px !important;
+  header .header-actions .secure-icon {
+    width: 16px !important;
+    height: 16px !important;
   }
 }
 @media (max-width: 560px) {
-  header {
-    padding-right: 145px !important;
-  }
   .header-actions {
-    top: 46px !important;
     gap: 5px !important;
   }
-  .header-actions button {
-    width: 28px !important;
-    height: 28px !important;
-    min-width: 28px !important;
+  header .header-actions button {
+    flex: none !important;
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
     border-radius: 9px !important;
   }
-  .header-actions button::before {
-    width: 15px;
-    height: 15px;
+  header .header-actions button::before {
+    width: 14px;
+    height: 14px;
   }
-  .header-actions .secure-icon {
-    width: 15px !important;
-    height: 15px !important;
+  header .header-actions .secure-icon {
+    width: 14px !important;
+    height: 14px !important;
   }
 }
 @media (max-width: 430px) {
-  header {
-    padding-right: 118px !important;
-  }
   .header-actions {
     gap: 4px !important;
   }
-  .header-actions button {
-    width: 24px !important;
-    height: 24px !important;
-    min-width: 24px !important;
+  header .header-actions button {
+    flex: none !important;
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
     border-radius: 7px !important;
   }
-  .header-actions button::before {
-    width: 13px;
-    height: 13px;
+  header .header-actions button::before {
+    width: 12px;
+    height: 12px;
   }
-  .header-actions .secure-icon {
-    width: 13px !important;
-    height: 13px !important;
+  header .header-actions .secure-icon {
+    width: 12px !important;
+    height: 12px !important;
   }
-  .header-actions .sync-now-button > svg,
-  .header-actions .privacy-toggle-button > svg,
-  .header-actions .ui-theme-toggle-button > svg {
-    width: 13px !important;
-    height: 13px !important;
+  header .header-actions .sync-now-button > svg,
+  header .header-actions .privacy-toggle-button > svg,
+  header .header-actions .ui-theme-toggle-button > svg {
+    width: 12px !important;
+    height: 12px !important;
   }
 }
 /* DK compact secure header end */
@@ -4670,8 +4809,8 @@ button.group-heading:hover {
 }
 
 .header-actions .secure-icon {
-  width: 24px !important;
-  height: 24px !important;
+  width: 18px !important;
+  height: 18px !important;
   display: block !important;
 }
 .header-actions .lock-action .secure-icon {
@@ -5077,84 +5216,12 @@ button.group-heading:hover {
   color: #1a3a70;
 }
 
-.fixed-asset-highlights {
-  width: min(54%, 190px);
-  min-width: 170px;
-}
-.dashboard-stats button .fixed-asset-highlights span {
-  grid-template-columns: minmax(62px, 1fr) minmax(78px, auto);
-}
-.fixed-asset-highlights b {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-}
-.fixed-asset-highlights em {
-  padding-left: 5px;
-  font-weight: 800;
-}
-
-/* Fixed Assets dashboard card: align exactly like Cash/Investment split cards */
-.dashboard-stats .fixed-assets-card {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: stretch !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
-  overflow: hidden !important;
-}
-.dashboard-stats .fixed-assets-card .dashboard-card-main {
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: center !important;
-  align-self: stretch !important;
-  min-width: 0 !important;
-  flex: 1 1 auto !important;
-  padding-right: 8px !important;
-}
-.dashboard-stats .fixed-assets-card .dashboard-card-main strong {
-  font-size: clamp(13px, 1.2vw, 17px) !important;
-  white-space: nowrap !important;
-  letter-spacing: -0.02em !important;
-}
-.dashboard-stats .fixed-assets-card .fixed-asset-highlights {
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: center !important;
-  align-self: stretch !important;
-  width: min(52%, 190px) !important;
-  min-width: 168px !important;
-  padding-left: 12px !important;
-  border-left: 1px solid #e6edf7 !important;
-  gap: 5px !important;
-}
-.dashboard-stats button .fixed-asset-highlights span {
-  grid-template-columns: minmax(62px, 1fr) minmax(82px, auto) !important;
-}
-.fixed-asset-highlights b {
-  max-width: 88px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.fixed-asset-highlights em {
-  font-size: clamp(9px, 0.72vw, 11px) !important;
-  font-weight: 800 !important;
-}
-@media (max-width: 760px) {
-  .dashboard-stats .fixed-assets-card .fixed-asset-highlights {
-    width: min(56%, 180px) !important;
-    min-width: 154px !important;
-  }
-}
-
-/* Mobile/tablet dashboard order: Cash, Investments, Fixed Assets, Capital, Salary, Vouchers */
-.fixed-assets-slot {
-  grid-area: active;
-}
+/* Mobile/tablet dashboard order: Cash, Investments, Fixed Assets, Capital, Salary, Vouchers.
+   Fixed Assets now renders through the same .dashboard-balance-card/.dashboard-card-highlights
+   system as every other card (see the unified chip rules near .dashboard-card-highlights above)
+   -- it used to carry a full !important-laden override block duplicating those rules from
+   scratch, which is why it looked subtly different (wider chip column, different font clamp)
+   from Cash/Investments/Equity despite being visually meant to match them. */
 @media (max-width: 1100px) {
   .dashboard-stats {
     grid-template-areas: "cash investment" "active capital" "salary period";

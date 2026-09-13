@@ -487,6 +487,11 @@ export type Ledger = {
   prepaidExpenses?: PrepaidExpense[];
   // Loans tracked in the Loan/Debt Register. See lib/loans.ts.
   loans?: Loan[];
+  // User-dismissed Cash Flow Forecast living-expense categories (e.g. a one-time class fee
+  // that's now paid off) -- excluded from the trailing-average projection until the user
+  // re-includes them, since the trailing history alone can't tell "finished, one-time" apart
+  // from "still recurring, just slow this window". See lib/cash-flow-forecast.ts.
+  cashFlowForecastExclusions?: string[];
 };
 
 export type BankReconException = {

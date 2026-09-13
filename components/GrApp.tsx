@@ -1074,7 +1074,7 @@ export function GrApp() {
                 <strong>{fmt(dashCapitalTotal)}</strong>
                 <small>Capital &amp; reserves</small>
               </div>
-              <div className="dashboard-card-highlights capital-highlights">
+              <div className="dashboard-card-highlights">
                 {capitalAccounts
                   .slice()
                   .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
@@ -1123,7 +1123,7 @@ export function GrApp() {
                 <strong>{fmt(periodIncome)}</strong>
                 <small>{periodLabel}</small>
               </div>
-              <div className="dashboard-card-highlights salary-highlights">
+              <div className="dashboard-card-highlights">
                 {incomeAccounts
                   .filter((a) => (periodCalc.cr.get(normKey(a.name)) || 0) > tol)
                   .slice()

@@ -437,6 +437,7 @@ export function MastersPanel({
     // hand-typed master fields; see components/reports/FixedAssetRegister.tsx for the report
     // view (Dispose/Run Depreciation/drill-down) this data feeds.
     [showAddAsset, setShowAddAsset] = useState(false),
+    [showAssetInfo, setShowAssetInfo] = useState(false),
     [assetName, setAssetName] = useState(""),
     [assetClassInput, setAssetClassInput] = useState(""),
     [assetTagInput, setAssetTagInput] = useState(""),
@@ -1092,16 +1093,34 @@ export function MastersPanel({
       )}
       {section === "fixedassets" && (
         <>
-          <p className="field-hint" style={{ margin: "0 0 10px" }}>
-            Name, Group/Class, Useful Life, and Salvage are editable master data. Cost is read-only here — it's a derived fact of
-            the real ledger balance, not something to hand-type. An untagged asset can be given a Fixed Asset # here (🏷 Tag) —
-            applies it to every voucher already posted on its own ledger, existing or new. See Reports → Registers → Fixed Asset
-            Register for depreciation, disposal, and drill-down.
-          </p>
           <div className="master-toolbar">
-            <button type="button" className="tr-refresh-btn" onClick={() => setShowAddAsset((v) => !v)}>
-              {showAddAsset ? "Cancel" : "+ Add Asset"}
-            </button>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <button type="button" className="tr-refresh-btn" onClick={() => setShowAddAsset((v) => !v)}>
+                {showAddAsset ? "Cancel" : "+ Add Asset"}
+              </button>
+              <span
+                className="info-icon-wrap"
+                onMouseEnter={() => setShowAssetInfo(true)}
+                onMouseLeave={() => setShowAssetInfo(false)}
+              >
+                <button
+                  type="button"
+                  className="info-icon-btn"
+                  aria-label="About this Fixed Assets master data"
+                  onClick={() => setShowAssetInfo((v) => !v)}
+                >
+                  ⓘ
+                </button>
+                {showAssetInfo && (
+                  <div className="info-icon-popover">
+                    Name, Group/Class, Useful Life, and Salvage are editable master data. Cost is read-only here — it&apos;s a
+                    derived fact of the real ledger balance, not something to hand-type. An untagged asset can be given a
+                    Fixed Asset # here (🏷 Tag) — applies it to every voucher already posted on its own ledger, existing or
+                    new. See Reports → Registers → Fixed Asset Register for depreciation, disposal, and drill-down.
+                  </div>
+                )}
+              </span>
+            </span>
             {unclassifiedAssetCount > 0 && (
               <button type="button" className="tr-refresh-btn" onClick={autoClassifyAssets}>
                 🪄 Auto-classify {unclassifiedAssetCount}

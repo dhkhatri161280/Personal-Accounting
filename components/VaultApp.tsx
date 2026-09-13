@@ -1050,6 +1050,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       });
   }, [data, calc, year, tableFilter, minAmount, sortKey, sortDir]);
 
+  // Declared before the `if (!data)` early return below -- every hook in this component must run
+  // unconditionally on every render (Rules of Hooks). Placing this after that early return caused
+  // a hook-count mismatch between the "still unlocking" render (data is null, hook skipped) and
+  // the first real render once data loads (hook now runs) -- React fatally errors on that
+  // mismatch, which is what produced the blank white screen after deploy.
+  const [showPeriodInfo, setShowPeriodInfo] = useState(false);
+
   if (!data)
     return (
       <UnlockScreen
@@ -2398,6 +2405,135 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             {active.length} active ledgers | {calc.period.length} vouchers in selected period
           </p>
         </div>
+        <div className="header-actions-row">
+        <div className="header-period">
+          <strong>Financial period</strong>
+          <select value={year} onChange={(e) => setYear(e.target.value)}>
+            <option value="all">All periods</option>
+            <option value="custom">Custom month range</option>
+            <optgroup label="Fiscal years (April to March)">
+              {years.map((y) => (
+                <option value={y} key={y}>
+                  FY {y} (Apr {y} - Mar {Number(y) + 1})
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Month and year">
+              {months.map((m) => (
+                <option value={m} key={m}>
+                  {new Date(`${m}-01T00:00:00`).toLocaleDateString("en-US", {
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+          {year === "custom" && (
+            <div className="custom-range">
+              <label>
+                From
+                <input
+                  type="month"
+                  value={customStart}
+                  max={customEnd}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                />
+              </label>
+              <span>to</span>
+              <label>
+                To
+                <input
+                  type="month"
+                  value={customEnd}
+                  min={customStart}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
+          {(() => {
+            // Compact open/closed summary for whatever's currently selected in the Financial
+            // period dropdown above -- reuses the same "FY starts April" convention that dropdown
+            // itself already hardcodes (years.map above), not fiscalYearStartMonth, so the range
+            // shown here always matches what's actually selected. Collapses to contiguous ranges
+            // ("Sep 2026 – Mar 2027") instead of listing every open month, and caps at 2 ranges
+            // before summarizing the rest, to stay a single compact line regardless of how
+            // fragmented the closures are.
+            let periodKeys: string[] = [];
+            if (/^\d{4}$/.test(year)) {
+              const fy = Number(year);
+              periodKeys = Array.from({ length: 12 }, (_, i) => {
+                const m = ((3 + i) % 12) + 1; // Apr(4) .. Mar(3), 0-indexed offset from Apr=index0
+                const y = fy + (i >= 9 ? 1 : 0); // Jan/Feb/Mar roll into the next calendar year
+                return `${y}-${String(m).padStart(2, "0")}`;
+              });
+            } else if (year === "custom") {
+              let cur = customStart;
+              while (cur <= customEnd) {
+                periodKeys.push(cur);
+                const [y, m] = cur.split("-").map(Number);
+                cur = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+              }
+            } else if (/^\d{4}-\d{2}$/.test(year)) {
+              periodKeys = [year];
+            }
+            if (!periodKeys.length) return null;
+            const closed = new Set(data.closedPeriods || []);
+            const openKeys = periodKeys.filter((k) => !closed.has(k));
+            const fmt = (k: string) => {
+              const [y, m] = k.split("-").map(Number);
+              return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
+            };
+            let label: string;
+            if (openKeys.length === periodKeys.length) label = "All open";
+            else if (openKeys.length === 0) label = "All closed";
+            else {
+              const ranges: string[][] = [];
+              for (const k of openKeys) {
+                const last = ranges[ranges.length - 1];
+                const prevExpected = last
+                  ? (() => {
+                      const [y, m] = last[last.length - 1].split("-").map(Number);
+                      return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+                    })()
+                  : null;
+                if (last && prevExpected === k) last.push(k);
+                else ranges.push([k]);
+              }
+              const rangeLabels = ranges.map((r) => (r.length === 1 ? fmt(r[0]) : `${fmt(r[0])} – ${fmt(r[r.length - 1])}`));
+              label = rangeLabels.length <= 2 ? rangeLabels.join(", ") : `${rangeLabels[0]}, +${rangeLabels.length - 1} more`;
+            }
+            return (
+              <button
+                type="button"
+                className={`period-open-summary ${openKeys.length === 0 ? "period-open-summary--none" : ""}`}
+                title="Open period controls in Masters"
+                onClick={() => {
+                  setMastersSection("periods");
+                  setTab("masters");
+                }}
+              >
+                Open: {label}
+              </button>
+            );
+          })()}
+          <span
+            className="info-icon-wrap"
+            onMouseEnter={() => setShowPeriodInfo(true)}
+            onMouseLeave={() => setShowPeriodInfo(false)}
+          >
+            <button
+              type="button"
+              className="info-icon-btn"
+              aria-label="How closing balances are calculated"
+              onClick={() => setShowPeriodInfo((v) => !v)}
+            >
+              ⓘ
+            </button>
+            {showPeriodInfo && <div className="info-icon-popover">Opening + period activity = closing</div>}
+          </span>
+        </div>
         <div className="header-actions">
           {status && !isBlockingStatus && (
             <span className={`vault-status${status.startsWith("Auto-fixed") ? " vault-status--info" : ""}`}>
@@ -2456,182 +2592,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </button>
           <SyncStatusLock book={book} onClick={lockVault} />
         </div>
-      </header>
-      {isBlockingStatus && (
-        <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
-          <p className="vault-alert-message">{status}</p>
-          <div className="vault-alert-banner-actions">
-            {status.startsWith("Blocked:") && (
-              <button
-                type="button"
-                className="tr-refresh-btn"
-                onClick={() => {
-                  setStatus("");
-                  setMastersSection("periods");
-                  setTab("masters");
-                }}
-              >
-                Reopen in Masters → Periods
-              </button>
-            )}
-            <button type="button" className="tr-refresh-btn" onClick={() => setStatus("")}>
-              Dismiss
-            </button>
-          </div>
-        </FloatingWindow>
-      )}
-      <div className="app-nav">
-        <button
-          className={tab === "dashboard" ? "selected" : ""}
-          onClick={() => setTab("dashboard")}
-        >
-          Dashboard
-        </button>
-        <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")}>
-          Day Book
-        </button>
-        {book !== "india" && (
-          <button
-            className={tab === "bank-import" ? "selected" : ""}
-            onClick={() => {
-              setPlaidImportTab("transactions");
-              setTab("bank-import");
-            }}
-          >
-            Import
-          </button>
-        )}
-        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
-          Reports
-        </button>
-        <button
-          className={tab === "masters" ? "selected" : ""}
-          onClick={() => {
-            setMastersSection("ledgers");
-            setTab("masters");
-          }}
-        >
-          Masters
-        </button>
-        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")}>
-          Ledgers
-        </button>
-        {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
-      </div>
-      <div className="period-bar">
-        <strong>Financial period</strong>
-        <select value={year} onChange={(e) => setYear(e.target.value)}>
-          <option value="all">All periods</option>
-          <option value="custom">Custom month range</option>
-          <optgroup label="Fiscal years (April to March)">
-            {years.map((y) => (
-              <option value={y} key={y}>
-                FY {y} (Apr {y} - Mar {Number(y) + 1})
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label="Month and year">
-            {months.map((m) => (
-              <option value={m} key={m}>
-                {new Date(`${m}-01T00:00:00`).toLocaleDateString("en-US", {
-                  month: "long",
-                  year: "numeric",
-                })}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-        {year === "custom" && (
-          <div className="custom-range">
-            <label>
-              From
-              <input
-                type="month"
-                value={customStart}
-                max={customEnd}
-                onChange={(e) => setCustomStart(e.target.value)}
-              />
-            </label>
-            <span>to</span>
-            <label>
-              To
-              <input
-                type="month"
-                value={customEnd}
-                min={customStart}
-                onChange={(e) => setCustomEnd(e.target.value)}
-              />
-            </label>
-          </div>
-        )}
-        {(() => {
-          // Compact open/closed summary for whatever's currently selected in the Financial
-          // period dropdown above -- reuses the same "FY starts April" convention that dropdown
-          // itself already hardcodes (years.map above), not fiscalYearStartMonth, so the range
-          // shown here always matches what's actually selected. Collapses to contiguous ranges
-          // ("Sep 2026 – Mar 2027") instead of listing every open month, and caps at 2 ranges
-          // before summarizing the rest, to stay a single compact line regardless of how
-          // fragmented the closures are.
-          let periodKeys: string[] = [];
-          if (/^\d{4}$/.test(year)) {
-            const fy = Number(year);
-            periodKeys = Array.from({ length: 12 }, (_, i) => {
-              const m = ((3 + i) % 12) + 1; // Apr(4) .. Mar(3), 0-indexed offset from Apr=index0
-              const y = fy + (i >= 9 ? 1 : 0); // Jan/Feb/Mar roll into the next calendar year
-              return `${y}-${String(m).padStart(2, "0")}`;
-            });
-          } else if (year === "custom") {
-            let cur = customStart;
-            while (cur <= customEnd) {
-              periodKeys.push(cur);
-              const [y, m] = cur.split("-").map(Number);
-              cur = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
-            }
-          } else if (/^\d{4}-\d{2}$/.test(year)) {
-            periodKeys = [year];
-          }
-          if (!periodKeys.length) return null;
-          const closed = new Set(data.closedPeriods || []);
-          const openKeys = periodKeys.filter((k) => !closed.has(k));
-          const fmt = (k: string) => {
-            const [y, m] = k.split("-").map(Number);
-            return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
-          };
-          let label: string;
-          if (openKeys.length === periodKeys.length) label = "All open";
-          else if (openKeys.length === 0) label = "All closed";
-          else {
-            const ranges: string[][] = [];
-            for (const k of openKeys) {
-              const last = ranges[ranges.length - 1];
-              const prevExpected = last
-                ? (() => {
-                    const [y, m] = last[last.length - 1].split("-").map(Number);
-                    return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
-                  })()
-                : null;
-              if (last && prevExpected === k) last.push(k);
-              else ranges.push([k]);
-            }
-            const rangeLabels = ranges.map((r) => (r.length === 1 ? fmt(r[0]) : `${fmt(r[0])} – ${fmt(r[r.length - 1])}`));
-            label = rangeLabels.length <= 2 ? rangeLabels.join(", ") : `${rangeLabels[0]}, +${rangeLabels.length - 1} more`;
-          }
-          return (
-            <button
-              type="button"
-              className={`period-open-summary ${openKeys.length === 0 ? "period-open-summary--none" : ""}`}
-              title="Open period controls in Masters"
-              onClick={() => {
-                setMastersSection("periods");
-                setTab("masters");
-              }}
-            >
-              Open: {label}
-            </button>
-          );
-        })()}
-        <div className="period-bar-footer">
-          <span className="period-bar-note">Opening + period activity = closing</span>
+        <div className="toolbar-icons">
           <button
             type="button"
             className="search-fab"
@@ -2706,7 +2667,71 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             )}
           </div>
         </div>
-      </div>
+        </div>
+      </header>
+      {isBlockingStatus && (
+        <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
+          <p className="vault-alert-message">{status}</p>
+          <div className="vault-alert-banner-actions">
+            {status.startsWith("Blocked:") && (
+              <button
+                type="button"
+                className="tr-refresh-btn"
+                onClick={() => {
+                  setStatus("");
+                  setMastersSection("periods");
+                  setTab("masters");
+                }}
+              >
+                Reopen in Masters → Periods
+              </button>
+            )}
+            <button type="button" className="tr-refresh-btn" onClick={() => setStatus("")}>
+              Dismiss
+            </button>
+          </div>
+        </FloatingWindow>
+      )}
+      <div className={`workspace-split ${tab === "dashboard" ? "workspace-split--dashboard" : "workspace-split--stacked"}`}>
+        <nav className="tab-sidebar">
+          <button
+            className={tab === "dashboard" ? "selected" : ""}
+            onClick={() => setTab("dashboard")}
+          >
+            Dashboard
+          </button>
+          <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")}>
+            Day Book
+          </button>
+          {book !== "india" && (
+            <button
+              className={tab === "bank-import" ? "selected" : ""}
+              onClick={() => {
+                setPlaidImportTab("transactions");
+                setTab("bank-import");
+              }}
+            >
+              Import
+            </button>
+          )}
+          <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
+            Reports
+          </button>
+          <button
+            className={tab === "masters" ? "selected" : ""}
+            onClick={() => {
+              setMastersSection("ledgers");
+              setTab("masters");
+            }}
+          >
+            Masters
+          </button>
+          <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")}>
+            Ledgers
+          </button>
+          {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
+        </nav>
+        <div className="workspace-content">
       {searchOpen && (
         <FloatingWindow title="Search" onClose={() => setSearchOpen(false)} initialWidth={480} initialHeight={440}>
           <div className="search-palette">
@@ -2793,7 +2818,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <strong>{fmt(dashboardCapitalTotal)}</strong>
                 <small>Includes current result</small>
               </div>
-              <div className="dashboard-card-highlights capital-highlights">
+              <div className="dashboard-card-highlights">
                 {capitalHighlights.map((x) => (
                   <span key={x.label}>
                     <b>{x.label}</b>
@@ -2815,7 +2840,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <strong>{fmt(book === "india" ? totalIncome : salaryIncome)}</strong>
                 <small>{periodLabel}</small>
               </div>
-              <div className="dashboard-card-highlights salary-highlights">
+              <div className="dashboard-card-highlights">
                 {(book === "india" ? totalIncomeHighlights : salaryHighlights).map((x) => (
                   <span key={x.label}>
                     <b title={x.label}>{x.label}</b>
@@ -2845,7 +2870,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 </strong>
                 <small>View fixed asset ledgers</small>
               </div>
-              <div className="dashboard-card-highlights fixed-asset-highlights">
+              <div className="dashboard-card-highlights">
                 {rows
                   .filter(
                     (a) =>
@@ -4218,7 +4243,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             />
           )}
           {report === "ratios" && data && <FinancialRatios data={data} fmt={fmt} />}
-          {report === "cashforecast" && data && <CashFlowForecast data={data} fmt={fmt} />}
+          {report === "cashforecast" && data && (
+            <CashFlowForecast
+              data={data}
+              fmt={fmt}
+              onSave={(exclusions) => save({ ...data, cashFlowForecastExclusions: exclusions }, "cashforecast")}
+            />
+          )}
           {report === "fundsummary" && data && (
             <FundSummary
               data={data}
@@ -4897,6 +4928,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
         </FloatingWindow>
       )}
+        </div>
+      </div>
     </div>
   );
 }
