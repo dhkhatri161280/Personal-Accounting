@@ -176,6 +176,9 @@ export function GrApp() {
   const [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
     typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
   );
+  // Same "dk-nav-collapsed" key VaultApp uses -- one global nav preference shared across every
+  // book instead of GR remembering its own separate collapsed/expanded state.
+  const [navCollapsed, setNavCollapsed] = useState(() => typeof window === "undefined" || localStorage.getItem("dk-nav-collapsed") !== "0");
   const loadedRef = useRef(false);
   const [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
   const [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
@@ -194,6 +197,13 @@ export function GrApp() {
     setUiTheme((t) => {
       const next = t === "refresh" ? "classic" : "refresh";
       localStorage.setItem("dk-ui-theme", next);
+      return next;
+    });
+
+  const toggleNavCollapsed = () =>
+    setNavCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem("dk-nav-collapsed", next ? "1" : "0");
       return next;
     });
 
@@ -558,36 +568,6 @@ export function GrApp() {
     </th>
   );
 
-  const PeriodBar = () => (
-    <div className="period-bar">
-      <strong>Financial period</strong>
-      <select value={year} onChange={(e) => setYear(e.target.value)}>
-        <option value="all">All periods</option>
-        <option value="custom">Custom month range</option>
-        <optgroup label="Fiscal years (April to March)">
-          {periods.years.map((y) => (
-            <option key={y} value={y}>FY {y} (Apr {y} – Mar {Number(y) + 1})</option>
-          ))}
-        </optgroup>
-        <optgroup label="Month and year">
-          {periods.months.map((m) => (
-            <option key={m} value={m}>
-              {new Date(`${m}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-            </option>
-          ))}
-        </optgroup>
-      </select>
-      {year === "custom" && (
-        <div className="custom-range">
-          <label>From <input type="month" value={customStart} max={customEnd} onChange={(e) => setCustomStart(e.target.value)} /></label>
-          <span>to</span>
-          <label>To <input type="month" value={customEnd} min={customStart} onChange={(e) => setCustomEnd(e.target.value)} /></label>
-        </div>
-      )}
-      <span>Latest FX: {gr ? fmt(gr.latestRate) : "—"}/USD</span>
-    </div>
-  );
-
   // ── NOT READY SCREENS ──────────────────────────────────────────────────────
 
   if (phase === "init" || phase === "loading") {
@@ -839,7 +819,7 @@ export function GrApp() {
           <small>FINTECH BY DK - ACCOUNTING RELEASE 5</small>
           <div className="book-heading">
             <h1>Dignesh Khatri</h1>
-            <span className="book-badge gr">US + IN CONSOLIDATED - INR</span>
+            <span className="book-badge gr">US + IN (CONSOLIDATED) - INR</span>
           </div>
           <p>
             {gr.accounts.length} ledgers | {gr.transactions.length} vouchers (US + IN Consolidated)
@@ -850,68 +830,112 @@ export function GrApp() {
             )}
           </p>
         </div>
-        <div className="header-actions">
-          {statusMsg && <span className="vault-status">{statusMsg}</span>}
-          <button
-            type="button"
-            className={`ui-theme-toggle-button ${uiTheme === "refresh" ? "on" : "off"}`}
-            onClick={toggleUiTheme}
-            title={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
-            aria-label={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-              <circle cx="12" cy="12" r="4" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className={`privacy-toggle-button ${privacyMode ? "on" : "off"}`}
-            onClick={togglePrivacy}
-            title={privacyMode ? "Show amounts" : "Hide amounts"}
-            aria-label={privacyMode ? "Show amounts" : "Hide amounts"}
-          >
-            {privacyMode ? (
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                <line x1="1" y1="1" x2="23" y2="23"/>
-              </svg>
-            ) : (
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
+        <div className="header-actions-row">
+          <div className="header-period">
+            <strong>Financial period</strong>
+            <select value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value="all">All periods</option>
+              <option value="custom">Custom month range</option>
+              <optgroup label="Fiscal years (April to March)">
+                {periods.years.map((y) => (
+                  <option key={y} value={y}>FY {y} (Apr {y} – Mar {Number(y) + 1})</option>
+                ))}
+              </optgroup>
+              <optgroup label="Month and year">
+                {periods.months.map((m) => (
+                  <option key={m} value={m}>
+                    {new Date(`${m}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+            {year === "custom" && (
+              <div className="custom-range">
+                <label>From <input type="month" value={customStart} max={customEnd} onChange={(e) => setCustomStart(e.target.value)} /></label>
+                <span>to</span>
+                <label>To <input type="month" value={customEnd} min={customStart} onChange={(e) => setCustomEnd(e.target.value)} /></label>
+              </div>
             )}
-          </button>
+            <span className="gr-latest-fx">Latest FX: {gr ? fmt(gr.latestRate) : "—"}/USD</span>
+          </div>
+          <div className="header-actions">
+            {statusMsg && <span className="vault-status">{statusMsg}</span>}
+            <button
+              type="button"
+              className={`ui-theme-toggle-button ${uiTheme === "refresh" ? "on" : "off"}`}
+              onClick={toggleUiTheme}
+              title={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
+              aria-label={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                <circle cx="12" cy="12" r="4" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={`privacy-toggle-button ${privacyMode ? "on" : "off"}`}
+              onClick={togglePrivacy}
+              title={privacyMode ? "Show amounts" : "Hide amounts"}
+              aria-label={privacyMode ? "Show amounts" : "Hide amounts"}
+            >
+              {privacyMode ? (
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              ) : (
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
-      <div className="app-nav">
-        <button className={tab === "dashboard" ? "selected" : ""} onClick={() => setTab("dashboard")}>
-          Dashboard
-        </button>
-        <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")}>
-          Day Book
-        </button>
-        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")}>
-          Ledgers
-        </button>
-        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
-          Reports
-        </button>
-        <button className={tab === "fxrates" ? "selected" : ""} onClick={() => setTab("fxrates")}>
-          FX Rates
-        </button>
-        <button
-          className={`gr-edit-mode-btn ${editMode ? "selected" : ""}`}
-          onClick={() => setEditMode((v) => !v)}
-          title={editMode ? "Exit edit mode" : "Enter edit mode to override FX rates"}
-        >
-          {editMode ? "Edit: ON" : "Edit Mode"}
-        </button>
-      </div>
-
-      <PeriodBar />
+      <div className={`workspace-split${navCollapsed ? " workspace-split--collapsed" : ""}`}>
+        <nav className="tab-sidebar">
+          <button
+            type="button"
+            className="tab-sidebar-toggle"
+            onClick={toggleNavCollapsed}
+            title={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+          >
+            {navCollapsed ? "»" : "«"}
+          </button>
+          <button className={tab === "dashboard" ? "selected" : ""} onClick={() => setTab("dashboard")} title="Dashboard">
+            <span className="tab-sidebar-icon" aria-hidden="true">⌂</span>
+            <span className="tab-sidebar-label">Dashboard</span>
+          </button>
+          <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
+            <span className="tab-sidebar-icon" aria-hidden="true">📖</span>
+            <span className="tab-sidebar-label">Day Book</span>
+          </button>
+          <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
+            <span className="tab-sidebar-icon" aria-hidden="true">📚</span>
+            <span className="tab-sidebar-label">Ledgers</span>
+          </button>
+          <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
+            <span className="tab-sidebar-icon" aria-hidden="true">📊</span>
+            <span className="tab-sidebar-label">Reports</span>
+          </button>
+          <button className={tab === "fxrates" ? "selected" : ""} onClick={() => setTab("fxrates")} title="FX Rates">
+            <span className="tab-sidebar-icon" aria-hidden="true">⇄</span>
+            <span className="tab-sidebar-label">FX Rates</span>
+          </button>
+          <button
+            className={`gr-edit-mode-btn ${editMode ? "selected" : ""}`}
+            onClick={() => setEditMode((v) => !v)}
+            title={editMode ? "Exit edit mode" : "Enter edit mode to override FX rates"}
+          >
+            <span className="tab-sidebar-icon" aria-hidden="true">✎</span>
+            <span className="tab-sidebar-label">{editMode ? "Edit: ON" : "Edit Mode"}</span>
+          </button>
+        </nav>
+        <div className="workspace-content">
 
       {/* ── DASHBOARD ─────────────────────────────────────────────────────── */}
       {tab === "dashboard" && (
@@ -2051,6 +2075,8 @@ export function GrApp() {
           )}
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }

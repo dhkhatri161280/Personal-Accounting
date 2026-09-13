@@ -539,8 +539,11 @@ body {
     grid-template-columns: 1fr;
   }
 }
+/* Sits inside .tab-sidebar now (below the FX Rates tab), not the old .app-nav flex row it was
+   built for -- the margin-left:auto that used to push it to the row's far right is gone since
+   .tab-sidebar's own `margin: 0` rule already overrides it (and would win by specificity even if
+   it were still here); it just sits in normal document order like every other sidebar button. */
 .gr-edit-mode-btn {
-  margin-left: auto;
   padding: 5px 14px;
   border-radius: 6px;
   font-size: 12px;
@@ -1288,6 +1291,21 @@ td strong {
 .unlock small {
   color: #b45148;
 }
+/* Replaces the old plain <small> status line -- easy to miss on a phone while diagnosing a
+   biometric failure, which is exactly the moment a clearly-visible error message matters most.
+   A bold, bordered banner instead of quiet gray text at the browser's default small-tag size. */
+.unlock-status {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #7a1f1a;
+  background: #fdecea;
+  border: 1.5px solid #f3b7b0;
+  word-break: break-word;
+}
 .vault-tabs {
   display: flex;
   gap: 7px;
@@ -1372,8 +1390,8 @@ td strong {
 }
 /* The Reports nav's 6 themed group buttons (Statements/Reconciliation/Registers/...) used to sit
    next to the Dashboard card grid and were stretched via CSS grid to match its edge-to-edge
-   width. Reports now renders in the full-width stacked layout (see .workspace-split--stacked),
-   not next to that grid at all, so stretching them across the whole page just spread 6 short
+   width. The nav is now a collapsible left rail on every tab (see .tab-sidebar), not a wide
+   sidebar next to that grid, so stretching them across the whole page just spread 6 short
    buttons out with huge gaps between them -- reverted to the same compact flex-wrap every other
    .report-picker instance already uses (Plaid/Schwab import-source picker, Trash's Deleted/
    Duplicate picker), so the buttons sit close together instead. */
@@ -1475,6 +1493,14 @@ tfoot th {
   padding: 10px;
   box-shadow: 0 8px 20px #10223f22;
 }
+/* GR's own "Latest FX: N/USD" readout, relocated into .header-period alongside the period
+   selector (see components/GrApp.tsx) -- same muted small-text treatment as .header-period
+   strong, just not bold, so it reads as a secondary detail next to the period dropdown. */
+.gr-latest-fx {
+  font-size: 10.5px;
+  color: #64778e;
+  white-space: nowrap;
+}
 @media (max-width: 800px) {
   .report-grid {
     grid-template-columns: 1fr;
@@ -1513,7 +1539,7 @@ tfoot th {
 .workspace-split {
   display: flex;
   align-items: flex-start;
-  gap: 20px;
+  gap: 16px;
 }
 .tab-sidebar {
   display: flex;
@@ -1525,24 +1551,21 @@ tfoot th {
   position: sticky;
   top: 20px;
 }
-/* Dashboard only: no card background, just the plain buttons spread out with
-   justify-content: space-between so the first button's top and the last button's bottom line up
-   with the dashboard card grid's top/bottom edges. `align-items: stretch` on the split makes
-   .tab-sidebar's box the same height as .workspace-content's; the 17px top/bottom padding here
-   matches .stats's own `margin: 17px 0` (see .stats above) so the two grids' actual content
-   edges -- not just their outer boxes -- line up. Every other tab (Day Book/Import/Reports/
-   Masters/Ledgers) reverts to the plain top-packed nav above -- their content isn't a fixed-height
-   card grid, so stretching+spreading the buttons to match it would leave huge gaps between
-   buttons on a short screen (e.g. Masters) or too little gap on a long one (e.g. a big Ledger
-   table), neither of which reads as "aligned" the way it does on Dashboard specifically. */
-.workspace-split--dashboard {
-  align-items: stretch;
-}
-.workspace-split--dashboard .tab-sidebar {
-  justify-content: space-between;
-  padding: 17px 0;
+.tab-sidebar-toggle {
+  align-self: flex-end;
+  margin: 0 0 4px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  background: #fff;
 }
 .tab-sidebar button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
   padding: 11px 14px;
   font-size: 11.5px;
@@ -1554,62 +1577,75 @@ tfoot th {
   color: #fff;
   border-color: #10223f;
 }
+.tab-sidebar-icon {
+  flex-shrink: 0;
+  width: 18px;
+  font-size: 14px;
+  text-align: center;
+}
+.tab-sidebar-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Same nav, same position, on every single tab -- no more switching between a vertical rail on
+   Dashboard and a full-width horizontal row everywhere else, which was the actual complaint (the
+   buttons visibly relocating depending which screen you were on). The width tradeoff that
+   motivated that switch is instead handled by making this ONE layout collapsible: collapsed
+   (default -- see the navCollapsed useState in VaultApp.tsx) it's a 52px icon-only rail so every
+   tab, including wide report/ledger tables, gets nearly the full page width by default; the
+   toggle button lets you expand back to labeled buttons when you want them, and that choice is
+   remembered (localStorage) and applies globally, not per-tab -- matching how QuickBooks/Zoho/
+   NetSuite/Notion/Slack all do this (one persistent rail, user-toggled, never content-driven). */
+.workspace-split--collapsed .tab-sidebar {
+  width: 52px;
+}
+.workspace-split--collapsed .tab-sidebar-label {
+  display: none;
+}
+.workspace-split--collapsed .tab-sidebar button {
+  justify-content: center;
+  padding: 11px 0;
+}
 .workspace-content {
   min-width: 0;
   flex: 1;
 }
-/* Every tab except Dashboard: the vertical rail costs 168px + 20px gap of horizontal room that
-   wide data tables (Day Book, Ledgers, Reports) badly need -- it was forcing users to scroll the
-   table sideways to see columns that used to fit. Dashboard is the one screen whose content is a
-   fixed-width card grid that doesn't need extra horizontal room, so it keeps the side rail; every
-   other tab drops to a full-width horizontal nav row (same row-of-buttons layout already used at
-   narrow viewports, just applied here regardless of viewport width) so the table below gets the
-   full page width instead of sharing it with a column of buttons. */
-.workspace-split--stacked {
-  flex-direction: column;
-  /* `.workspace-split`'s base `align-items: flex-start` is tuned for the row layout (Dashboard),
-     where it's a vertical (cross-axis) rule. In this column layout the cross-axis is horizontal,
-     so that same flex-start makes every child -- .tab-sidebar and, worse, .workspace-content --
-     shrink to its own content width instead of filling the page, which is exactly what silently
-     squeezed the Reports group picker and every .data-panel table down to a few hundred px
-     wide. `stretch` makes both children fill the full row width as intended. */
-  align-items: stretch;
-}
-.workspace-split--stacked .tab-sidebar {
-  flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  width: 100%;
-  position: static;
-  padding: 0;
-}
-.workspace-split--stacked .tab-sidebar button {
-  flex: 1 1 auto;
-  text-align: center;
-}
 @media (max-width: 900px) {
-  .workspace-split {
+  /* Narrow screens: a tall vertical rail (collapsed OR expanded) eats too much of a phone/tablet's
+     limited width and height for little benefit, so both states drop to the same wrapping
+     horizontal row instead -- still one consistent layout regardless of collapse state or which
+     tab is active, just the narrow-viewport version of it. */
+  .workspace-split,
+  .workspace-split--collapsed {
     flex-direction: column;
+    align-items: stretch;
   }
-  .tab-sidebar {
+  .tab-sidebar,
+  .workspace-split--collapsed .tab-sidebar {
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: flex-start;
     width: 100%;
     position: static;
-    align-self: stretch;
     padding: 0;
   }
-  .tab-sidebar button {
+  /* `.tab-sidebar .tab-sidebar-toggle` (two classes) beats the unconditional `.tab-sidebar
+     button` base rule (one class + one type) on specificity -- the bare `.tab-sidebar-toggle`
+     alone loses that comparison since the toggle is itself a `<button>` inside `.tab-sidebar`
+     and so matches both selectors; without this the toggle stayed visible at narrow widths
+     despite this rule "winning" by being later in the file. */
+  .tab-sidebar .tab-sidebar-toggle {
+    display: none;
+  }
+  .tab-sidebar button,
+  .workspace-split--collapsed .tab-sidebar button {
     flex: 1 1 auto;
-    text-align: center;
+    justify-content: center;
+    padding: 10px 8px;
   }
-  /* Overrides the dashboard-only space-between/padding rule above at equal specificity --
-     the sidebar becomes a wrapping horizontal tab row here regardless of which tab is active, so
-     the desktop "spread to match the card grid" treatment doesn't apply at this width. */
-  .workspace-split--dashboard .tab-sidebar {
-    justify-content: flex-start;
-    padding: 0;
+  .workspace-split--collapsed .tab-sidebar-label {
+    display: inline;
   }
 }
 .period-bar {
@@ -4636,12 +4672,18 @@ button.group-heading:hover {
   gap: 10px !important;
   align-items: center !important;
 }
+/* Floating/elevated to match .new-voucher-fab/.search-fab/.attention-bell right next to them in
+   the same toolbar row -- those 3 already had box-shadow elevation and these 5 didn't, so the row
+   read as two different button styles bolted together. Same shadow values (and the same hover
+   lift) as the FABs, border dropped in favor of the shadow doing the visual separation, for one
+   uniformly "floating" toolbar instead of a flat set next to a raised set. */
 .header-actions button {
   width: 36px !important;
   height: 36px !important;
   min-width: 36px !important;
   padding: 0 !important;
   margin: 0 !important;
+  border: none !important;
   border-radius: 11px !important;
   font-size: 0 !important;
   color: transparent !important;
@@ -4650,7 +4692,8 @@ button.group-heading:hover {
   align-items: center !important;
   justify-content: center !important;
   background: #fff !important;
-  border-color: #cfdced !important;
+  box-shadow: 0 6px 18px rgba(16, 34, 63, 0.18) !important;
+  transition: box-shadow 0.15s, transform 0.1s;
 }
 .header-actions button::before {
   content: "";
@@ -4673,7 +4716,8 @@ button.group-heading:hover {
 }
 .header-actions button:hover {
   background: #eef5ff !important;
-  border-color: #9bbcf0 !important;
+  box-shadow: 0 8px 22px rgba(16, 34, 63, 0.26) !important;
+  transform: scale(1.06);
 }
 
 /* Unlock screen symbols. */
@@ -4725,9 +4769,21 @@ button.group-heading:hover {
     justify-content: flex-end;
     flex-wrap: wrap;
   }
+  /* `width: auto` overrides a much older, still-active (non-!important) `.header-actions {
+     width: 100% }` rule elsewhere in this file (from before this toolbar existed) -- left as-is,
+     that rule forced .header-actions to fill the entire row on its own line, pushing
+     .toolbar-icons onto a second line and right-aligning ONLY that second line (since
+     .header-actions-row's justify-content: flex-end applies per wrapped line, and a 100%-wide
+     .header-actions IS its own line) -- exactly the "icons staggering independently instead of
+     one uniform row" bug. Auto width lets both groups sit on the same line, right-aligned
+     together, once they actually fit (see the matching .new-voucher-fab/.search-fab/
+     .attention-bell shrink below -- they used to stay a fixed 36px at every width while
+     .header-actions button shrank, which alone would have kept them mismatched in size even
+     after this fix). */
   .header-actions {
     display: flex !important;
     gap: 8px !important;
+    width: auto !important;
   }
   /* `header` prefix bumps specificity above the unconditional (any-width) base
      `.header-actions button` rule elsewhere in this file -- without it, this and the base rule
@@ -4751,6 +4807,20 @@ button.group-heading:hover {
     width: 16px !important;
     height: 16px !important;
   }
+  .toolbar-icons {
+    gap: 8px !important;
+  }
+  .new-voucher-fab,
+  .search-fab,
+  .attention-bell {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+  }
+  .new-voucher-fab {
+    font-size: 15px !important;
+  }
 }
 @media (max-width: 560px) {
   .header-actions {
@@ -4770,6 +4840,20 @@ button.group-heading:hover {
   header .header-actions .secure-icon {
     width: 14px !important;
     height: 14px !important;
+  }
+  .toolbar-icons {
+    gap: 5px !important;
+  }
+  .new-voucher-fab,
+  .search-fab,
+  .attention-bell {
+    width: 26px !important;
+    height: 26px !important;
+    border-radius: 9px !important;
+    font-size: 11px !important;
+  }
+  .new-voucher-fab {
+    font-size: 13px !important;
   }
 }
 @media (max-width: 430px) {
@@ -4796,6 +4880,20 @@ button.group-heading:hover {
   header .header-actions .ui-theme-toggle-button > svg {
     width: 12px !important;
     height: 12px !important;
+  }
+  .toolbar-icons {
+    gap: 4px !important;
+  }
+  .new-voucher-fab,
+  .search-fab,
+  .attention-bell {
+    width: 22px !important;
+    height: 22px !important;
+    border-radius: 7px !important;
+    font-size: 9px !important;
+  }
+  .new-voucher-fab {
+    font-size: 11px !important;
   }
 }
 /* DK compact secure header end */

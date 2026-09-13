@@ -156,6 +156,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [tradingTab, setTradingTab] = useState<"open" | "closed" | "watchlist">("open"),
     [taxViewMode, setTaxViewMode] = useState<"yearly" | "all">("yearly"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
+    // Defaults to collapsed (icon rail) rather than expanded -- the whole point of this toggle is
+    // to guarantee report/ledger tables never lose width to the nav unless the user deliberately
+    // asks for labels back, so "no width taken" has to be the out-of-the-box state, not something
+    // the user has to discover and opt into on every fresh browser.
+    [navCollapsed, setNavCollapsed] = useState(() => typeof window === "undefined" || localStorage.getItem("dk-nav-collapsed") !== "0"),
     [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
       typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
     ),
@@ -338,6 +343,28 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     }
   }
 
+  // A device can have more than one passkey provider registered for this site (e.g. an Android
+  // phone offering both Google Password Manager and Samsung Pass) -- each provider's passkey has
+  // its own independent PRF-derived encryption key, so the app has to remember one salt/iv/sealed
+  // triple PER credential, not just one overall. Stored as an array; parseBiometricEntries also
+  // accepts the older single-object shape used before multi-provider support existed, so an
+  // existing enrollment (e.g. a device already using this app) keeps working without re-enrolling.
+  type BiometricEntry = { credentialId: string; salt: string; iv: string; sealed: string };
+  function parseBiometricEntries(raw: string | null): BiometricEntry[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      return list.filter(
+        (e): e is BiometricEntry =>
+          !!e && typeof e.credentialId === "string" && typeof e.salt === "string" &&
+          typeof e.iv === "string" && typeof e.sealed === "string"
+      );
+    } catch {
+      return [];
+    }
+  }
+
   async function enableBiometric() {
     // Same "only one WebAuthn ceremony at a time" guard as biometricUnlock -- e.g. tapping
     // "Enable biometric" right after load, while the auto-unlock attempt is still pending.
@@ -394,12 +421,22 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           key,
           new TextEncoder().encode(password)
         );
-      const biometricConfig = JSON.stringify({
+      const newEntry: BiometricEntry = {
         credentialId: url64(credential.rawId),
         salt: url64(salt),
         iv: url64(iv),
         sealed: url64(sealed),
-      });
+      };
+      // Append rather than replace -- enabling biometric again (e.g. via a different passkey
+      // provider on the same device) used to overwrite the one stored credential outright,
+      // silently orphaning whichever provider had answered before. Keeping every credential this
+      // device has ever registered lets biometricUnlock offer all of them at once.
+      const biometricConfig = JSON.stringify([
+        ...parseBiometricEntries(localStorage.getItem(sharedBiometricKey)).filter(
+          (e) => e.credentialId !== newEntry.credentialId
+        ),
+        newEntry,
+      ]);
       localStorage.setItem(sharedBiometricKey, biometricConfig);
       localStorage.setItem(biometricKey, biometricConfig);
       setHasBiometric(true);
@@ -424,46 +461,63 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     }
     biometricInFlight.current = true;
     setBiometricPending(true);
+    // Safety net, not the primary defense (removing the gesture-less auto-fire on mount is) --
+    // the WebAuthn `timeout` option below is only advisory and several platforms ignore it
+    // outright, so a ceremony that genuinely wedges (platform bug, not the gesture issue) would
+    // otherwise leave biometricInFlight/biometricPending stuck true forever with no way for the
+    // user to ever retry short of reloading the page. AbortController actually cancels the
+    // pending request instead of just giving up locally, freeing the browser's "one ceremony at a
+    // time" slot too.
+    const abortController = new AbortController(),
+      hangTimer = setTimeout(() => abortController.abort(), 45000);
     try {
       setStatus("Confirm your identity on this device...");
       const stored =
           localStorage.getItem(sharedBiometricKey) ||
           localStorage.getItem(biometricKey) ||
           localStorage.getItem(`${BIO_KEY}-${book === "us" ? "india" : "us"}`),
-        config = JSON.parse(stored || "null") as {
-          credentialId: string;
-          salt: string;
-          iv: string;
-          sealed: string;
-        } | null;
+        entries = parseBiometricEntries(stored);
       if (stored && !localStorage.getItem(sharedBiometricKey))
         localStorage.setItem(sharedBiometricKey, stored);
-      if (!config) throw Error("Biometric unlock is not configured on this device");
-      // Naming the exact credential (allowCredentials) instead of an open discoverable request --
-      // when the stored credentialId is a valid, current registration, this skips the platform's
-      // "choose a saved passkey" picker entirely (there's nothing to choose between) and goes
-      // straight to the authenticator's own confirmation prompt. Confirmed live that this hung
-      // silently the one time it was tried against a STALE credentialId left over from repeated
-      // enable/delete cycles -- but enableBiometric always overwrites this with a fresh id on
-      // every successful setup, so as long as that's the last thing that ran, it should be valid.
+      if (!entries.length) throw Error("Biometric unlock is not configured on this device");
+      // For the (common) single-credential case, use the plain `eval` form -- exactly what this
+      // app used reliably for months before multi-provider support existed. `evalByCredential`
+      // (needed to give each of 2+ different credentials its own correct salt in one request) is
+      // a newer, less universally-supported part of the PRF extension -- only used when there's
+      // genuinely more than one credential to disambiguate. (Diagnosed live on one Android device
+      // that even a bare, extension-free request never showed any platform UI at all -- a
+      // device/browser-level WebAuthn bug outside this app's control, not caused by PRF.)
       const assertion = (await navigator.credentials.get({
+          signal: abortController.signal,
           publicKey: {
             challenge: crypto.getRandomValues(new Uint8Array(32)),
-            allowCredentials: [{ id: fromUrl64(config.credentialId), type: "public-key" }],
+            allowCredentials: entries.map((e) => ({ id: fromUrl64(e.credentialId), type: "public-key" as const })),
             userVerification: "required",
             timeout: 60000,
-            extensions: { prf: { eval: { first: fromUrl64(config.salt) } } } as object,
+            extensions: {
+              prf:
+                entries.length === 1
+                  ? { eval: { first: fromUrl64(entries[0].salt) } }
+                  : {
+                      evalByCredential: Object.fromEntries(
+                        entries.map((e) => [e.credentialId, { first: fromUrl64(e.salt) }])
+                      ),
+                    },
+            } as object,
           },
-        })) as PublicKeyCredential | null,
-        secret = (
-          assertion?.getClientExtensionResults() as { prf?: { results?: { first?: ArrayBuffer } } }
-        )?.prf?.results?.first;
+        })) as PublicKeyCredential | null;
+      if (!assertion) throw Error("Biometric unlock was cancelled");
+      const matched = entries.find((e) => e.credentialId === assertion.id);
+      if (!matched) throw Error("Biometric unlock is not configured on this device");
+      const secret = (
+        assertion.getClientExtensionResults() as { prf?: { results?: { first?: ArrayBuffer } } }
+      )?.prf?.results?.first;
       if (!secret) throw Error("Secure biometric key was not returned");
       const key = await aesKey(secret),
         plain = await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv: fromUrl64(config.iv) },
+          { name: "AES-GCM", iv: fromUrl64(matched.iv) },
           key,
-          fromUrl64(config.sealed)
+          fromUrl64(matched.sealed)
         ),
         pw = new TextDecoder().decode(plain);
       sessionStorage.setItem(sharedSessionKey, pw);
@@ -472,13 +526,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       sessionStorage.setItem(biometricSessionKey, "1");
       await openVault(pw);
     } catch (e) {
-      // Surface the real WebAuthn/decrypt error (name + message) instead of one generic string --
-      // this step can fail for structurally different reasons (prompt cancelled/timed out vs. the
-      // PRF extension not returned vs. a stale sealed password that no longer decrypts), and a
-      // silent catch made every one of them look identical and undiagnosable from a live device.
-      const detail = e instanceof DOMException ? `${e.name}: ${e.message}` : e instanceof Error ? e.message : String(e);
-      setStatus(`Biometric unlock failed (${detail}). Use your vault password instead.`);
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setStatus("Biometric unlock timed out. Use your vault password instead.");
+      } else {
+        // Surface the real WebAuthn/decrypt error (name + message) instead of one generic string
+        // -- this step can fail for structurally different reasons (prompt cancelled/timed out
+        // vs. the PRF extension not returned vs. a stale sealed password that no longer decrypts),
+        // and a silent catch made every one of them look identical and undiagnosable from a live
+        // device.
+        const detail = e instanceof DOMException ? `${e.name}: ${e.message}` : e instanceof Error ? e.message : String(e);
+        setStatus(`Biometric unlock failed (${detail}). Use your vault password instead.`);
+      }
     } finally {
+      clearTimeout(hangTimer);
       biometricInFlight.current = false;
       setBiometricPending(false);
     }
@@ -744,20 +804,32 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setHasBiometric(configured);
     setBiometricChecked(true);
     setShowPasswordFallback(!configured);
-    // Re-enabled after previously being removed for hanging unattended (no real user gesture)
-    // against a stale/duplicated credential -- now that biometricUnlock() names one specific,
-    // freshly-registered credential (see its own comment) rather than an ambiguous discoverable
-    // request, auto-firing here is worth trying again. If this ever goes back to a silent,
-    // unresponsive "nothing happens" state, that's a real platform wall (not a credential-staleness
-    // symptom this time) and this call should be removed again rather than re-chased further.
     const cached = sessionStorage.getItem(sessionKey) || sessionStorage.getItem(sharedSessionKey);
+    // Auto-firing only when exactly one credential is on file. With two-plus (e.g. both Google
+    // Password Manager and Samsung Pass registered), the platform has to pick between different
+    // *providers*, not just confirm one -- confirmed live that this specific combination (multi-
+    // provider + no real user gesture) makes the auto-fired request show no prompt at all, not
+    // even a hang with a status message, nothing. A single-credential auto-fire doesn't have that
+    // ambiguity and is what's been working reliably historically, so it keeps the one-tap
+    // convenience for the common case while multi-credential devices fall back to a manual tap
+    // (which always carries genuine user activation, so the platform will actually show its
+    // picker).
+    const singleCredential = parseBiometricEntries(stored).length === 1;
     if (cached) {
       openVault(cached).catch(() => {
         sessionStorage.removeItem(sessionKey);
         sessionStorage.removeItem(sharedSessionKey);
         sessionStorage.removeItem(biometricSessionKey);
       });
-    } else if (configured) {
+    } else if (configured && singleCredential) {
+      // Auto-firing a WebAuthn request with no real user gesture behind it has previously been
+      // diagnosed live to hang forever on some devices, with no prompt, no error, nothing --
+      // explicitly re-enabled anyway (user preference: the convenience of not tapping first is
+      // worth that risk). biometricUnlock()'s own 45s AbortController hang-timer (see its
+      // definition) is the safety net here -- if this DOES wedge again, it self-cancels and
+      // leaves the "Unlock with fingerprint..." button tappable instead of stuck forever, rather
+      // than requiring a page reload. If it still causes a stuck/silent screen in practice, remove
+      // this call again rather than re-chasing it further.
       void biometricUnlock();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2383,6 +2455,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return next;
     });
 
+  const toggleNavCollapsed = () =>
+    setNavCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem("dk-nav-collapsed", next ? "1" : "0");
+      return next;
+    });
+
   // Blocking errors (a rejected save, not a transient "Encrypting..."/"Auto-fixed..." progress
   // note) get a full-width, un-truncated alert banner instead of the small header pill -- the
   // pill's fixed max-width + ellipsis was silently cutting off the actionable part of messages
@@ -2692,16 +2771,28 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
         </FloatingWindow>
       )}
-      <div className={`workspace-split ${tab === "dashboard" ? "workspace-split--dashboard" : "workspace-split--stacked"}`}>
+      <div className={`workspace-split${navCollapsed ? " workspace-split--collapsed" : ""}`}>
         <nav className="tab-sidebar">
+          <button
+            type="button"
+            className="tab-sidebar-toggle"
+            onClick={toggleNavCollapsed}
+            title={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
+          >
+            {navCollapsed ? "»" : "«"}
+          </button>
           <button
             className={tab === "dashboard" ? "selected" : ""}
             onClick={() => setTab("dashboard")}
+            title="Dashboard"
           >
-            Dashboard
+            <span className="tab-sidebar-icon" aria-hidden="true">⌂</span>
+            <span className="tab-sidebar-label">Dashboard</span>
           </button>
-          <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")}>
-            Day Book
+          <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
+            <span className="tab-sidebar-icon" aria-hidden="true">📖</span>
+            <span className="tab-sidebar-label">Day Book</span>
           </button>
           {book !== "india" && (
             <button
@@ -2710,12 +2801,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 setPlaidImportTab("transactions");
                 setTab("bank-import");
               }}
+              title="Import"
             >
-              Import
+              <span className="tab-sidebar-icon" aria-hidden="true">⇩</span>
+              <span className="tab-sidebar-label">Import</span>
             </button>
           )}
-          <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")}>
-            Reports
+          <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
+            <span className="tab-sidebar-icon" aria-hidden="true">📊</span>
+            <span className="tab-sidebar-label">Reports</span>
           </button>
           <button
             className={tab === "masters" ? "selected" : ""}
@@ -2723,11 +2817,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               setMastersSection("ledgers");
               setTab("masters");
             }}
+            title="Masters"
           >
-            Masters
+            <span className="tab-sidebar-icon" aria-hidden="true">🗄</span>
+            <span className="tab-sidebar-label">Masters</span>
           </button>
-          <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")}>
-            Ledgers
+          <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
+            <span className="tab-sidebar-icon" aria-hidden="true">📚</span>
+            <span className="tab-sidebar-label">Ledgers</span>
           </button>
           {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
         </nav>

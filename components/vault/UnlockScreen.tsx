@@ -66,7 +66,7 @@ export function UnlockScreen({
           )}
         </>
       )}
-      <small>{status}</small>
+      {status && <div className="unlock-status">{status}</div>}
     </div>
   );
 }
