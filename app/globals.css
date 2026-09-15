@@ -2827,6 +2827,12 @@ aside .install-app {
   overflow: auto;
   border: 1px solid #e4e9f1;
   border-radius: 8px;
+  /* Reserves the vertical scrollbar's track unconditionally (not just once content actually
+     overflows), so the ResizeObserver in TransactionTable.tsx that sizes Narration to fill
+     leftover width always measures space that already excludes the scrollbar -- without this,
+     the Action column's right edge landed exactly on the scrollbar's boundary with no margin,
+     and sub-pixel rounding clipped its icon on some screens. */
+  scrollbar-gutter: stable;
 }
 .plain-voucher-table {
   /* Width is set inline (see TransactionTable.tsx), an explicit px sum of the same colWidths the
