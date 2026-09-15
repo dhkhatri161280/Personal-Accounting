@@ -762,7 +762,7 @@ export function TransactionTable({
                   <b>{formatAmount(t.amount)}</b>
                 </div>
                 {balanceMap && t.balance !== null && (
-                  <div className="voucher-card-balance">Balance: {formatAmount(t.balance)}</div>
+                  <div className="voucher-card-balance">Balance: <b>{formatAmount(t.balance)}</b></div>
                 )}
               </div>
             )
