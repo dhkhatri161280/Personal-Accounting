@@ -480,6 +480,7 @@ function buildDraft(
     const medAcc = findAcct(accounts, "Health Insurance", "Medical");
     const k401Acc = findAcct(accounts, "401K Investments", "401k");
     const legalAcc = findAcct(accounts, "Legal Plan - Nvidia", "Legal Plan");
+    const esppAcc = findAcct(accounts, "ESPP Deduction", "ESPP");
     const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America");
     const secondaryBankAcc = findAcct(accounts, PAYROLL_SECONDARY_BANK);
 
@@ -490,17 +491,35 @@ function buildDraft(
       // books have run ahead of the last Excel import) must not silently zero everything out.
       const match = matchPayrollPeriod(ledger.payroll, tx.date);
       let base = PAYROLL_BASE, telephone = PAYROLL_TELEPHONE, medical = PAYROLL_MEDICAL,
-        k401 = PAYROLL_401K, tax = PAYROLL_TAX, matched = false, haveRealTax = false;
+        k401 = PAYROLL_401K, tax = PAYROLL_TAX, espp = 0, matched = false, haveRealTax = false;
       if (match) {
         const y = ledger.payroll!.years[match.yearIdx];
+        const periodLabel = y.periodLabels[match.periodIndex];
+        // A period the Tax tab already has real numbers for (Excel import, or a PDF paystub
+        // saved via "Save to Tax Tab") outranks the hardcoded fallback constants -- Excel rows
+        // first since that's the bulk-import path, then a manual/PDF-derived period for the same
+        // slot (matched by periodIndex when it's an overlay on an imported year, otherwise by
+        // label) as long as it's not still just an "estimated from voucher" guess.
+        const manual = y.manualPeriods?.find((p) => p.periodIndex === match.periodIndex || p.label === periodLabel);
         const mBase = rowValue(y, "Base", match.periodIndex) + rowValue(y, "Bonus", match.periodIndex);
         if (mBase > 0) {
           base = mBase;
           telephone = rowValue(y, "Telephone", match.periodIndex);
           medical = rowValue(y, "Medical", match.periodIndex);
           k401 = rowValue(y, "401K", match.periodIndex);
+          espp = rowValue(y, "ESPP", match.periodIndex);
           const mTax = rowValue(y, "Total Tax", match.periodIndex);
           if (mTax > 0) { tax = mTax; haveRealTax = true; }
+          else if (manual && !manual.estimated && manual.totalTax > 0) { tax = manual.totalTax; haveRealTax = true; }
+          if (!espp && manual && !manual.estimated) espp = manual.espp || 0;
+          matched = true;
+        } else if (manual && !manual.estimated && manual.base > 0) {
+          base = manual.base;
+          telephone = manual.telephone;
+          medical = manual.medical;
+          k401 = manual.k401;
+          espp = manual.espp || 0;
+          if (manual.totalTax > 0) { tax = manual.totalTax; haveRealTax = true; }
           matched = true;
         }
       }
@@ -509,9 +528,11 @@ function buildDraft(
       // Without a real imported tax figure, solve for whatever balances the FULL paycheck
       // (both destination accounts combined) -- not just this one bank line, which would
       // silently misattribute the other account's share to "tax" once a paycheck splits
-      // across two accounts.
+      // across two accounts. ESPP must be subtracted here too (it's a real employee-side payroll
+      // deduction that reduces net pay, unlike the employer 401k match) -- leaving it out made
+      // this plug silently absorb the ESPP amount into "Tax Deduction" instead.
       if (!haveRealTax) {
-        tax = Math.max(0, base + telephone - medical - k401 - legal - netDeposit - secondaryAmount);
+        tax = Math.max(0, base + telephone - medical - k401 - legal - espp - netDeposit - secondaryAmount);
       }
       const entries: EntryDraft[] = [
         { accountId: salaryAcc.id, accountName: salaryAcc.name, amount: base },
@@ -520,6 +541,7 @@ function buildDraft(
         { accountId: medAcc.id, accountName: medAcc.name, amount: -medical },
         { accountId: k401Acc.id, accountName: k401Acc.name, amount: -k401 },
         ...(legalAcc ? [{ accountId: legalAcc.id, accountName: legalAcc.name, amount: -legal }] : []),
+        ...(esppAcc && espp > 0.004 ? [{ accountId: esppAcc.id, accountName: esppAcc.name, amount: -espp }] : []),
         { accountId: bankAcc.id, accountName: bankAcc.name, amount: -netDeposit },
         ...(secondaryBankAcc ? [{ accountId: secondaryBankAcc.id, accountName: secondaryBankAcc.name, amount: -secondaryAmount }] : []),
       ];

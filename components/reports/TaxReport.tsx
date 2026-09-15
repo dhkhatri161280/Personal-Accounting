@@ -268,6 +268,26 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     tieOut: { voucher: Tx; voucherNet: number } | null;
   } | null>(null);
   const [savingPaystub, setSavingPaystub] = useState(false);
+  // Maps a Net Pay Distribution account's last-4 digits to a friendly bank name (e.g. "5570" ->
+  // "BofA") -- the paystub PDF itself only ever shows masked account numbers, never bank names,
+  // so this has to be a one-time mapping the user supplies and the app remembers, not something
+  // parseable from the PDF. Persisted so every future paystub import reuses it automatically.
+  // Two different last-4s can share one bank name (e.g. two linked accounts both routing to the
+  // same physical Chase account) -- the Distribution summary below groups by name, not by account.
+  const [bankNames, setBankNames] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(localStorage.getItem("dk-paystub-bank-names") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const setBankName = (last4: string, name: string) =>
+    setBankNames((prev) => {
+      const next = { ...prev, [last4]: name };
+      localStorage.setItem("dk-paystub-bank-names", JSON.stringify(next));
+      return next;
+    });
   const [startingManualYear, setStartingManualYear] = useState(false);
   const [manualYearInput, setManualYearInput] = useState(() => String(new Date().getFullYear()));
   const [filingStatus, setFilingStatus] = useState<UsFilingStatus>("mfj");
@@ -990,9 +1010,34 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 <span><strong>Net: {fmt(parsed.netPay)}</strong></span>
               </div>
               {parsed.distribution.length > 0 && (
-                <p style={{ fontSize: 12, opacity: 0.8, margin: "0.25rem 0" }}>
-                  Distribution: {parsed.distribution.map((d) => `${d.accountType} ...${d.accountLast4} ${fmt(d.amount)}`).join(", ")}
-                </p>
+                <div style={{ fontSize: 12, opacity: 0.8, margin: "0.25rem 0" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
+                    <span>Distribution:</span>
+                    {parsed.distribution.map((d) => (
+                      <span key={d.accountLast4} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <input
+                          value={bankNames[d.accountLast4] ?? ""}
+                          onChange={(e) => setBankName(d.accountLast4, e.target.value)}
+                          placeholder={`${d.accountType} ...${d.accountLast4}`}
+                          title="Name this account (e.g. BofA, Chase) -- remembered for every future paystub"
+                          style={{ width: 90, fontSize: 12, padding: "1px 4px" }}
+                        />
+                        <span>...{d.accountLast4} {fmt(d.amount)}</span>
+                      </span>
+                    ))}
+                  </div>
+                  {parsed.distribution.some((d) => bankNames[d.accountLast4]) && (
+                    <p style={{ margin: "0.3rem 0 0" }}>
+                      By account: {Object.entries(
+                        parsed.distribution.reduce<Record<string, number>>((groups, d) => {
+                          const name = bankNames[d.accountLast4] || `...${d.accountLast4}`;
+                          groups[name] = (groups[name] || 0) + d.amount;
+                          return groups;
+                        }, {})
+                      ).map(([name, amount]) => `${name} ${fmt(amount)}`).join(", ")}
+                    </p>
+                  )}
+                </div>
               )}
               {tieOut ? (
                 <p style={{ fontSize: 13, fontWeight: 600, color: netMismatch ? "#dc2626" : "#16a34a", margin: "0.4rem 0" }}>

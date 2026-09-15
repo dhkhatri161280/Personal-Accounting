@@ -30,7 +30,8 @@ export interface ParsedPaystub {
                     // in components/vault/PlaidImport.tsx)
   k401: number; // 401(k) plan, employee
   k401Emplr: number; // 401k- Employer
-  espp: number; // ESPP 811 + ESPP 812, employee current
+  espp: number; // Sum of every "ESPP <n>" row's employee current (NVIDIA rolls the offering
+                // number every ~6 months, so which one is actively contributing varies)
   federal: number;
   ssn: number; // Social Security Employee Tax
   medicare: number;
@@ -83,6 +84,16 @@ function buildRows(items: { str: string; x: number; y: number }[]): Row[] {
 function rowValue(rows: Row[], label: RegExp, colIndex: number): number {
   const row = rows.find((r) => label.test(r.cols[0] || ""));
   return row ? toNum(row.cols[colIndex]) : 0;
+}
+
+// Sums colIndex across every row whose first column matches `label`, not just the first --
+// needed for ESPP, where NVIDIA numbers offering periods sequentially (ESPP 810, 811, 812, ...)
+// and rolls to a new number roughly every 6 months, so a paystub can show 2-3 ESPP lines at once
+// with the currently-contributing one being whichever number happens to be active that period.
+function rowValuesSum(rows: Row[], label: RegExp, colIndex: number): number {
+  return rows
+    .filter((r) => label.test(r.cols[0] || ""))
+    .reduce((sum, r) => sum + toNum(r.cols[colIndex]), 0);
 }
 
 function rowExists(rows: Row[], label: RegExp): boolean {
@@ -138,7 +149,7 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   const medical = medicalCore + dental + vision + legalPlan;
   const k401 = dedCurrent(/^401\(k\) plan$/i);
   const k401Emplr = rowValue(rows, /^401k-\s*Employer$/i, 4); // Employer Current, not Employee Current
-  const espp = dedCurrent(/^ESPP 811$/i) + dedCurrent(/^ESPP 812$/i);
+  const espp = rowValuesSum(rows, /^ESPP \d+$/i, 2);
 
   // ── Taxes (Current is column index 1) ─────────────────────────────────────
   const federal = rowValue(rows, /^Federal Income Tax$/i, 1);
