@@ -20,6 +20,7 @@ import { ExportButton } from "@/components/ExportButton";
 import { fmtDate } from "@/lib/format-date";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
 import { FloatingWindow } from "@/components/FloatingWindow";
+import { useUiPrefs } from "@/hooks/useUiPrefs";
 
 // Report/operational view over the Fixed Asset master data maintained in Masters > Fixed Assets
 // (name, Fixed Asset #, Group/Class, Useful Life, Salvage -- all read-only here). This screen is
@@ -51,6 +52,7 @@ export function FixedAssetRegister({
   // distinct assets still needs per-voucher tagging, which is exactly why tagging exists.
   onBulkTagAsset?: (asset: FixedAsset, tag: string) => Promise<void> | void;
 }) {
+  const { privacyMode } = useUiPrefs();
   const [saving, setSaving] = useState(false);
   const [disposingId, setDisposingId] = useState<string | null>(null);
   const [disposalDate, setDisposalDate] = useState(new Date().toISOString().slice(0, 10));
@@ -277,12 +279,20 @@ export function FixedAssetRegister({
             ? "Posting…"
             : pendingCount === 0
               ? "Depreciation up to date"
-              : `Run Depreciation (${pendingCount} voucher${pendingCount === 1 ? "" : "s"}, ${fmt(pendingAmount)})`}
+              : (
+                <>
+                  Run Depreciation ({pendingCount} voucher{pendingCount === 1 ? "" : "s"}, <span className="fa-run-amt">{fmt(pendingAmount)}</span>)
+                </>
+              )}
         </button>
         {accumDeprecGlBalance !== null && Math.abs(accumDeprecGlBalance - computedAccumTotal) > 0.5 && (
           <span
             style={{ fontSize: 11, color: "#dc2626", cursor: "help" }}
-            title={`GL Accumulated Depreciation (${fmt(accumDeprecGlBalance)}) doesn't match computed (${fmt(computedAccumTotal)}) — check for manual entries against that account.`}
+            title={
+              privacyMode
+                ? "GL Accumulated Depreciation doesn't match computed — check for manual entries against that account."
+                : `GL Accumulated Depreciation (${fmt(accumDeprecGlBalance)}) doesn't match computed (${fmt(computedAccumTotal)}) — check for manual entries against that account.`
+            }
           >
             ⚠ GL mismatch
           </span>
@@ -467,6 +477,7 @@ export function FixedAssetRegister({
                                       style={{ width: 120 }}
                                     />
                                     <input
+                                      className="fa-money-input"
                                       placeholder="Proceeds"
                                       type="number"
                                       value={disposalProceeds}

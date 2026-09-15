@@ -937,8 +937,8 @@ export function TradingReport({
                       <span style={{ width: 90 }}>{fmtDate(row.date)}</span>
                       <span style={{ width: 45 }}>{row.action}</span>
                       <span style={{ width: 55, fontWeight: 700 }}>{row.symbol}</span>
-                      <span style={{ width: 70 }}>{row.quantity ?? "—"} sh</span>
-                      <span style={{ width: 90 }}>@ ${(row.price ?? 0).toFixed(2)}</span>
+                      <span className="trading-amt" style={{ width: 70 }}>{row.quantity ?? "—"} sh</span>
+                      <span className="trading-amt" style={{ width: 90 }}>@ ${(row.price ?? 0).toFixed(2)}</span>
                       <span style={{ color: matched ? "#16a34a" : "#b45309" }}>{matched ? "found in Trading" : "not found in Trading — review"}</span>
                     </div>
                   ))}
@@ -1017,7 +1017,7 @@ export function TradingReport({
                           <span style={{ width: 90 }}>{fmtDate(row.date)}</span>
                           <span style={{ width: 130 }}>{row.action}</span>
                           <span style={{ width: 55, fontWeight: 700 }}>{row.symbol || "—"}</span>
-                          <span style={{ width: 90 }}>${(row.amount ?? 0).toFixed(2)}</span>
+                          <span className="trading-amt" style={{ width: 90 }}>${(row.amount ?? 0).toFixed(2)}</span>
                           <span style={{ flex: 1, color: recorded ? "#16a34a" : "#94a3b8" }}>
                             {recorded ? "matching voucher already appears to exist — double-check before adding" : ""}
                           </span>
@@ -1220,7 +1220,7 @@ export function TradingReport({
                   <span className="wl-ai-ok">
                     ✦ AI-updated {timeAgo(watchlistMeta.updatedAt)}
                     {watchlistMeta.marketSnapshot && (
-                      <em> · SPY ${watchlistMeta.marketSnapshot.spy?.toFixed(0)} · QQQ ${watchlistMeta.marketSnapshot.qqq?.toFixed(0)} · VIX ${watchlistMeta.marketSnapshot.vix?.toFixed(1)}</em>
+                      <em className="wl-ai-snapshot"> · SPY ${watchlistMeta.marketSnapshot.spy?.toFixed(0)} · QQQ ${watchlistMeta.marketSnapshot.qqq?.toFixed(0)} · VIX ${watchlistMeta.marketSnapshot.vix?.toFixed(1)}</em>
                     )}
                   </span>
                 ) : (
@@ -1248,13 +1248,13 @@ export function TradingReport({
                     {activeBuy.map(w => (
                       <div key={w.symbol} className="wl-alert wl-alert--buy">
                         <strong>▲ BUY — {w.symbol}</strong>
-                        <span>{w.seasonNote} · Entry ≤ ${w.buyBelow?.toLocaleString()}</span>
+                        <span className="wl-alert-detail">{w.seasonNote} · Entry ≤ ${w.buyBelow?.toLocaleString()}</span>
                       </div>
                     ))}
                     {activeSell.map(w => (
                       <div key={w.symbol} className="wl-alert wl-alert--sell">
                         <strong>▼ SELL — {w.symbol}</strong>
-                        <span>{w.seasonNote} · Exit ≥ ${w.sellAbove?.toLocaleString()}</span>
+                        <span className="wl-alert-detail">{w.seasonNote} · Exit ≥ ${w.sellAbove?.toLocaleString()}</span>
                       </div>
                     ))}
                   </div>
@@ -1368,7 +1368,7 @@ export function TradingReport({
           <div className="tr-insight tr-insight--warn">
             <div className="tr-insight-icon">⚠</div>
             <div className="tr-insight-body">
-              <strong>High concentration in MicroStrategy ({mstrConc.toFixed(0)}% of total capital deployed)</strong>
+              <strong>High concentration in MicroStrategy (<span className="tr-insight-amt">{mstrConc.toFixed(0)}%</span> of total capital deployed)</strong>
               <p>MSTR appears across all 3 brokers in {mstrTrades.length} trades. While your closed MSTR trades were profitable short swings, the open positions at CST are deep losses. Trading the same volatile stock across multiple accounts amplifies both risk and emotional bias.</p>
             </div>
           </div>
@@ -1379,7 +1379,7 @@ export function TradingReport({
                 <strong>Long-term speculative holds destroyed capital</strong>
                 <ul className="tr-insight-list">
                   {longSpeculative.map((t, i) => (
-                    <li key={i}><strong>{t.symbol}</strong> — held {daysBetween(t.buyDate, t.saleDate!)} days, lost <span className="tr-gain-neg">{fmt(glOf(t))}</span> ({pctOf(t).toFixed(1)}%)</li>
+                    <li key={i}><strong>{t.symbol}</strong> — held {daysBetween(t.buyDate, t.saleDate!)} days, lost <span className="tr-gain-neg">{fmt(glOf(t))}</span> (<span className="tr-insight-amt">{pctOf(t).toFixed(1)}%</span>)</li>
                   ))}
                 </ul>
                 <p>Speculative small-caps carried without a stop-loss can go to near-zero. A hard rule (exit any position down &gt;25–30%) would have saved most of this capital.</p>
@@ -1394,7 +1394,7 @@ export function TradingReport({
                 <ul className="tr-insight-list">
                   {missedGains.slice(0, 5).map((t, i) => {
                     const missed = t.units * (t.yesterday - t.marketOrSalePrice);
-                    return <li key={i}><strong>{t.symbol}</strong> — sold @ ${t.marketOrSalePrice.toFixed(2)}, now ${t.yesterday.toFixed(2)}, missed extra <span className="tr-gain-pos">{fmt(missed)}</span></li>;
+                    return <li key={i}><strong>{t.symbol}</strong> — sold @ <span className="tr-insight-amt">${t.marketOrSalePrice.toFixed(2)}</span>, now <span className="tr-insight-amt">${t.yesterday.toFixed(2)}</span>, missed extra <span className="tr-gain-pos">{fmt(missed)}</span></li>;
                   })}
                 </ul>
                 <p>These were good exits — you locked in gains. The "missed" column is hindsight.</p>

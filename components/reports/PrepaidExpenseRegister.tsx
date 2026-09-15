@@ -163,6 +163,7 @@ export function PrepaidExpenseRegister({
         <div className="report-line" style={{ flexWrap: "wrap", gap: 8 }}>
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input
+            className="pe-money-input"
             placeholder="Total amount"
             type="number"
             value={totalAmount}

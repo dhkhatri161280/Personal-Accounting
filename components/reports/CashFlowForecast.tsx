@@ -260,8 +260,10 @@ export function CashFlowForecast({
           </strong>
           <span>{fmt(Math.abs(budgetTieIn.varianceVsBudget))}</span>
           <small>
-            Budgeted net {fmt(budgetTieIn.budgetedNet)} vs. year-to-date actual {fmt(budgetTieIn.ytdActualNet)} + projected
-            remaining months {fmt(budgetTieIn.projectedRemainingNet)} = projected FY net {fmt(budgetTieIn.projectedFYNet)}.
+            Budgeted net <strong className="cash-flow-tie-in-amt">{fmt(budgetTieIn.budgetedNet)}</strong> vs. year-to-date
+            actual <strong className="cash-flow-tie-in-amt">{fmt(budgetTieIn.ytdActualNet)}</strong> + projected remaining
+            months <strong className="cash-flow-tie-in-amt">{fmt(budgetTieIn.projectedRemainingNet)}</strong> = projected FY
+            net <strong className="cash-flow-tie-in-amt">{fmt(budgetTieIn.projectedFYNet)}</strong>.
           </small>
         </div>
       )}
@@ -294,7 +296,7 @@ export function CashFlowForecast({
           {unplacedYearly.map((item) => (
             <div className="report-line" key={item.label}>
               <span>{item.label}</span>
-              <span style={{ color: item.amount >= 0 ? GOOD : BAD }}>{fmt(item.amount)}</span>
+              <strong style={{ color: item.amount >= 0 ? GOOD : BAD }}>{fmt(item.amount)}</strong>
             </div>
           ))}
         </div>

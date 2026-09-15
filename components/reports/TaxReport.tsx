@@ -7,6 +7,7 @@ import { StatIcon, type IconKind } from "@/components/Icon";
 import { DonutChart, type DonutSegment } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
+import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { classifyRsuSales, classifyEsppSales, summarizeCapitalGains } from "@/lib/tax-classify";
 import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
@@ -237,6 +238,7 @@ const BLANK_MANUAL_FORM = {
 };
 
 export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, fmt, readOnly, livePrice }: TaxReportProps) {
+  const { privacyMode } = useUiPrefs();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
@@ -995,7 +997,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           return (
             <div className="equity-inline-detail" style={{ marginTop: "0.75rem", border: "1px solid #cbd5e1", borderRadius: 8, padding: "0.75rem" }}>
               <strong>Parsed paystub — {periodEndLabel(target.label, yr.year)}</strong>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.4rem", margin: "0.5rem 0", fontSize: 13 }}>
+              <div className="tax-parsed-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.4rem", margin: "0.5rem 0", fontSize: 13 }}>
                 <span>Base: {fmt(parsed.base)}</span>
                 <span>Telephone: {fmt(parsed.telephone)}</span>
                 <span>Medical: {fmt(parsed.medical)}</span>
@@ -1022,25 +1024,25 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                           title="Name this account (e.g. BofA, Chase) -- remembered for every future paystub"
                           style={{ width: 90, fontSize: 12, padding: "1px 4px" }}
                         />
-                        <span>...{d.accountLast4} {fmt(d.amount)}</span>
+                        <span className="equity-amt">...{d.accountLast4} {fmt(d.amount)}</span>
                       </span>
                     ))}
                   </div>
                   {parsed.distribution.some((d) => bankNames[d.accountLast4]) && (
                     <p style={{ margin: "0.3rem 0 0" }}>
-                      By account: {Object.entries(
+                      By account: <span className="equity-amt">{Object.entries(
                         parsed.distribution.reduce<Record<string, number>>((groups, d) => {
                           const name = bankNames[d.accountLast4] || `...${d.accountLast4}`;
                           groups[name] = (groups[name] || 0) + d.amount;
                           return groups;
                         }, {})
-                      ).map(([name, amount]) => `${name} ${fmt(amount)}`).join(", ")}
+                      ).map(([name, amount]) => `${name} ${fmt(amount)}`).join(", ")}</span>
                     </p>
                   )}
                 </div>
               )}
               {tieOut ? (
-                <p style={{ fontSize: 13, fontWeight: 600, color: netMismatch ? "#dc2626" : "#16a34a", margin: "0.4rem 0" }}>
+                <p className="tax-tieout-msg" style={{ fontSize: 13, fontWeight: 600, color: netMismatch ? "#dc2626" : "#16a34a", margin: "0.4rem 0" }}>
                   {netMismatch
                     ? `⚠ Linked voucher (${tieOut.voucher.type} #${tieOut.voucher.number || "—"}) shows ${fmt(tieOut.voucherNet)} — differs from this paystub's real Net by ${fmt(netVariance)}.`
                     : `✓ Linked voucher (${tieOut.voucher.type} #${tieOut.voucher.number || "—"}) matches this paystub's real Net.`}
@@ -1100,7 +1102,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
 
       {k401ByYear.length > 0 && (
         <details style={{ margin: "0 0 0.75rem" }}>
-          <summary style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
+          <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
             401(k) Contributions by Year — lifetime {fmt(k401LifetimeSelf)} self + {fmt(k401LifetimeEmployer)} employer ={" "}
             {fmt(k401LifetimeSelf + k401LifetimeEmployer)} (click to expand)
           </summary>
@@ -1237,7 +1239,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                       <button
                         className="tax-voucher-link"
                         onClick={(e) => { e.stopPropagation(); openVoucherModal(linkedTx); }}
-                        title={`${linkedTxs.length > 1 ? `${linkedTxs.length} vouchers this period (e.g. regular pay + a bonus), summed for tie-out: ${linkedTxs.map((tx) => `${tx.type} #${tx.number || "—"} ${fmt(voucherNetAmount(tx, accounts))}`).join(", ")}. ` : linkedTx.narration || ""}${linkedVarianceFlag ? ` — combined voucher amount ${fmt(linkedNet)} differs from expected net ${fmt(expectedNet)} by ${fmt(linkedVariance)}` : ""}`}
+                        title={
+                          privacyMode
+                            ? `${linkedTxs.length > 1 ? `${linkedTxs.length} vouchers this period (e.g. regular pay + a bonus), summed for tie-out.` : linkedTx.narration || ""}${linkedVarianceFlag ? " — combined voucher amount differs from expected net." : ""}`
+                            : `${linkedTxs.length > 1 ? `${linkedTxs.length} vouchers this period (e.g. regular pay + a bonus), summed for tie-out: ${linkedTxs.map((tx) => `${tx.type} #${tx.number || "—"} ${fmt(voucherNetAmount(tx, accounts))}`).join(", ")}. ` : linkedTx.narration || ""}${linkedVarianceFlag ? ` — combined voucher amount ${fmt(linkedNet)} differs from expected net ${fmt(expectedNet)} by ${fmt(linkedVariance)}` : ""}`
+                        }
                         style={{ ...linkBtnStyle, ...(linkedVarianceFlag ? { color: "#dc2626", fontWeight: 600 } : undefined) }}
                       >
                         {linkedVarianceFlag ? "⚠" : "🔗"} {linkedTx.type} #{linkedTx.number || "—"} · {new Date(linkedTx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
@@ -1246,7 +1252,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                     ) : match ? (
                       <span
                         className="equity-amt"
-                        title={`Confirmed via Plaid on ${new Date(match.confirmedAt).toLocaleDateString()}${varianceFlag ? ` — differs from expected net by ${fmt(variance)}` : ""}`}
+                        title={`Confirmed via Plaid on ${new Date(match.confirmedAt).toLocaleDateString()}${varianceFlag ? (privacyMode ? " — differs from expected net." : ` — differs from expected net by ${fmt(variance)}`) : ""}`}
                         style={{ color: varianceFlag ? "#dc2626" : "#16a34a" }}
                       >
                         ✓ {fmt(match.depositAmount)} (no voucher link)
@@ -1303,7 +1309,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                       <button
                         className="tax-voucher-link"
                         onClick={(e) => { e.stopPropagation(); openVoucherModal(tx); }}
-                        title={`${tx.narration || ""}${txVarianceFlag ? ` — voucher amount ${fmt(txNet)} differs from this period's net ${fmt(m.net)} by ${fmt(txNet - m.net)}` : ""}`}
+                        title={`${tx.narration || ""}${txVarianceFlag ? (privacyMode ? " — voucher amount differs from this period's net." : ` — voucher amount ${fmt(txNet)} differs from this period's net ${fmt(m.net)} by ${fmt(txNet - m.net)}`) : ""}`}
                         style={{ ...linkBtnStyle, ...(txVarianceFlag ? { color: "#dc2626", fontWeight: 600 } : undefined) }}
                       >
                         {txVarianceFlag ? "⚠" : "🔗"} {tx.type} #{tx.number || "—"} · {new Date(tx.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
@@ -1834,19 +1840,19 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               ))}
             </tbody>
           </table>
-          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
+          <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
             Only lots with an entered sale price count as a realized sale — see Reports → Equity to add one.
             Net short-term {fmt(gainTotals.netShortTerm)}, net long-term {fmt(gainTotals.netLongTerm)}
             (raw totals before netting one against the other).
           </p>
           {gainTotals.ordinaryLossDeduction > 0 ? (
-            <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+            <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
               Net overall capital loss of {fmt(gainTotals.netShortTerm + gainTotals.netLongTerm).replace("-", "")} — up to $3,000/year is
               deductible against ordinary income; {fmt(gainTotals.ordinaryLossDeduction)} of that is applied above, reducing AGI.
               {gainTotals.lossCarryforward > 0 && ` The remaining ${fmt(gainTotals.lossCarryforward)} isn't tracked as a carryforward to next year by this app — note it yourself.`}
             </p>
           ) : (
-            <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+            <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
               Taxed as {fmt(gainTotals.shortTermGainTaxable)} ordinary income + {fmt(gainTotals.longTermGainTaxable)} at preferential
               LTCG rates (a loss in one category first offsets a gain in the other before any rate is applied).
             </p>
@@ -1880,13 +1886,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               ))}
             </tbody>
           </table>
-          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
+          <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
             Federal itemized total {fmt(federalItemized.total)} (medical above 7.5% AGI floor: {fmt(federalItemized.medicalDeductible)};
             SALT capped at {fmt(federalItemized.saltCap)}: {fmt(federalItemized.saltDeductible)}; mortgage interest {fmt(federalItemized.mortgageInterestDeductible)};
             charitable {fmt(federalItemized.charitableDeductible)}) vs. standard deduction {fmt(taxEstimate.rules.standardDeduction)} —
             {taxEstimate.usedItemized ? " itemizing wins, used above." : " standard deduction wins, used above."}
           </p>
-          <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+          <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
             {stateResidency.code === "NJ" ? (
               <>NJ deduction: {fmt(stateTaxEstimate.rules.standardDeduction)} personal exemption + {fmt(stateItemized)} property
               tax (capped at $15,000) — NJ doesn&apos;t have a standard-vs-itemized choice; both apply together, unlike the
@@ -1917,7 +1923,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   ))}
                 </tbody>
               </table>
-              <p style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
+              <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
                 Total {fmt(hsaContributionTotal)}, capped at the {hsaCoverage} IRS limit — {fmt(hsaDeduction)} actually deducted from
                 federal AGI. {stateResidency.code === "AZ"
                   ? <>{stateResidency.name} conforms to federal HSA treatment, so no addback is needed for the AZ calculation above.</>

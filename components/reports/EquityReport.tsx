@@ -1724,7 +1724,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               </label>
               <label>
                 Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off Market FMV at purchase)
-                <input type="text" value={computedPurchasePrice !== null ? `$${computedPurchasePrice.toFixed(2)}` : ""} readOnly disabled />
+                <input className="equity-amt" type="text" value={computedPurchasePrice !== null ? `$${computedPurchasePrice.toFixed(2)}` : ""} readOnly disabled />
               </label>
             </div>
             <div className="equity-form-actions">
@@ -1788,6 +1788,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
             <label>
               Purchase Price ({Math.round((1 - ESPP_DISCOUNT_RATE) * 100)}% off Market FMV at purchase)
               <input
+                className="equity-amt"
                 type="text"
                 value={
                   esppForm.marketPriceAtPurchase
@@ -1869,7 +1870,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               >
                 <td>
                   <span className="equity-arr">{expanded.has(`espp-${cycle.key}`) ? "−" : "+"}</span>
-                  {" "}Offering @ <strong>${cycle.offeringPrice.toFixed(2)}</strong>
+                  {" "}Offering @ <strong className="equity-amt">${cycle.offeringPrice.toFixed(2)}</strong>
                   <em> — {cycle.rows.length} purchase{cycle.rows.length > 1 ? "s" : ""}</em>
                 </td>
                 <td className="right">{cycle.totalShares.toLocaleString()}</td>
@@ -1892,9 +1893,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         <tr key={e.id} className="equity-edit-row">
                           <td colSpan={7} className="equity-cycle-indent">
                             <strong>{fmtDate(e.purchaseDate)}</strong> — <span className="equity-amt">{e.shares} shares</span> @ $
-                            {editEsppForm.marketPriceAtPurchase
-                              ? esppPurchasePrice(Number(editEsppForm.marketPriceAtPurchase)).toFixed(2)
-                              : e.purchasePrice.toFixed(2)}
+                            <span className="equity-amt">
+                              {editEsppForm.marketPriceAtPurchase
+                                ? esppPurchasePrice(Number(editEsppForm.marketPriceAtPurchase)).toFixed(2)
+                                : e.purchasePrice.toFixed(2)}
+                            </span>
                             <span className="equity-edit-fields">
                               <label>Market FMV at purchase
                                 <input type="number" value={editEsppForm.marketPriceAtPurchase}
@@ -1957,7 +1960,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 <td>
                   <span className="equity-arr">{expanded.has("espp-pending") ? "−" : "+"}</span>
                   {" "}Pending — <strong>{PROJECTED_ESPP_CYCLES} cycles projected</strong>
-                  <em>
+                  <em className="equity-amt">
                     {" "}— @ ~${(pendingEsppRows[0]?.estimatedPurchasePrice ?? 0).toFixed(2)}/sh, capped at {fmt(ANNUAL_ESPP_CAP)}/plan year (Sep–Aug)
                     (last known rate {fmt(esppPerPeriod)}/period)
                   </em>

@@ -22,6 +22,7 @@ import {
 } from "@/lib/fixed-assets";
 import { getOrCreateAssetAccount, findLegacyCostMismatches, repairLegacyAssetCosts } from "@/lib/fixed-assets-ledger";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
+import { useUiPrefs } from "@/hooks/useUiPrefs";
 
 export type MasterGroup = {
   name: string;
@@ -388,7 +389,7 @@ function AccountForm({
       <div className="opening-fields">
         <label>
           Opening balance
-          <input {...register("opening", { valueAsNumber: true })} type="number" step="0.01" min="0" />
+          <input {...register("opening", { valueAsNumber: true })} type="number" step="0.01" min="0" className="master-amount-input" />
           {errors.opening && <span className="field-error">{errors.opening.message}</span>}
         </label>
         <label>
@@ -470,6 +471,7 @@ export function MastersPanel({
     [taggingAssetId, setTaggingAssetId] = useState<string | null>(null),
     [taggingValue, setTaggingValue] = useState(""),
     [tagging, setTagging] = useState(false);
+  const { privacyMode } = useUiPrefs();
 
   // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
   // than kept inside PeriodControlPanel so the picker can render in this same tab row instead of
@@ -1154,9 +1156,13 @@ export function MastersPanel({
               <button
                 type="button"
                 onClick={repairAssetCosts}
-                title={`Fix ${legacyCostMismatches.length} incorrect ledger total(s): ${legacyCostMismatches
-                  .map((m) => `${m.name} ${m.currentCost.toFixed(2)} → ${m.correctCost.toFixed(2)}`)
-                  .join("; ")}`}
+                title={
+                  privacyMode
+                    ? `Fix ${legacyCostMismatches.length} incorrect ledger total(s)`
+                    : `Fix ${legacyCostMismatches.length} incorrect ledger total(s): ${legacyCostMismatches
+                        .map((m) => `${m.name} ${m.currentCost.toFixed(2)} → ${m.correctCost.toFixed(2)}`)
+                        .join("; ")}`
+                }
                 style={{ background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontSize: 13, color: "#dc2626" }}
               >
                 🔧 ({legacyCostMismatches.length})
@@ -1373,6 +1379,7 @@ export function MastersPanel({
                           mo, salvage
                           <input
                             type="number"
+                            className="master-salvage-input"
                             value={editingAssetSalvageValue}
                             onChange={(e) => setEditingAssetSalvageValue(e.target.value)}
                             style={{ width: 70 }}
@@ -1398,7 +1405,7 @@ export function MastersPanel({
                         </button>
                       )}
                     </td>
-                    {editingAssetLifeId !== a.id && <td>{a.salvageValue}</td>}
+                    {editingAssetLifeId !== a.id && <td className="right">{a.salvageValue}</td>}
                     <td className="right">{a.cost.toFixed(2)}</td>
                     <td>{a.disposed ? `Disposed ${fmtDate(a.disposed.date)}` : "Active"}</td>
                     <td>
@@ -1657,6 +1664,7 @@ export function MastersPanel({
                 type="number"
                 step="0.01"
                 min="0.01"
+                className="master-amount-input"
                 defaultValue={Math.abs(recurringTemplate?.entries.find((e) => e.amount < 0)?.amount ?? 0) || undefined}
                 required
               />
@@ -1673,7 +1681,7 @@ export function MastersPanel({
             </label>
             <label>
               Plaid amount tolerance ($)
-              <input name="amountTolerance" type="number" step="0.01" min="0" defaultValue={recurringTemplate?.plaidMatch?.amountTolerance ?? 5} />
+              <input name="amountTolerance" type="number" step="0.01" min="0" className="master-amount-input" defaultValue={recurringTemplate?.plaidMatch?.amountTolerance ?? 5} />
             </label>
             <div>
               <button type="button" onClick={() => setRecurringTemplateId(null)}>

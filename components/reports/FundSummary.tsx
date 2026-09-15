@@ -192,9 +192,19 @@ export function FundSummary({
         </table>
       </div>
       <p style={{ fontSize: 11, opacity: mismatch ? 1 : 0.6, margin: "10px 0 20px", color: mismatch ? BAD : undefined }}>
-        {mismatch
-          ? `⚠ Liquidity Balance (${fmt(s.liquidityBalance)}) doesn't match the real Bank + Cash balance change over this period (${fmt(s.bankCashChange)}) -- check for an account not classified as Income/Expense/Fixed Assets/Investment/Bank/Cash.`
-          : `Cross-check: matches the real Bank + Cash balance change over this period (${fmt(s.bankCashChange)}).`}
+        {mismatch ? (
+          <>
+            ⚠ Liquidity Balance (<strong className="fund-summary-crosscheck-amt">{fmt(s.liquidityBalance)}</strong>) doesn&apos;t
+            match the real Bank + Cash balance change over this period (
+            <strong className="fund-summary-crosscheck-amt">{fmt(s.bankCashChange)}</strong>) -- check for an account not
+            classified as Income/Expense/Fixed Assets/Investment/Bank/Cash.
+          </>
+        ) : (
+          <>
+            Cross-check: matches the real Bank + Cash balance change over this period (
+            <strong className="fund-summary-crosscheck-amt">{fmt(s.bankCashChange)}</strong>).
+          </>
+        )}
       </p>
 
       <h4 style={{ margin: "0 0 8px" }}>Detail</h4>

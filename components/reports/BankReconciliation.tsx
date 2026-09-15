@@ -264,8 +264,14 @@ function BankReconDetail({
           <p style={{ fontSize: 12, opacity: 0.7, margin: "2px 0 8px" }}>
             Not yet posted by Plaid, so not in the Plaid Balance above -- this is the #1 cause of a Diff with zero unmatched
             transactions (a charge can already have a real vault voucher well before the bank clears it). Sums to{" "}
-            <strong>{fmt(pendingSum)}</strong>
-            {Math.abs(pendingSum - row.diff) < 0.5 ? " -- accounts for the entire Diff." : `, vs a Diff of ${fmt(row.diff)}.`}
+            <strong className="br-detail-amt">{fmt(pendingSum)}</strong>
+            {Math.abs(pendingSum - row.diff) < 0.5 ? (
+              " -- accounts for the entire Diff."
+            ) : (
+              <>
+                , vs a Diff of <span className="br-detail-amt">{fmt(row.diff)}</span>.
+              </>
+            )}
           </p>
           {row.pendingPlaid
             .slice()
@@ -273,7 +279,7 @@ function BankReconDetail({
             .map((t) => (
               <div className="report-line" key={t.transaction_id}>
                 <span>{t.date} — {t.name}</span>
-                <strong>{fmt(t.amount)}</strong>
+                <strong className="br-detail-amt">{fmt(t.amount)}</strong>
               </div>
             ))}
         </div>
@@ -284,7 +290,7 @@ function BankReconDetail({
           {row.plaidAccounts.map((pa) => (
             <div className="report-line" key={pa.account_id}>
               <span>{pa.name}</span>
-              <strong>{fmt(pa.type === "depository" ? (pa.balances.available ?? pa.balances.current ?? 0) : (pa.balances.current ?? 0))}</strong>
+              <strong className="br-detail-amt">{fmt(pa.type === "depository" ? (pa.balances.available ?? pa.balances.current ?? 0) : (pa.balances.current ?? 0))}</strong>
             </div>
           ))}
         </div>
@@ -320,8 +326,8 @@ function BankReconDetail({
                     {t.pending && <em> (pending)</em>}
                   </span>
                   <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ width: 72, textAlign: "right" }}>{debitAmt === null ? "" : <strong>{fmt(debitAmt)}</strong>}</span>
-                    <span style={{ width: 72, textAlign: "right" }}>{creditAmt === null ? "" : <strong>{fmt(creditAmt)}</strong>}</span>
+                    <span style={{ width: 72, textAlign: "right" }}>{debitAmt === null ? "" : <strong className="br-detail-amt">{fmt(debitAmt)}</strong>}</span>
+                    <span style={{ width: 72, textAlign: "right" }}>{creditAmt === null ? "" : <strong className="br-detail-amt">{fmt(creditAmt)}</strong>}</span>
                     <button
                       type="button"
                       className="tr-refresh-btn"
@@ -369,8 +375,8 @@ function BankReconDetail({
                     {t.date} — {t.narration || t.type}
                   </span>
                   <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ width: 72, textAlign: "right" }}>{debitAmt === null ? "" : <strong>{fmt(debitAmt)}</strong>}</span>
-                    <span style={{ width: 72, textAlign: "right" }}>{creditAmt === null ? "" : <strong>{fmt(creditAmt)}</strong>}</span>
+                    <span style={{ width: 72, textAlign: "right" }}>{debitAmt === null ? "" : <strong className="br-detail-amt">{fmt(debitAmt)}</strong>}</span>
+                    <span style={{ width: 72, textAlign: "right" }}>{creditAmt === null ? "" : <strong className="br-detail-amt">{fmt(creditAmt)}</strong>}</span>
                     <button
                       type="button"
                       className="tr-refresh-btn"

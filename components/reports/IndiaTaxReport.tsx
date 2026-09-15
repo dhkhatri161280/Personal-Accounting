@@ -1630,7 +1630,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
             </label>
             <div style={{ fontSize: 12 }}>
               Total Income — computed, not entered
-              <div className="india-tax-input" style={{ display: "block", width: "100%", background: "#f8fafc" }}>
+              <div className="india-tax-input india-tax-amt" style={{ display: "block", width: "100%", background: "#f8fafc" }}>
                 {fmt((Number(itrForm.grossTotalIncome) || 0) - (Number(itrForm.deductionsChapterVIA) || 0))}
                 {" "}= Gross Total Income − Deductions
               </div>
@@ -1642,7 +1642,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                 const formTotalIncome = (Number(itrForm.grossTotalIncome) || 0) - (Number(itrForm.deductionsChapterVIA) || 0);
                 const est = estimateIndiaTax(itrForm.assessmentYear.trim(), formTotalIncome);
                 return est != null ? (
-                  <span style={{ display: "block", marginTop: 2, fontWeight: 400 }}>
+                  <span className="india-tax-amt" style={{ display: "block", marginTop: 2, fontWeight: 400 }}>
                     Slab estimate: {fmt(est)}{" "}
                     <button type="button" onClick={() => setItrForm({ ...itrForm, taxPayable: String(est) })} style={{ fontSize: 11, padding: "1px 6px" }}>
                       Use this
@@ -1669,7 +1669,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
             </label>
             <div style={{ fontSize: 12, gridColumn: "1 / -1" }}>
               Refund (+) / Demand (-) — computed, not entered
-              <div className="india-tax-input" style={{ display: "block", width: "100%", background: "#f8fafc" }}>
+              <div className="india-tax-input india-tax-amt" style={{ display: "block", width: "100%", background: "#f8fafc" }}>
                 {fmt(
                   (Number(itrForm.advanceTax) || 0) + (Number(itrForm.tds) || 0) + (Number(itrForm.tcs) || 0) +
                     (Number(itrForm.selfAssessmentTax) || 0) - (Number(itrForm.taxPayable) || 0)
@@ -1962,11 +1962,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
               <div style={{ fontSize: 12, margin: "0.5rem 0" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
                   <span>80C total entered</span>
-                  <span>{fmt(raw80C)}</span>
+                  <span className="india-tax-amt">{fmt(raw80C)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span>80C claimable (capped at {fmt(cap80C)}{raw80C > cap80C ? ", AY " + activeAy : ""})</span>
-                  <strong style={raw80C > cap80C ? { color: "#dc2626" } : undefined}>{fmt(claimable80C)}</strong>
+                  <strong className="india-tax-amt" style={raw80C > cap80C ? { color: "#dc2626" } : undefined}>{fmt(claimable80C)}</strong>
                 </div>
               </div>
             );
@@ -1985,11 +1985,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
               <div style={{ fontSize: 12, marginTop: "0.25rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
                   <span>80D claimable (capped at {fmt(SECTION_80D_CAP)})</span>
-                  <span style={raw80D > SECTION_80D_CAP ? { color: "#dc2626" } : undefined}>{fmt(claimable80D)}</span>
+                  <span className="india-tax-amt" style={raw80D > SECTION_80D_CAP ? { color: "#dc2626" } : undefined}>{fmt(claimable80D)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #e2e8f0", paddingTop: 4, marginTop: 4 }}>
                   <span>Total claimable (Ch VI-A Deductions)</span>
-                  <strong>{fmt(claimable80C + claimable80D)}</strong>
+                  <strong className="india-tax-amt">{fmt(claimable80C + claimable80D)}</strong>
                 </div>
               </div>
             );
@@ -2025,7 +2025,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
             <label>Gross Salary</label>
             <input type="number" value={gtiGrossSalary} onChange={(e) => setGtiGrossSalary(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} />
             <span>HRA paid, FY {activeFy} (for reference)</span>
-            <strong>{fmt(fyHraTotal)}</strong>
+            <strong className="india-tax-amt">{fmt(fyHraTotal)}</strong>
             <label>HRA exempt</label>
             <input type="number" value={gtiHraExempt} onChange={(e) => setGtiHraExempt(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} />
             <label>Professional Tax</label>
@@ -2040,7 +2040,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
               Home Loan Interest (Section 24b) paid
               {homeLoanLedgerAmount != null && homeLoanLedgerAmount !== (Number(gtiHomeLoanInterest) || 0) && (
                 <span style={{ display: "block", fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
-                  From ledger &quot;{HOME_LOAN_INTEREST_LEDGER}&quot;, FY {activeFy}: {fmt(homeLoanLedgerAmount)}{" "}
+                  From ledger &quot;{HOME_LOAN_INTEREST_LEDGER}&quot;, FY {activeFy}: <span className="india-tax-amt">{fmt(homeLoanLedgerAmount)}</span>{" "}
                   <button type="button" onClick={() => setGtiHomeLoanInterest(String(homeLoanLedgerAmount))} style={{ fontSize: 11, padding: "1px 6px" }}>
                     Use this
                   </button>
@@ -2068,20 +2068,20 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                   {hp.isLetOut && (
                     <>
                       <span style={{ opacity: 0.7 }}>Standard deduction (30% of rent, Section 24(a))</span>
-                      <span>{fmt(hp.standardDeduction)}</span>
+                      <span className="india-tax-amt">{fmt(hp.standardDeduction)}</span>
                     </>
                   )}
                   <span style={hp.interestCapped ? { color: "#dc2626" } : { opacity: 0.7 }}>
                     Home Loan Interest deductible{hp.isLetOut ? " (let-out — uncapped)" : ` (self-occupied — capped at ${fmt(cap)})`}
                   </span>
-                  <span style={hp.interestCapped ? { color: "#dc2626" } : undefined}>{fmt(hp.interestDeduction)}</span>
+                  <span className="india-tax-amt" style={hp.interestCapped ? { color: "#dc2626" } : undefined}>{fmt(hp.interestDeduction)}</span>
                   <span style={{ opacity: 0.7 }}>Income from House Property</span>
-                  <strong style={hp.netIncome < 0 ? { color: "#dc2626" } : undefined}>{fmt(hp.netIncome)}</strong>
+                  <strong className="india-tax-amt" style={hp.netIncome < 0 ? { color: "#dc2626" } : undefined}>{fmt(hp.netIncome)}</strong>
                   {hp.lossCarriedForward > 0 && (
                     <>
                       <span style={{ opacity: 0.7, gridColumn: "1 / -1", fontSize: 11 }}>
                         Loss set-off against other income capped at ₹2,00,000/year from AY2018-19 (Section 71(3A)) —
-                        {" "}{fmt(hp.lossCarriedForward)} would carry forward to future years (not tracked here).
+                        {" "}<span className="india-tax-amt">{fmt(hp.lossCarriedForward)}</span> would carry forward to future years (not tracked here).
                       </span>
                     </>
                   )}
@@ -2091,7 +2091,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
             <label>Income from Other Sources (interest, dividends, etc.)</label>
             <input type="number" value={gtiOtherSourcesIncome} onChange={(e) => setGtiOtherSourcesIncome(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <span style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>Gross Total Income</span>
-            <strong style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
+            <strong className="india-tax-amt" style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
               {fmt(
                 Math.max(0, (Number(gtiGrossSalary) || 0) - (Number(gtiHraExempt) || 0) - (Number(gtiProfTax) || 0))
                 + (Number(gtiStcg) || 0) + (Number(gtiLtcg) || 0)

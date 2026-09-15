@@ -83,7 +83,7 @@ export function DonutChart({
             })}
         </g>
         {centerValue && (
-          <text x={size / 2} y={size / 2 - (centerLabel ? 4 : -5)} textAnchor="middle" fontSize={centerFontSize} fontWeight={800} fill="#0f172a">
+          <text className="donut-center-value" x={size / 2} y={size / 2 - (centerLabel ? 4 : -5)} textAnchor="middle" fontSize={centerFontSize} fontWeight={800} fill="#0f172a">
             {centerValue}
           </text>
         )}
@@ -100,7 +100,7 @@ export function DonutChart({
             <div key={seg.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: seg.color, flexShrink: 0 }} />
               <span style={{ flex: 1, color: "#334155" }}>{seg.label}</span>
-              <strong>{fmt ? fmt(seg.value) : `${Math.round((seg.value / total) * 100)}%`}</strong>
+              <strong className="donut-legend-value">{fmt ? fmt(seg.value) : `${Math.round((seg.value / total) * 100)}%`}</strong>
             </div>
           ))}
         </div>

@@ -253,6 +253,7 @@ export function LoanRegister({
         <div className="report-line" style={{ flexWrap: "wrap", gap: 8 }}>
           <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input
+            className="lr-money-input"
             placeholder="Principal"
             type="number"
             value={principal}
@@ -275,6 +276,7 @@ export function LoanRegister({
           />
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <input
+            className="lr-money-input"
             placeholder={suggestedPayment ? `Payment (suggested ${fmt(suggestedPayment)})` : "Monthly payment"}
             type="number"
             value={payment}
@@ -376,6 +378,7 @@ export function LoanRegister({
                           <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                             <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} style={{ width: 120 }} />
                             <input
+                              className="lr-money-input"
                               placeholder="Amount"
                               type="number"
                               value={paymentAmount}
@@ -391,7 +394,7 @@ export function LoanRegister({
                               ))}
                             </select>
                             {paymentPreview && (
-                              <span style={{ fontSize: 11, opacity: 0.7 }}>
+                              <span className="lr-payment-preview" style={{ fontSize: 11, opacity: 0.7 }}>
                                 Principal {fmt(paymentPreview.principal)} · Interest {fmt(paymentPreview.interest)}
                               </span>
                             )}
@@ -420,7 +423,7 @@ export function LoanRegister({
                             </label>
                             <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
                               Payment (current)
-                              <input type="number" value={editPayment} onChange={(e) => setEditPayment(e.target.value)} style={{ width: 100 }} />
+                              <input className="lr-money-input" type="number" value={editPayment} onChange={(e) => setEditPayment(e.target.value)} style={{ width: 100 }} />
                             </label>
                             <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
                               Term (months)
@@ -517,8 +520,8 @@ export function LoanRegister({
                             const scheduleBalance = asOfRows.length > 0 ? asOfRows[asOfRows.length - 1].balance : l.originalPrincipal;
                             return Math.abs(scheduleBalance - balance) > 0.5 ? (
                               <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 8px" }}>
-                                This schedule's balance as of today ({fmt(scheduleBalance)}) differs from the Current Balance
-                                column above ({fmt(balance)}) -- expected, since this schedule deliberately ignores the loan's own
+                                This schedule's balance as of today (<span className="lr-schedule-balance">{fmt(scheduleBalance)}</span>) differs from the Current Balance
+                                column above (<span className="lr-schedule-balance">{fmt(balance)}</span>) -- expected, since this schedule deliberately ignores the loan's own
                                 liability account and tracks only the real payment vouchers instead.
                               </p>
                             ) : null;

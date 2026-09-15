@@ -2599,7 +2599,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </div>
         <div className="header-actions">
           {status && !isBlockingStatus && (
-            <span className={`vault-status${status.startsWith("Auto-fixed") ? " vault-status--info" : ""}`}>
+            <span className={`vault-status vault-status-text${status.startsWith("Auto-fixed") ? " vault-status--info" : ""}`}>
               {status}
             </span>
           )}
@@ -2666,7 +2666,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                       <div className="dashboard-inline-row" key={i}>
                         <span>
                           {item.label}
-                          <small>{item.detail}</small>
+                          <small className="attention-item-detail">{item.detail}</small>
                         </span>
                         {item.action && (
                           <button type="button" className="tr-refresh-btn" onClick={item.action.onClick}>
@@ -3257,6 +3257,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   type: "number",
                   flex: 1,
                   minWidth: 110,
+                  cellClassName: "ledger-grid-amt",
                   valueFormatter: (value: number) => money(value),
                 },
                 {
@@ -3265,6 +3266,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   type: "number",
                   flex: 1,
                   minWidth: 110,
+                  cellClassName: "ledger-grid-amt",
                   valueFormatter: (value: number) => money(value),
                 },
                 {
@@ -3273,6 +3275,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   type: "number",
                   flex: 1,
                   minWidth: 110,
+                  cellClassName: "ledger-grid-amt",
                   valueFormatter: (value: number) => money(value),
                 },
                 {
@@ -3281,6 +3284,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   type: "number",
                   flex: 1,
                   minWidth: 110,
+                  cellClassName: "ledger-grid-amt",
                   valueFormatter: (value: number) => money(value),
                 },
               ];
@@ -3297,10 +3301,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     footer: () => (
                       <div className="ledger-grid-totals">
                         <strong>Total</strong>
-                        <span>Opening {money(ledgerTotals.opening)}</span>
-                        <span>Dr {ledgerTotals.debit ? fmt(ledgerTotals.debit) : "-"}</span>
-                        <span>Cr {ledgerTotals.credit ? fmt(ledgerTotals.credit) : "-"}</span>
-                        <span>Closing {money(ledgerTotals.closing)}</span>
+                        <span>Opening <b className="ledger-grid-totals-amt">{money(ledgerTotals.opening)}</b></span>
+                        <span>Dr <b className="ledger-grid-totals-amt">{ledgerTotals.debit ? fmt(ledgerTotals.debit) : "-"}</b></span>
+                        <span>Cr <b className="ledger-grid-totals-amt">{ledgerTotals.credit ? fmt(ledgerTotals.credit) : "-"}</b></span>
+                        <span>Closing <b className="ledger-grid-totals-amt">{money(ledgerTotals.closing)}</b></span>
                       </div>
                     ),
                   }}
@@ -4466,7 +4470,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 </div>
                 {line.accountId && (
                   <div className="voucher-line-balance">
-                    Balance as of {voucherDate}: {fmt(ledgerBalanceAsOf(data, Number(line.accountId), voucherDate))}
+                    Balance as of {voucherDate}: <span className="voucher-line-balance-amt">{fmt(ledgerBalanceAsOf(data, Number(line.accountId), voucherDate))}</span>
                   </div>
                 )}
                 {line.accountId &&
