@@ -60,7 +60,9 @@ const FILTER_GRID_TEMPLATE = FILTER_KEYS.map((k) => gridTrack(COLUMN_SPECS[k])).
 const PLAIN_COLUMN_KEYS = ["date", "type", "number", "debit", "credit", "narration", "amount"] as const;
 type PlainColKey = (typeof PLAIN_COLUMN_KEYS)[number];
 const DEFAULT_PLAIN_WIDTHS: Record<PlainColKey, number> = {
-  date: 95,
+  // 95px truncated "DD-MM-YYYY" (10 chars) to "14-09-20…" once cell padding was accounted for --
+  // confirmed live, not just estimated from font metrics.
+  date: 112,
   type: 90,
   number: 55,
   debit: 170,
@@ -751,7 +753,8 @@ export function TransactionTable({
                   <span className="voucher-card-date">{t.voucher.date.split("-").reverse().join("-")}</span>
                   <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
                 </div>
-                <p className="voucher-card-narration">{t.narration !== "-" ? t.narration : `${t.debit} → ${t.credit}`}</p>
+                <p className="voucher-card-ledgers" title={`${t.debit} → ${t.credit}`}>{t.debit} → {t.credit}</p>
+                {t.narration !== "-" && <p className="voucher-card-narration">{t.narration}</p>}
                 <div className="voucher-card-bottom">
                   <button className="voucher-reference" onClick={() => onView(t.voucher)}>
                     #{t.voucher.number || "-"}

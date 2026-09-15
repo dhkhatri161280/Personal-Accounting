@@ -2935,11 +2935,19 @@ aside .install-app {
   color: #64748b;
   margin-right: auto;
 }
-.voucher-card-narration {
-  margin: 0 0 8px;
+.voucher-card-ledgers {
+  margin: 0 0 2px;
   font-size: var(--fs-md);
   font-weight: 500;
   color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.voucher-card-narration {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  color: #64748b;
 }
 .voucher-card-bottom {
   display: flex;
@@ -2983,9 +2991,10 @@ aside .install-app {
   background: #1a2233;
   border-color: #2a3448;
 }
-.dark-mode .voucher-card-narration {
+.dark-mode .voucher-card-ledgers {
   color: #e2e8f0;
 }
+.dark-mode .voucher-card-narration,
 .dark-mode .voucher-card-date,
 .dark-mode .voucher-card-balance {
   color: #94a3b8;
