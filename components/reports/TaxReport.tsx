@@ -30,7 +30,6 @@ interface TaxReportProps {
   onViewVoucher: (tx: Tx) => void; // only used for the explicit "Edit in Daybook" action inside the voucher popup
   fmt: (n: number) => string;
   readOnly?: boolean;
-  uiTheme?: "classic" | "refresh";
   livePrice?: number | null;
 }
 
@@ -237,7 +236,7 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, fmt, readOnly, uiTheme, livePrice }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, fmt, readOnly, livePrice }: TaxReportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
@@ -1042,7 +1041,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 style={c.onClick ? { cursor: "pointer" } : undefined}
                 onClick={c.onClick}
               >
-                {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+                <StatIcon kind={c.icon} color={c.color} />
                 <div className="equity-summary-card-body">
                   <span>{c.label}</span>
                   <strong className="equity-amt">{fmt(c.value)}</strong>
@@ -1182,7 +1181,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                         onClick={(e) => { e.stopPropagation(); setPeriodEsppModal({ label: label || `Period ${i + 1}`, items: periodEspp }); }}
                         style={linkBtnStyle}
                       >
-                        🏷️ {periodEsppShares.toLocaleString()} sh
+                        🏷️ <span className="equity-amt">{periodEsppShares.toLocaleString()} sh</span>
                       </button>
                     ) : (
                       <span style={{ opacity: 0.3 }}>—</span>
@@ -1248,7 +1247,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                         onClick={(e) => { e.stopPropagation(); setPeriodEsppModal({ label: m.label, items: mEspp }); }}
                         style={linkBtnStyle}
                       >
-                        🏷️ {mEsppShares.toLocaleString()} sh
+                        🏷️ <span className="equity-amt">{mEsppShares.toLocaleString()} sh</span>
                       </button>
                     ) : (
                       <span style={{ opacity: 0.3 }}>—</span>
@@ -1318,7 +1317,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                     onClick={(e) => { e.stopPropagation(); setPeriodVestModal({ label: `${new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} Vesting`, items }); }}
                     style={linkBtnStyle}
                   >
-                    📈 {shares.toLocaleString()} sh
+                    📈 <span className="equity-amt">{shares.toLocaleString()} sh</span>
                   </button>
                 </td>
               </tr>
@@ -1336,7 +1335,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             <th className="right">{fmt(totalStateSDI)}</th>
             <th className="right">{fmt(totalTaxAll)}</th>
             <th className="right">{fmt(totalNet)}</th>
-            <th>{(yearEspp.reduce((s, e) => s + e.shares, 0)).toLocaleString()} sh</th>
+            <th><span className="equity-amt">{(yearEspp.reduce((s, e) => s + e.shares, 0)).toLocaleString()} sh</span></th>
             <th>
               {yr.periodLabels.filter((l) => l && findPayrollVoucher(transactions, yr.year, l, yr.periodLabels, claimedTxGuids)).length + voucherPeriods.length}
               {" / "}
@@ -1448,7 +1447,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               style={c.onClick ? { cursor: "pointer" } : undefined}
               onClick={c.onClick}
             >
-              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
                 <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
@@ -1480,7 +1479,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
-              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
                 <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
@@ -1495,7 +1494,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         <Modal title={`RSU Vesting — ${yr.year}`} onClose={() => setShowRsuModal(false)} wide>
           <VestTable items={yearVests} fmt={fmt} />
           {stockScheduledShares > 0 && (
-            <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0 0" }}>{stockScheduledShares.toLocaleString()} sh still scheduled to vest in {yr.year}.</p>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0 0" }}><span className="equity-amt">{stockScheduledShares.toLocaleString()} sh</span> still scheduled to vest in {yr.year}.</p>
           )}
           {stockTaxTotal > 0 && (
             <>
@@ -1758,7 +1757,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </div>
                 <div style={{ marginTop: "1.25rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
                   {period.onViewShares && (
-                    <button onClick={period.onViewShares}>View {period.shares?.toLocaleString()} sh breakdown</button>
+                    <button onClick={period.onViewShares}>View <span className="equity-amt">{period.shares?.toLocaleString()} sh</span> breakdown</button>
                   )}
                   {period.onEdit && (
                     <button onClick={period.onEdit}>Edit with real paystub numbers</button>
@@ -2005,34 +2004,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
 
       {voucherModalTx && (
         <Modal title={`${voucherModalTx.type} #${voucherModalTx.number || "—"}`} onClose={() => setVoucherModalTx(null)}>
-          {uiTheme === "refresh" && <VoucherTypeBadge type={voucherModalTx.type} />}
+          <VoucherTypeBadge type={voucherModalTx.type} />
           <p style={{ margin: "0.5rem 0 0.75rem", fontSize: 13, opacity: 0.75 }}>
             {new Date(voucherModalTx.date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })}
           </p>
           {voucherModalTx.narration && <p style={{ margin: "0 0 0.75rem", fontSize: 13 }}>{voucherModalTx.narration}</p>}
-          {uiTheme === "refresh" ? (
-            <VoucherFlow entries={voucherModalTx.entries} fmt={fmt} />
-          ) : (
-            <table className="equity-table" style={{ width: "100%" }}>
-              <thead><tr><th>Account</th><th className="right">Debit</th><th className="right">Credit</th></tr></thead>
-              <tbody>
-                {voucherModalTx.entries.map((e, i) => (
-                  <tr key={i}>
-                    <td>{e.accountName}</td>
-                    <td className="right equity-amt">{e.amount < 0 ? fmt(Math.abs(e.amount)) : ""}</td>
-                    <td className="right equity-amt">{e.amount > 0 ? fmt(e.amount) : ""}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th>Total</th>
-                  <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0))}</th>
-                  <th className="right">{fmt(voucherModalTx.entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0))}</th>
-                </tr>
-              </tfoot>
-            </table>
-          )}
+          <VoucherFlow entries={voucherModalTx.entries} fmt={fmt} />
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
             <button onClick={() => setVoucherModalTx(null)}>Close</button>
             {!readOnly && (

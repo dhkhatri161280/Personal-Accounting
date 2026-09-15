@@ -166,7 +166,6 @@ interface IndiaTaxReportProps {
   indiaTax: IndiaTaxData | undefined;
   onSave: (data: IndiaTaxData) => Promise<void>;
   fmt: (n: number) => string;
-  uiTheme?: "classic" | "refresh";
   // Real Tally-derived voucher ledgers -- used to pull the actual "Interest on Housing Loan"
   // figure for a given FY into the Gross Total Income reconciliation, as a suggestion the user
   // confirms rather than a silent auto-fill. Optional since not every caller has ledger data.
@@ -177,7 +176,7 @@ interface IndiaTaxReportProps {
   initialViewMode?: "yearly" | "all";
 }
 
-export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, accounts, initialViewMode }: IndiaTaxReportProps) {
+export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, initialViewMode }: IndiaTaxReportProps) {
   const payslipFileInputRef = useRef<HTMLInputElement>(null);
   const itrFileInputRef = useRef<HTMLInputElement>(null);
   const [payslipPassword, setPayslipPassword] = useState("");
@@ -1478,7 +1477,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                 {fySummaryCards.map((c) => (
                   <div key={c.label} className="equity-summary-col">
                     <div className="equity-summary-card" style={c.onClick ? { cursor: "pointer" } : undefined} onClick={c.onClick}>
-                      {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+                      <StatIcon kind={c.icon} color={c.color} />
                       <div className="equity-summary-card-body">
                         <span>{c.label}</span>
                         <strong className="equity-amt">{fmt(c.value)}</strong>
@@ -1549,7 +1548,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, uiTheme, transactions, a
                 {itrSummaryCards.map((c) => (
                   <div key={c.label} className="equity-summary-col">
                     <div className="equity-summary-card" style={c.onClick ? { cursor: "pointer" } : undefined} onClick={c.onClick}>
-                      {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+                      <StatIcon kind={c.icon} color={c.color} />
                       <div className="equity-summary-card-body">
                         <span>{c.label}</span>
                         <strong className="equity-amt">{fmt(c.value)}</strong>

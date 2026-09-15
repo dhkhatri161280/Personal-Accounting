@@ -173,9 +173,12 @@ export function GrApp() {
     return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
   });
   const [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1");
-  const [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
-    typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
-  );
+  // Same "dk-dark-mode" key VaultApp uses -- one global dark-mode preference shared across every
+  // book, applied to <body> (see the effect below) rather than this component's own wrapper div.
+  const [darkMode, setDarkMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-dark-mode") === "1");
+  // The classic/refresh toggle has been retired -- refresh is now the only look, everywhere.
+  // Kept as a plain constant rather than rewriting every `uiTheme === "refresh"` check below.
+  const uiTheme = "refresh" as const;
   // Same "dk-nav-collapsed" key VaultApp uses -- one global nav preference shared across every
   // book instead of GR remembering its own separate collapsed/expanded state.
   const [navCollapsed, setNavCollapsed] = useState(() => typeof window === "undefined" || localStorage.getItem("dk-nav-collapsed") !== "0");
@@ -193,10 +196,10 @@ export function GrApp() {
       return next;
     });
 
-  const toggleUiTheme = () =>
-    setUiTheme((t) => {
-      const next = t === "refresh" ? "classic" : "refresh";
-      localStorage.setItem("dk-ui-theme", next);
+  const toggleDarkMode = () =>
+    setDarkMode((d) => {
+      const next = !d;
+      localStorage.setItem("dk-dark-mode", next ? "1" : "0");
       return next;
     });
 
@@ -206,6 +209,13 @@ export function GrApp() {
       localStorage.setItem("dk-nav-collapsed", next ? "1" : "0");
       return next;
     });
+
+  // Toggled on <body>, not this component's own wrapper div -- see darkMode's own declaration
+  // above for why. Runs on mount too, so the localStorage-read initial state takes effect on
+  // first paint.
+  useEffect(() => {
+    document.body.classList.toggle("dark-mode", darkMode);
+  }, [darkMode]);
 
   useEffect(() => {
     if (!equityData) return;
@@ -813,7 +823,7 @@ export function GrApp() {
   // ── MAIN RENDER ───────────────────────────────────────────────────────────
 
   return (
-    <div className={[privacyMode ? "privacy-mode" : "", uiTheme === "refresh" ? "ui-refresh" : ""].filter(Boolean).join(" ") || undefined}>
+    <div className={[privacyMode ? "privacy-mode" : "", "ui-refresh"].filter(Boolean).join(" ") || undefined}>
       <header>
         <div>
           <small>FINTECH BY DK - ACCOUNTING RELEASE 5</small>
@@ -862,18 +872,6 @@ export function GrApp() {
             {statusMsg && <span className="vault-status">{statusMsg}</span>}
             <button
               type="button"
-              className={`ui-theme-toggle-button ${uiTheme === "refresh" ? "on" : "off"}`}
-              onClick={toggleUiTheme}
-              title={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
-              aria-label={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                <circle cx="12" cy="12" r="4" />
-              </svg>
-            </button>
-            <button
-              type="button"
               className={`privacy-toggle-button ${privacyMode ? "on" : "off"}`}
               onClick={togglePrivacy}
               title={privacyMode ? "Show amounts" : "Hide amounts"}
@@ -888,6 +886,24 @@ export function GrApp() {
                 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                   <circle cx="12" cy="12" r="3"/>
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className={`dark-mode-toggle-button ${darkMode ? "on" : "off"}`}
+              onClick={toggleDarkMode}
+              title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {darkMode ? (
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+                </svg>
+              ) : (
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                  <circle cx="12" cy="12" r="4" />
                 </svg>
               )}
             </button>
@@ -1549,7 +1565,7 @@ export function GrApp() {
               <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
                 <div className="equity-summary-col">
                   <div className="equity-summary-card">
-                    {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
+                    <StatIcon kind="trending-up" color="#16a34a" />
                     <div className="equity-summary-card-body">
                       <span>Period Income</span>
                       <strong className="equity-amt">{fmt(periodIncome)}</strong>
@@ -1558,7 +1574,7 @@ export function GrApp() {
                 </div>
                 <div className="equity-summary-col">
                   <div className="equity-summary-card">
-                    {uiTheme === "refresh" && <StatIcon kind="receipt" color="#dc2626" />}
+                    <StatIcon kind="receipt" color="#dc2626" />
                     <div className="equity-summary-card-body">
                       <span>Period Expenditure</span>
                       <strong className="equity-amt">{fmt(periodExpense)}</strong>
@@ -1567,7 +1583,7 @@ export function GrApp() {
                 </div>
                 <div className="equity-summary-col">
                   <div className="equity-summary-card">
-                    {uiTheme === "refresh" && <StatIcon kind="scale" color={periodSurplus >= 0 ? "#16a34a" : "#dc2626"} />}
+                    <StatIcon kind="scale" color={periodSurplus >= 0 ? "#16a34a" : "#dc2626"} />
                     <div className="equity-summary-card-body">
                       <span>Surplus / (Deficit)</span>
                       <strong className="equity-amt">{fmt(periodSurplus)}</strong>
@@ -1659,7 +1675,7 @@ export function GrApp() {
                 <p className="gr-report-note">
                   All-time closing balances in INR, across both books.
                 </p>
-                <NetWorthReport assets={nwAssets} liabilities={nwLiabs} trend={nwTrend} fmt={fmt} uiTheme={uiTheme} />
+                <NetWorthReport assets={nwAssets} liabilities={nwLiabs} trend={nwTrend} fmt={fmt} />
               </div>
             );
           })()}
@@ -1679,7 +1695,6 @@ export function GrApp() {
               fmt={(n) => fmt(n)}
               onGroup={() => {}}
               onLedger={() => {}}
-              uiTheme={uiTheme}
             />
           )}
 
@@ -1694,7 +1709,6 @@ export function GrApp() {
                 return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Math.abs(inr) < 0.005 ? 0 : inr);
               }}
               readOnly={true}
-              uiTheme={uiTheme}
             />
           )}
 
@@ -1713,7 +1727,7 @@ export function GrApp() {
                 <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">
-                      {uiTheme === "refresh" && <StatIcon kind="bank" color="#1e40af" />}
+                      <StatIcon kind="bank" color="#1e40af" />
                       <div className="equity-summary-card-body">
                         <span>Bank Accounts</span>
                         <strong className="equity-amt">{fmt(bankTotal)}</strong>
@@ -1722,7 +1736,7 @@ export function GrApp() {
                   </div>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">
-                      {uiTheme === "refresh" && <StatIcon kind="cash" color="#16a34a" />}
+                      <StatIcon kind="cash" color="#16a34a" />
                       <div className="equity-summary-card-body">
                         <span>Cash in Hand</span>
                         <strong className="equity-amt">{fmt(cashTotal)}</strong>
@@ -1731,7 +1745,7 @@ export function GrApp() {
                   </div>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">
-                      {uiTheme === "refresh" && <StatIcon kind="wallet" color="#7c3aed" />}
+                      <StatIcon kind="wallet" color="#7c3aed" />
                       <div className="equity-summary-card-body">
                         <span>Total Cash and Bank</span>
                         <strong className="equity-amt">{fmt(totalCashBank)}</strong>
@@ -1898,7 +1912,7 @@ export function GrApp() {
           title={
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span className={`source-badge source-${modalTx.source.toLowerCase()}`}>{modalTx.source}</span>
-              {uiTheme === "refresh" && <VoucherTypeBadge type={modalTx.type} />}
+              <VoucherTypeBadge type={modalTx.type} />
               <span>{modalTx.type}</span>
               {modalTx.number && <span className="gr-modal-num">#{modalTx.number}</span>}
               {modalTx.cancelled && <span className="gr-cancelled-tag">CANCELLED</span>}
@@ -1917,44 +1931,7 @@ export function GrApp() {
                 </span>
               )}
             </div>
-            {uiTheme === "refresh" ? (
-              <VoucherFlow entries={modalTx.entries.map((e) => ({ accountName: e.accountName, amount: e.amountInr }))} fmt={fmt} />
-            ) : (
-              <table className="gr-modal-table">
-                <thead>
-                  <tr>
-                    <th>Ledger</th>
-                    <th className="right">Dr (INR)</th>
-                    <th className="right">Cr (INR)</th>
-                    {modalTx.source === "US" && <th className="right">Original (USD)</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {modalTx.entries.map((e, i) => (
-                    <tr key={i}>
-                      <td>{e.accountName}</td>
-                      <td className="right">{e.amountInr < 0 ? fmt(-e.amountInr) : "—"}</td>
-                      <td className="right">{e.amountInr > 0 ? fmt(e.amountInr) : "—"}</td>
-                      {modalTx.source === "US" && (
-                        <td className="right">
-                          {e.originalAmount !== 0
-                            ? `${fmt(Math.abs(e.originalAmount), "USD")} ${e.originalAmount < 0 ? "Dr" : "Cr"}`
-                            : "—"}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <th>Total</th>
-                    <th className="right">{fmt(modalTx.amountInr)}</th>
-                    <th className="right">{fmt(modalTx.amountInr)}</th>
-                    {modalTx.source === "US" && <th className="right">{fmt(modalTx.amountUsd, "USD")}</th>}
-                  </tr>
-                </tfoot>
-              </table>
-            )}
+            <VoucherFlow entries={modalTx.entries.map((e) => ({ accountName: e.accountName, amount: e.amountInr }))} fmt={fmt} />
           </div>
         </FloatingWindow>
       )}

@@ -79,7 +79,6 @@ export function NetWorthReport({
   liabilities,
   trend,
   fmt,
-  uiTheme,
   onSelectAccount,
   onNavigateSource,
 }: {
@@ -87,7 +86,6 @@ export function NetWorthReport({
   liabilities: NWRow[];
   trend: NetWorthPoint[];
   fmt: (n: number) => string;
-  uiTheme?: string;
   onSelectAccount?: (id: number) => void;
   onNavigateSource?: (tab: "retirement" | "equity") => void;
 }) {
@@ -191,7 +189,7 @@ export function NetWorthReport({
         {summaryCards.map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
-              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
                 <strong className="equity-amt">{fmt(c.value)}</strong>

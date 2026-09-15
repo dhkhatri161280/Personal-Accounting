@@ -23,7 +23,6 @@ export function CashFlowReport({
   fmt,
   onGroup,
   onLedger,
-  uiTheme,
   expandSignal,
   collapseSignal,
 }: {
@@ -39,7 +38,6 @@ export function CashFlowReport({
   fmt: (n: number) => string;
   onGroup: (group: string) => void;
   onLedger: (group: string, ledger: string) => void;
-  uiTheme?: "classic" | "refresh";
   // Owned by the caller and rendered on the existing toolbar row -- see the matching comment in
   // components/reports/ColumnarBalanceSheet.tsx.
   expandSignal?: number;
@@ -144,7 +142,7 @@ export function CashFlowReport({
         {summaryCards.map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
-              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
                 <strong className="equity-amt">{fmt(c.value)}</strong>

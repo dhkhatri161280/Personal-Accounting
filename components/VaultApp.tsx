@@ -94,7 +94,7 @@ import { TaxReport } from "@/components/reports/TaxReport";
 import { IndiaTaxReport } from "@/components/reports/IndiaTaxReport";
 import { ReconReport } from "@/components/reports/ReconReport";
 import { BalanceConfirmationLetter } from "@/components/reports/BalanceConfirmationLetter";
-import { StatIcon, Icon } from "@/components/Icon";
+import { StatIcon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -156,14 +156,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [tradingTab, setTradingTab] = useState<"open" | "closed" | "watchlist">("open"),
     [taxViewMode, setTaxViewMode] = useState<"yearly" | "all">("yearly"),
     [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
+    // Applied to <body> (see the effect below), not this component's own wrapper div -- dark mode
+    // needs to repaint the true page background (body's own rule), not just descendants of one
+    // inner div, or the area outside/around this component (rare, but real on some viewport/
+    // scroll-bounce edge cases) would stay light.
+    [darkMode, setDarkMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-dark-mode") === "1"),
     // Defaults to collapsed (icon rail) rather than expanded -- the whole point of this toggle is
     // to guarantee report/ledger tables never lose width to the nav unless the user deliberately
     // asks for labels back, so "no width taken" has to be the out-of-the-box state, not something
     // the user has to discover and opt into on every fresh browser.
     [navCollapsed, setNavCollapsed] = useState(() => typeof window === "undefined" || localStorage.getItem("dk-nav-collapsed") !== "0"),
-    [uiTheme, setUiTheme] = useState<"classic" | "refresh">(() =>
-      typeof window !== "undefined" && localStorage.getItem("dk-ui-theme") === "refresh" ? "refresh" : "classic"
-    ),
     [report, setReport] = useState("trial"),
     [reportView, setReportView] = useState<"single" | "monthly" | "quarterly">("single"),
     [bsViewMode, setBsViewMode] = useState<"ending" | "incremental">("ending"),
@@ -212,6 +214,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // book-value ledger row in that case rather than silently showing $0.
     [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null),
     [openReportGroup, setOpenReportGroup] = useState<string | null>(null);
+
+  // The classic/refresh toggle has been retired -- refresh is now the only look, everywhere.
+  // Kept as a plain constant (not deleted) rather than rewriting the ~40 `uiTheme === "refresh"`
+  // checks and prop-passes scattered through this file and the report components it renders --
+  // every one of those still evaluates correctly since this is always "refresh" now. The
+  // underlying classic-only CSS/JSX branches this makes dead are left in place for the same
+  // reason: removing them is a separate, larger cleanup pass, not part of retiring the toggle.
+  const uiTheme = "refresh" as const;
 
   // Only one grouped report (Income & Expenditure, Balance Sheet, or Cash Flow) is ever on
   // screen at a time (gated by `report` below), so one shared "Expand All"/"Collapse All" signal
@@ -840,6 +850,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     window.addEventListener("dk-nav-home", handler);
     return () => window.removeEventListener("dk-nav-home", handler);
   }, []);
+
+  // Toggled on <body> rather than this component's own wrapper div -- see darkMode's own
+  // declaration above for why. Runs on mount too (not just on change), so the localStorage-read
+  // initial state actually takes effect on first paint.
+  useEffect(() => {
+    document.body.classList.toggle("dark-mode", darkMode);
+  }, [darkMode]);
 
   // One shared R2 bucket across both books (see app/api/attachments) -- fetched once per session
   // rather than on every render, just to power the Needs Attention free-tier check below.
@@ -2448,10 +2465,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       return next;
     });
 
-  const toggleUiTheme = () =>
-    setUiTheme((t) => {
-      const next = t === "refresh" ? "classic" : "refresh";
-      localStorage.setItem("dk-ui-theme", next);
+  const toggleDarkMode = () =>
+    setDarkMode((d) => {
+      const next = !d;
+      localStorage.setItem("dk-dark-mode", next ? "1" : "0");
       return next;
     });
 
@@ -2470,7 +2487,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     status.startsWith("Blocked:") || status.startsWith("Save failed") || status.startsWith("Newer synchronized");
 
   return (
-    <div className={[privacyMode ? "privacy-mode" : "", uiTheme === "refresh" ? "ui-refresh" : ""].filter(Boolean).join(" ") || undefined}>
+    <div className={[privacyMode ? "privacy-mode" : "", "ui-refresh"].filter(Boolean).join(" ") || undefined}>
       <header>
         <div>
           <small>FINTECH BY DK - ACCOUNTING RELEASE 5</small>
@@ -2640,18 +2657,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           <button
             type="button"
-            className={`ui-theme-toggle-button ${uiTheme === "refresh" ? "on" : "off"}`}
-            onClick={toggleUiTheme}
-            title={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
-            aria-label={uiTheme === "refresh" ? "Switch to classic look" : "Try the new look"}
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-              <circle cx="12" cy="12" r="4" />
-            </svg>
-          </button>
-          <button
-            type="button"
             className={`privacy-toggle-button ${privacyMode ? "on" : "off"}`}
             onClick={togglePrivacy}
             title={privacyMode ? "Show amounts" : "Hide amounts"}
@@ -2669,6 +2674,24 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </svg>
             )}
           </button>
+          <button
+            type="button"
+            className={`dark-mode-toggle-button ${darkMode ? "on" : "off"}`}
+            onClick={toggleDarkMode}
+            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {darkMode ? (
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </svg>
+            ) : (
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                <circle cx="12" cy="12" r="4" />
+              </svg>
+            )}
+          </button>
           <SyncStatusLock book={book} onClick={lockVault} />
         </div>
         <div className="toolbar-icons">
@@ -2679,7 +2702,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             title="Search reports & tabs (Ctrl/Cmd+K)"
             aria-label="Search reports & tabs"
           >
-            {uiTheme === "refresh" ? <StatIcon kind="search" color="#fff" /> : <Icon kind="search" size={15} />}
+            <StatIcon kind="search" color="#fff" />
           </button>
           <div className="attention-bell-wrap">
             <button
@@ -2689,7 +2712,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               title="Needs Attention"
               aria-label="Needs Attention"
             >
-              {uiTheme === "refresh" ? <StatIcon kind="shield" color="#fff" /> : "!"}
+              <StatIcon kind="shield" color="#fff" />
               {attentionItems.length > 0 && <span className="attention-bell-badge">{attentionItems.length}</span>}
             </button>
             {dashboardDetail === "attention" && (
@@ -2865,7 +2888,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className={`dashboard-balance-card cash-card${dashboardDetail === "cash" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("cash")}
             >
-              {uiTheme === "refresh" && <StatIcon kind="cash" color="#1e40af" />}
+              <StatIcon kind="cash" color="#1e40af" />
               <div className="dashboard-card-main">
                 <span>Cash and bank closing</span>
                 <strong>{fmt(cashBank)}</strong>
@@ -2887,7 +2910,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className={`dashboard-balance-card investment-card${dashboardDetail === "investments" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("investments")}
             >
-              {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
+              <StatIcon kind="trending-up" color="#16a34a" />
               <div className="dashboard-card-main">
                 <span>Investments closing</span>
                 <strong>{fmt(investments)}</strong>
@@ -2909,7 +2932,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className={`dashboard-balance-card capital-card${dashboardDetail === "capital" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("capital")}
             >
-              {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
+              <StatIcon kind="scale" color="#7c3aed" />
               <div className="dashboard-card-main">
                 <span>Capital closing</span>
                 <strong>{fmt(dashboardCapitalTotal)}</strong>
@@ -2931,7 +2954,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className={`dashboard-balance-card salary-card${dashboardDetail === "salary" ? " dashboard-card-open" : ""}`}
               onClick={() => toggleDashboardDetail("salary")}
             >
-              {uiTheme === "refresh" && <StatIcon kind="wallet" color="#d97706" />}
+              <StatIcon kind="wallet" color="#d97706" />
               <div className="dashboard-card-main">
                 <span>{book === "india" ? "Total income" : "Salary income"}</span>
                 <strong>{fmt(book === "india" ? totalIncome : salaryIncome)}</strong>
@@ -2955,7 +2978,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 setDashboardDetail(dashboardDetail === "fixedAssets" ? null : "fixedAssets")
               }
             >
-              {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
+              <StatIcon kind="bank" color="#0891b2" />
               <div className="dashboard-card-main">
                 <span>Fixed assets closing</span>
                 <strong>
@@ -3037,7 +3060,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 className={`dashboard-balance-card loans-card${dashboardDetail === "loans" ? " dashboard-card-open" : ""}`}
                 onClick={() => toggleDashboardDetail("loans")}
               >
-                {uiTheme === "refresh" && <StatIcon kind="receipt" color="#0891b2" />}
+                <StatIcon kind="receipt" color="#0891b2" />
                 <div className="dashboard-card-main">
                   <span>Loans (Asset) closing</span>
                   <strong>{fmt(loansAdvances)}</strong>
@@ -3064,7 +3087,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className="dashboard-balance-card"
               onClick={() => { setReport("equity"); setTab("reports"); }}
             >
-              {uiTheme === "refresh" && <StatIcon kind="stock" color="#dc2626" />}
+              <StatIcon kind="stock" color="#dc2626" />
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
                 <strong>{fmt(equityMktValue)}</strong>
@@ -3141,7 +3164,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </div>
           )}
           {importSource === "retirement" && book !== "india" && (
-            <RetirementReport data={data} fmt={fmt} uiTheme={uiTheme} onSave={(next) => save(next, "bank-import")} />
+            <RetirementReport data={data} fmt={fmt} onSave={(next) => save(next, "bank-import")} />
           )}
         </>
       )}
@@ -3845,7 +3868,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
                 <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
-                    {uiTheme === "refresh" && <StatIcon kind="trending-up" color="#16a34a" />}
+                    <StatIcon kind="trending-up" color="#16a34a" />
                     <div className="equity-summary-card-body">
                       <span>Period Income</span>
                       <strong className="equity-amt">{fmt(periodIncome)}</strong>
@@ -3854,7 +3877,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 </div>
                 <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
-                    {uiTheme === "refresh" && <StatIcon kind="receipt" color="#dc2626" />}
+                    <StatIcon kind="receipt" color="#dc2626" />
                     <div className="equity-summary-card-body">
                       <span>Period Expenditure</span>
                       <strong className="equity-amt">{fmt(periodExpense)}</strong>
@@ -3863,7 +3886,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 </div>
                 <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
-                    {uiTheme === "refresh" && <StatIcon kind="scale" color={periodSurplus >= 0 ? "#16a34a" : "#dc2626"} />}
+                    <StatIcon kind="scale" color={periodSurplus >= 0 ? "#16a34a" : "#dc2626"} />
                     <div className="equity-summary-card-body">
                       <span>Surplus / (Deficit)</span>
                       <strong className="equity-amt">{fmt(periodSurplus)}</strong>
@@ -4009,7 +4032,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 collapseSignal={reportExpandAll.collapseSignal}
                 onGroup={(group) => setCashFlowDetail({ group })}
                 onLedger={(group, ledger) => setCashFlowDetail({ group, ledger })}
-                uiTheme={uiTheme}
               />
               )}
             </>
@@ -4037,7 +4059,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">
-                      {uiTheme === "refresh" && <StatIcon kind="bank" color="#1e40af" />}
+                      <StatIcon kind="bank" color="#1e40af" />
                       <div className="equity-summary-card-body">
                         <span>Bank Accounts</span>
                         <strong className="equity-amt">{fmt(bankTotal)}</strong>
@@ -4046,7 +4068,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   </div>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">
-                      {uiTheme === "refresh" && <StatIcon kind="cash" color="#16a34a" />}
+                      <StatIcon kind="cash" color="#16a34a" />
                       <div className="equity-summary-card-body">
                         <span>Cash in Hand</span>
                         <strong className="equity-amt">{fmt(cashTotal)}</strong>
@@ -4055,7 +4077,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   </div>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">
-                      {uiTheme === "refresh" && <StatIcon kind="wallet" color="#7c3aed" />}
+                      <StatIcon kind="wallet" color="#7c3aed" />
                       <div className="equity-summary-card-body">
                         <span>Total Cash and Bank</span>
                         <strong className="equity-amt">{fmt(cashBank)}</strong>
@@ -4113,7 +4135,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <div className="equity-summary-row" style={{ margin: "0.75rem 0" }}>
                   <div className="equity-summary-col">
                     <div className="equity-summary-card">
-                      {uiTheme === "refresh" && <StatIcon kind="calendar" color="#0891b2" />}
+                      <StatIcon kind="calendar" color="#0891b2" />
                       <div className="equity-summary-card-body">
                         <span>Current FY ({currentFY}-{String(currentFY + 1).slice(-2)})</span>
                         <strong className="equity-amt">
@@ -4164,14 +4186,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 await save({ ...data, equity: { grants, esppPurchases } }, "reports");
               }}
               fmt={fmt}
-              uiTheme={uiTheme}
             />
           )}
           {report === "trading" && data && (
             <TradingReport
               key={tradingTab}
               fmt={fmt}
-              uiTheme={uiTheme}
               trades={data.trades}
               onSave={async (trades) => {
                 await save({ ...data, trades }, "reports");
@@ -4189,7 +4209,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 await save({ ...data, indiaTax }, "reports");
               }}
               fmt={fmt}
-              uiTheme={uiTheme}
               transactions={data.transactions}
               accounts={data.accounts}
               initialViewMode={taxViewMode}
@@ -4206,17 +4225,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               }}
               onViewVoucher={editVoucher}
               fmt={fmt}
-              uiTheme={uiTheme}
               livePrice={nvdaPrice}
             />
           )}
           {report === "recon" && data && (
-            <ReconReport data={data} fmt={fmt} uiTheme={uiTheme} />
+            <ReconReport data={data} fmt={fmt} />
           )}
           {report === "bankrecon" && book !== "india" && data && (
             <>
               <h3 className="report-inline-heading">Bank Reconciliation</h3>
-              <BankReconciliation data={data} fmt={fmt} uiTheme={uiTheme} onSave={(next) => save(next, "reports")} />
+              <BankReconciliation data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
             </>
           )}
           {report === "recurring" && data && (() => {
@@ -4285,7 +4303,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 liabilities={realLiabilityRows}
                 trend={netWorthTrendWithEquity}
                 fmt={fmt}
-                uiTheme={uiTheme}
                 onSelectAccount={(id) => setSelected(id)}
                 onNavigateSource={(dest) => {
                   if (dest === "retirement") {
@@ -4809,7 +4826,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         <FloatingWindow
           title={
             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {uiTheme === "refresh" && <VoucherTypeBadge type={selectedVoucher.type} />}
+              <VoucherTypeBadge type={selectedVoucher.type} />
               {selectedVoucher.type} Voucher {selectedVoucher.number}
             </span>
           }
@@ -4840,47 +4857,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </section>
             <h3>Narration</h3>
             <p className="voucher-narration">{cleanText(selectedVoucher.narration) || "-"}</p>
-            {uiTheme === "refresh" ? (
-              <VoucherFlow entries={selectedVoucher.entries} fmt={fmt} />
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Ledger</th>
-                    <th className="right">Debit</th>
-                    <th className="right">Credit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedVoucher.entries.map((e, i) => (
-                    <tr key={`${e.accountId}-${i}`}>
-                      <td>{e.accountName}</td>
-                      <td className="right">{e.amount < 0 ? fmt(-e.amount) : "-"}</td>
-                      <td className="right">{e.amount > 0 ? fmt(e.amount) : "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <th>Total</th>
-                    <th className="right">
-                      {fmt(
-                        selectedVoucher.entries
-                          .filter((e) => e.amount < 0)
-                          .reduce((n, e) => n - e.amount, 0)
-                      )}
-                    </th>
-                    <th className="right">
-                      {fmt(
-                        selectedVoucher.entries
-                          .filter((e) => e.amount > 0)
-                          .reduce((n, e) => n + e.amount, 0)
-                      )}
-                    </th>
-                  </tr>
-                </tfoot>
-              </table>
-            )}
+            <VoucherFlow entries={selectedVoucher.entries} fmt={fmt} />
             {selectedVoucher.entries.some((e) => data.accounts.find((a) => a.id === e.accountId)?.parent === FIXED_ASSETS_GROUP_NAME) && (
               <>
                 <h3 style={{ marginBottom: 2 }}>

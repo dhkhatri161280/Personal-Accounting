@@ -52,12 +52,10 @@ function loadCache(): Cache | null {
 export function RetirementReport({
   data,
   fmt,
-  uiTheme,
   onSave,
 }: {
   data: Ledger;
   fmt: (n: number) => string;
-  uiTheme?: "classic" | "refresh";
   onSave?: (next: Ledger) => Promise<boolean | void>;
 }) {
   const cached = useMemo(loadCache, []);
@@ -309,7 +307,7 @@ export function RetirementReport({
             {grouped.map(([inst, accts]) =>
               accts.map((a) => (
                 <button key={a.account_id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-                  {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
+                  <StatIcon kind="bank" color="#0891b2" />
                   <div className="dashboard-card-main">
                     <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
                     <strong>{fmt(a.balances?.current ?? 0)}</strong>
@@ -320,7 +318,7 @@ export function RetirementReport({
             )}
             {otherInvestments.map((r) => (
               <button key={r.id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-                {uiTheme === "refresh" && <StatIcon kind="bank" color="#0891b2" />}
+                <StatIcon kind="bank" color="#0891b2" />
                 <div className="dashboard-card-main">
                   <span>{r.label}</span>
                   <strong>{fmt(r.amount)}</strong>
@@ -329,7 +327,7 @@ export function RetirementReport({
               </button>
             ))}
             <button type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-              {uiTheme === "refresh" && <StatIcon kind="scale" color="#7c3aed" />}
+              <StatIcon kind="scale" color="#7c3aed" />
               <div className="dashboard-card-main">
                 <span>Total retirement</span>
                 <strong>{fmt(totalBalance)}</strong>

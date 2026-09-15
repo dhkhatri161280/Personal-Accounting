@@ -63,6 +63,12 @@ export type Account = {
   tallyMasterId?: number;
   masterFingerprint?: string;
   masterDeletePending?: boolean;
+  // Mailing address and email for this ledger's counterparty (bank, loan, sundry debtor/
+  // creditor, ...) -- lets the Balance Confirmation Letter pull a recipient's details from
+  // Masters instead of retyping them per letter. Editable there too; a per-letter edit only
+  // overrides that one letter, it doesn't write back to the master record.
+  address?: string;
+  email?: string;
 };
 
 export type RsuVest = {

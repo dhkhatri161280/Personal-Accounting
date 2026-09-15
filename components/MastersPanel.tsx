@@ -49,6 +49,8 @@ export type MasterAccount = {
   tallyMasterId?: number;
   masterFingerprint?: string;
   masterDeletePending?: boolean;
+  address?: string;
+  email?: string;
 };
 export type MasterLedger = {
   company?: string;
@@ -354,6 +356,8 @@ function AccountForm({
       opening: Math.abs(account?.openingBalance || 0),
       side: (account?.openingBalance || 0) <= 0 ? "Dr" : "Cr",
       active: account?.active !== false,
+      address: account?.address || "",
+      email: account?.email || "",
     },
   });
   return (
@@ -397,6 +401,18 @@ function AccountForm({
       </div>
       <label className="check-label">
         <input {...register("active")} type="checkbox" /> Active ledger
+      </label>
+      {/* Optional -- lets the Balance Confirmation Letter pull this ledger's address straight
+         from Masters instead of retyping it per letter; a per-letter edit there doesn't write
+         back here. Not required for ledgers that don't need one (e.g. internal/expense accounts). */}
+      <label>
+        Address (optional)
+        <textarea rows={2} {...register("address")} placeholder="Street, City, State, ZIP" />
+      </label>
+      <label>
+        Email (optional)
+        <input {...register("email")} type="email" placeholder="name@example.com" />
+        {errors.email && <span className="field-error">{errors.email.message}</span>}
       </label>
       <div>
         <button type="button" onClick={onCancel}>
@@ -503,7 +519,9 @@ export function MastersPanel({
       currency = values.currency,
       amount = Math.abs(values.opening),
       side = values.side,
-      active = values.active;
+      active = values.active,
+      address = values.address?.trim() || undefined,
+      email = values.email?.trim() || undefined;
     const existing = data.accounts.find((a) => a.id === accountId),
       account: MasterAccount = {
         id: existing?.id || Math.max(0, ...data.accounts.map((a) => a.id)) + 1,
@@ -513,6 +531,8 @@ export function MastersPanel({
         currency,
         openingBalance: side === "Dr" ? -amount : amount,
         active,
+        address,
+        email,
         masterSyncStatus: "pending",
         masterOriginalName: existing?.masterOriginalName || existing?.name,
         tallyGuid: existing?.tallyGuid,
@@ -522,7 +542,11 @@ export function MastersPanel({
     // boolean -- normalize both sides to the app's own "active !== false" convention first, or
     // every edit of a never-toggled account would show a spurious "active changed" diff.
     const changes = existing
-      ? diffFields({ ...existing, active: existing.active !== false }, { ...account, active: account.active !== false }, ["name", "parent", "currency", "openingBalance", "active"])
+      ? diffFields(
+          { ...existing, active: existing.active !== false },
+          { ...account, active: account.active !== false },
+          ["name", "parent", "currency", "openingBalance", "active", "address", "email"]
+        )
       : [];
     const next = appendAuditEntry(
       {

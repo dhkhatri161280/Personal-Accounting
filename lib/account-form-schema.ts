@@ -18,5 +18,7 @@ export function accountFormSchema(existingNames: string[]) {
     opening: z.number().min(0, "Opening balance can't be negative"),
     side: z.enum(["Dr", "Cr"]),
     active: z.boolean(),
+    address: z.string().trim().optional(),
+    email: z.string().trim().email("Enter a valid email address").optional().or(z.literal("")),
   });
 }

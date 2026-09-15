@@ -69,7 +69,6 @@ interface EquityReportProps {
   onSave: (grants: RsuGrant[], espp: EsppPurchase[]) => Promise<void>;
   fmt: (n: number) => string;
   readOnly?: boolean;
-  uiTheme?: "classic" | "refresh";
 }
 
 const SUMMARY_ICON: Record<"vested" | "tax" | "sold" | "espp", { icon: IconKind; color: string }> = {
@@ -79,7 +78,7 @@ const SUMMARY_ICON: Record<"vested" | "tax" | "sold" | "espp", { icon: IconKind;
   espp: { icon: "tag", color: "#d97706" },
 };
 
-export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, readOnly, uiTheme }: EquityReportProps) {
+export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, readOnly }: EquityReportProps) {
   const [price, setPrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
   const [priceErr, setPriceErr] = useState("");
@@ -701,7 +700,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               add up themselves from the other cards. */}
           <div className="equity-summary-col">
             <div className="equity-summary-card equity-summary-card--current">
-              {uiTheme === "refresh" && <StatIcon kind="wallet" color="#1d4ed8" />}
+              <StatIcon kind="wallet" color="#1d4ed8" />
               <div className="equity-summary-card-body">
                 <span>Total Holdings</span>
                 <strong className="equity-amt">{fmt(summaryTotalHoldingsValue)}</strong>
@@ -734,7 +733,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   className={`equity-summary-card equity-summary-stat ${active ? "equity-summary-stat--active" : ""}`}
                   onClick={() => setSummaryFilter(active ? null : key)}
                 >
-                  {uiTheme === "refresh" && <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />}
+                  <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />
                   <div className="equity-summary-card-body">
                     <span>{labels[key]}</span>
                     <strong className="equity-amt">{fmt(values[key])}</strong>
@@ -748,7 +747,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           {/* Scheduled Value card */}
           <div className="equity-summary-col">
             <button className="equity-summary-card equity-summary-stat equity-scheduled-card" onClick={() => setShowScheduled(true)}>
-              {uiTheme === "refresh" && <StatIcon kind="calendar" color="#0891b2" />}
+              <StatIcon kind="calendar" color="#0891b2" />
               <div className="equity-summary-card-body">
                 <span>Scheduled</span>
                 <strong className="equity-amt">{fmt(scheduledValueWithEspp)}</strong>
@@ -760,9 +759,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           {/* Daily G/(L) card */}
           <div className="equity-summary-col">
             <div className={`equity-summary-card equity-summary-stat equity-daily-gl-card ${dailyGL === null ? "" : dailyGL >= 0 ? "equity-daily-gl-card--pos" : "equity-daily-gl-card--neg"}`}>
-              {uiTheme === "refresh" && (
-                <StatIcon kind="trending-up" color={dailyGL === null ? "#64748b" : dailyGL >= 0 ? "#16a34a" : "#dc2626"} />
-              )}
+              <StatIcon kind="trending-up" color={dailyGL === null ? "#64748b" : dailyGL >= 0 ? "#16a34a" : "#dc2626"} />
               <div className="equity-summary-card-body">
                 <span>Daily G/(L)</span>
                 <strong className="equity-amt">
@@ -919,7 +916,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               >
                 📅 Next vest{" "}
                 {new Date(pendingVestDays[0].date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
-                {" · "}{pendingVestDays[0].items.length}g · {pendingVestDays[0].totalShares.toLocaleString()}sh →
+                {" · "}{pendingVestDays[0].items.length}g · <span className="equity-amt">{pendingVestDays[0].totalShares.toLocaleString()}sh</span> →
               </button>
               {pendingVestDays.length > 1 && (
                 <button className="equity-vest-day-more" onClick={() => setShowAllVestDays((v) => !v)}>
@@ -935,7 +932,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       onClick={() => { openVestDay(date, items); setShowAllVestDays(false); }}
                     >
                       <span>{new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</span>
-                      <span>{items.length}g · {totalShares.toLocaleString()}sh</span>
+                      <span>{items.length}g · <span className="equity-amt">{totalShares.toLocaleString()}sh</span></span>
                     </button>
                   ))}
                 </div>
@@ -1324,7 +1321,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           {grantRows.filter(g => g.pendingShares > 0).map(g => (
             <button key={g.id} className={`equity-grant-filter-chip${grantFilter === g.id ? " equity-grant-filter-chip--active" : ""}`} onClick={() => setGrantFilter(grantFilter === g.id ? null : g.id)}>
               {g.ticker} {fmtDate(g.grantDate)}
-              <span className="equity-grant-filter-count"> · {g.pendingShares.toLocaleString()} sch.</span>
+              <span className="equity-grant-filter-count equity-amt"> · {g.pendingShares.toLocaleString()} sch.</span>
             </button>
           ))}
         </div>
@@ -1894,7 +1891,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       return (
                         <tr key={e.id} className="equity-edit-row">
                           <td colSpan={7} className="equity-cycle-indent">
-                            <strong>{fmtDate(e.purchaseDate)}</strong> — {e.shares} shares @ $
+                            <strong>{fmtDate(e.purchaseDate)}</strong> — <span className="equity-amt">{e.shares} shares</span> @ $
                             {editEsppForm.marketPriceAtPurchase
                               ? esppPurchasePrice(Number(editEsppForm.marketPriceAtPurchase)).toFixed(2)
                               : e.purchasePrice.toFixed(2)}
@@ -2019,7 +2016,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           </tbody>
           <tfoot>
             <tr>
-              <th colSpan={4}>ESPP Total — {esppHeldShares.toLocaleString()} shares held</th>
+              <th colSpan={4}>ESPP Total — <span className="equity-amt">{esppHeldShares.toLocaleString()} shares held</span></th>
               <th className="right">—</th>
               <th className="right">{esppHeldShares.toLocaleString()}</th>
               <th className="right equity-amt">{fmt(esppRows.reduce((s, e) => s + e.purchaseValue, 0))}</th>

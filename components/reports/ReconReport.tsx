@@ -89,7 +89,7 @@ function computeAppBalances(data: Ledger, fyStart: string, fyEnd: string): Map<s
   return byName;
 }
 
-export function ReconReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: number) => string; uiTheme?: "classic" | "refresh" }) {
+export function ReconReport({ data, fmt }: { data: Ledger; fmt: (n: number) => string }) {
   const [onlyDiff, setOnlyDiff] = useState(true);
   const [fName, setFName] = useState("");
   const [fParent, setFParent] = useState("");
@@ -203,7 +203,7 @@ export function ReconReport({ data, fmt, uiTheme }: { data: Ledger; fmt: (n: num
         {summaryCards.map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
-              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
                 <strong className="equity-amt">{c.format === "count" ? c.value : fmt(c.value)}</strong>

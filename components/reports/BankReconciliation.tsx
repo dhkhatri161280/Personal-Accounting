@@ -21,12 +21,10 @@ const MONEY_OUT = "#dc2626";
 export function BankReconciliation({
   data,
   fmt,
-  uiTheme,
   onSave,
 }: {
   data: Ledger;
   fmt: (n: number) => string;
-  uiTheme?: "classic" | "refresh";
   onSave: (next: Ledger) => Promise<boolean> | boolean;
 }) {
   const [fetching, setFetching] = useState(false);
@@ -109,7 +107,7 @@ export function BankReconciliation({
         {summaryCards.map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div className="equity-summary-card">
-              {uiTheme === "refresh" && <StatIcon kind={c.icon} color={c.color} />}
+              <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
                 <strong className="equity-amt" style={{ color: c.color }}>

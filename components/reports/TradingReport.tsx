@@ -91,10 +91,9 @@ function daysBetween(d1: string, d2: string) {
   return Math.round((new Date(d2).getTime() - new Date(d1).getTime()) / 86400000);
 }
 export function TradingReport({
-  fmt, uiTheme, trades, onSave, data, onSaveLedger, initialTab,
+  fmt, trades, onSave, data, onSaveLedger, initialTab,
 }: {
   fmt: (n: number) => string;
-  uiTheme?: "classic" | "refresh";
   trades: Trade[] | undefined; // undefined = never migrated to vault storage yet, see effect below
   onSave: (trades: Trade[]) => Promise<void>;
   // Full ledger access, only needed for the Schwab CSV reconcile tool below (dividend voucher
@@ -728,42 +727,42 @@ export function TradingReport({
       {/* Summary bar */}
       <div className="tr-summary-bar">
         <div className="tr-summary-card tr-summary-card--neutral">
-          {uiTheme === "refresh" && <StatIcon kind="stock" color="#64748b" />}
+          <StatIcon kind="stock" color="#64748b" />
           <div className="tr-summary-card-body">
             <span>Open Positions</span>
             <strong>{open.length}</strong>
           </div>
         </div>
         <div className={`tr-summary-card ${totalUnrealized < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          {uiTheme === "refresh" && <StatIcon kind="trending-up" color={totalUnrealized < 0 ? "#dc2626" : "#16a34a"} />}
+          <StatIcon kind="trending-up" color={totalUnrealized < 0 ? "#dc2626" : "#16a34a"} />
           <div className="tr-summary-card-body">
             <span>Unrealized G/(L)</span>
             <strong className="trading-amt">{fmt(totalUnrealized)}</strong>
           </div>
         </div>
         <div className={`tr-summary-card ${totalRealized < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          {uiTheme === "refresh" && <StatIcon kind="cash" color={totalRealized < 0 ? "#dc2626" : "#16a34a"} />}
+          <StatIcon kind="cash" color={totalRealized < 0 ? "#dc2626" : "#16a34a"} />
           <div className="tr-summary-card-body">
             <span>Realized G/(L)</span>
             <strong className="trading-amt">{fmt(totalRealized)}</strong>
           </div>
         </div>
         <div className={`tr-summary-card ${netPL < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          {uiTheme === "refresh" && <StatIcon kind="scale" color={netPL < 0 ? "#dc2626" : "#16a34a"} />}
+          <StatIcon kind="scale" color={netPL < 0 ? "#dc2626" : "#16a34a"} />
           <div className="tr-summary-card-body">
             <span>Net P&amp;L</span>
             <strong className="trading-amt">{fmt(netPL)}</strong>
           </div>
         </div>
         <div className={`tr-summary-card ${totalDailyGL < 0 ? "tr-summary-card--neg" : "tr-summary-card--pos"}`}>
-          {uiTheme === "refresh" && <StatIcon kind="calendar" color={totalDailyGL < 0 ? "#dc2626" : "#16a34a"} />}
+          <StatIcon kind="calendar" color={totalDailyGL < 0 ? "#dc2626" : "#16a34a"} />
           <div className="tr-summary-card-body">
             <span>Daily G/(L)</span>
             <strong className="trading-amt">{totalDailyGL >= 0 ? "+" : ""}{fmt(totalDailyGL)}</strong>
           </div>
         </div>
         <div className="tr-summary-card tr-summary-card--neutral">
-          {uiTheme === "refresh" && <StatIcon kind="receipt" color="#64748b" />}
+          <StatIcon kind="receipt" color="#64748b" />
           <div className="tr-summary-card-body">
             <span>Total Trades</span>
             <strong>{effectiveTrades.length}</strong>
