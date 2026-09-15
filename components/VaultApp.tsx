@@ -4,6 +4,11 @@ import { ThemeProvider } from "@mui/material/styles";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
 import { useVoucherForm, autoBalance } from "@/hooks/useVoucherForm";
+import { useUiPrefs } from "@/hooks/useUiPrefs";
+import { useDashboardDetail } from "@/hooks/useDashboardDetail";
+import { DashboardCard } from "@/components/DashboardCard";
+import { HeaderToggles } from "@/components/HeaderToggles";
+import { TabSidebar } from "@/components/TabSidebar";
 import { TransactionTable } from "@/components/TransactionTable";
 import { MastersPanel, type MasterGroup } from "@/components/MastersPanel";
 import type {
@@ -155,17 +160,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [plaidImportTab, setPlaidImportTab] = useState<"transactions" | "pending" | "balances">("transactions"),
     [tradingTab, setTradingTab] = useState<"open" | "closed" | "watchlist">("open"),
     [taxViewMode, setTaxViewMode] = useState<"yearly" | "all">("yearly"),
-    [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1"),
-    // Applied to <body> (see the effect below), not this component's own wrapper div -- dark mode
-    // needs to repaint the true page background (body's own rule), not just descendants of one
-    // inner div, or the area outside/around this component (rare, but real on some viewport/
-    // scroll-bounce edge cases) would stay light.
-    [darkMode, setDarkMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-dark-mode") === "1"),
-    // Defaults to collapsed (icon rail) rather than expanded -- the whole point of this toggle is
-    // to guarantee report/ledger tables never lose width to the nav unless the user deliberately
-    // asks for labels back, so "no width taken" has to be the out-of-the-box state, not something
-    // the user has to discover and opt into on every fresh browser.
-    [navCollapsed, setNavCollapsed] = useState(() => typeof window === "undefined" || localStorage.getItem("dk-nav-collapsed") !== "0"),
     [report, setReport] = useState("trial"),
     [reportView, setReportView] = useState<"single" | "monthly" | "quarterly">("single"),
     [bsViewMode, setBsViewMode] = useState<"ending" | "incremental">("ending"),
@@ -186,9 +180,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [minAmount, setMinAmount] = useState(""),
     [sortKey, setSortKey] = useState("name"),
     [sortDir, setSortDir] = useState<"asc" | "desc">("asc"),
-    [dashboardDetail, setDashboardDetail] = useState<
-      "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "loans" | "attention" | null
-    >(null),
     [cashFlowDetail, setCashFlowDetail] = useState<{ group: string; ledger?: string } | null>(null),
     [columnarDrilldown, setColumnarDrilldown] = useState<DrilldownRequest | null>(null),
     [selected, setSelected] = useState<number | null>(null),
@@ -214,6 +205,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // book-value ledger row in that case rather than silently showing $0.
     [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null),
     [openReportGroup, setOpenReportGroup] = useState<string | null>(null);
+  const { privacyMode, togglePrivacy, darkMode, toggleDarkMode, navCollapsed, toggleNavCollapsed } = useUiPrefs();
+  const { dashboardDetail, setDashboardDetail, toggleDashboardDetail: toggleDashboardDetailRaw } = useDashboardDetail<
+    "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "loans" | "attention"
+  >();
 
   // The classic/refresh toggle has been retired -- refresh is now the only look, everywhere.
   // Kept as a plain constant (not deleted) rather than rewriting the ~40 `uiTheme === "refresh"`
@@ -850,13 +845,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     window.addEventListener("dk-nav-home", handler);
     return () => window.removeEventListener("dk-nav-home", handler);
   }, []);
-
-  // Toggled on <body> rather than this component's own wrapper div -- see darkMode's own
-  // declaration above for why. Runs on mount too (not just on change), so the localStorage-read
-  // initial state actually takes effect on first paint.
-  useEffect(() => {
-    document.body.classList.toggle("dark-mode", darkMode);
-  }, [darkMode]);
 
   // One shared R2 bucket across both books (see app/api/attachments) -- fetched once per session
   // rather than on every render, just to power the Needs Attention free-tier check below.
@@ -2341,7 +2329,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
 
   const toggleDashboardDetail = (
     kind: "cash" | "investments" | "capital" | "salary" | "active" | "loans"
-  ) => setDashboardDetail((current) => (current === kind ? null : kind));
+  ) => toggleDashboardDetailRaw(kind);
 
   const DashboardInline = ({
     kind,
@@ -2457,27 +2445,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     syncGroups = Array.isArray((data as { groups?: unknown[] }).groups)
       ? (data as { groups: unknown[] }).groups
       : [];
-
-  const togglePrivacy = () =>
-    setPrivacyMode((p) => {
-      const next = !p;
-      localStorage.setItem("dk-privacy", next ? "1" : "0");
-      return next;
-    });
-
-  const toggleDarkMode = () =>
-    setDarkMode((d) => {
-      const next = !d;
-      localStorage.setItem("dk-dark-mode", next ? "1" : "0");
-      return next;
-    });
-
-  const toggleNavCollapsed = () =>
-    setNavCollapsed((c) => {
-      const next = !c;
-      localStorage.setItem("dk-nav-collapsed", next ? "1" : "0");
-      return next;
-    });
 
   // Blocking errors (a rejected save, not a transient "Encrypting..."/"Auto-fixed..." progress
   // note) get a full-width, un-truncated alert banner instead of the small header pill -- the
@@ -2655,43 +2622,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <span className="secure-icon" aria-hidden="true" />
             </button>
           )}
-          <button
-            type="button"
-            className={`privacy-toggle-button ${privacyMode ? "on" : "off"}`}
-            onClick={togglePrivacy}
-            title={privacyMode ? "Show amounts" : "Hide amounts"}
-            aria-label={privacyMode ? "Show amounts" : "Hide amounts"}
-          >
-            {privacyMode ? (
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                <line x1="1" y1="1" x2="23" y2="23"/>
-              </svg>
-            ) : (
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
-            )}
-          </button>
-          <button
-            type="button"
-            className={`dark-mode-toggle-button ${darkMode ? "on" : "off"}`}
-            onClick={toggleDarkMode}
-            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {darkMode ? (
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-              </svg>
-            ) : (
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                <circle cx="12" cy="12" r="4" />
-              </svg>
-            )}
-          </button>
+          <HeaderToggles
+            privacyMode={privacyMode}
+            onTogglePrivacy={togglePrivacy}
+            darkMode={darkMode}
+            onToggleDarkMode={toggleDarkMode}
+          />
           <SyncStatusLock book={book} onClick={lockVault} />
         </div>
         <div className="toolbar-icons">
@@ -2795,16 +2731,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </FloatingWindow>
       )}
       <div className={`workspace-split${navCollapsed ? " workspace-split--collapsed" : ""}`}>
-        <nav className="tab-sidebar">
-          <button
-            type="button"
-            className="tab-sidebar-toggle"
-            onClick={toggleNavCollapsed}
-            title={navCollapsed ? "Expand navigation" : "Collapse navigation"}
-            aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
-          >
-            {navCollapsed ? "»" : "«"}
-          </button>
+        <TabSidebar collapsed={navCollapsed} onToggleCollapsed={toggleNavCollapsed}>
           <button
             className={tab === "dashboard" ? "selected" : ""}
             onClick={() => setTab("dashboard")}
@@ -2850,7 +2777,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <span className="tab-sidebar-label">Ledgers</span>
           </button>
           {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
-        </nav>
+        </TabSidebar>
         <div className="workspace-content">
       {searchOpen && (
         <FloatingWindow title="Search" onClose={() => setSearchOpen(false)} initialWidth={480} initialHeight={440}>
@@ -2883,141 +2810,124 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       )}
       {tab === "dashboard" && (
         <section className="stats dashboard-stats">
-          <div className="dashboard-card-slot cash-slot">
-            <button
-              className={`dashboard-balance-card cash-card${dashboardDetail === "cash" ? " dashboard-card-open" : ""}`}
-              onClick={() => toggleDashboardDetail("cash")}
-            >
-              <StatIcon kind="cash" color="#1e40af" />
-              <div className="dashboard-card-main">
-                <span>Cash and bank closing</span>
-                <strong>{fmt(cashBank)}</strong>
-                <small>View account breakdown</small>
-              </div>
-              <div className="dashboard-card-highlights">
-                {cashHighlights.map((x) => (
-                  <span key={x.label}>
-                    <b>{x.label}</b>
-                    <em>{fmt(x.value)}</em>
-                  </span>
-                ))}
-              </div>
-            </button>
+          <DashboardCard
+            slotClassName="cash-slot"
+            cardClassName="cash-card"
+            icon="cash"
+            iconColor="#1e40af"
+            label="Cash and bank closing"
+            value={fmt(cashBank)}
+            subtitle="View account breakdown"
+            open={dashboardDetail === "cash"}
+            onClick={() => toggleDashboardDetail("cash")}
+            highlights={cashHighlights.map((x) => (
+              <span key={x.label}>
+                <b>{x.label}</b>
+                <em>{fmt(x.value)}</em>
+              </span>
+            ))}
+          >
             <DashboardInline kind="cash" />
-          </div>
-          <div className="dashboard-card-slot investment-slot">
-            <button
-              className={`dashboard-balance-card investment-card${dashboardDetail === "investments" ? " dashboard-card-open" : ""}`}
-              onClick={() => toggleDashboardDetail("investments")}
-            >
-              <StatIcon kind="trending-up" color="#16a34a" />
-              <div className="dashboard-card-main">
-                <span>Investments closing</span>
-                <strong>{fmt(investments)}</strong>
-                <small>View investment ledgers</small>
-              </div>
-              <div className="dashboard-card-highlights">
-                {investmentHighlights.map((x) => (
-                  <span key={x.label}>
-                    <b>{x.label}</b>
-                    <em>{fmt(x.value)}</em>
-                  </span>
-                ))}
-              </div>
-            </button>
+          </DashboardCard>
+          <DashboardCard
+            slotClassName="investment-slot"
+            cardClassName="investment-card"
+            icon="trending-up"
+            iconColor="#16a34a"
+            label="Investments closing"
+            value={fmt(investments)}
+            subtitle="View investment ledgers"
+            open={dashboardDetail === "investments"}
+            onClick={() => toggleDashboardDetail("investments")}
+            highlights={investmentHighlights.map((x) => (
+              <span key={x.label}>
+                <b>{x.label}</b>
+                <em>{fmt(x.value)}</em>
+              </span>
+            ))}
+          >
             <DashboardInline kind="investments" />
-          </div>
-          <div className="dashboard-card-slot capital-slot">
-            <button
-              className={`dashboard-balance-card capital-card${dashboardDetail === "capital" ? " dashboard-card-open" : ""}`}
-              onClick={() => toggleDashboardDetail("capital")}
-            >
-              <StatIcon kind="scale" color="#7c3aed" />
-              <div className="dashboard-card-main">
-                <span>Capital closing</span>
-                <strong>{fmt(dashboardCapitalTotal)}</strong>
-                <small>Includes current result</small>
-              </div>
-              <div className="dashboard-card-highlights">
-                {capitalHighlights.map((x) => (
-                  <span key={x.label}>
-                    <b>{x.label}</b>
-                    <em>{fmt(x.value)}</em>
-                  </span>
-                ))}
-              </div>
-            </button>
+          </DashboardCard>
+          <DashboardCard
+            slotClassName="capital-slot"
+            cardClassName="capital-card"
+            icon="scale"
+            iconColor="#7c3aed"
+            label="Capital closing"
+            value={fmt(dashboardCapitalTotal)}
+            subtitle="Includes current result"
+            open={dashboardDetail === "capital"}
+            onClick={() => toggleDashboardDetail("capital")}
+            highlights={capitalHighlights.map((x) => (
+              <span key={x.label}>
+                <b>{x.label}</b>
+                <em>{fmt(x.value)}</em>
+              </span>
+            ))}
+          >
             <DashboardInline kind="capital" />
-          </div>
-          <div className="dashboard-card-slot salary-slot">
-            <button
-              className={`dashboard-balance-card salary-card${dashboardDetail === "salary" ? " dashboard-card-open" : ""}`}
-              onClick={() => toggleDashboardDetail("salary")}
-            >
-              <StatIcon kind="wallet" color="#d97706" />
-              <div className="dashboard-card-main">
-                <span>{book === "india" ? "Total income" : "Salary income"}</span>
-                <strong>{fmt(book === "india" ? totalIncome : salaryIncome)}</strong>
-                <small>{periodLabel}</small>
-              </div>
-              <div className="dashboard-card-highlights">
-                {(book === "india" ? totalIncomeHighlights : salaryHighlights).map((x) => (
-                  <span key={x.label}>
-                    <b title={x.label}>{x.label}</b>
-                    <em>{fmt(x.value)}</em>
-                  </span>
-                ))}
-              </div>
-            </button>
+          </DashboardCard>
+          <DashboardCard
+            slotClassName="salary-slot"
+            cardClassName="salary-card"
+            icon="wallet"
+            iconColor="#d97706"
+            label={book === "india" ? "Total income" : "Salary income"}
+            value={fmt(book === "india" ? totalIncome : salaryIncome)}
+            subtitle={periodLabel}
+            open={dashboardDetail === "salary"}
+            onClick={() => toggleDashboardDetail("salary")}
+            highlights={(book === "india" ? totalIncomeHighlights : salaryHighlights).map((x) => (
+              <span key={x.label}>
+                <b title={x.label}>{x.label}</b>
+                <em>{fmt(x.value)}</em>
+              </span>
+            ))}
+          >
             <DashboardInline kind="salary" />
-          </div>
-          <div className="dashboard-card-slot active-slot">
-            <button
-              className={`dashboard-balance-card dashboard-card-active fixed-assets-card${dashboardDetail === "fixedAssets" ? " dashboard-card-open" : ""}`}
-              onClick={() =>
-                setDashboardDetail(dashboardDetail === "fixedAssets" ? null : "fixedAssets")
-              }
-            >
-              <StatIcon kind="bank" color="#0891b2" />
-              <div className="dashboard-card-main">
-                <span>Fixed assets closing</span>
-                <strong>
-                  {fmt(
-                    rows
-                      .filter((a) => /^fixed assets$/i.test(a.parent || ""))
-                      .reduce((s, a) => s + displayLedgerBalance(a, a.closing), 0)
-                  )}
-                </strong>
-                <small>View fixed asset ledgers</small>
-              </div>
-              <div className="dashboard-card-highlights">
-                {rows
-                  .filter(
-                    (a) =>
-                      /^fixed assets$/i.test(a.parent || "") &&
-                      !(book === "us" && /home mortgage/i.test(a.name)) &&
-                      Math.abs(a.closing) > tol
-                  )
-                  .slice()
-                  .sort(
-                    (a, b) =>
-                      displayLedgerBalance(b, b.closing) - displayLedgerBalance(a, a.closing)
-                  )
-                  .slice(0, 3)
-                  .map((a) => (
-                    <span key={a.id}>
-                      <b>
-                        {a.name
-                          .replace(/\s*-\s*/g, " ")
-                          .replace(/\b(fixed assets?|purchase)\b/gi, "")
-                          .trim()
-                          .slice(0, 12) || "Asset"}
-                      </b>
-                      <em>{fmt(displayLedgerBalance(a, a.closing))}</em>
-                    </span>
-                  ))}
-              </div>
-            </button>
+          </DashboardCard>
+          <DashboardCard
+            slotClassName="active-slot"
+            cardClassName="dashboard-card-active fixed-assets-card"
+            icon="bank"
+            iconColor="#0891b2"
+            label="Fixed assets closing"
+            value={fmt(
+              rows
+                .filter((a) => /^fixed assets$/i.test(a.parent || ""))
+                .reduce((s, a) => s + displayLedgerBalance(a, a.closing), 0)
+            )}
+            subtitle="View fixed asset ledgers"
+            open={dashboardDetail === "fixedAssets"}
+            onClick={() =>
+              setDashboardDetail(dashboardDetail === "fixedAssets" ? null : "fixedAssets")
+            }
+            highlights={rows
+              .filter(
+                (a) =>
+                  /^fixed assets$/i.test(a.parent || "") &&
+                  !(book === "us" && /home mortgage/i.test(a.name)) &&
+                  Math.abs(a.closing) > tol
+              )
+              .slice()
+              .sort(
+                (a, b) =>
+                  displayLedgerBalance(b, b.closing) - displayLedgerBalance(a, a.closing)
+              )
+              .slice(0, 3)
+              .map((a) => (
+                <span key={a.id}>
+                  <b>
+                    {a.name
+                      .replace(/\s*-\s*/g, " ")
+                      .replace(/\b(fixed assets?|purchase)\b/gi, "")
+                      .trim()
+                      .slice(0, 12) || "Asset"}
+                  </b>
+                  <em>{fmt(displayLedgerBalance(a, a.closing))}</em>
+                </span>
+              ))}
+          >
             {dashboardDetail === "fixedAssets" && (
               <div className="dashboard-inline-detail">
                 <div className="dashboard-inline-heading">
@@ -3053,34 +2963,31 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </div>
             )}
             <DashboardInline kind="active" />
-          </div>
+          </DashboardCard>
           {book === "india" && (
-            <div className="dashboard-card-slot loans-slot">
-              <button
-                className={`dashboard-balance-card loans-card${dashboardDetail === "loans" ? " dashboard-card-open" : ""}`}
-                onClick={() => toggleDashboardDetail("loans")}
-              >
-                <StatIcon kind="receipt" color="#0891b2" />
-                <div className="dashboard-card-main">
-                  <span>Loans (Asset) closing</span>
-                  <strong>{fmt(loansAdvances)}</strong>
-                  <small>View loan &amp; advance ledgers</small>
-                </div>
-                <div className="dashboard-card-highlights">
-                  {loansAdvancesRows
-                    .slice()
-                    .sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing))
-                    .slice(0, 3)
-                    .map((a) => (
-                      <span key={a.id}>
-                        <b>{a.name.trim().split(/\s+/)[0]}</b>
-                        <em>{fmt(-a.closing)}</em>
-                      </span>
-                    ))}
-                </div>
-              </button>
+            <DashboardCard
+              slotClassName="loans-slot"
+              cardClassName="loans-card"
+              icon="receipt"
+              iconColor="#0891b2"
+              label="Loans (Asset) closing"
+              value={fmt(loansAdvances)}
+              subtitle="View loan & advance ledgers"
+              open={dashboardDetail === "loans"}
+              onClick={() => toggleDashboardDetail("loans")}
+              highlights={loansAdvancesRows
+                .slice()
+                .sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing))
+                .slice(0, 3)
+                .map((a) => (
+                  <span key={a.id}>
+                    <b>{a.name.trim().split(/\s+/)[0]}</b>
+                    <em>{fmt(-a.closing)}</em>
+                  </span>
+                ))}
+            >
               <DashboardInline kind="loans" />
-            </div>
+            </DashboardCard>
           )}
           {book !== "india" && <div className="dashboard-card-slot equity-slot">
             <button
@@ -3293,6 +3200,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onClearSearch={() => setQuery("")}
             closedPeriods={data.closedPeriods}
             virtualized
+            mobileCards
           />
         </div>
       )}
@@ -4817,6 +4725,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDelete={(t) => deleteVoucher(t as Tx)}
               closedPeriods={data.closedPeriods}
               virtualized
+              mobileCards
             />
           </div>
         </FloatingWindow>

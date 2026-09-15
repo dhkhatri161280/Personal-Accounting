@@ -25,6 +25,12 @@ import { StatIcon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
+import { fmtDate } from "@/lib/format-date";
+import { useUiPrefs } from "@/hooks/useUiPrefs";
+import { HeaderToggles } from "@/components/HeaderToggles";
+import { TabSidebar } from "@/components/TabSidebar";
+import { useDashboardDetail } from "@/hooks/useDashboardDetail";
+import { DashboardCard } from "@/components/DashboardCard";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
@@ -111,9 +117,6 @@ function debitNames(t: GrTx) {
 function creditNames(t: GrTx) {
   return t.entries.filter((e) => e.amountInr > 0).map((e) => e.accountName).join(" / ") || "-";
 }
-function formatDate(d: string) {
-  return d.split("-").reverse().join("-");
-}
 function normKey(name: string) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -166,22 +169,16 @@ export function GrApp() {
   const [minAmount, setMinAmount] = useState("");
   const [ledgerFilter, setLedgerFilter] = useState("");
   const [expandedGuid, setExpandedGuid] = useState<string | null>(null);
-  const [dashboardDetail, setDashboardDetail] = useState<DashKind | null>(null);
+  const { dashboardDetail, setDashboardDetail, toggleDashboardDetail } = useDashboardDetail<DashKind>();
   const [selectedLedgerName, setSelectedLedgerName] = useState<string | null>(null);
   const [overlayYear, setOverlayYear] = useState<string>(() => {
     const now = new Date();
     return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
   });
-  const [privacyMode, setPrivacyMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-privacy") === "1");
-  // Same "dk-dark-mode" key VaultApp uses -- one global dark-mode preference shared across every
-  // book, applied to <body> (see the effect below) rather than this component's own wrapper div.
-  const [darkMode, setDarkMode] = useState(() => typeof window !== "undefined" && localStorage.getItem("dk-dark-mode") === "1");
   // The classic/refresh toggle has been retired -- refresh is now the only look, everywhere.
   // Kept as a plain constant rather than rewriting every `uiTheme === "refresh"` check below.
   const uiTheme = "refresh" as const;
-  // Same "dk-nav-collapsed" key VaultApp uses -- one global nav preference shared across every
-  // book instead of GR remembering its own separate collapsed/expanded state.
-  const [navCollapsed, setNavCollapsed] = useState(() => typeof window === "undefined" || localStorage.getItem("dk-nav-collapsed") !== "0");
+  const { privacyMode, togglePrivacy, darkMode, toggleDarkMode, navCollapsed, toggleNavCollapsed } = useUiPrefs();
   const loadedRef = useRef(false);
   const [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
   const [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
@@ -189,33 +186,6 @@ export function GrApp() {
   const [equityData, setEquityData] = useState<EquityData | null>(null);
   const [liveRetirementBalanceUsd, setLiveRetirementBalanceUsd] = useState<number | null>(null);
 
-  const togglePrivacy = () =>
-    setPrivacyMode((p) => {
-      const next = !p;
-      localStorage.setItem("dk-privacy", next ? "1" : "0");
-      return next;
-    });
-
-  const toggleDarkMode = () =>
-    setDarkMode((d) => {
-      const next = !d;
-      localStorage.setItem("dk-dark-mode", next ? "1" : "0");
-      return next;
-    });
-
-  const toggleNavCollapsed = () =>
-    setNavCollapsed((c) => {
-      const next = !c;
-      localStorage.setItem("dk-nav-collapsed", next ? "1" : "0");
-      return next;
-    });
-
-  // Toggled on <body>, not this component's own wrapper div -- see darkMode's own declaration
-  // above for why. Runs on mount too, so the localStorage-read initial state takes effect on
-  // first paint.
-  useEffect(() => {
-    document.body.classList.toggle("dark-mode", darkMode);
-  }, [darkMode]);
 
   useEffect(() => {
     if (!equityData) return;
@@ -870,58 +840,18 @@ export function GrApp() {
           </div>
           <div className="header-actions">
             {statusMsg && <span className="vault-status">{statusMsg}</span>}
-            <button
-              type="button"
-              className={`privacy-toggle-button ${privacyMode ? "on" : "off"}`}
-              onClick={togglePrivacy}
-              title={privacyMode ? "Show amounts" : "Hide amounts"}
-              aria-label={privacyMode ? "Show amounts" : "Hide amounts"}
-            >
-              {privacyMode ? (
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                  <line x1="1" y1="1" x2="23" y2="23"/>
-                </svg>
-              ) : (
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-              )}
-            </button>
-            <button
-              type="button"
-              className={`dark-mode-toggle-button ${darkMode ? "on" : "off"}`}
-              onClick={toggleDarkMode}
-              title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {darkMode ? (
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-                </svg>
-              ) : (
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                  <circle cx="12" cy="12" r="4" />
-                </svg>
-              )}
-            </button>
+            <HeaderToggles
+              privacyMode={privacyMode}
+              onTogglePrivacy={togglePrivacy}
+              darkMode={darkMode}
+              onToggleDarkMode={toggleDarkMode}
+            />
           </div>
         </div>
       </header>
 
       <div className={`workspace-split${navCollapsed ? " workspace-split--collapsed" : ""}`}>
-        <nav className="tab-sidebar">
-          <button
-            type="button"
-            className="tab-sidebar-toggle"
-            onClick={toggleNavCollapsed}
-            title={navCollapsed ? "Expand navigation" : "Collapse navigation"}
-            aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
-          >
-            {navCollapsed ? "»" : "«"}
-          </button>
+        <TabSidebar collapsed={navCollapsed} onToggleCollapsed={toggleNavCollapsed}>
           <button className={tab === "dashboard" ? "selected" : ""} onClick={() => setTab("dashboard")} title="Dashboard">
             <span className="tab-sidebar-icon" aria-hidden="true">⌂</span>
             <span className="tab-sidebar-label">Dashboard</span>
@@ -950,37 +880,35 @@ export function GrApp() {
             <span className="tab-sidebar-icon" aria-hidden="true">✎</span>
             <span className="tab-sidebar-label">{editMode ? "Edit: ON" : "Edit Mode"}</span>
           </button>
-        </nav>
+        </TabSidebar>
         <div className="workspace-content">
 
       {/* ── DASHBOARD ─────────────────────────────────────────────────────── */}
       {tab === "dashboard" && (
         <section className="stats dashboard-stats">
           {/* Card 1: Cash and Bank */}
-          <div className="dashboard-card-slot cash-slot">
-            <button
-              className={`dashboard-balance-card cash-card${dashboardDetail === "cash" ? " dashboard-card-open" : ""}`}
-              onClick={() => setDashboardDetail(dashboardDetail === "cash" ? null : "cash")}
-            >
-              <div className="dashboard-card-main">
-                <span>Cash and Bank (INR)</span>
-                <strong>{fmt(cashBank)}</strong>
-                <small>All bank &amp; cash accounts</small>
-              </div>
-              <div className="dashboard-card-highlights">
-                {bankCashAccounts
-                  .slice()
-                  .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
-                  .filter((a) => !["savings account", "charles schwab"].includes(a.name.toLowerCase().trim()))
-                  .slice(0, 3)
-                  .map((a) => (
-                    <span key={a.name} className={pillClass(a)}>
-                      <b title={privacyMode ? undefined : a.name}>{chipLabel(a.name)}</b>
-                      <em>{fmtL(Math.abs(a.closingInr))}</em>
-                    </span>
-                  ))}
-              </div>
-            </button>
+          <DashboardCard
+            slotClassName="cash-slot"
+            cardClassName="cash-card"
+            icon="cash"
+            iconColor="#1e40af"
+            label="Cash and Bank (INR)"
+            value={fmt(cashBank)}
+            subtitle="All bank & cash accounts"
+            open={dashboardDetail === "cash"}
+            onClick={() => toggleDashboardDetail("cash")}
+            highlights={bankCashAccounts
+              .slice()
+              .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
+              .filter((a) => !["savings account", "charles schwab"].includes(a.name.toLowerCase().trim()))
+              .slice(0, 3)
+              .map((a) => (
+                <span key={a.name} className={pillClass(a)}>
+                  <b title={privacyMode ? undefined : a.name}>{chipLabel(a.name)}</b>
+                  <em>{fmtL(Math.abs(a.closingInr))}</em>
+                </span>
+              ))}
+          >
             {dashboardDetail === "cash" && (
               <div className="dashboard-inline-detail">
                 <div className="dashboard-inline-heading">
@@ -1002,20 +930,21 @@ export function GrApp() {
                   ))}
               </div>
             )}
-          </div>
+          </DashboardCard>
 
           {/* Card 2: Investments */}
-          <div className="dashboard-card-slot investment-slot">
-            <button
-              className={`dashboard-balance-card investment-card${dashboardDetail === "investments" ? " dashboard-card-open" : ""}`}
-              onClick={() => setDashboardDetail(dashboardDetail === "investments" ? null : "investments")}
-            >
-              <div className="dashboard-card-main">
-                <span>Investments (INR)</span>
-                <strong>{fmt(dashInvestmentsTotal)}</strong>
-                <small>Investment ledgers</small>
-              </div>
-              <div className="dashboard-card-highlights">
+          <DashboardCard
+            slotClassName="investment-slot"
+            cardClassName="investment-card"
+            icon="trending-up"
+            iconColor="#16a34a"
+            label="Investments (INR)"
+            value={fmt(dashInvestmentsTotal)}
+            subtitle="Investment ledgers"
+            open={dashboardDetail === "investments"}
+            onClick={() => toggleDashboardDetail("investments")}
+            highlights={
+              <>
                 {investmentAccounts
                   .slice()
                   .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
@@ -1027,8 +956,9 @@ export function GrApp() {
                     </span>
                   ))}
                 {investmentAccounts.length === 0 && <span className="gr-dash-pill gr-dash-pill-in"><b>—</b><em>None</em></span>}
-              </div>
-            </button>
+              </>
+            }
+          >
             {dashboardDetail === "investments" && (
               <div className="dashboard-inline-detail">
                 <div className="dashboard-inline-heading">
@@ -1051,20 +981,21 @@ export function GrApp() {
                   ))}
               </div>
             )}
-          </div>
+          </DashboardCard>
 
           {/* Card 3: Fixed Assets */}
-          <div className="dashboard-card-slot active-slot">
-            <button
-              className={`dashboard-balance-card fixed-assets-card${dashboardDetail === "fixedassets" ? " dashboard-card-open" : ""}`}
-              onClick={() => setDashboardDetail(dashboardDetail === "fixedassets" ? null : "fixedassets")}
-            >
-              <div className="dashboard-card-main">
-                <span>Fixed Assets (INR)</span>
-                <strong>{fmt(dashFixedAssetsTotal)}</strong>
-                <small>Fixed asset ledgers</small>
-              </div>
-              <div className="dashboard-card-highlights">
+          <DashboardCard
+            slotClassName="active-slot"
+            cardClassName="fixed-assets-card"
+            icon="bank"
+            iconColor="#0891b2"
+            label="Fixed Assets (INR)"
+            value={fmt(dashFixedAssetsTotal)}
+            subtitle="Fixed asset ledgers"
+            open={dashboardDetail === "fixedassets"}
+            onClick={() => toggleDashboardDetail("fixedassets")}
+            highlights={
+              <>
                 {fixedAssetAccounts
                   .slice()
                   .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
@@ -1077,8 +1008,9 @@ export function GrApp() {
                     </span>
                   ))}
                 {fixedAssetAccounts.length === 0 && <span className="gr-dash-pill gr-dash-pill-in"><b>—</b><em>None</em></span>}
-              </div>
-            </button>
+              </>
+            }
+          >
             {dashboardDetail === "fixedassets" && (
               <div className="dashboard-inline-detail">
                 <div className="dashboard-inline-heading">
@@ -1101,20 +1033,21 @@ export function GrApp() {
                   ))}
               </div>
             )}
-          </div>
+          </DashboardCard>
 
           {/* Card 4: Capital */}
-          <div className="dashboard-card-slot capital-slot">
-            <button
-              className={`dashboard-balance-card capital-card${dashboardDetail === "capital" ? " dashboard-card-open" : ""}`}
-              onClick={() => setDashboardDetail(dashboardDetail === "capital" ? null : "capital")}
-            >
-              <div className="dashboard-card-main">
-                <span>Capital (INR)</span>
-                <strong>{fmt(dashCapitalTotal)}</strong>
-                <small>Capital &amp; reserves</small>
-              </div>
-              <div className="dashboard-card-highlights">
+          <DashboardCard
+            slotClassName="capital-slot"
+            cardClassName="capital-card"
+            icon="scale"
+            iconColor="#7c3aed"
+            label="Capital (INR)"
+            value={fmt(dashCapitalTotal)}
+            subtitle="Capital & reserves"
+            open={dashboardDetail === "capital"}
+            onClick={() => toggleDashboardDetail("capital")}
+            highlights={
+              <>
                 {capitalAccounts
                   .slice()
                   .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
@@ -1126,8 +1059,9 @@ export function GrApp() {
                     </span>
                   ))}
                 {capitalAccounts.length === 0 && <span className="gr-dash-pill gr-dash-pill-in"><b>—</b><em>None</em></span>}
-              </div>
-            </button>
+              </>
+            }
+          >
             {dashboardDetail === "capital" && (
               <div className="dashboard-inline-detail">
                 <div className="dashboard-inline-heading">
@@ -1150,20 +1084,21 @@ export function GrApp() {
                   ))}
               </div>
             )}
-          </div>
+          </DashboardCard>
 
           {/* Card 5: Period Income */}
-          <div className="dashboard-card-slot salary-slot">
-            <button
-              className={`dashboard-balance-card salary-card${dashboardDetail === "income" ? " dashboard-card-open" : ""}`}
-              onClick={() => setDashboardDetail(dashboardDetail === "income" ? null : "income")}
-            >
-              <div className="dashboard-card-main">
-                <span>Period Income (INR)</span>
-                <strong>{fmt(periodIncome)}</strong>
-                <small>{periodLabel}</small>
-              </div>
-              <div className="dashboard-card-highlights">
+          <DashboardCard
+            slotClassName="salary-slot"
+            cardClassName="salary-card"
+            icon="wallet"
+            iconColor="#d97706"
+            label="Period Income (INR)"
+            value={fmt(periodIncome)}
+            subtitle={periodLabel}
+            open={dashboardDetail === "income"}
+            onClick={() => toggleDashboardDetail("income")}
+            highlights={
+              <>
                 {incomeAccounts
                   .filter((a) => (periodCalc.cr.get(normKey(a.name)) || 0) > tol)
                   .slice()
@@ -1185,8 +1120,9 @@ export function GrApp() {
                 {incomeAccounts.filter((a) => (periodCalc.cr.get(normKey(a.name)) || 0) > tol).length === 0 && (
                   <span className="gr-dash-pill gr-dash-pill-in"><b>—</b><em>No activity</em></span>
                 )}
-              </div>
-            </button>
+              </>
+            }
+          >
             {dashboardDetail === "income" && (
               <div className="dashboard-inline-detail">
                 <div className="dashboard-inline-heading">
@@ -1208,7 +1144,7 @@ export function GrApp() {
                   ))}
               </div>
             )}
-          </div>
+          </DashboardCard>
 
           {/* Card 6: Equity (NVDA) in INR */}
           <div className="dashboard-card-slot period-slot">
@@ -1303,7 +1239,7 @@ export function GrApp() {
                       onClick={() => setExpandedGuid(t.guid)}
                       title="Click to view voucher entries"
                     >
-                      <td className="date-cell">{formatDate(t.date)}</td>
+                      <td className="date-cell">{fmtDate(t.date)}</td>
                       <td>
                         <span className={`source-badge source-${t.source.toLowerCase()}`}>
                           {t.source}
@@ -1887,7 +1823,7 @@ export function GrApp() {
                       const counterpart = others.map((e) => e.accountName).join(" / ") || "-";
                       return (
                         <tr key={t.guid} className={t.source === "US" ? "gr-row-us" : "gr-row-in"} style={{ cursor: "pointer" }} onClick={() => { setSelectedLedgerName(null); setExpandedGuid(t.guid); }}>
-                          <td>{formatDate(t.date)}</td>
+                          <td>{fmtDate(t.date)}</td>
                           <td><span className={`source-badge source-${t.source.toLowerCase()}`}>{t.source}</span></td>
                           <td>{t.type}</td>
                           <td>{counterpart}</td>
@@ -1923,7 +1859,7 @@ export function GrApp() {
         >
           <div className={modalTx.source === "US" ? "gr-modal-us" : "gr-modal-in"}>
             <div className="gr-modal-meta">
-              <span>{formatDate(modalTx.date)}</span>
+              <span>{fmtDate(modalTx.date)}</span>
               {modalTx.narration && <span className="gr-modal-narr">{modalTx.narration}</span>}
               {modalTx.source === "US" && (
                 <span className="gr-modal-rate">

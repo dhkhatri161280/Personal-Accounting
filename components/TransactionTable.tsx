@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport";
 import { ThemeProvider } from "@mui/material/styles";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -259,6 +260,7 @@ export function TransactionTable({
   onClearSearch,
   closedPeriods,
   virtualized,
+  mobileCards,
 }: {
   transactions: VoucherRow[];
   formatAmount: (n: number) => string;
@@ -283,7 +285,14 @@ export function TransactionTable({
   // way to reach page 2+. The footer now renders <GridPagination /> alongside the totals so every
   // page is reachable regardless of row count.
   virtualized?: boolean;
+  // Opt-in: below a phone-width breakpoint, render each voucher as a stacked card instead of a
+  // horizontally-scrolling table row. Only wired up for Day Book for now -- the ledger/cash-flow/
+  // columnar drilldowns (also `virtualized`) keep their existing table rendering unless a caller
+  // opts them in too.
+  mobileCards?: boolean;
 }) {
+  const isNarrow = useIsNarrowViewport();
+  const useCards = !!mobileCards && isNarrow;
   const isClosed = (t: VoucherRow) => !!closedPeriods?.includes(t.date.slice(0, 7));
   const [colWidths, setColWidths] = useState<Record<PlainColKey, number>>(DEFAULT_PLAIN_WIDTHS);
   const resizeCol = (key: PlainColKey, deltaX: number) =>
@@ -684,31 +693,83 @@ export function TransactionTable({
           a column got resized (or even just from DEFAULT_PLAIN_WIDTHS differing from
           COLUMN_SPECS' own DataGrid-flex widths to begin with). Building the template from
           colWidths here instead means both rows are always driven by the one live source of
-          truth, in sync automatically -- no separate constant to remember to update. */}
-      <div
-        className="table-filters grid-aligned-filters"
-        style={{
-          gridTemplateColumns: virtualized
-            ? PLAIN_COLUMN_KEYS.map((k) => (k === "narration" ? `${effectiveNarrationWidth}px` : `${colWidths[k]}px`)).join(" ")
-            : FILTER_GRID_TEMPLATE,
-          // This row sits OUTSIDE the table's own scroll wrapper (no vertical scrollbar of its
-          // own), so left to its natural block width it fills the full, un-narrowed parent --
-          // wider than the table whenever enough rows trigger a vertical scrollbar inside
-          // .plain-voucher-table-scroll (that scrollbar eats ~16px from the wrapper's clientWidth,
-          // which is what containerWidth/plainTableWidth are measured from). Pinning this row to
-          // that exact same computed width keeps the two aligned regardless of scrollbar state.
-          ...(virtualized ? { width: plainTableWidth } : {}),
-        }}
-      >
-        {filterField("date", "Date", "date")}
-        {filterField("type", "Type", "voucher type")}
-        {filterField("number", "#", "voucher number")}
-        {filterField("debit", "Debit Ledger", "debit ledger")}
-        {filterField("credit", "Credit Ledger", "credit ledger")}
-        {filterField("narration", "Narration", "narration")}
-        {filterField("amount", "Amount", "amount")}
-      </div>
-      {virtualized ? (
+          truth, in sync automatically -- no separate constant to remember to update.
+          Skipped in the card view -- a 7-field filter grid has nowhere to go on a phone width, and
+          Day Book already has its own full-text search box above this component. */}
+      {!useCards && (
+        <div
+          className="table-filters grid-aligned-filters"
+          style={{
+            gridTemplateColumns: virtualized
+              ? PLAIN_COLUMN_KEYS.map((k) => (k === "narration" ? `${effectiveNarrationWidth}px` : `${colWidths[k]}px`)).join(" ")
+              : FILTER_GRID_TEMPLATE,
+            // This row sits OUTSIDE the table's own scroll wrapper (no vertical scrollbar of its
+            // own), so left to its natural block width it fills the full, un-narrowed parent --
+            // wider than the table whenever enough rows trigger a vertical scrollbar inside
+            // .plain-voucher-table-scroll (that scrollbar eats ~16px from the wrapper's clientWidth,
+            // which is what containerWidth/plainTableWidth are measured from). Pinning this row to
+            // that exact same computed width keeps the two aligned regardless of scrollbar state.
+            ...(virtualized ? { width: plainTableWidth } : {}),
+          }}
+        >
+          {filterField("date", "Date", "date")}
+          {filterField("type", "Type", "voucher type")}
+          {filterField("number", "#", "voucher number")}
+          {filterField("debit", "Debit Ledger", "debit ledger")}
+          {filterField("credit", "Credit Ledger", "credit ledger")}
+          {filterField("narration", "Narration", "narration")}
+          {filterField("amount", "Amount", "amount")}
+        </div>
+      )}
+      {useCards ? (
+        <div className="voucher-card-list">
+          {displayRows.map((t) =>
+            t.isGroupHeader ? (
+              <button
+                key={t.id}
+                type="button"
+                className="voucher-card-group-header"
+                onClick={() => {
+                  const key = t.periodKeyValue as string;
+                  setExpandedPeriods((prev) => {
+                    const next = new Set(prev);
+                    next.has(key) ? next.delete(key) : next.add(key);
+                    return next;
+                  });
+                }}
+              >
+                <span>{t.narration}</span>
+                <b>{formatAmount(t.amount)}</b>
+              </button>
+            ) : (
+              <div key={t.id} className="voucher-card">
+                <div className="voucher-card-top">
+                  <span className={`pill ${t.voucher.cancelled ? "cancelled" : ""}`}>
+                    {t.voucher.type}
+                    {t.voucher.cancelled ? " - Cancelled" : ""}
+                  </span>
+                  <span className="voucher-card-date">{t.voucher.date.split("-").reverse().join("-")}</span>
+                  <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
+                </div>
+                <p className="voucher-card-narration">{t.narration !== "-" ? t.narration : `${t.debit} → ${t.credit}`}</p>
+                <div className="voucher-card-bottom">
+                  <button className="voucher-reference" onClick={() => onView(t.voucher)}>
+                    #{t.voucher.number || "-"}
+                  </button>
+                  <b>{formatAmount(t.amount)}</b>
+                </div>
+                {balanceMap && t.balance !== null && (
+                  <div className="voucher-card-balance">Balance: {formatAmount(t.balance)}</div>
+                )}
+              </div>
+            )
+          )}
+          <div className="voucher-card-total">
+            <span>Displayed voucher total</span>
+            <b>{formatAmount(filteredTotal)}</b>
+          </div>
+        </div>
+      ) : virtualized ? (
         // A large standalone list (Day Book) wants genuine "scroll to see everything," not
         // click-through paging -- but MIT/Community DataGrid hard-caps pageSize at 100 (a larger
         // value throws outright: "You need to upgrade to DataGridPro/Premium", confirmed directly
