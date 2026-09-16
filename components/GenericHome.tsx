@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { TransactionTable, type VoucherRow } from "@/components/TransactionTable";
 import { validateVoucher } from "@/lib/voucher-validation.js";
+import { todayLocalIso } from "@/lib/format-date";
 
 type Mode = "standalone" | "tally";
 type Tab = "dashboard" | "voucher" | "daybook" | "ledgers" | "masters" | "reports" | "connector";
@@ -147,7 +148,7 @@ const clean = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 const keyOf = (value: unknown) => clean(value).toLowerCase();
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocalIso();
 const uid = () => crypto.randomUUID();
 const lineId = () => Math.random().toString(36).slice(2);
 const zero = (value: number) => (Math.abs(value) < 0.005 ? 0 : value);

@@ -25,7 +25,7 @@ import { StatIcon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { TabSidebar } from "@/components/TabSidebar";
@@ -1595,7 +1595,7 @@ export function GrApp() {
               ...(equityValueInr > 0 ? [equityHoldingsRow("equity-holdings", equityValueInr)] : []),
               ...(liveRetirementInr != null ? [retirementLiveRow("retirement-live", liveRetirementInr)] : []),
             ];
-            const todayStr = new Date().toISOString().slice(0, 10);
+            const todayStr = todayLocalIso();
             const nwTrend = equityData
               ? netWorthTrend.map((p) => {
                   const price = p.fyEndDate >= todayStr ? nvdaPrice ?? null : priceAsOf(nvdaHistory, p.fyEndDate);

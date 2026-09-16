@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { todayLocalIso } from "@/lib/format-date";
 export function TransactionForm({
   accounts,
 }: {
@@ -43,7 +44,7 @@ export function TransactionForm({
           name="date"
           type="date"
           required
-          defaultValue={new Date().toISOString().slice(0, 10)}
+          defaultValue={todayLocalIso()}
         />
       </label>
       <label>

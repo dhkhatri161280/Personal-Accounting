@@ -67,20 +67,21 @@ export function VoucherFlow({ entries, fmt }: { entries: VoucherFlowEntry[]; fmt
           ))}
         </div>
       </div>
-      <div className={`voucher-flow-totals ${balanced ? "voucher-balance-ok" : "voucher-balance-diff"}`}>
-        <strong>Dr</strong>
-        <span>{fmt(drTotal)}</span>
-        <strong>Cr</strong>
-        <span>{fmt(crTotal)}</span>
-        {balanced ? (
-          <strong>✓ Tallied</strong>
-        ) : (
-          <>
-            <strong>⚠ Off by</strong>
-            <span>{fmt(Math.abs(drTotal - crTotal))}</span>
-          </>
-        )}
-      </div>
+      {/* Quiet when correct, loud when not -- the common case (balanced) is a small muted
+          checkmark with no numbers to re-read, since they're already shown above. Only a real
+          mismatch earns a full-width colored banner with the actual Dr/Cr breakdown, matching
+          the same "blocked" banner PlaidImport.tsx uses for the save-time guardrail. */}
+      {balanced ? (
+        <div className="voucher-flow-tally-ok">✓ Tallied</div>
+      ) : (
+        <div className="voucher-flow-totals voucher-balance-diff">
+          <strong>⚠ Doesn't balance</strong>
+          <span>Dr {fmt(drTotal)}</span>
+          <span>Cr {fmt(crTotal)}</span>
+          <strong>Off by</strong>
+          <span>{fmt(Math.abs(drTotal - crTotal))}</span>
+        </div>
+      )}
     </>
   );
 }

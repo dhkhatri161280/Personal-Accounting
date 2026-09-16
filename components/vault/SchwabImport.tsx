@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { Ledger, Tx, Trade, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds, ledgerBalanceAsOf } from "@/lib/vault-accounting";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import {
   classifySchwabActivity,
   findUnpairedPositiveJournalActivities,
@@ -181,7 +181,7 @@ export function SchwabImport({ data, onSave }: Props) {
     if (!posSyncActions || posSyncActions.length === 0) return;
     setPosSyncApplying(true);
     try {
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = todayLocalIso();
       const next = applySchwabSync(effectiveTrades, posSyncActions, todayIso);
       const ok = await onSave({ ...data, trades: next });
       if (ok) setPosSyncActions(null);
@@ -376,7 +376,7 @@ export function SchwabImport({ data, onSave }: Props) {
     if (!debitAcct || !creditAcct || amt <= 0) return;
     setConfirmingId(a.activityId);
     try {
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = todayLocalIso();
       const tx: Tx = {
         id: nextTransactionIds(data.transactions, 1)[0],
         guid: crypto.randomUUID(),
@@ -429,7 +429,7 @@ export function SchwabImport({ data, onSave }: Props) {
   );
   const expectedVaultBalance = schwabCashBalance !== null ? openCostBasis + schwabCashBalance : null;
   const vaultSchwabBalance = divDebitAcctId !== ""
-    ? ledgerBalanceAsOf(data, divDebitAcctId, new Date().toISOString().slice(0, 10))
+    ? ledgerBalanceAsOf(data, divDebitAcctId, todayLocalIso())
     : null;
   const schwabVaultDiff = expectedVaultBalance !== null && vaultSchwabBalance !== null ? expectedVaultBalance - vaultSchwabBalance : null;
 

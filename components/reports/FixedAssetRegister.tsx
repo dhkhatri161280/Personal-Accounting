@@ -17,7 +17,7 @@ import {
 import { postDepreciation, postDepreciationConsolidated, disposeAsset } from "@/lib/fixed-assets-ledger";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
@@ -55,7 +55,7 @@ export function FixedAssetRegister({
   const { privacyMode } = useUiPrefs();
   const [saving, setSaving] = useState(false);
   const [disposingId, setDisposingId] = useState<string | null>(null);
-  const [disposalDate, setDisposalDate] = useState(new Date().toISOString().slice(0, 10));
+  const [disposalDate, setDisposalDate] = useState(todayLocalIso());
   const [disposalProceeds, setDisposalProceeds] = useState("0");
   const [disposalCashAcct, setDisposalCashAcct] = useState<number | "">("");
   // Collapsed by default, same "click the group header to reveal its members" pattern used
@@ -85,7 +85,7 @@ export function FixedAssetRegister({
       if (b.sourceTag) return 1;
       return a.purchaseDate.localeCompare(b.purchaseDate);
     });
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayLocalIso();
   // User-chosen cutoff for a one-shot depreciation run (SAP/Oracle/Rillet-style "post through
   // date") -- defaults to today, but the user can pick any earlier date to post depreciation
   // only through a specific closed month instead of always catching all the way up to today.

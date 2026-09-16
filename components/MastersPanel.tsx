@@ -6,7 +6,7 @@ import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
 import type { RecurringTemplate, AuditEntry, FixedAsset, Ledger } from "@/lib/vault-types";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import {
   monthlyDepreciation,
   accumulatedDepreciation,
@@ -734,7 +734,7 @@ export function MastersPanel({
     if (!name) return;
     const cls = assetClassInput.trim() || guessAssetClass(name) || UNCLASSIFIED_LABEL;
     const tag = assetTagInput.trim();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocalIso();
     const { data: withAcct, account } = getOrCreateAssetAccount(assetLedger, name, 0, today);
     const asset: FixedAsset = {
       id: crypto.randomUUID(),

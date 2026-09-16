@@ -49,7 +49,7 @@ import {
   nextTransactionIds,
   nextVoucherNumber,
 } from "@/lib/vault-accounting";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
@@ -1342,7 +1342,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // live price if that date hasn't happened yet (or is today), otherwise the actual historical
   // closing price on that date -- so switching the Financial period dropdown shows what the
   // equity was actually worth then, not today's value re-applied to every year.
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayLocalIso();
   const priceForDate = (d: string) => (d >= todayStr ? nvdaPrice ?? null : priceAsOf(nvdaHistory, d));
   const balanceEndPrice = priceForDate(balanceEnd);
   const heldEquity =

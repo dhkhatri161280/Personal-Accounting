@@ -14,6 +14,7 @@ import {
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { useExpandCollapseAll } from "@/components/reports/ColumnarSection";
+import { todayLocalIso } from "@/lib/format-date";
 
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
@@ -60,7 +61,7 @@ export function BankReconciliation({
   // Derived from state, not stored -- recomputes automatically once `data.bankReconExceptions`
   // changes after a "Mark as reconciled" save, with no need to re-fetch Plaid.
   const rows = plaidData
-    ? reconciliationStatusForAccounts(data, plaidData.accounts, plaidData.transactions, new Date().toISOString().slice(0, 10), data.bankReconExceptions)
+    ? reconciliationStatusForAccounts(data, plaidData.accounts, plaidData.transactions, todayLocalIso(), data.bankReconExceptions)
     : null;
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());

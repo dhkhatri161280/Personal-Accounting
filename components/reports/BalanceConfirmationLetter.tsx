@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { ledgerBalanceAsOf } from "@/lib/vault-accounting";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 
 const SENDER_NAME_KEY = "dk-balconfirm-sender-name";
 const SENDER_ADDRESS_KEY = "dk-balconfirm-sender-address";
@@ -30,8 +30,8 @@ export function BalanceConfirmationLetter({ data, fmt }: { data: Ledger; fmt: (n
   );
 
   const [accountId, setAccountId] = useState<number | "">("");
-  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
-  const [letterDate, setLetterDate] = useState(new Date().toISOString().slice(0, 10));
+  const [asOfDate, setAsOfDate] = useState(todayLocalIso());
+  const [letterDate, setLetterDate] = useState(todayLocalIso());
   // Optional -- only needed to generate the "Balance as on X / Less: repaid / Balance as on Y"
   // email summary below. Leaving it blank skips that breakdown (the printed letter itself never
   // needed a period, only a single as-of balance).

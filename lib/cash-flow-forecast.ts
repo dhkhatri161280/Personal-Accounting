@@ -3,6 +3,7 @@ import { accountNature, ledgerBalanceAsOf, fiscalYearOf } from "./vault-accounti
 import { currentLoanBalance } from "./loans-ledger";
 import { computePaymentSplit } from "./loans";
 import { parsePeriodRange } from "./payroll-match";
+import { todayLocalIso } from "./format-date";
 import { periodBoundariesForRange, buildIncomeExpenseColumns } from "./columnar-report";
 import { DEPRECIATION_EXPENSE_ACCOUNT_NAME } from "./fixed-assets";
 import { budgetVsActualRows } from "./budget";
@@ -607,7 +608,7 @@ export function computeCashFlowForecast(
   budgetTieIn: BudgetTieIn | null;
 } {
   const groupMap = new Map((data.groups ?? []).map((g) => [g.name.toLowerCase(), { nature: g.nature }]));
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayLocalIso();
   const startMonth = todayStr.slice(0, 7);
 
   let startingCash = 0;

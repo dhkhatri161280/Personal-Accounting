@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
 import type { WatchlistEntry } from "@/lib/watchlist-default";
 import type { Trade, Ledger, Tx } from "@/lib/vault-types";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { StatIcon } from "@/components/Icon";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { nextVoucherNumber, nextTransactionIds, recomputeVoucherNumbers } from "@/lib/vault-accounting";
@@ -463,7 +463,7 @@ export function TradingReport({
     const key = rowKey(row);
     setAddingRowKey(key);
     try {
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = todayLocalIso();
       const amt = Math.abs(row.amount ?? 0);
       const tx: Tx = {
         id: nextTransactionIds(data.transactions, 1)[0],
@@ -511,7 +511,7 @@ export function TradingReport({
     if (!debitAcct || !creditAcct) return;
     setAddingAll(true);
     try {
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = todayLocalIso();
       let workingTxs = [...data.transactions];
       const newKeys: string[] = [];
       for (const row of bulkEligibleRows) {
@@ -555,7 +555,7 @@ export function TradingReport({
     const debit = v.entries.find((e) => e.amount < 0);
     const credit = v.entries.find((e) => e.amount > 0);
     if (!debit || !credit || debit.accountId !== divDebitAcctId || credit.accountId !== divCreditAcctId) return null;
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = todayLocalIso();
     if (v.date === todayIso) return null; // already correct
     // v.date === row.date is a required match, not just amount+narration -- two rows can share
     // both (e.g. two separate $22.00 ORCL dividends on different dates), and the bug being fixed
@@ -583,7 +583,7 @@ export function TradingReport({
     if (!data || !onSaveLedger) return;
     setFixingDates(true);
     try {
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = todayLocalIso();
       const nextTx = data.transactions.map((v) => {
         const row = isBackdatedIncomeVoucher(v);
         if (!row) return v;
@@ -659,7 +659,7 @@ export function TradingReport({
   // matches the 365-day threshold this app's own tax engine uses elsewhere (lib/tax-usa-rules.ts).
   // For an open position that's "as of today" (and can flip Short -> Long while still held);
   // for a closed one it's the actual realized holding period that determines real tax treatment.
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayLocalIso();
   const heldDaysOf = (t: Trade) => daysBetween(t.buyDate, t.saleDate ?? todayIso);
   const isLongTerm = (t: Trade) => heldDaysOf(t) > 365; // IRC §1222: MORE than 1 year, not >=
 

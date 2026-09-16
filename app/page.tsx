@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { todayLocalIso } from "@/lib/format-date";
 
 type Mode = "standalone" | "tally";
 type Tab = "dashboard" | "voucher" | "daybook" | "ledgers" | "masters" | "reports" | "connector";
@@ -60,7 +61,7 @@ function dmy(value: string) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalIso();
 }
 
 function id() {

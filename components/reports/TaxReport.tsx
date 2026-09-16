@@ -18,7 +18,7 @@ import { estimateAzStateTax, computeAzItemizedDeduction } from "@/lib/tax-az-eng
 import { resolveStateResidency } from "@/lib/tax-state-residency";
 import { computeTaxPlanningScenarios } from "@/lib/tax-planning";
 import { compute401kByYear } from "@/lib/payroll-401k";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 
@@ -252,7 +252,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     | { type: "ytd" }
     | null
   >(null);
-  const [todayIso] = useState(() => new Date().toISOString().slice(0, 10));
+  const [todayIso] = useState(() => todayLocalIso());
   const [showRsuModal, setShowRsuModal] = useState(false);
   const [periodVestModal, setPeriodVestModal] = useState<{ label: string; items: { grant: RsuGrant; vest: RsuVest }[] } | null>(null);
   const [showEsppModal, setShowEsppModal] = useState(false);

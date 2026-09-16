@@ -5,6 +5,7 @@ import { fiscalYearOf } from "@/lib/vault-accounting";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { todayLocalIso } from "@/lib/format-date";
 
 interface ReconRow {
   name: string;
@@ -101,7 +102,7 @@ export function ReconReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   const snapshot = data.tallyLedgerSnapshot;
 
   const rows = useMemo<ReconRow[]>(() => {
-    const asOfDate = snapshot ? snapshot.asOf.slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const asOfDate = snapshot ? snapshot.asOf.slice(0, 10) : todayLocalIso();
     const fy = fiscalYearOf(asOfDate);
     const fyStart = `${fy}-04-01`, fyEnd = `${fy + 1}-03-31`;
     const appByName = computeAppBalances(data, fyStart, fyEnd);

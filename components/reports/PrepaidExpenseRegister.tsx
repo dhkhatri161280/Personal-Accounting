@@ -5,7 +5,7 @@ import { monthlyAmortization, amortizedToDate, remainingBalance } from "@/lib/pr
 import { getOrCreatePrepaidAccount, getOrCreateExpenseAccount, postAmortization, writeOffPrepaid } from "@/lib/prepaid-expense-ledger";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 
 export function PrepaidExpenseRegister({
   data,
@@ -19,17 +19,17 @@ export function PrepaidExpenseRegister({
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(todayLocalIso());
   const [termMonths, setTermMonths] = useState("12");
   const [expenseAcctId, setExpenseAcctId] = useState<number | "">("");
   const [newExpenseAcctName, setNewExpenseAcctName] = useState("");
   const [saving, setSaving] = useState(false);
   const [writingOffId, setWritingOffId] = useState<string | null>(null);
-  const [writeOffDate, setWriteOffDate] = useState(new Date().toISOString().slice(0, 10));
+  const [writeOffDate, setWriteOffDate] = useState(todayLocalIso());
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const items = (data.prepaidExpenses ?? []).slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayLocalIso();
 
   // postAmortization is pure (returns a new object, never mutates `data`) -- calling it here just
   // to read `postedCount` for the button label is safe and cheap for a personal-scale register.

@@ -1,4 +1,5 @@
 import type { RsuGrant, EsppPurchase } from "./vault-types";
+import { todayLocalIso } from "./format-date";
 
 export interface PricePoint {
   date: string; // "YYYY-MM-DD"
@@ -43,7 +44,7 @@ export function computeHeldEquityValue(
   esppPurchases: EsppPurchase[],
   livePrice: number
 ): { rsuValue: number; esppValue: number; totalValue: number } {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalIso();
   return computeHeldEquityValueAsOf(grants, esppPurchases, today, livePrice);
 }
 

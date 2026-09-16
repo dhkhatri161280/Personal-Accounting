@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { RsuGrant, RsuVest, EsppPurchase, PayrollData } from "@/lib/vault-types";
 import type { ParsedGrant, ParsedVest } from "@/lib/parse-grant-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { mostRecentEsppPerPeriod, computePendingEsppCycles, esppPurchasePrice, ESPP_DISCOUNT_RATE } from "@/lib/payroll-401k";
 
@@ -209,7 +209,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
 
   const cur = price ?? 0;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalIso();
 
   // ── RSU computations ──────────────────────────────────────────────────────
   const grantRows = grants.map((g) => {

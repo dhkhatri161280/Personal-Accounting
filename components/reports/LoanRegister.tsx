@@ -4,7 +4,7 @@ import type { Ledger, Loan } from "@/lib/vault-types";
 import { standardMonthlyPayment, computePaymentSplit } from "@/lib/loans";
 import { getOrCreateLoanAccount, getOrCreateExpenseAccount, currentLoanBalance, recordLoanPayment } from "@/lib/loans-ledger";
 import { computeLoanSchedule } from "@/lib/loan-amortization-schedule";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 
@@ -22,7 +22,7 @@ export function LoanRegister({
   const [principal, setPrincipal] = useState("");
   const [ratePct, setRatePct] = useState("");
   const [termMonths, setTermMonths] = useState("60");
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(todayLocalIso());
   const [payment, setPayment] = useState("");
   const [rateValidThrough, setRateValidThrough] = useState("");
   const [expenseAcctId, setExpenseAcctId] = useState<number | "">("");
@@ -45,12 +45,12 @@ export function LoanRegister({
   const [editLifetimeFloorPct, setEditLifetimeFloorPct] = useState("");
 
   const [payingId, setPayingId] = useState<string | null>(null);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [paymentDate, setPaymentDate] = useState(todayLocalIso());
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentCashAcctId, setPaymentCashAcctId] = useState<number | "">("");
 
   const loans = (data.loans ?? []).slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayLocalIso();
 
   const expenseAccounts = data.accounts
     .filter((a) => a.active !== false && a.category === "Expense")
