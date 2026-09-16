@@ -42,6 +42,8 @@ export function VoucherFlow({ entries, fmt }: { entries: VoucherFlowEntry[]; fmt
   // the same way), so a sub-cent float artifact must not show as "doesn't balance".
   const balanced = Math.round((drTotal - crTotal) * 100) === 0;
 
+  const verdictClass = balanced ? "voucher-balance-ok" : "voucher-balance-diff";
+
   return (
     <>
       <div className="voucher-flow">
@@ -53,6 +55,15 @@ export function VoucherFlow({ entries, fmt }: { entries: VoucherFlowEntry[]; fmt
               <strong>{fmt(e.amount)}</strong>
             </div>
           ))}
+          {/* Pinned to the column's own bottom (margin-top: auto), not just appended after the
+              last card -- with a different number of entries per side, appending in-flow would
+              land the two totals at different heights instead of on one aligned row, same
+              "Total" footer row every T-account-style ERP screen (Tally, QuickBooks, Xero) uses
+              under its own Debit/Credit column, never a single merged row spanning both. */}
+          <div className={`voucher-flow-col-total ${verdictClass}`}>
+            <strong>Total</strong>
+            <span>{fmt(crTotal)}</span>
+          </div>
         </div>
         <div className="voucher-flow-arrow" aria-hidden="true">
           <Icon kind="trending-up" size={22} />
@@ -65,21 +76,15 @@ export function VoucherFlow({ entries, fmt }: { entries: VoucherFlowEntry[]; fmt
               <strong>{fmt(-e.amount)}</strong>
             </div>
           ))}
+          <div className={`voucher-flow-col-total ${verdictClass}`}>
+            <strong>Total</strong>
+            <span>{fmt(drTotal)}</span>
+          </div>
         </div>
       </div>
-      {/* Quiet when correct, loud when not -- the common case (balanced) is a small muted
-          checkmark with no numbers to re-read, since they're already shown above. Only a real
-          mismatch earns a full-width colored banner with the actual Dr/Cr breakdown, matching
-          the same "blocked" banner PlaidImport.tsx uses for the save-time guardrail. */}
-      {balanced ? (
-        <div className="voucher-flow-tally-ok">✓ Tallied</div>
-      ) : (
-        <div className="voucher-flow-totals voucher-balance-diff">
-          <strong>⚠ Doesn't balance</strong>
-          <span>Dr {fmt(drTotal)}</span>
-          <span>Cr {fmt(crTotal)}</span>
-          <strong>Off by</strong>
-          <span>{fmt(Math.abs(drTotal - crTotal))}</span>
+      {!balanced && (
+        <div className={`voucher-flow-tally ${verdictClass}`}>
+          <strong>⚠ Doesn't balance — off by</strong> <span>{fmt(Math.abs(drTotal - crTotal))}</span>
         </div>
       )}
     </>

@@ -8636,30 +8636,29 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .voucher-balance-ok { background: #f0fdf4; color: #16a34a; }
 .ui-refresh .voucher-balance-diff { background: #fff5f5; color: #dc2626; }
-/* Voucher view popup's Dr/Cr mismatch banner (VoucherFlow) -- only rendered when actually
-   unbalanced (see voucher-flow-tally-ok below for the common, balanced case), so it can afford
-   to be as loud as the equivalent PlaidImport.tsx save-blocked banner. More items than the plain
-   2-item Difference row above, so it needs its own left-aligned/wrapping layout instead of that
-   row's justify-content: space-between (same specificity as the rule above, wins on source order). */
-.voucher-flow-totals.voucher-balance-diff {
-  justify-content: flex-start;
-  gap: 6px 10px;
-  flex-wrap: wrap;
-  align-items: baseline;
+/* Voucher view popup's per-column Total footer (VoucherFlow) -- pinned to the bottom of its own
+   Debit/Credit column (margin-top: auto below), matching the T-account convention every
+   double-entry ERP screen (Tally, QuickBooks, Xero) uses: a Total under each column in that
+   column's own position, never a single row merged across both. */
+.voucher-flow-col-total {
+  margin-top: auto;
+  font-weight: 700;
 }
-.voucher-flow-totals strong:last-of-type {
-  margin-left: auto;
+.voucher-flow-col-total strong {
+  text-transform: uppercase;
+  font-size: var(--fs-sm);
+  letter-spacing: 0.05em;
 }
-/* The common case: balanced, so no numbers worth re-showing (already visible in the cards
-   above) -- just a small muted confirmation instead of a full-width colored block. */
-.voucher-flow-tally-ok {
-  margin-top: 8px;
-  font-size: 11.5px;
-  color: #16a34a;
-  font-weight: 600;
+.voucher-flow-col-total span {
+  font-size: var(--fs-xl);
+  font-weight: 800;
 }
-.dark-mode .voucher-flow-tally-ok {
-  color: #86efac;
+/* Only rendered when the two column totals actually differ -- centered and compact, not another
+   space-between row, since it's one short message rather than a label/value pair. */
+.voucher-flow-tally.voucher-balance-diff {
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
 }
 .voucher-line-balance { font-size: 10.5px; color: #8291a8; padding: 0 4px 8px; margin-top: -4px; }
 
