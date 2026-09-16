@@ -7641,6 +7641,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-dup-blocked-banner { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 6px 8px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; font-size: var(--fs-sm); color: #9f1239; }
 .plaid-force-save-btn { background: none; border: none; color: #9f1239; font-size: var(--fs-sm); font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline; white-space: nowrap; }
 .plaid-force-save-btn:hover { color: #7f1d1d; }
+.plaid-imbalance-blocked-banner { margin-top: 6px; padding: 6px 8px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; font-size: var(--fs-sm); color: #9f1239; font-weight: 600; }
 
 /* Plaid tabs */
 .plaid-tabs { display: flex; gap: 4px; border-bottom: 2px solid #dbeafe; padding-bottom: 0; }

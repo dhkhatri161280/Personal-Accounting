@@ -93,6 +93,11 @@ interface ImportRow {
   dupBlocked?: boolean;
   // User confirmed this is NOT a duplicate despite matching the guardrail — bypass it on retry.
   forceSave?: boolean;
+  // Set when this row's own composed entries don't balance (Dr != Cr) -- a composer bug, not a
+  // user-fixable data issue, so unlike dupBlocked there is deliberately no forceSave-style bypass:
+  // an imbalanced voucher must never be postable no matter what. Holds the exact difference so the
+  // banner can show it.
+  imbalanceCents?: number;
 }
 
 interface ConfirmedMatch {
@@ -516,7 +521,12 @@ function buildDraft(
         } else if (manual && !manual.estimated && manual.base > 0) {
           base = manual.base;
           telephone = manual.telephone;
-          medical = manual.medical;
+          // manual.medical (PDF-paystub-derived) bundles Legal Plan in -- see parse-paystub-pdf.ts's
+          // own comment -- unlike the Excel-derived `medical` above, which excludes it because this
+          // composer always adds its own separate Legal Plan line below. Subtracting PAYROLL_LEGAL
+          // back out here keeps that line from double-counting it (found via a real unbalanced
+          // voucher: Dr side was $9 -- exactly the Legal Plan amount -- over Cr side).
+          medical = manual.medical - PAYROLL_LEGAL;
           k401 = manual.k401;
           espp = manual.espp || 0;
           if (manual.totalTax > 0) { tax = manual.totalTax; haveRealTax = true; }
@@ -1702,7 +1712,20 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     const existingTxs = data.transactions;
     const safeTxs: Tx[] = [];
     const blockedTxIds = new Set<string>();
+    // Hard, non-bypassable guardrail: no auto-composed voucher (payroll or any other template)
+    // may ever reach the vault unbalanced -- this is the same Dr==Cr check the manual voucher
+    // form's `add()` already enforces (hooks/useVoucherForm.ts), but this bulk-save path wrote
+    // straight into data.transactions with no validation at all. Found live: a payroll voucher's
+    // composer had a $9 double-count bug and this path saved it anyway, undetected, until the
+    // user noticed the ledger-edit screen's own Difference indicator by hand.
+    const imbalancedTxIds = new Map<string, number>();
     for (const { row, tx } of drafts) {
+      const cents = (n: number) => Math.round(n * 100);
+      const diffCents = tx.entries.reduce((s, e) => s + cents(e.amount), 0);
+      if (diffCents !== 0) {
+        imbalancedTxIds.set(row.plaidTx.transaction_id, diffCents);
+        continue;
+      }
       if (!row.forceSave && vaultHasDuplicate(tx, [...existingTxs, ...safeTxs])) {
         blockedTxIds.add(row.plaidTx.transaction_id);
         continue;
@@ -1713,19 +1736,37 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     if (blockedTxIds.size) {
       setPendingRows((rs) => rs.map((r) => (blockedTxIds.has(r.plaidTx.transaction_id) ? { ...r, dupBlocked: true } : r)));
     }
+    if (imbalancedTxIds.size) {
+      setPendingRows((rs) =>
+        rs.map((r) =>
+          imbalancedTxIds.has(r.plaidTx.transaction_id)
+            ? { ...r, imbalanceCents: imbalancedTxIds.get(r.plaidTx.transaction_id) }
+            : r
+        )
+      );
+    }
     if (!safeTxs.length) {
-      setStatus(`All ${blocked} pending voucher(s) already exist in vault.`);
+      setStatus(
+        imbalancedTxIds.size
+          ? `${imbalancedTxIds.size} pending voucher(s) don't balance (Dr ≠ Cr) -- blocked, not saved. Edit the ledger lines to fix before saving.`
+          : `All ${blocked} pending voucher(s) already exist in vault.`
+      );
       setSavingPending(false);
       return;
     }
-    setStatus(`Saving ${safeTxs.length} pending voucher(s)${blocked ? ` (${blocked} duplicate(s) blocked)` : ""}…`);
+    const blockedNote = [
+      blocked ? `${blocked} duplicate(s) blocked` : "",
+      imbalancedTxIds.size ? `${imbalancedTxIds.size} unbalanced voucher(s) blocked` : "",
+    ].filter(Boolean).join(", ");
+    setStatus(`Saving ${safeTxs.length} pending voucher(s)${blockedNote ? ` (${blockedNote})` : ""}…`);
     const next: Ledger = { ...data, accounts: updatedAccounts, transactions: [...data.transactions, ...safeTxs] };
     const ok = await onSave(next);
     if (ok) {
-      const msg = blocked
-        ? `${safeTxs.length} saved. ${blocked} duplicate(s) were blocked.`
-        : `${safeTxs.length} pending voucher(s) saved.`;
-      setStatus(msg);
+      const doneNote = [
+        blocked ? `${blocked} duplicate(s) were blocked` : "",
+        imbalancedTxIds.size ? `${imbalancedTxIds.size} unbalanced voucher(s) were blocked` : "",
+      ].filter(Boolean).join(", ");
+      setStatus(`${safeTxs.length} saved.${doneNote ? ` ${doneNote}.` : ""}`);
       const savedIds = new Set(drafts.filter((d) => safeTxs.includes(d.tx)).map((d) => d.row.plaidTx.transaction_id));
       setPendingRows((rs) => rs.map((r) => (savedIds.has(r.plaidTx.transaction_id) ? { ...r, alreadyImported: true, skip: true } : r)));
     } else {
@@ -1831,7 +1872,16 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     const existingTxs = data.transactions;
     const safeTxs: Tx[] = [];
     const blockedTxIds = new Set<string>();
+    // Same non-bypassable Dr==Cr guardrail as savePendingSelected() below -- see that function's
+    // comment for why this bulk-save path needed it added.
+    const imbalancedTxIds = new Map<string, number>();
     for (const { row, tx } of drafts) {
+      const cents = (n: number) => Math.round(n * 100);
+      const diffCents = tx.entries.reduce((s, e) => s + cents(e.amount), 0);
+      if (diffCents !== 0) {
+        imbalancedTxIds.set(row.plaidTx.transaction_id, diffCents);
+        continue;
+      }
       if (!row.forceSave && vaultHasDuplicate(tx, [...existingTxs, ...safeTxs])) {
         blockedTxIds.add(row.plaidTx.transaction_id);
         continue;
@@ -1842,17 +1892,34 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     if (blockedTxIds.size) {
       setRows((rs) => rs.map((r) => (blockedTxIds.has(r.plaidTx.transaction_id) ? { ...r, dupBlocked: true } : r)));
     }
+    if (imbalancedTxIds.size) {
+      setRows((rs) =>
+        rs.map((r) =>
+          imbalancedTxIds.has(r.plaidTx.transaction_id)
+            ? { ...r, imbalanceCents: imbalancedTxIds.get(r.plaidTx.transaction_id) }
+            : r
+        )
+      );
+    }
 
     if (!safeTxs.length) {
-      setStatus(`All ${blocked} voucher(s) already exist in vault — nothing saved.`);
+      setStatus(
+        imbalancedTxIds.size
+          ? `${imbalancedTxIds.size} voucher(s) don't balance (Dr ≠ Cr) -- blocked, not saved. Edit the ledger lines to fix before saving.`
+          : `All ${blocked} voucher(s) already exist in vault — nothing saved.`
+      );
       setSaving(false);
       return;
     }
 
+    const blockedNote = [
+      blocked ? `${blocked} duplicate(s) blocked` : "",
+      imbalancedTxIds.size ? `${imbalancedTxIds.size} unbalanced voucher(s) blocked` : "",
+    ].filter(Boolean).join(", ");
     if (pendingAcctsNeeded.length) {
-      setStatus(`Creating ${pendingAcctsNeeded.length} new account(s) and saving ${safeTxs.length} voucher(s)${blocked ? ` (${blocked} duplicate(s) blocked)` : ""}…`);
+      setStatus(`Creating ${pendingAcctsNeeded.length} new account(s) and saving ${safeTxs.length} voucher(s)${blockedNote ? ` (${blockedNote})` : ""}…`);
     } else {
-      setStatus(`Saving ${safeTxs.length} voucher(s)${blocked ? ` (${blocked} duplicate(s) blocked)` : ""}…`);
+      setStatus(`Saving ${safeTxs.length} voucher(s)${blockedNote ? ` (${blockedNote})` : ""}…`);
     }
 
     // Record confirmed bank deposits against their matching pay period in Reports → Tax,
@@ -1899,10 +1966,11 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     const next: Ledger = { ...data, accounts: updatedAccounts, transactions: [...data.transactions, ...safeTxs], payroll: nextPayroll, recurringTemplates: nextRecurringTemplates };
     const ok = await onSave(next);
     if (ok) {
-      const msg = blocked
-        ? `${safeTxs.length} saved. ${blocked} duplicate(s) were blocked — check Duplicates tab.`
-        : `${safeTxs.length} voucher(s) saved.`;
-      setStatus(msg);
+      const doneNote = [
+        blocked ? `${blocked} duplicate(s) were blocked — check Duplicates tab` : "",
+        imbalancedTxIds.size ? `${imbalancedTxIds.size} unbalanced voucher(s) were blocked` : "",
+      ].filter(Boolean).join(", ");
+      setStatus(`${safeTxs.length} saved.${doneNote ? ` ${doneNote}.` : ""}`);
       const savedIds = new Set(drafts.filter((d) => safeTxs.includes(d.tx)).map((d) => d.row.plaidTx.transaction_id));
       setRows((rs) => rs.map((r) => (savedIds.has(r.plaidTx.transaction_id) ? { ...r, alreadyImported: true, skip: true } : r)));
     } else {
@@ -2330,6 +2398,11 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                         </button>
                       </div>
                     )}
+                    {!!row.imbalanceCents && (
+                      <div className="plaid-imbalance-blocked-banner">
+                        Blocked — Dr and Cr don't balance by <span className="plaid-recon-diff">{fmtMoney(row.imbalanceCents / 100)}</span>. Edit the ledger lines above to fix before this can be saved — there is no override for this.
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2549,6 +2622,11 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                             >
                               Not a duplicate — save anyway
                             </button>
+                          </div>
+                        )}
+                        {!!row.imbalanceCents && (
+                          <div className="plaid-imbalance-blocked-banner">
+                            Blocked — Dr and Cr don't balance by <span className="plaid-recon-diff">{fmtMoney(row.imbalanceCents / 100)}</span>. Edit the ledger lines above to fix before this can be saved — there is no override for this.
                           </div>
                         )}
                       </div>
