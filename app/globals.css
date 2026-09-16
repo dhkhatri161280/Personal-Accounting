@@ -8636,6 +8636,19 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .voucher-balance-ok { background: #f0fdf4; color: #16a34a; }
 .ui-refresh .voucher-balance-diff { background: #fff5f5; color: #dc2626; }
+/* Voucher view popup's Dr/Cr tally row (VoucherFlow) -- more items than the plain 2-item
+   Difference row above, so it needs its own left-aligned/wrapping layout instead of that row's
+   justify-content: space-between (same specificity as the rule above, wins on source order). */
+.voucher-flow-totals.voucher-balance-ok,
+.voucher-flow-totals.voucher-balance-diff {
+  justify-content: flex-start;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.voucher-flow-totals strong:last-of-type {
+  margin-left: auto;
+}
 .voucher-line-balance { font-size: 10.5px; color: #8291a8; padding: 0 4px 8px; margin-top: -4px; }
 
 .period-control-panel { width: min(760px, 100%); }

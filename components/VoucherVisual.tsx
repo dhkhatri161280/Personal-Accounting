@@ -35,30 +35,52 @@ export function VoucherTypeBadge({ type }: { type: string }) {
 export function VoucherFlow({ entries, fmt }: { entries: VoucherFlowEntry[]; fmt: (n: number) => string }) {
   const from = entries.filter((e) => e.amount > 0);
   const to = entries.filter((e) => e.amount < 0);
+  const crTotal = from.reduce((s, e) => s + e.amount, 0);
+  const drTotal = to.reduce((s, e) => s - e.amount, 0);
+  // Rounds to the cent before comparing -- entries are stored as floats, and this is a purely
+  // visual tally-check (the actual save-time guardrail in PlaidImport.tsx compares integer cents
+  // the same way), so a sub-cent float artifact must not show as "doesn't balance".
+  const balanced = Math.round((drTotal - crTotal) * 100) === 0;
 
   return (
-    <div className="voucher-flow">
-      <div className="voucher-flow-col">
-        <div className="voucher-flow-col-label">From</div>
-        {from.map((e, i) => (
-          <div key={i} className="voucher-flow-card voucher-flow-card--from">
-            <span>{e.accountName}</span>
-            <strong>{fmt(e.amount)}</strong>
-          </div>
-        ))}
+    <>
+      <div className="voucher-flow">
+        <div className="voucher-flow-col">
+          <div className="voucher-flow-col-label">From</div>
+          {from.map((e, i) => (
+            <div key={i} className="voucher-flow-card voucher-flow-card--from">
+              <span>{e.accountName}</span>
+              <strong>{fmt(e.amount)}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="voucher-flow-arrow" aria-hidden="true">
+          <Icon kind="trending-up" size={22} />
+        </div>
+        <div className="voucher-flow-col">
+          <div className="voucher-flow-col-label">To</div>
+          {to.map((e, i) => (
+            <div key={i} className="voucher-flow-card voucher-flow-card--to">
+              <span>{e.accountName}</span>
+              <strong>{fmt(-e.amount)}</strong>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="voucher-flow-arrow" aria-hidden="true">
-        <Icon kind="trending-up" size={22} />
+      <div className={`voucher-flow-totals ${balanced ? "voucher-balance-ok" : "voucher-balance-diff"}`}>
+        <strong>Dr</strong>
+        <span>{fmt(drTotal)}</span>
+        <strong>Cr</strong>
+        <span>{fmt(crTotal)}</span>
+        {balanced ? (
+          <strong>✓ Tallied</strong>
+        ) : (
+          <>
+            <strong>⚠ Off by</strong>
+            <span>{fmt(Math.abs(drTotal - crTotal))}</span>
+          </>
+        )}
       </div>
-      <div className="voucher-flow-col">
-        <div className="voucher-flow-col-label">To</div>
-        {to.map((e, i) => (
-          <div key={i} className="voucher-flow-card voucher-flow-card--to">
-            <span>{e.accountName}</span>
-            <strong>{fmt(-e.amount)}</strong>
-          </div>
-        ))}
-      </div>
-    </div>
+    </>
   );
 }

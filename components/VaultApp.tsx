@@ -1677,6 +1677,27 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // Import → Balances aren't included yet -- that logic lives deep in PlaidImport.tsx's matching
   // engine and isn't safely reusable here without extracting it first.
   const attentionItems: { label: string; detail: string; action?: { label: string; onClick: () => void } }[] = [];
+  // Data-integrity check, listed first -- an unbalanced voucher is a real accounting error, not
+  // just something to review, unlike everything else in this list. The manual entry/edit form and
+  // the Plaid bulk-save paths both hard-block saving one now (see hooks/useVoucherForm.ts and
+  // components/vault/PlaidImport.tsx), but this still needs to exist for the same class of bug in
+  // a not-yet-guarded save path, or a voucher synced in directly from Tally -- found live: a real
+  // payroll voucher's composer had a $9 double-count bug and nothing surfaced it here at all until
+  // the user happened to notice the edit screen's own Difference indicator by hand.
+  if (data) {
+    const centsOf = (n: number) => Math.round(n * 100);
+    for (const t of data.transactions) {
+      if (t.deleted || t.cancelled) continue;
+      const diffCents = t.entries.reduce((s, e) => s + centsOf(e.amount), 0);
+      if (diffCents !== 0) {
+        attentionItems.push({
+          label: "Voucher doesn't balance",
+          detail: `${t.type} #${t.number || "—"} on ${t.date.split("-").reverse().join("-")} — Dr and Cr differ by ${fmt(Math.abs(diffCents) / 100)}.`,
+          action: { label: "Open", onClick: () => setSelectedVoucher(t) },
+        });
+      }
+    }
+  }
   if (data?.equity) {
     for (const c of computePendingEsppCycles(data.equity.esppPurchases ?? [], data.payroll, todayStr)) {
       if (c.dueForConfirm) {
