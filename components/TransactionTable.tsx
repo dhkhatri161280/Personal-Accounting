@@ -63,11 +63,16 @@ const DEFAULT_PLAIN_WIDTHS: Record<PlainColKey, number> = {
   // 95px truncated "DD-MM-YYYY" (10 chars) to "14-09-20…" once cell padding was accounted for --
   // confirmed live, not just estimated from font metrics.
   date: 112,
-  type: 90,
+  // Trimmed from 90/170/170/380 (each still comfortably fits its content -- "Payment"/
+  // "Receipt"/"Journal"/"Contra", a typical account name, and a readable narration line,
+  // all confirmed live) -- the previous defaults' minimum total table width (~1,157px) forced
+  // horizontal scrolling even on a maximized 1366px-class laptop screen once the sidebar and
+  // page padding were subtracted. Every column stays independently drag-resizable regardless.
+  type: 78,
   number: 55,
-  debit: 170,
-  credit: 170,
-  narration: 380,
+  debit: 145,
+  credit: 145,
+  narration: 300,
   amount: 130,
 };
 
