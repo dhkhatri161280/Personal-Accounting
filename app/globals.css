@@ -8639,8 +8639,13 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 /* Voucher view popup's per-column Total footer (VoucherFlow) -- pinned to the bottom of its own
    Debit/Credit column (margin-top: auto below), matching the T-account convention every
    double-entry ERP screen (Tally, QuickBooks, Xero) uses: a Total under each column in that
-   column's own position, never a single row merged across both. */
-.voucher-flow-col-total {
+   column's own position, never a single row merged across both. Selector must combine both
+   classes (.voucher-flow-col-total.voucher-balance-ok/diff, not just .voucher-flow-col-total) --
+   confirmed live the single-class version loses the specificity fight to
+   ".ui-refresh .voucher-balance-ok/diff"'s own "margin-top: 10px" above, which silently won and
+   left each total sitting 10px below its own last card instead of pinned to the shared bottom. */
+.voucher-flow-col-total.voucher-balance-ok,
+.voucher-flow-col-total.voucher-balance-diff {
   margin-top: auto;
   font-weight: 700;
 }
