@@ -8460,6 +8460,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    specificity than .equity-drilldown-table alone, so it wins regardless of source order --
    override it here, scoped to just this one table. */
 .ui-refresh .data-panel .equity-drilldown-table { overflow: visible; }
+/* This table's headers carry extra interactive chrome (sort button + filter dropdown) that the
+   generic ui-refresh th/td padding (12px 14px / 11px 14px) was never sized for -- combined with
+   the sortable button's own padding, two-word headers ("Grant Shares", "Held Market Value") wrapped
+   to two lines and inflated every row's height. Tighten padding for just this table and force
+   single-line headers so columns size to their content instead of wrapping. */
+.ui-refresh .data-panel .equity-drilldown-table th { padding: 7px 8px !important; white-space: nowrap; }
+.ui-refresh .data-panel .equity-drilldown-table td { padding: 6px 8px !important; }
+.equity-drilldown-table .sortable > button { padding: 0; white-space: nowrap; }
+.equity-col-filter-head { white-space: nowrap; }
+.equity-col-sort-btn { white-space: nowrap; }
 .ui-refresh .data-panel table th {
   background: #f8fafc;
   font-weight: 700 !important;
