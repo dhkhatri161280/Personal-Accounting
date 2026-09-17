@@ -232,7 +232,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
     const marketValue = actualVested.reduce((s, v) => s + v.sharesHeld * cur, 0) + (pendingShares + unvestedShares) * cur;
     const currentValue = saleValue + marketValue;
     const gain = currentValue - awardValue;
-    return { ...g, vestedShares, pendingShares, unvestedShares, awardValue, vestedValue, taxValue, saleValue, marketValue, currentValue, gain };
+    // Just the pending-scheduled slice (a vest with a known future date already recorded, not yet
+    // vested) at live price -- already folded into marketValue above, but shown as its own column
+    // too since "what's coming up" is a different question from "what's my total unrealized value".
+    const scheduledValue = pendingShares * cur;
+    return { ...g, vestedShares, pendingShares, unvestedShares, awardValue, vestedValue, taxValue, saleValue, marketValue, currentValue, gain, scheduledValue };
   });
   const rsuAward = grantRows.reduce((s, g) => s + g.awardValue, 0);
   const rsuVested = grantRows.reduce((s, g) => s + g.vestedValue, 0);
@@ -241,6 +245,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   const rsuMarketValue = grantRows.reduce((s, g) => s + g.marketValue, 0);
   const rsuCurrent = rsuSaleValue + rsuMarketValue;
   const rsuGain = grantRows.reduce((s, g) => s + g.gain, 0);
+  const rsuScheduledValue = grantRows.reduce((s, g) => s + g.scheduledValue, 0);
 
   // Pending tranches grouped by vest date, across every grant — NVDA vests quarterly on the
   // same date for everyone, so one real-world vesting event usually shows up as a pending
@@ -1335,6 +1340,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           <span className="equity-col-head">Sale Proceeds</span>
           <span className="equity-col-head">Market Value</span>
           <span className="equity-col-head equity-col-head--gain">Gain</span>
+          <span className="equity-col-head">Scheduled Value</span>
           <span style={{ width: 72 }} />
         </div>
       )}
@@ -1357,6 +1363,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
             <span className="equity-amt equity-col-val">{fmt(g.saleValue)}</span>
             <span className="equity-amt equity-col-val">{fmt(g.marketValue)}</span>
             <span className={`equity-col-val ${g.gain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(g.gain)}</span>
+            <span className="equity-amt equity-col-val">{fmt(g.scheduledValue)}</span>
             <div className="equity-grant-btns" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() => {
@@ -1631,6 +1638,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           <span className="equity-amt equity-col-val">{fmt(rsuSaleValue)}</span>
           <span className="equity-amt equity-col-val">{fmt(rsuMarketValue)}</span>
           <span className={`equity-col-val ${rsuGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(rsuGain)}</span>
+          <span className="equity-amt equity-col-val">{fmt(rsuScheduledValue)}</span>
           <span style={{ width: 72 }} />
         </div>
       )}
