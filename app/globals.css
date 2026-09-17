@@ -7918,6 +7918,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 /* Excel-style per-column filter (Grant / Vest Date / Purchase Date headers in the drill-down tables) */
 .equity-col-filterable { position: relative; }
 .equity-col-filter-head { display: inline-flex; align-items: center; gap: 5px; }
+.equity-col-sort-btn { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; padding: 0; margin: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.equity-col-sort-btn:hover { color: #2563eb; }
+.equity-drilldown-table .sortable { padding: 0; }
+.equity-drilldown-table .sortable > button { width: 100%; display: flex; align-items: center; justify-content: flex-end; gap: 4px; border: 0; background: transparent; padding: 10px; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.equity-drilldown-table .sortable > button:hover { background: #eff6ff; color: #2563eb; }
 .equity-col-filter-btn { font-size: 10px; line-height: 1; padding: 1px 4px; border-radius: 3px; background: transparent; border: 1px solid transparent; color: #94a3b8; cursor: pointer; }
 .equity-col-filter-btn:hover { background: #e2e8f0; color: #475569; }
 .equity-col-filter-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }

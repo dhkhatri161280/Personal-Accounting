@@ -107,6 +107,15 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   const [drilldownGrantFilter, setDrilldownGrantFilter] = useState<Set<string> | null>(null);
   const [drilldownColFilterOpen, setDrilldownColFilterOpen] = useState<"grant" | "date" | null>(null);
   const [drilldownColSearch, setDrilldownColSearch] = useState("");
+  const [drilldownSortKey, setDrilldownSortKey] = useState<string | null>(null);
+  const [drilldownSortDir, setDrilldownSortDir] = useState<"asc" | "desc">("asc");
+  const toggleDrilldownSort = (key: string) => {
+    if (drilldownSortKey === key) setDrilldownSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setDrilldownSortKey(key);
+      setDrilldownSortDir("asc");
+    }
+  };
   const [grantFilter, setGrantFilter] = useState<string | null>(null);
   const [recordVestFor, setRecordVestFor] = useState<{ grantId: string; vestId: string } | null>(null);
   const [recordVestForm, setRecordVestForm] = useState({ vestPrice: "", taxShares: "", sharesHeld: "" });
@@ -754,6 +763,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                     setDrilldownGrantFilter(null);
                     setDrilldownColFilterOpen(null);
                     setDrilldownColSearch("");
+                    setDrilldownSortKey(null);
                   }}
                 >
                   <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />
@@ -876,13 +886,55 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               const search = drilldownColSearch.trim().toLowerCase();
               const shownGrantOptions = search ? grantOptions.filter((o) => o.label.toLowerCase().includes(search)) : grantOptions;
               const shownDateOptions = search ? dateOptions.filter((o) => o.label.toLowerCase().includes(search)) : dateOptions;
+              const rowSortValue = (row: { g: RsuGrant; v: RsuVest }, key: string): number | string => {
+                const { g, v } = row;
+                const tax = v.taxShares ?? 0;
+                const sold = Math.max(0, v.shares - tax - v.sharesHeld);
+                const sp = v.salePrice ?? v.vestPrice;
+                switch (key) {
+                  case "grant": return g.grantDate;
+                  case "vestDate": return v.vestDate;
+                  case "grantShares": return v.shares;
+                  case "award": return g.grantPrice;
+                  case "vest": return v.vestPrice;
+                  case "taxShares": return tax;
+                  case "held": return v.sharesHeld;
+                  case "live": return cur;
+                  case "sold": return sold;
+                  case "salePrice": return sp;
+                  case "value":
+                    if (summaryFilter === "vested") return v.sharesHeld * cur;
+                    if (summaryFilter === "tax") return tax * v.vestPrice;
+                    return sold * sp;
+                  default: return 0;
+                }
+              };
+              const sortedRows = drilldownSortKey
+                ? [...filteredRows].sort((a, b) => {
+                    const av = rowSortValue(a, drilldownSortKey);
+                    const bv = rowSortValue(b, drilldownSortKey);
+                    const cmp = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+                    return drilldownSortDir === "asc" ? cmp : -cmp;
+                  })
+                : filteredRows;
+              const sortHead = (key: string, label: string, right = true) => (
+                <th className={right ? "right sortable" : "sortable"}>
+                  <button type="button" onClick={() => toggleDrilldownSort(key)}>
+                    {label}
+                    <span className="sort-mark" data-direction={drilldownSortKey === key ? drilldownSortDir : "none"} aria-hidden="true" />
+                  </button>
+                </th>
+              );
               return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
                   <tr>
                     <th className="equity-col-filterable">
                       <span className="equity-col-filter-head">
-                        Grant
+                        <button type="button" className="equity-col-sort-btn" onClick={() => toggleDrilldownSort("grant")}>
+                          Grant
+                          <span className="sort-mark" data-direction={drilldownSortKey === "grant" ? drilldownSortDir : "none"} aria-hidden="true" />
+                        </button>
                         <button
                           type="button"
                           className={`equity-col-filter-btn ${drilldownGrantFilter ? "active" : ""}`}
@@ -922,7 +974,10 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                     </th>
                     <th className="equity-col-filterable">
                       <span className="equity-col-filter-head">
-                        Vest Date
+                        <button type="button" className="equity-col-sort-btn" onClick={() => toggleDrilldownSort("vestDate")}>
+                          Vest Date
+                          <span className="sort-mark" data-direction={drilldownSortKey === "vestDate" ? drilldownSortDir : "none"} aria-hidden="true" />
+                        </button>
                         <button
                           type="button"
                           className={`equity-col-filter-btn ${drilldownDateFilter ? "active" : ""}`}
@@ -960,21 +1015,21 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         </div>
                       )}
                     </th>
-                    <th className="right">Grant Shares</th>
-                    <th className="right">Award $/sh</th>
-                    <th className="right">Vest $/sh</th>
-                    <th className="right">Tax Shares</th>
-                    <th className="right">Held Shares</th>
-                    {summaryFilter === "vested" && <><th className="right">Live $/sh</th><th className="right">Held Market Value</th></>}
-                    {summaryFilter === "tax" && <th className="right">Tax Value</th>}
-                    {summaryFilter === "sold" && <><th className="right">Sold Shares</th><th className="right">Sale $/sh</th><th className="right">Sale Value</th></>}
+                    {sortHead("grantShares", "Grant Shares")}
+                    {sortHead("award", "Award $/sh")}
+                    {sortHead("vest", "Vest $/sh")}
+                    {sortHead("taxShares", "Tax Shares")}
+                    {sortHead("held", "Held Shares")}
+                    {summaryFilter === "vested" && <>{sortHead("live", "Live $/sh")}{sortHead("value", "Held Market Value")}</>}
+                    {summaryFilter === "tax" && sortHead("value", "Tax Value")}
+                    {summaryFilter === "sold" && <>{sortHead("sold", "Sold Shares")}{sortHead("salePrice", "Sale $/sh")}{sortHead("value", "Sale Value")}</>}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.length === 0 && (
+                  {sortedRows.length === 0 && (
                     <tr><td colSpan={totalCols} className="equity-empty">No entries match these filters.</td></tr>
                   )}
-                  {filteredRows.flatMap(({ g, v }) => {
+                  {sortedRows.flatMap(({ g, v }) => {
                         const tax = v.taxShares ?? 0;
                         const sold = Math.max(0, v.shares - tax - v.sharesHeld);
                         const sp = v.salePrice ?? v.vestPrice;
@@ -1083,13 +1138,41 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               };
               const search = drilldownColSearch.trim().toLowerCase();
               const shownDateOptions = search ? dateOptions.filter((o) => o.label.toLowerCase().includes(search)) : dateOptions;
+              const esppSortValue = (e: (typeof esppRows)[number], key: string): number | string => {
+                switch (key) {
+                  case "date": return e.purchaseDate;
+                  case "held": return e.sharesHeld;
+                  case "live": return cur;
+                  case "value": return e.sharesHeld * cur;
+                  default: return 0;
+                }
+              };
+              const sortedEspp = drilldownSortKey
+                ? [...filteredEspp].sort((a, b) => {
+                    const av = esppSortValue(a, drilldownSortKey);
+                    const bv = esppSortValue(b, drilldownSortKey);
+                    const cmp = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+                    return drilldownSortDir === "asc" ? cmp : -cmp;
+                  })
+                : filteredEspp;
+              const esppSortHead = (key: string, label: string) => (
+                <th className="right sortable">
+                  <button type="button" onClick={() => toggleDrilldownSort(key)}>
+                    {label}
+                    <span className="sort-mark" data-direction={drilldownSortKey === key ? drilldownSortDir : "none"} aria-hidden="true" />
+                  </button>
+                </th>
+              );
               return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
                   <tr>
                     <th className="equity-col-filterable">
                       <span className="equity-col-filter-head">
-                        Purchase Date
+                        <button type="button" className="equity-col-sort-btn" onClick={() => toggleDrilldownSort("date")}>
+                          Purchase Date
+                          <span className="sort-mark" data-direction={drilldownSortKey === "date" ? drilldownSortDir : "none"} aria-hidden="true" />
+                        </button>
                         <button
                           type="button"
                           className={`equity-col-filter-btn ${drilldownDateFilter ? "active" : ""}`}
@@ -1127,16 +1210,16 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         </div>
                       )}
                     </th>
-                    <th className="right">Held Shares</th>
-                    <th className="right">Live $/sh</th>
-                    <th className="right">Market Value</th>
+                    {esppSortHead("held", "Held Shares")}
+                    {esppSortHead("live", "Live $/sh")}
+                    {esppSortHead("value", "Market Value")}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEspp.length === 0 && (
+                  {sortedEspp.length === 0 && (
                     <tr><td colSpan={4} className="equity-empty">No entries match these filters.</td></tr>
                   )}
-                  {filteredEspp.map((e) => (
+                  {sortedEspp.map((e) => (
                     <tr key={e.id}>
                       <td>{new Date(e.purchaseDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
                       <td className="right equity-amt">{e.sharesHeld.toLocaleString()}</td>
