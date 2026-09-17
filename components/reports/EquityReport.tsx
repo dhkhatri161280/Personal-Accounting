@@ -103,9 +103,10 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   const [confirmEsppForm, setConfirmEsppForm] = useState(BLANK_CONFIRM_ESPP);
 
   const [summaryFilter, setSummaryFilter] = useState<"vested" | "tax" | "sold" | "espp" | null>(null);
-  const [drilldownDateFilter, setDrilldownDateFilter] = useState("");
+  const [drilldownDateFilter, setDrilldownDateFilter] = useState<Set<string> | null>(null);
   const [drilldownGrantFilter, setDrilldownGrantFilter] = useState<Set<string> | null>(null);
   const [drilldownColFilterOpen, setDrilldownColFilterOpen] = useState<"grant" | "date" | null>(null);
+  const [drilldownColSearch, setDrilldownColSearch] = useState("");
   const [grantFilter, setGrantFilter] = useState<string | null>(null);
   const [recordVestFor, setRecordVestFor] = useState<{ grantId: string; vestId: string } | null>(null);
   const [recordVestForm, setRecordVestForm] = useState({ vestPrice: "", taxShares: "", sharesHeld: "" });
@@ -749,9 +750,10 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   className={`equity-summary-card equity-summary-stat ${active ? "equity-summary-stat--active" : ""}`}
                   onClick={() => {
                     setSummaryFilter(active ? null : key);
-                    setDrilldownDateFilter("");
+                    setDrilldownDateFilter(null);
                     setDrilldownGrantFilter(null);
                     setDrilldownColFilterOpen(null);
+                    setDrilldownColSearch("");
                   }}
                 >
                   <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />
@@ -805,11 +807,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 {summaryFilter === "sold" && "User-Sold Lots"}
                 {summaryFilter === "espp" && "ESPP Holdings"}
               </strong>
-              {(drilldownDateFilter || (drilldownGrantFilter && drilldownGrantFilter.size < grantRows.length)) && (
+              {(drilldownDateFilter !== null || drilldownGrantFilter !== null) && (
                 <button
                   type="button"
                   className="equity-drilldown-clear-all"
-                  onClick={() => { setDrilldownDateFilter(""); setDrilldownGrantFilter(null); }}
+                  onClick={() => { setDrilldownDateFilter(null); setDrilldownGrantFilter(null); }}
                 >
                   ✕ Clear filters
                 </button>
@@ -818,11 +820,19 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
             </div>
             {(summaryFilter === "vested" || summaryFilter === "tax" || summaryFilter === "sold") && (() => {
               const grantOptions = grantRows.map((g) => ({ id: g.id, label: `${g.ticker} ${fmtDate(g.grantDate)}` }));
+              const dateOptions = Array.from(
+                new Set(grantRows.flatMap((g) => g.vests.filter((v) => !v.pending).map((v) => v.vestDate)))
+              )
+                .sort()
+                .map((d) => ({
+                  id: d,
+                  label: new Date(d + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }),
+                }));
               const filteredRows = grantRows.flatMap((g) =>
                 g.vests
                   .filter((v) => {
                     if (v.pending) return false;
-                    if (drilldownDateFilter && v.vestDate !== drilldownDateFilter) return false;
+                    if (drilldownDateFilter && !drilldownDateFilter.has(v.vestDate)) return false;
                     if (drilldownGrantFilter && !drilldownGrantFilter.has(g.id)) return false;
                     if (summaryFilter === "vested") return v.sharesHeld > 0;
                     if (summaryFilter === "tax") return (v.taxShares ?? 0) > 0;
@@ -855,6 +865,17 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   return next;
                 });
               };
+              const toggleDateOption = (id: string) => {
+                setDrilldownDateFilter((prevSet) => {
+                  const base = prevSet ?? new Set(dateOptions.map((o) => o.id));
+                  const next = new Set(base);
+                  if (next.has(id)) next.delete(id); else next.add(id);
+                  return next;
+                });
+              };
+              const search = drilldownColSearch.trim().toLowerCase();
+              const shownGrantOptions = search ? grantOptions.filter((o) => o.label.toLowerCase().includes(search)) : grantOptions;
+              const shownDateOptions = search ? dateOptions.filter((o) => o.label.toLowerCase().includes(search)) : dateOptions;
               return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
@@ -865,17 +886,26 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         <button
                           type="button"
                           className={`equity-col-filter-btn ${drilldownGrantFilter ? "active" : ""}`}
-                          onClick={() => setDrilldownColFilterOpen((o) => (o === "grant" ? null : "grant"))}
+                          onClick={() => { setDrilldownColFilterOpen((o) => (o === "grant" ? null : "grant")); setDrilldownColSearch(""); }}
                         >▾</button>
                       </span>
                       {drilldownColFilterOpen === "grant" && (
                         <div className="equity-col-filter-popover" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            className="equity-col-filter-search"
+                            placeholder="Search grants…"
+                            value={drilldownColSearch}
+                            onChange={(e) => setDrilldownColSearch(e.target.value)}
+                            autoFocus
+                          />
                           <div className="equity-col-filter-actions">
-                            <button type="button" onClick={() => setDrilldownGrantFilter(null)}>All</button>
-                            <button type="button" onClick={() => setDrilldownGrantFilter(new Set())}>None</button>
+                            <button type="button" onClick={() => setDrilldownGrantFilter(null)}>Select all</button>
+                            <button type="button" onClick={() => setDrilldownGrantFilter(new Set())}>Clear all</button>
                           </div>
                           <div className="equity-col-filter-options">
-                            {grantOptions.map((opt) => (
+                            {shownGrantOptions.length === 0 && <p className="equity-col-filter-empty">No matches.</p>}
+                            {shownGrantOptions.map((opt) => (
                               <label key={opt.id}>
                                 <input
                                   type="checkbox"
@@ -886,7 +916,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                               </label>
                             ))}
                           </div>
-                          <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>Done</button>
+                          <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>OK</button>
                         </div>
                       )}
                     </th>
@@ -896,23 +926,37 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         <button
                           type="button"
                           className={`equity-col-filter-btn ${drilldownDateFilter ? "active" : ""}`}
-                          onClick={() => setDrilldownColFilterOpen((o) => (o === "date" ? null : "date"))}
+                          onClick={() => { setDrilldownColFilterOpen((o) => (o === "date" ? null : "date")); setDrilldownColSearch(""); }}
                         >▾</button>
                       </span>
                       {drilldownColFilterOpen === "date" && (
                         <div className="equity-col-filter-popover" onClick={(e) => e.stopPropagation()}>
-                          <label className="equity-col-filter-date">
-                            Exact date
-                            <input
-                              type="date"
-                              value={drilldownDateFilter}
-                              onChange={(e) => setDrilldownDateFilter(e.target.value)}
-                            />
-                          </label>
+                          <input
+                            type="text"
+                            className="equity-col-filter-search"
+                            placeholder="Search dates… e.g. Mar 2025"
+                            value={drilldownColSearch}
+                            onChange={(e) => setDrilldownColSearch(e.target.value)}
+                            autoFocus
+                          />
                           <div className="equity-col-filter-actions">
-                            <button type="button" onClick={() => setDrilldownDateFilter("")}>Clear</button>
-                            <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>Done</button>
+                            <button type="button" onClick={() => setDrilldownDateFilter(null)}>Select all</button>
+                            <button type="button" onClick={() => setDrilldownDateFilter(new Set())}>Clear all</button>
                           </div>
+                          <div className="equity-col-filter-options">
+                            {shownDateOptions.length === 0 && <p className="equity-col-filter-empty">No matches.</p>}
+                            {shownDateOptions.map((opt) => (
+                              <label key={opt.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={!drilldownDateFilter || drilldownDateFilter.has(opt.id)}
+                                  onChange={() => toggleDateOption(opt.id)}
+                                />
+                                {opt.label}
+                              </label>
+                            ))}
+                          </div>
+                          <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>OK</button>
                         </div>
                       )}
                     </th>
@@ -1018,11 +1062,27 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               );
             })()}
             {summaryFilter === "espp" && (() => {
+              const dateOptions = Array.from(new Set(esppRows.map((e) => e.purchaseDate)))
+                .sort()
+                .map((d) => ({
+                  id: d,
+                  label: new Date(d + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }),
+                }));
               const filteredEspp = esppRows.filter(
-                (e) => e.sharesHeld > 0 && (!drilldownDateFilter || e.purchaseDate === drilldownDateFilter)
+                (e) => e.sharesHeld > 0 && (!drilldownDateFilter || drilldownDateFilter.has(e.purchaseDate))
               );
               const totalShares = filteredEspp.reduce((s, e) => s + e.sharesHeld, 0);
               const totalValue = cur > 0 ? filteredEspp.reduce((s, e) => s + e.sharesHeld * cur, 0) : 0;
+              const toggleDateOption = (id: string) => {
+                setDrilldownDateFilter((prevSet) => {
+                  const base = prevSet ?? new Set(dateOptions.map((o) => o.id));
+                  const next = new Set(base);
+                  if (next.has(id)) next.delete(id); else next.add(id);
+                  return next;
+                });
+              };
+              const search = drilldownColSearch.trim().toLowerCase();
+              const shownDateOptions = search ? dateOptions.filter((o) => o.label.toLowerCase().includes(search)) : dateOptions;
               return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
@@ -1033,23 +1093,37 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         <button
                           type="button"
                           className={`equity-col-filter-btn ${drilldownDateFilter ? "active" : ""}`}
-                          onClick={() => setDrilldownColFilterOpen((o) => (o === "date" ? null : "date"))}
+                          onClick={() => { setDrilldownColFilterOpen((o) => (o === "date" ? null : "date")); setDrilldownColSearch(""); }}
                         >▾</button>
                       </span>
                       {drilldownColFilterOpen === "date" && (
                         <div className="equity-col-filter-popover" onClick={(e) => e.stopPropagation()}>
-                          <label className="equity-col-filter-date">
-                            Exact date
-                            <input
-                              type="date"
-                              value={drilldownDateFilter}
-                              onChange={(e) => setDrilldownDateFilter(e.target.value)}
-                            />
-                          </label>
+                          <input
+                            type="text"
+                            className="equity-col-filter-search"
+                            placeholder="Search dates… e.g. Feb 2026"
+                            value={drilldownColSearch}
+                            onChange={(e) => setDrilldownColSearch(e.target.value)}
+                            autoFocus
+                          />
                           <div className="equity-col-filter-actions">
-                            <button type="button" onClick={() => setDrilldownDateFilter("")}>Clear</button>
-                            <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>Done</button>
+                            <button type="button" onClick={() => setDrilldownDateFilter(null)}>Select all</button>
+                            <button type="button" onClick={() => setDrilldownDateFilter(new Set())}>Clear all</button>
                           </div>
+                          <div className="equity-col-filter-options">
+                            {shownDateOptions.length === 0 && <p className="equity-col-filter-empty">No matches.</p>}
+                            {shownDateOptions.map((opt) => (
+                              <label key={opt.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={!drilldownDateFilter || drilldownDateFilter.has(opt.id)}
+                                  onChange={() => toggleDateOption(opt.id)}
+                                />
+                                {opt.label}
+                              </label>
+                            ))}
+                          </div>
+                          <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>OK</button>
                         </div>
                       )}
                     </th>
