@@ -856,7 +856,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 const sp = v.salePrice ?? v.vestPrice;
                 return s + sold * sp;
               }, 0);
-              const totalCols = 5 + (summaryFilter === "sold" ? 3 : 2);
+              const totalCols = 7 + (summaryFilter === "sold" ? 3 : summaryFilter === "tax" ? 1 : 2);
               const toggleGrantOption = (id: string) => {
                 setDrilldownGrantFilter((prevSet) => {
                   const base = prevSet ?? new Set(grantOptions.map((o) => o.id));
@@ -960,11 +960,13 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         </div>
                       )}
                     </th>
+                    <th className="right">Award $/sh</th>
+                    <th className="right">Vest $/sh</th>
                     <th className="right">Grant Shares</th>
                     <th className="right">Tax Shares</th>
                     <th className="right">Held Shares</th>
                     {summaryFilter === "vested" && <><th className="right">Live $/sh</th><th className="right">Held Market Value</th></>}
-                    {summaryFilter === "tax" && <><th className="right">Vest $/sh</th><th className="right">Tax Value</th></>}
+                    {summaryFilter === "tax" && <th className="right">Tax Value</th>}
                     {summaryFilter === "sold" && <><th className="right">Sold Shares</th><th className="right">Sale $/sh</th><th className="right">Sale Value</th></>}
                   </tr>
                 </thead>
@@ -984,6 +986,8 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                               <span className="equity-arr">{isOpen ? "−" : "+"}</span> {g.ticker} {fmtDate(g.grantDate)}
                             </td>
                             <td>{new Date(v.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
+                            <td className="right equity-amt">${g.grantPrice.toFixed(2)}</td>
+                            <td className="right equity-amt">${v.vestPrice.toFixed(2)}</td>
                             <td className="right equity-amt">{v.shares.toLocaleString()}</td>
                             <td className="right equity-amt">{tax.toLocaleString()}</td>
                             <td className="right equity-amt">{v.sharesHeld.toLocaleString()}</td>
@@ -994,10 +998,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                               </>
                             )}
                             {summaryFilter === "tax" && (
-                              <>
-                                <td className="right equity-amt">${v.vestPrice.toFixed(2)}</td>
-                                <td className="right equity-amt">{fmt(tax * v.vestPrice)}</td>
-                              </>
+                              <td className="right equity-amt">{fmt(tax * v.vestPrice)}</td>
                             )}
                             {summaryFilter === "sold" && (
                               <>
@@ -1034,6 +1035,8 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 <tfoot>
                   <tr>
                     <th colSpan={2}>Total</th>
+                    <th />
+                    <th />
                     <th className="right equity-amt">{totalGrantShares.toLocaleString()}</th>
                     <th className="right equity-amt">{totalTaxShares.toLocaleString()}</th>
                     <th className="right equity-amt">{totalHeldShares.toLocaleString()}</th>
@@ -1044,10 +1047,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       </>
                     )}
                     {summaryFilter === "tax" && (
-                      <>
-                        <th />
-                        <th className="right equity-amt">{fmt(totalValue)}</th>
-                      </>
+                      <th className="right equity-amt">{fmt(totalValue)}</th>
                     )}
                     {summaryFilter === "sold" && (
                       <>
