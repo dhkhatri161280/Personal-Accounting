@@ -364,6 +364,14 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   const pendingEsppTotalShares = pendingEsppRows.reduce((s, c) => s + c.estimatedShares, 0);
   const scheduledSharesWithEspp = rsuPendingShares + pendingEsppTotalShares;
   const scheduledValueWithEspp = scheduledValue + (cur > 0 ? pendingEsppTotalShares * cur : 0);
+  // Projected totals for the pending-cycles summary row -- same "value it at the live price"
+  // treatment as RSU's Scheduled Value column, so the row isn't all dashes. Purch Value is real
+  // (the projected payroll contribution), Market/Gain are estimates since nothing has actually
+  // purchased yet; Sold/Sale Value stay "—", genuinely not applicable pre-purchase.
+  const pendingEsppPurchValue = pendingEsppRows.reduce((s, c) => s + c.projectedContribution, 0);
+  const pendingEsppAvgPrice = pendingEsppTotalShares > 0 ? pendingEsppPurchValue / pendingEsppTotalShares : 0;
+  const pendingEsppMarketValue = cur > 0 ? pendingEsppTotalShares * cur : 0;
+  const pendingEsppGain = pendingEsppMarketValue - pendingEsppPurchValue;
 
   // Date-wise Scheduled breakdown (RSU pending vests + ESPP pending cycles), for the Scheduled popup
   const pendingEsppByDate = pendingEsppRows.reduce((map, c) => {
@@ -1974,14 +1982,14 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   </em>
                 </td>
                 <td className="right">~{pendingEsppTotalShares.toLocaleString()}</td>
+                <td className="right">~${pendingEsppAvgPrice.toFixed(2)}</td>
+                <td className="right">{cur > 0 ? `~$${cur.toFixed(2)}` : "—"}</td>
                 <td className="right">—</td>
+                <td className="right">~{pendingEsppTotalShares.toLocaleString()}</td>
+                <td className="right equity-amt">~{fmt(pendingEsppPurchValue)}</td>
                 <td className="right">—</td>
-                <td className="right">—</td>
-                <td className="right">—</td>
-                <td className="right">—</td>
-                <td className="right">—</td>
-                <td className="right">—</td>
-                <td className="right">—</td>
+                <td className="right equity-amt">{cur > 0 ? `~${fmt(pendingEsppMarketValue)}` : "—"}</td>
+                <td className={`right ${cur > 0 ? (pendingEsppGain >= 0 ? "equity-gain-pos" : "equity-gain-neg") : ""}`}>{cur > 0 ? `~${fmt(pendingEsppGain)}` : "—"}</td>
                 <td />
               </tr>,
               ...(expanded.has("espp-pending")
@@ -1993,13 +2001,15 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       </td>
                       <td className="right">~{c.estimatedShares.toLocaleString()}</td>
                       <td className="right">${c.estimatedPurchasePrice.toFixed(2)}</td>
-                      <td className="right">—</td>
+                      <td className="right">{cur > 0 ? `~$${cur.toFixed(2)}` : "—"}</td>
                       <td className="right">—</td>
                       <td className="right">~{c.estimatedShares.toLocaleString()}</td>
                       <td className="right equity-amt">{fmt(c.projectedContribution)}</td>
                       <td className="right">—</td>
-                      <td className="right">—</td>
-                      <td className="right">—</td>
+                      <td className="right equity-amt">{cur > 0 ? `~${fmt(c.estimatedShares * cur)}` : "—"}</td>
+                      <td className={`right ${cur > 0 ? ((c.estimatedShares * cur - c.projectedContribution) >= 0 ? "equity-gain-pos" : "equity-gain-neg") : ""}`}>
+                        {cur > 0 ? `~${fmt(c.estimatedShares * cur - c.projectedContribution)}` : "—"}
+                      </td>
                       <td>
                         {c.isReal && !readOnly && (
                           <>
