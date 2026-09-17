@@ -8449,6 +8449,12 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   border-spacing: 0;
   box-shadow: var(--ref-shadow);
 }
+/* This theme rule's overflow:hidden (needed to round every other data-panel table's corners)
+   also clips the equity drill-down table's per-column filter popovers, which render as
+   position:absolute descendants of the <th> and are meant to hang below the table. Higher
+   specificity than .equity-drilldown-table alone, so it wins regardless of source order --
+   override it here, scoped to just this one table. */
+.ui-refresh .data-panel .equity-drilldown-table { overflow: visible; }
 .ui-refresh .data-panel table th {
   background: #f8fafc;
   font-weight: 700 !important;
