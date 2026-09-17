@@ -7363,6 +7363,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .equity-card-count,
 .privacy-mode .equity-summary-card em,
 .privacy-mode .equity-espp-table tfoot th,
+.privacy-mode .equity-drilldown-detail strong,
 .privacy-mode .tp-trigger-amt,
 .privacy-mode .tp-card-amount,
 .privacy-mode .tp-card-title,
@@ -7903,11 +7904,35 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-drilldown { margin-top: 1rem; border: 1px solid #bfdbfe; border-radius: 10px; background: #f8fafc; overflow: hidden; }
 .equity-drilldown-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
 .equity-drilldown-head strong { font-size: var(--fs-lg); color: #1d4ed8; }
-.equity-drilldown-date-filter { display: flex; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); color: #1d4ed8; margin-left: auto; margin-right: 0.8rem; }
-.equity-drilldown-date-filter input[type="date"] { font-size: var(--fs-sm); padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; background: #fff; }
-.equity-drilldown-date-filter button { font-size: var(--fs-sm); line-height: 1; padding: 2px 6px; border-radius: 4px; background: #fff; border: 1px solid #bfdbfe; color: #2563eb; cursor: pointer; }
+.equity-drilldown-clear-all { font-size: var(--fs-sm); padding: 2px 8px; border-radius: 4px; background: #fff; border: 1px solid #bfdbfe; color: #2563eb; cursor: pointer; margin-left: auto; margin-right: 0.6rem; }
 .equity-drilldown-close { font-size: var(--fs-base); padding: 2px 8px; border-radius: 4px; background: #fff; border: 1px solid #bfdbfe; color: #2563eb; cursor: pointer; }
 .equity-drilldown-table { margin: 0; border-radius: 0; border: none; }
+.equity-drilldown-row { cursor: pointer; }
+.equity-drilldown-row:hover { background: #eff6ff; }
+.equity-drilldown-detail-row td { padding: 0; background: #f8fafc; border-top: none; }
+.equity-drilldown-detail { display: flex; flex-wrap: wrap; gap: 1.1rem; padding: 0.7rem 1rem 0.8rem 2rem; }
+.equity-drilldown-detail span { display: flex; flex-direction: column; gap: 2px; }
+.equity-drilldown-detail em { font-size: var(--fs-sm); color: #94a3b8; font-style: normal; text-transform: uppercase; }
+.equity-drilldown-detail strong { font-size: var(--fs-md); color: var(--text, #1e293b); }
+
+/* Excel-style per-column filter (Grant / Vest Date / Purchase Date headers in the drill-down tables) */
+.equity-col-filterable { position: relative; }
+.equity-col-filter-head { display: inline-flex; align-items: center; gap: 5px; }
+.equity-col-filter-btn { font-size: 10px; line-height: 1; padding: 1px 4px; border-radius: 3px; background: transparent; border: 1px solid transparent; color: #94a3b8; cursor: pointer; }
+.equity-col-filter-btn:hover { background: #e2e8f0; color: #475569; }
+.equity-col-filter-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+.equity-col-filter-popover {
+  position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 4px; min-width: 210px;
+  background: #fff; border: 1px solid #bfdbfe; border-radius: 8px; box-shadow: 0 6px 16px rgba(15, 23, 42, 0.15);
+  padding: 0.6rem; font-weight: normal; text-transform: none; font-size: var(--fs-sm); color: var(--text, #1e293b);
+}
+.equity-col-filter-actions { display: flex; gap: 0.4rem; margin-bottom: 0.4rem; }
+.equity-col-filter-actions button { font-size: var(--fs-sm); padding: 2px 8px; border-radius: 4px; background: #f8fafc; border: 1px solid #e2e8f0; color: #2563eb; cursor: pointer; }
+.equity-col-filter-options { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9; padding: 0.4rem 0; margin-bottom: 0.4rem; }
+.equity-col-filter-options label { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
+.equity-col-filter-date { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-sm); color: #64748b; margin-bottom: 0.4rem; }
+.equity-col-filter-date input[type="date"] { font-size: var(--fs-sm); padding: 3px 6px; border-radius: 4px; border: 1px solid #e2e8f0; }
+.equity-col-filter-done { width: 100%; font-size: var(--fs-sm); padding: 3px; border-radius: 4px; background: #2563eb; border: 1px solid #2563eb; color: #fff; cursor: pointer; }
 
 .equity-section-head { display: flex; justify-content: space-between; align-items: center; margin: 1.5rem 0 0.5rem; padding-bottom: 0.4rem; border-bottom: 2px solid var(--border, #e2e8f0); }
 .equity-section-head h4 { margin: 0; font-size: var(--fs-xl); }

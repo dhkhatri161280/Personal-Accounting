@@ -104,6 +104,8 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
 
   const [summaryFilter, setSummaryFilter] = useState<"vested" | "tax" | "sold" | "espp" | null>(null);
   const [drilldownDateFilter, setDrilldownDateFilter] = useState("");
+  const [drilldownGrantFilter, setDrilldownGrantFilter] = useState<Set<string> | null>(null);
+  const [drilldownColFilterOpen, setDrilldownColFilterOpen] = useState<"grant" | "date" | null>(null);
   const [grantFilter, setGrantFilter] = useState<string | null>(null);
   const [recordVestFor, setRecordVestFor] = useState<{ grantId: string; vestId: string } | null>(null);
   const [recordVestForm, setRecordVestForm] = useState({ vestPrice: "", taxShares: "", sharesHeld: "" });
@@ -745,7 +747,12 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               <div key={key} className="equity-summary-col">
                 <button
                   className={`equity-summary-card equity-summary-stat ${active ? "equity-summary-stat--active" : ""}`}
-                  onClick={() => { setSummaryFilter(active ? null : key); setDrilldownDateFilter(""); }}
+                  onClick={() => {
+                    setSummaryFilter(active ? null : key);
+                    setDrilldownDateFilter("");
+                    setDrilldownGrantFilter(null);
+                    setDrilldownColFilterOpen(null);
+                  }}
                 >
                   <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />
                   <div className="equity-summary-card-body">
@@ -798,27 +805,25 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 {summaryFilter === "sold" && "User-Sold Lots"}
                 {summaryFilter === "espp" && "ESPP Holdings"}
               </strong>
-              {(summaryFilter === "vested" || summaryFilter === "tax" || summaryFilter === "sold" || summaryFilter === "espp") && (
-                <label className="equity-drilldown-date-filter">
-                  {summaryFilter === "espp" ? "Purchase date" : "Vest date"}
-                  <input
-                    type="date"
-                    value={drilldownDateFilter}
-                    onChange={(e) => setDrilldownDateFilter(e.target.value)}
-                  />
-                  {drilldownDateFilter && (
-                    <button type="button" onClick={() => setDrilldownDateFilter("")}>✕</button>
-                  )}
-                </label>
+              {(drilldownDateFilter || (drilldownGrantFilter && drilldownGrantFilter.size < grantRows.length)) && (
+                <button
+                  type="button"
+                  className="equity-drilldown-clear-all"
+                  onClick={() => { setDrilldownDateFilter(""); setDrilldownGrantFilter(null); }}
+                >
+                  ✕ Clear filters
+                </button>
               )}
               <button className="equity-drilldown-close" onClick={() => setSummaryFilter(null)}>✕ Close</button>
             </div>
             {(summaryFilter === "vested" || summaryFilter === "tax" || summaryFilter === "sold") && (() => {
+              const grantOptions = grantRows.map((g) => ({ id: g.id, label: `${g.ticker} ${fmtDate(g.grantDate)}` }));
               const filteredRows = grantRows.flatMap((g) =>
                 g.vests
                   .filter((v) => {
                     if (v.pending) return false;
                     if (drilldownDateFilter && v.vestDate !== drilldownDateFilter) return false;
+                    if (drilldownGrantFilter && !drilldownGrantFilter.has(g.id)) return false;
                     if (summaryFilter === "vested") return v.sharesHeld > 0;
                     if (summaryFilter === "tax") return (v.taxShares ?? 0) > 0;
                     const tax = v.taxShares ?? 0;
@@ -826,9 +831,10 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   })
                   .map((v) => ({ g, v }))
               );
-              const totalShares = filteredRows.reduce((s, { v }) => {
-                if (summaryFilter === "vested") return s + v.sharesHeld;
-                if (summaryFilter === "tax") return s + (v.taxShares ?? 0);
+              const totalGrantShares = filteredRows.reduce((s, { v }) => s + v.shares, 0);
+              const totalTaxShares = filteredRows.reduce((s, { v }) => s + (v.taxShares ?? 0), 0);
+              const totalHeldShares = filteredRows.reduce((s, { v }) => s + v.sharesHeld, 0);
+              const totalSoldShares = filteredRows.reduce((s, { v }) => {
                 const tax = v.taxShares ?? 0;
                 return s + Math.max(0, v.shares - tax - v.sharesHeld);
               }, 0);
@@ -840,76 +846,170 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 const sp = v.salePrice ?? v.vestPrice;
                 return s + sold * sp;
               }, 0);
+              const totalCols = 5 + (summaryFilter === "sold" ? 3 : 2);
+              const toggleGrantOption = (id: string) => {
+                setDrilldownGrantFilter((prevSet) => {
+                  const base = prevSet ?? new Set(grantOptions.map((o) => o.id));
+                  const next = new Set(base);
+                  if (next.has(id)) next.delete(id); else next.add(id);
+                  return next;
+                });
+              };
               return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
                   <tr>
-                    <th>Grant</th>
-                    <th>Vest Date</th>
-                    {summaryFilter === "vested" && <><th className="right">Held Shares</th><th className="right">Live $/sh</th><th className="right">Market Value</th></>}
-                    {summaryFilter === "tax" && <><th className="right">Tax Shares</th><th className="right">Vest $/sh</th><th className="right">Tax Value</th></>}
+                    <th className="equity-col-filterable">
+                      <span className="equity-col-filter-head">
+                        Grant
+                        <button
+                          type="button"
+                          className={`equity-col-filter-btn ${drilldownGrantFilter ? "active" : ""}`}
+                          onClick={() => setDrilldownColFilterOpen((o) => (o === "grant" ? null : "grant"))}
+                        >▾</button>
+                      </span>
+                      {drilldownColFilterOpen === "grant" && (
+                        <div className="equity-col-filter-popover" onClick={(e) => e.stopPropagation()}>
+                          <div className="equity-col-filter-actions">
+                            <button type="button" onClick={() => setDrilldownGrantFilter(null)}>All</button>
+                            <button type="button" onClick={() => setDrilldownGrantFilter(new Set())}>None</button>
+                          </div>
+                          <div className="equity-col-filter-options">
+                            {grantOptions.map((opt) => (
+                              <label key={opt.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={!drilldownGrantFilter || drilldownGrantFilter.has(opt.id)}
+                                  onChange={() => toggleGrantOption(opt.id)}
+                                />
+                                {opt.label}
+                              </label>
+                            ))}
+                          </div>
+                          <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>Done</button>
+                        </div>
+                      )}
+                    </th>
+                    <th className="equity-col-filterable">
+                      <span className="equity-col-filter-head">
+                        Vest Date
+                        <button
+                          type="button"
+                          className={`equity-col-filter-btn ${drilldownDateFilter ? "active" : ""}`}
+                          onClick={() => setDrilldownColFilterOpen((o) => (o === "date" ? null : "date"))}
+                        >▾</button>
+                      </span>
+                      {drilldownColFilterOpen === "date" && (
+                        <div className="equity-col-filter-popover" onClick={(e) => e.stopPropagation()}>
+                          <label className="equity-col-filter-date">
+                            Exact date
+                            <input
+                              type="date"
+                              value={drilldownDateFilter}
+                              onChange={(e) => setDrilldownDateFilter(e.target.value)}
+                            />
+                          </label>
+                          <div className="equity-col-filter-actions">
+                            <button type="button" onClick={() => setDrilldownDateFilter("")}>Clear</button>
+                            <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>Done</button>
+                          </div>
+                        </div>
+                      )}
+                    </th>
+                    <th className="right">Grant Shares</th>
+                    <th className="right">Tax Shares</th>
+                    <th className="right">Held Shares</th>
+                    {summaryFilter === "vested" && <><th className="right">Live $/sh</th><th className="right">Held Market Value</th></>}
+                    {summaryFilter === "tax" && <><th className="right">Vest $/sh</th><th className="right">Tax Value</th></>}
                     {summaryFilter === "sold" && <><th className="right">Sold Shares</th><th className="right">Sale $/sh</th><th className="right">Sale Value</th></>}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredRows.length === 0 && (
-                    <tr><td colSpan={5} className="equity-empty">No entries for this date.</td></tr>
+                    <tr><td colSpan={totalCols} className="equity-empty">No entries match these filters.</td></tr>
                   )}
-                  {filteredRows.map(({ g, v }) => {
+                  {filteredRows.flatMap(({ g, v }) => {
                         const tax = v.taxShares ?? 0;
                         const sold = Math.max(0, v.shares - tax - v.sharesHeld);
                         const sp = v.salePrice ?? v.vestPrice;
-                        return (
-                          <tr key={`${g.id}-${v.id}`}>
-                            <td className="equity-neutral" style={{ fontSize: 11 }}>{g.ticker} {fmtDate(g.grantDate)}</td>
+                        const rowKey = `dd-${g.id}-${v.id}`;
+                        const isOpen = expanded.has(rowKey);
+                        return [
+                          <tr key={rowKey} className="equity-drilldown-row" onClick={() => toggle(rowKey)}>
+                            <td className="equity-neutral" style={{ fontSize: 11 }}>
+                              <span className="equity-arr">{isOpen ? "−" : "+"}</span> {g.ticker} {fmtDate(g.grantDate)}
+                            </td>
                             <td>{new Date(v.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
+                            <td className="right equity-amt">{v.shares.toLocaleString()}</td>
+                            <td className="right equity-amt">{tax.toLocaleString()}</td>
+                            <td className="right equity-amt">{v.sharesHeld.toLocaleString()}</td>
                             {summaryFilter === "vested" && (
                               <>
-                                <td className="right">{v.sharesHeld.toLocaleString()}</td>
-                                <td className="right">{cur > 0 ? `$${cur.toFixed(2)}` : "—"}</td>
+                                <td className="right equity-amt">{cur > 0 ? `$${cur.toFixed(2)}` : "—"}</td>
                                 <td className="right equity-gain-pos">{cur > 0 ? fmt(v.sharesHeld * cur) : "—"}</td>
                               </>
                             )}
                             {summaryFilter === "tax" && (
                               <>
-                                <td className="right">{(v.taxShares ?? 0).toLocaleString()}</td>
-                                <td className="right">${v.vestPrice.toFixed(2)}</td>
-                                <td className="right">{fmt((v.taxShares ?? 0) * v.vestPrice)}</td>
+                                <td className="right equity-amt">${v.vestPrice.toFixed(2)}</td>
+                                <td className="right equity-amt">{fmt(tax * v.vestPrice)}</td>
                               </>
                             )}
                             {summaryFilter === "sold" && (
                               <>
-                                <td className="right">{sold.toLocaleString()}</td>
-                                <td className="right">${sp.toFixed(2)}{!v.salePrice ? " *" : ""}</td>
-                                <td className="right">{fmt(sold * sp)}</td>
+                                <td className="right equity-amt">{sold.toLocaleString()}</td>
+                                <td className="right equity-amt">${sp.toFixed(2)}{!v.salePrice ? " *" : ""}</td>
+                                <td className="right equity-amt">{fmt(sold * sp)}</td>
                               </>
                             )}
-                          </tr>
-                        );
+                          </tr>,
+                          isOpen && (
+                            <tr className="equity-drilldown-detail-row" key={`${rowKey}-detail`}>
+                              <td colSpan={totalCols}>
+                                <div className="equity-drilldown-detail">
+                                  <span><em>Total Vested</em><strong>{v.shares.toLocaleString()} sh</strong></span>
+                                  <span><em>Tax Withheld</em><strong>{tax.toLocaleString()} sh</strong></span>
+                                  <span><em>Sold</em><strong>{sold.toLocaleString()} sh</strong></span>
+                                  <span><em>Net Held</em><strong>{v.sharesHeld.toLocaleString()} sh</strong></span>
+                                  <span><em>Vest $/sh</em><strong>${v.vestPrice.toFixed(2)}</strong></span>
+                                  {sold > 0 && <span><em>Sale $/sh</em><strong>${sp.toFixed(2)}{!v.salePrice ? " *" : ""}</strong></span>}
+                                  <span><em>Vest Value</em><strong>{fmt(v.shares * v.vestPrice)}</strong></span>
+                                  <span><em>Current Value (held)</em><strong>{cur > 0 ? fmt(v.sharesHeld * cur) : "—"}</strong></span>
+                                  <span><em>Gain (held, vs vest)</em>
+                                    <strong className={cur > 0 && v.sharesHeld * (cur - v.vestPrice) < 0 ? "equity-gain-neg" : "equity-gain-pos"}>
+                                      {cur > 0 ? fmt(v.sharesHeld * (cur - v.vestPrice)) : "—"}
+                                    </strong>
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          ),
+                        ];
                       })}
                 </tbody>
                 <tfoot>
                   <tr>
                     <th colSpan={2}>Total</th>
+                    <th className="right equity-amt">{totalGrantShares.toLocaleString()}</th>
+                    <th className="right equity-amt">{totalTaxShares.toLocaleString()}</th>
+                    <th className="right equity-amt">{totalHeldShares.toLocaleString()}</th>
                     {summaryFilter === "vested" && (
                       <>
-                        <th className="right">{totalShares.toLocaleString()}</th>
                         <th />
                         <th className="right equity-gain-pos">{fmt(totalValue)}</th>
                       </>
                     )}
                     {summaryFilter === "tax" && (
                       <>
-                        <th className="right">{totalShares.toLocaleString()}</th>
                         <th />
-                        <th className="right">{fmt(totalValue)}</th>
+                        <th className="right equity-amt">{fmt(totalValue)}</th>
                       </>
                     )}
                     {summaryFilter === "sold" && (
                       <>
-                        <th className="right">{totalShares.toLocaleString()}</th>
+                        <th className="right equity-amt">{totalSoldShares.toLocaleString()}</th>
                         <th />
-                        <th className="right">{fmt(totalValue)}</th>
+                        <th className="right equity-amt">{fmt(totalValue)}</th>
                       </>
                     )}
                   </tr>
@@ -927,7 +1027,32 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               <table className="equity-table equity-drilldown-table">
                 <thead>
                   <tr>
-                    <th>Purchase Date</th>
+                    <th className="equity-col-filterable">
+                      <span className="equity-col-filter-head">
+                        Purchase Date
+                        <button
+                          type="button"
+                          className={`equity-col-filter-btn ${drilldownDateFilter ? "active" : ""}`}
+                          onClick={() => setDrilldownColFilterOpen((o) => (o === "date" ? null : "date"))}
+                        >▾</button>
+                      </span>
+                      {drilldownColFilterOpen === "date" && (
+                        <div className="equity-col-filter-popover" onClick={(e) => e.stopPropagation()}>
+                          <label className="equity-col-filter-date">
+                            Exact date
+                            <input
+                              type="date"
+                              value={drilldownDateFilter}
+                              onChange={(e) => setDrilldownDateFilter(e.target.value)}
+                            />
+                          </label>
+                          <div className="equity-col-filter-actions">
+                            <button type="button" onClick={() => setDrilldownDateFilter("")}>Clear</button>
+                            <button type="button" className="equity-col-filter-done" onClick={() => setDrilldownColFilterOpen(null)}>Done</button>
+                          </div>
+                        </div>
+                      )}
+                    </th>
                     <th className="right">Held Shares</th>
                     <th className="right">Live $/sh</th>
                     <th className="right">Market Value</th>
@@ -935,13 +1060,13 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 </thead>
                 <tbody>
                   {filteredEspp.length === 0 && (
-                    <tr><td colSpan={4} className="equity-empty">No entries for this date.</td></tr>
+                    <tr><td colSpan={4} className="equity-empty">No entries match these filters.</td></tr>
                   )}
                   {filteredEspp.map((e) => (
                     <tr key={e.id}>
                       <td>{new Date(e.purchaseDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
-                      <td className="right">{e.sharesHeld.toLocaleString()}</td>
-                      <td className="right">{cur > 0 ? `$${cur.toFixed(2)}` : "—"}</td>
+                      <td className="right equity-amt">{e.sharesHeld.toLocaleString()}</td>
+                      <td className="right equity-amt">{cur > 0 ? `$${cur.toFixed(2)}` : "—"}</td>
                       <td className="right equity-gain-pos">{cur > 0 ? fmt(e.sharesHeld * cur) : "—"}</td>
                     </tr>
                   ))}
@@ -949,7 +1074,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 <tfoot>
                   <tr>
                     <th>Total</th>
-                    <th className="right">{totalShares.toLocaleString()}</th>
+                    <th className="right equity-amt">{totalShares.toLocaleString()}</th>
                     <th />
                     <th className="right equity-gain-pos">{fmt(totalValue)}</th>
                   </tr>
