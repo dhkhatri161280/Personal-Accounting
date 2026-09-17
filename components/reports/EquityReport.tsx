@@ -960,9 +960,9 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         </div>
                       )}
                     </th>
+                    <th className="right">Grant Shares</th>
                     <th className="right">Award $/sh</th>
                     <th className="right">Vest $/sh</th>
-                    <th className="right">Grant Shares</th>
                     <th className="right">Tax Shares</th>
                     <th className="right">Held Shares</th>
                     {summaryFilter === "vested" && <><th className="right">Live $/sh</th><th className="right">Held Market Value</th></>}
@@ -986,9 +986,9 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                               <span className="equity-arr">{isOpen ? "−" : "+"}</span> {g.ticker} {fmtDate(g.grantDate)}
                             </td>
                             <td>{new Date(v.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
+                            <td className="right equity-amt">{v.shares.toLocaleString()}</td>
                             <td className="right equity-amt">${g.grantPrice.toFixed(2)}</td>
                             <td className="right equity-amt">${v.vestPrice.toFixed(2)}</td>
-                            <td className="right equity-amt">{v.shares.toLocaleString()}</td>
                             <td className="right equity-amt">{tax.toLocaleString()}</td>
                             <td className="right equity-amt">{v.sharesHeld.toLocaleString()}</td>
                             {summaryFilter === "vested" && (
@@ -1035,9 +1035,9 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 <tfoot>
                   <tr>
                     <th colSpan={2}>Total</th>
-                    <th />
-                    <th />
                     <th className="right equity-amt">{totalGrantShares.toLocaleString()}</th>
+                    <th />
+                    <th />
                     <th className="right equity-amt">{totalTaxShares.toLocaleString()}</th>
                     <th className="right equity-amt">{totalHeldShares.toLocaleString()}</th>
                     {summaryFilter === "vested" && (
