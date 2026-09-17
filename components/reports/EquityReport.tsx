@@ -103,6 +103,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   const [confirmEsppForm, setConfirmEsppForm] = useState(BLANK_CONFIRM_ESPP);
 
   const [summaryFilter, setSummaryFilter] = useState<"vested" | "tax" | "sold" | "espp" | null>(null);
+  const [drilldownDateFilter, setDrilldownDateFilter] = useState("");
   const [grantFilter, setGrantFilter] = useState<string | null>(null);
   const [recordVestFor, setRecordVestFor] = useState<{ grantId: string; vestId: string } | null>(null);
   const [recordVestForm, setRecordVestForm] = useState({ vestPrice: "", taxShares: "", sharesHeld: "" });
@@ -744,7 +745,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               <div key={key} className="equity-summary-col">
                 <button
                   className={`equity-summary-card equity-summary-stat ${active ? "equity-summary-stat--active" : ""}`}
-                  onClick={() => setSummaryFilter(active ? null : key)}
+                  onClick={() => { setSummaryFilter(active ? null : key); setDrilldownDateFilter(""); }}
                 >
                   <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />
                   <div className="equity-summary-card-body">
@@ -797,9 +798,49 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 {summaryFilter === "sold" && "User-Sold Lots"}
                 {summaryFilter === "espp" && "ESPP Holdings"}
               </strong>
+              {(summaryFilter === "vested" || summaryFilter === "tax" || summaryFilter === "sold" || summaryFilter === "espp") && (
+                <label className="equity-drilldown-date-filter">
+                  {summaryFilter === "espp" ? "Purchase date" : "Vest date"}
+                  <input
+                    type="date"
+                    value={drilldownDateFilter}
+                    onChange={(e) => setDrilldownDateFilter(e.target.value)}
+                  />
+                  {drilldownDateFilter && (
+                    <button type="button" onClick={() => setDrilldownDateFilter("")}>✕</button>
+                  )}
+                </label>
+              )}
               <button className="equity-drilldown-close" onClick={() => setSummaryFilter(null)}>✕ Close</button>
             </div>
-            {(summaryFilter === "vested" || summaryFilter === "tax" || summaryFilter === "sold") && (
+            {(summaryFilter === "vested" || summaryFilter === "tax" || summaryFilter === "sold") && (() => {
+              const filteredRows = grantRows.flatMap((g) =>
+                g.vests
+                  .filter((v) => {
+                    if (v.pending) return false;
+                    if (drilldownDateFilter && v.vestDate !== drilldownDateFilter) return false;
+                    if (summaryFilter === "vested") return v.sharesHeld > 0;
+                    if (summaryFilter === "tax") return (v.taxShares ?? 0) > 0;
+                    const tax = v.taxShares ?? 0;
+                    return Math.max(0, v.shares - tax - v.sharesHeld) > 0;
+                  })
+                  .map((v) => ({ g, v }))
+              );
+              const totalShares = filteredRows.reduce((s, { v }) => {
+                if (summaryFilter === "vested") return s + v.sharesHeld;
+                if (summaryFilter === "tax") return s + (v.taxShares ?? 0);
+                const tax = v.taxShares ?? 0;
+                return s + Math.max(0, v.shares - tax - v.sharesHeld);
+              }, 0);
+              const totalValue = filteredRows.reduce((s, { v }) => {
+                if (summaryFilter === "vested") return s + (cur > 0 ? v.sharesHeld * cur : 0);
+                if (summaryFilter === "tax") return s + (v.taxShares ?? 0) * v.vestPrice;
+                const tax = v.taxShares ?? 0;
+                const sold = Math.max(0, v.shares - tax - v.sharesHeld);
+                const sp = v.salePrice ?? v.vestPrice;
+                return s + sold * sp;
+              }, 0);
+              return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
                   <tr>
@@ -811,16 +852,10 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   </tr>
                 </thead>
                 <tbody>
-                  {grantRows.flatMap((g) =>
-                    g.vests
-                      .filter((v) => {
-                        if (v.pending) return false;
-                        if (summaryFilter === "vested") return v.sharesHeld > 0;
-                        if (summaryFilter === "tax") return (v.taxShares ?? 0) > 0;
-                        const tax = v.taxShares ?? 0;
-                        return Math.max(0, v.shares - tax - v.sharesHeld) > 0;
-                      })
-                      .map((v) => {
+                  {filteredRows.length === 0 && (
+                    <tr><td colSpan={5} className="equity-empty">No entries for this date.</td></tr>
+                  )}
+                  {filteredRows.map(({ g, v }) => {
                         const tax = v.taxShares ?? 0;
                         const sold = Math.max(0, v.shares - tax - v.sharesHeld);
                         const sp = v.salePrice ?? v.vestPrice;
@@ -851,38 +886,44 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                             )}
                           </tr>
                         );
-                      })
-                  )}
+                      })}
                 </tbody>
                 <tfoot>
                   <tr>
                     <th colSpan={2}>Total</th>
                     {summaryFilter === "vested" && (
                       <>
-                        <th className="right">{rsuHeldShares.toLocaleString()}</th>
+                        <th className="right">{totalShares.toLocaleString()}</th>
                         <th />
-                        <th className="right equity-gain-pos">{fmt(summaryVestedValue)}</th>
+                        <th className="right equity-gain-pos">{fmt(totalValue)}</th>
                       </>
                     )}
                     {summaryFilter === "tax" && (
                       <>
-                        <th className="right">{rsuTaxShares.toLocaleString()}</th>
+                        <th className="right">{totalShares.toLocaleString()}</th>
                         <th />
-                        <th className="right">{fmt(summaryTaxValue)}</th>
+                        <th className="right">{fmt(totalValue)}</th>
                       </>
                     )}
                     {summaryFilter === "sold" && (
                       <>
-                        <th className="right">{rsuUserSoldShares.toLocaleString()}</th>
+                        <th className="right">{totalShares.toLocaleString()}</th>
                         <th />
-                        <th className="right">{fmt(summarySoldValue)}</th>
+                        <th className="right">{fmt(totalValue)}</th>
                       </>
                     )}
                   </tr>
                 </tfoot>
               </table>
-            )}
-            {summaryFilter === "espp" && (
+              );
+            })()}
+            {summaryFilter === "espp" && (() => {
+              const filteredEspp = esppRows.filter(
+                (e) => e.sharesHeld > 0 && (!drilldownDateFilter || e.purchaseDate === drilldownDateFilter)
+              );
+              const totalShares = filteredEspp.reduce((s, e) => s + e.sharesHeld, 0);
+              const totalValue = cur > 0 ? filteredEspp.reduce((s, e) => s + e.sharesHeld * cur, 0) : 0;
+              return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
                   <tr>
@@ -893,7 +934,10 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   </tr>
                 </thead>
                 <tbody>
-                  {esppRows.filter(e => e.sharesHeld > 0).map((e) => (
+                  {filteredEspp.length === 0 && (
+                    <tr><td colSpan={4} className="equity-empty">No entries for this date.</td></tr>
+                  )}
+                  {filteredEspp.map((e) => (
                     <tr key={e.id}>
                       <td>{new Date(e.purchaseDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
                       <td className="right">{e.sharesHeld.toLocaleString()}</td>
@@ -905,13 +949,14 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 <tfoot>
                   <tr>
                     <th>Total</th>
-                    <th className="right">{esppHeldShares.toLocaleString()}</th>
+                    <th className="right">{totalShares.toLocaleString()}</th>
                     <th />
-                    <th className="right equity-gain-pos">{fmt(summaryEsppValue)}</th>
+                    <th className="right equity-gain-pos">{fmt(totalValue)}</th>
                   </tr>
                 </tfoot>
               </table>
-            )}
+              );
+            })()}
           </div>
         )}
       </div>
