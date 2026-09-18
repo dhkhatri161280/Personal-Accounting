@@ -3305,10 +3305,14 @@ aside .install-app span {
 }
 .master-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+}
+.master-toolbar > label {
+  white-space: nowrap;
 }
 .info-icon-wrap {
   position: relative;
