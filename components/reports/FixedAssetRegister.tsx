@@ -298,7 +298,7 @@ export function FixedAssetRegister({
           title={`Posts one true-up voucher per asset, dated ${postDate}, instead of one per pending asset-month`}
         >
           <input type="checkbox" checked={consolidate} onChange={(e) => setConsolidate(e.target.checked)} />
-          Consolidate into 1 voucher/asset
+          Consolidate
         </label>
         {consolidate && (
           <label
@@ -312,16 +312,20 @@ export function FixedAssetRegister({
         <button type="button" className="tr-refresh-btn" disabled={pendingCount === 0} onClick={() => setShowPreview(true)} title="See the vouchers this run would post, without posting them">
           👁 Preview{pendingCount > 0 ? ` (${pendingCount})` : ""}
         </button>
-        <button type="button" className="tr-refresh-btn" disabled={saving || pendingCount === 0} onClick={runDepreciation}>
-          {saving
-            ? "Posting…"
-            : pendingCount === 0
-              ? "Depreciation up to date"
-              : (
-                <>
-                  Run Depreciation ({pendingCount} voucher{pendingCount === 1 ? "" : "s"}, <span className="fa-run-amt">{fmt(pendingAmount)}</span>)
-                </>
-              )}
+        <button
+          type="button"
+          className="tr-refresh-btn"
+          disabled={saving || pendingCount === 0}
+          onClick={runDepreciation}
+          title={
+            pendingCount > 0
+              ? privacyMode
+                ? `Posts ${pendingCount} voucher${pendingCount === 1 ? "" : "s"}`
+                : `Posts ${pendingCount} voucher${pendingCount === 1 ? "" : "s"} totaling ${fmt(pendingAmount)}`
+              : undefined
+          }
+        >
+          {saving ? "Posting…" : pendingCount === 0 ? "Up to date" : `▶ Run Depreciation (${pendingCount})`}
         </button>
         {accumDeprecGlBalance !== null && Math.abs(accumDeprecGlBalance - computedAccumTotal) > 0.5 && (
           <span

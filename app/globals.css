@@ -3353,10 +3353,24 @@ aside .install-app span {
   color: #45526b;
 }
 .master-toolbar input {
-  min-width: 280px;
   border: 1px solid #d8e0eb;
   border-radius: 8px;
   padding: 10px;
+}
+/* min-width: 280px only makes sense for a free-text search/filter box -- applied to every input
+   with no exclusions, it was also forcing a date picker or even a checkbox to reserve 280px of
+   row width each, which is most of why a toolbar with a couple of dates and a checkbox in it blew
+   past one line long before the visible text did. */
+.master-toolbar input:not([type="checkbox"]):not([type="date"]):not([type="number"]) {
+  min-width: 280px;
+}
+.master-toolbar input[type="checkbox"] {
+  min-width: 0;
+  width: auto;
+}
+.master-toolbar input[type="date"],
+.master-toolbar input[type="number"] {
+  min-width: 0;
 }
 .used-master {
   display: inline-block;
