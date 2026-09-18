@@ -117,6 +117,79 @@ function stockVal(r: PayrollRow | undefined, idx: number): number | null {
   return v === undefined ? null : v;
 }
 
+export type YearSalaryTaxSummary = {
+  year: string;
+  gross: number;
+  totalTax: number;
+  net: number;
+  afterTax: number;
+  effective: number;
+  k401Self: number;
+  k401Employer: number;
+  espp: number;
+  rsuVested: number;
+};
+
+// Same aggregation formulas the single-year view below uses (override-aware: a manual period
+// correction replaces that period's Excel-imported value, a voucher-derived period adds on top,
+// a row's separate "Stocks" vesting-tax-event columns always add in) -- reimplemented here as a
+// standalone, year-parameterized function so the "All Years" summary can compute every year the
+// same way without touching (and risking regressing) the existing single-year computation below,
+// which stays wired to component state/closures for its own click-through popups.
+function computeYearSummary(rawYr: PayrollYear, equity: EquityData | undefined): YearSalaryTaxSummary {
+  const yr = normalizePayrollYear(rawYr);
+  const rows = yr.rows;
+  const gross = row(rows, "Gross Salary");
+  const totalTax = row(rows, "Total Tax");
+  const netSalary = row(rows, "Net Salary", 1) ?? row(rows, "Net Salary", 0);
+  const afterTax = row(rows, "After Tax Salary");
+  const effective = row(rows, "Effective Salary");
+  const k401 = row(rows, "401K");
+  const k401Emplr = row(rows, "401K Emplr");
+  const esppRow = row(rows, "ESPP");
+
+  const allManualPeriods = yr.manualPeriods ?? [];
+  const voucherPeriods = allManualPeriods.filter((m) => m.periodIndex === undefined);
+  const overrideByIndex = new Map(allManualPeriods.filter((m) => m.periodIndex !== undefined).map((m) => [m.periodIndex!, m]));
+
+  function overriddenTotal(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod): number {
+    let sum = 0;
+    for (let i = 0; i < yr.periodLabels.length; i++) {
+      const ov = overrideByIndex.get(i);
+      sum += ov ? (Number(ov[field]) || 0) : (baseRowForField?.values[i] ?? 0);
+    }
+    return sum + (baseRowForField?.stockValues?.reduce((s, v) => s + v, 0) ?? 0) + voucherPeriods.reduce((s, m) => s + (Number(m[field]) || 0), 0);
+  }
+  function overriddenGrossTotal(): number {
+    let sum = 0;
+    for (let i = 0; i < yr.periodLabels.length; i++) {
+      const ov = overrideByIndex.get(i);
+      sum += ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0);
+    }
+    return sum + (gross?.stockValues?.reduce((s, v) => s + v, 0) ?? 0) + voucherPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
+  }
+
+  // RSU vest records come from Reports > Equity (authoritative for date/shares/price), same
+  // source the single-year "Stock (RSU) Vested" card uses -- only actually-vested (not pending)
+  // tranches whose vest date falls in this year.
+  const rsuVested = (equity?.grants ?? [])
+    .flatMap((g) => g.vests.filter((v) => !v.pending && v.vestDate.startsWith(yr.year)))
+    .reduce((s, v) => s + v.shares * v.vestPrice, 0);
+
+  return {
+    year: yr.year,
+    gross: overriddenGrossTotal(),
+    totalTax: overriddenTotal(totalTax, "totalTax"),
+    net: overriddenTotal(netSalary, "net"),
+    afterTax: sumRow(afterTax),
+    effective: sumRow(effective),
+    k401Self: overriddenTotal(k401, "k401"),
+    k401Employer: overriddenTotal(k401Emplr, "k401Emplr"),
+    espp: overriddenTotal(esppRow, "espp"),
+    rsuVested,
+  };
+}
+
 const linkBtnStyle: React.CSSProperties = { background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0, font: "inherit", textDecoration: "underline" };
 
 function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]; fmt: (n: number) => string }) {
@@ -597,6 +670,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const k401ByYear = compute401kByYear(payroll);
   const k401LifetimeSelf = k401ByYear.reduce((s, r) => s + r.self, 0);
   const k401LifetimeEmployer = k401ByYear.reduce((s, r) => s + r.employer, 0);
+
+  // Every imported year's full salary/tax picture, side by side -- see the "All Years" table
+  // rendered near the Year pills below.
+  const allYearsSummary = years
+    .map((y) => computeYearSummary(y, equity))
+    .sort((a, b) => b.year.localeCompare(a.year));
 
   const allManualPeriods = yr.manualPeriods ?? [];
   // Two kinds share the same ManualPayrollPeriod record: a voucher-derived period (new pay
@@ -1079,6 +1158,66 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             </button>
           ))}
         </div>
+
+        {allYearsSummary.length > 1 && (
+          <details style={{ margin: "0 0 0.75rem" }}>
+            <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
+              All Years — Salary &amp; Tax Summary ({allYearsSummary.length} years, click to expand)
+            </summary>
+            <div className="columnar-report-scroll" style={{ marginTop: "0.5rem" }}>
+              <table className="equity-table equity-drilldown-table">
+                <thead>
+                  <tr>
+                    <th>Year</th>
+                    <th className="right">Gross</th>
+                    <th className="right">Total Tax</th>
+                    <th className="right">Net</th>
+                    <th className="right">After Tax</th>
+                    <th className="right">401(k) Self</th>
+                    <th className="right">401(k) Employer</th>
+                    <th className="right">ESPP</th>
+                    <th className="right">RSU Vested</th>
+                    <th className="right">Effective</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allYearsSummary.map((r) => (
+                    <tr key={r.year}>
+                      <td>
+                        <button type="button" style={linkBtnStyle} onClick={() => { setSelectedYear(r.year); setViewPeriod(null); }}>
+                          {r.year}
+                        </button>
+                      </td>
+                      <td className="right equity-amt">{fmt(r.gross)}</td>
+                      <td className="right equity-amt">{fmt(r.totalTax)}</td>
+                      <td className="right equity-amt">{fmt(r.net)}</td>
+                      <td className="right equity-amt">{fmt(r.afterTax)}</td>
+                      <td className="right equity-amt">{fmt(r.k401Self)}</td>
+                      <td className="right equity-amt">{fmt(r.k401Employer)}</td>
+                      <td className="right equity-amt">{fmt(r.espp)}</td>
+                      <td className="right equity-amt">{fmt(r.rsuVested)}</td>
+                      <td className="right equity-amt">{fmt(r.effective)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>Total</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.gross, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.totalTax, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.net, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.afterTax, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.k401Self, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.k401Employer, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.espp, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.rsuVested, 0))}</td>
+                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.effective, 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </details>
+        )}
 
         <div className="equity-summary-row">
           {summaryCards.map((c) => (
