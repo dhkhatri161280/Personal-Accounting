@@ -92,6 +92,16 @@ function chipLabel(name: string): string {
   return first.length > 10 ? first.slice(0, 10) : first;
 }
 
+// Page title shown at the top of every tab -- same reasoning as VaultApp.tsx's TAB_LABELS (the
+// icon-only nav rail has no text label for the active section otherwise).
+const TAB_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  daybook: "Day Book",
+  ledgers: "Ledgers",
+  reports: "Reports",
+  fxrates: "FX Rates",
+};
+
 // FX rate localStorage cache — refreshed at most once per calendar month
 const FX_LS_KEY = "dk-gr-fx-cache";
 interface FxCache { rates: FxRates; cachedMonth: string }
@@ -882,6 +892,7 @@ export function GrApp() {
           </button>
         </TabSidebar>
         <div className="workspace-content">
+      {TAB_LABELS[tab] && <h2 className="workspace-page-title">{TAB_LABELS[tab]}</h2>}
 
       {/* ── DASHBOARD ─────────────────────────────────────────────────────── */}
       {tab === "dashboard" && (

@@ -115,6 +115,27 @@ const VOUCHER_TYPE_ICONS: Record<string, string> = {
 };
 const voucherTypeIcon = (type: string) => VOUCHER_TYPE_ICONS[type.toLowerCase()] || "📄";
 
+// Page title shown at the top of every tab -- the nav rail is icon-only by default (see
+// TabSidebar), so without this there's no text anywhere saying which section is active. Every
+// other screen already has its own heading somewhere inside it (Equity Holdings, RSU Grants,
+// Trial Balance, ...); Dashboard/Day Book/Import/Ledgers never did.
+const TAB_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  daybook: "Day Book",
+  "bank-import": "Import",
+  reports: "Reports",
+  masters: "Masters",
+  ledgers: "Ledgers",
+  // "new" deliberately excluded -- that tab already opens straight into its own heading
+  // ("Record balanced voucher" / "Edit posted voucher" / ...), so this would just stack a
+  // redundant second title right above it.
+};
+const IMPORT_SOURCE_LABELS: Record<string, string> = {
+  plaid: "Plaid",
+  schwab: "Schwab",
+  retirement: "Retirement",
+};
+
 export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const apiUrl = book === "india" ? "/api/vault?book=india" : "/api/vault",
     biometricKey = `${BIO_KEY}-${book}`,
@@ -2800,6 +2821,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
         </TabSidebar>
         <div className="workspace-content">
+      {TAB_LABELS[tab] && (
+        <h2 className="workspace-page-title">
+          {TAB_LABELS[tab]}
+          {tab === "bank-import" && IMPORT_SOURCE_LABELS[importSource] && (
+            <span className="workspace-page-title-crumb"> › {IMPORT_SOURCE_LABELS[importSource]}</span>
+          )}
+        </h2>
+      )}
       {searchOpen && (
         <FloatingWindow title="Search" onClose={() => setSearchOpen(false)} initialWidth={480} initialHeight={440}>
           <div className="search-palette">

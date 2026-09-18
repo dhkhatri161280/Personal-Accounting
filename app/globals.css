@@ -1676,6 +1676,16 @@ tfoot th {
   min-width: 0;
   flex: 1;
 }
+.workspace-page-title {
+  margin: 0 0 14px;
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  color: #1e293b;
+}
+.workspace-page-title-crumb {
+  font-weight: 500;
+  color: #64748b;
+}
 @media (max-width: 900px) {
   /* Narrow screens: a tall vertical rail (collapsed OR expanded) eats too much of a phone/tablet's
      limited width and height for little benefit, so both states drop to the same wrapping
