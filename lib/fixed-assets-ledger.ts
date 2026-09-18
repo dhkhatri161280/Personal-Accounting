@@ -167,18 +167,31 @@ export type TaggedAssetGroup = {
   purchaseDate: string;
   existingAssetId?: string;
   costChanged: boolean;
+  // Set when this tag's own Cr entries already fully offset its Dr entries (a disposal/write-off
+  // posted -- or, via the voucher-line tag picker, RE-tagged -- under this same Fixed Asset #
+  // before it was ever linked to a Master record). The date of the last such Cr entry.
+  disposedDate?: string;
 };
 
 // Scans every posted voucher entry carrying an Entry.assetTag (set at entry time in the New
 // Voucher form when the debit ledger is a Fixed-Assets-nature account -- see VaultApp.tsx's
 // voucher-line rendering) and groups them by (accountId, tag). Several tagged entries on the same
 // GL ledger (e.g. two installments of one sofa, both posted to "Furniture Purchase") net into one
-// group: cost = the net Dr amount, purchaseDate = the earliest entry's date. Cross-references
-// data.fixedAssets (matched via sourceAccountId/sourceTag) so a caller can tell a genuinely new
-// tag apart from one that already has an asset and just needs its cost/date refreshed.
+// group: cost = the Dr (cost-adding) total alone, NOT the net Dr-minus-Cr balance -- a disposal/
+// write-off entry tagged under the same Fixed Asset # (e.g. re-tagging the original purchase AND
+// its later write-off with the same #, via the voucher-line tag picker) would otherwise net cost
+// down to the post-disposal balance, sometimes $0, and the asset would vanish from the Register
+// (whose own display filters out near-zero-cost assets). A Cr total that fully offsets the Dr
+// total instead surfaces as disposedDate, so the asset syncs in as correctly Disposed, not lost.
+// purchaseDate = the earliest Dr entry's date. Cross-references data.fixedAssets (matched via
+// sourceAccountId/sourceTag) so a caller can tell a genuinely new tag apart from one that already
+// has an asset and just needs its cost/date refreshed.
 export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
   const accountById = new Map(data.accounts.map((a) => [a.id, a]));
-  const groups = new Map<string, { accountId: number; tag: string; cost: number; earliestDate: string }>();
+  const groups = new Map<
+    string,
+    { accountId: number; tag: string; drTotal: number; crTotal: number; earliestDrDate: string; lastCrDate: string }
+  >();
   for (const t of data.transactions) {
     if (t.deleted || t.cancelled) continue;
     for (const e of t.entries) {
@@ -191,13 +204,26 @@ export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
       // vouchers would spawn a second, spurious asset record keyed off this shared account.
       if (!acc || acc.parent !== FIXED_ASSETS_GROUP_NAME || acc.name === ACCUMULATED_DEPRECIATION_ACCOUNT_NAME) continue;
       const key = `${e.accountId}::${e.assetTag}`;
-      const cost = round2(-e.amount); // Dr (negative) increases the asset, mirrors ledgerBalanceAsOf's convention
+      const isDebit = e.amount < 0; // Dr (negative) increases the asset, mirrors ledgerBalanceAsOf's convention
+      const amt = round2(Math.abs(e.amount));
       const existing = groups.get(key);
       if (existing) {
-        existing.cost = round2(existing.cost + cost);
-        if (t.date < existing.earliestDate) existing.earliestDate = t.date;
+        if (isDebit) {
+          existing.drTotal = round2(existing.drTotal + amt);
+          if (t.date < existing.earliestDrDate) existing.earliestDrDate = t.date;
+        } else {
+          existing.crTotal = round2(existing.crTotal + amt);
+          if (t.date > existing.lastCrDate) existing.lastCrDate = t.date;
+        }
       } else {
-        groups.set(key, { accountId: e.accountId, tag: e.assetTag, cost, earliestDate: t.date });
+        groups.set(key, {
+          accountId: e.accountId,
+          tag: e.assetTag,
+          drTotal: isDebit ? amt : 0,
+          crTotal: isDebit ? 0 : amt,
+          earliestDrDate: isDebit ? t.date : "",
+          lastCrDate: isDebit ? "" : t.date,
+        });
       }
     }
   }
@@ -209,14 +235,22 @@ export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
   return [...groups.entries()]
     .map(([key, g]) => {
       const linked = linkedByKey.get(key);
+      const netBalance = round2(g.drTotal - g.crTotal);
+      // Only when credits fully offset the debits down to zero (or past it) -- a partial credit
+      // (e.g. one refunded installment of a multi-part purchase) isn't a disposal.
+      const disposedDate = !linked?.disposed && g.crTotal > 0 && netBalance <= 0.005 ? g.lastCrDate : undefined;
       return {
         accountId: g.accountId,
         accountName: accountById.get(g.accountId)?.name || "",
         tag: g.tag,
-        cost: g.cost,
-        purchaseDate: g.earliestDate,
+        cost: g.drTotal,
+        purchaseDate: g.earliestDrDate || g.lastCrDate,
         existingAssetId: linked?.id,
-        costChanged: !!linked && round2(linked.cost) !== g.cost,
+        // Also true when a disposal is newly detected on an already-linked asset whose cost
+        // already matched -- otherwise autoSyncTaggedAssets' costChanged-gated refresh would
+        // never apply the freshly-discovered disposedDate to it.
+        costChanged: !!linked && (round2(linked.cost) !== g.drTotal || (!!disposedDate && !linked.disposed)),
+        disposedDate,
       };
     })
     .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
@@ -364,18 +398,30 @@ export function createTaggedAsset(
     usefulLifeMonths,
     sourceAccountId: group.accountId,
     sourceTag: group.tag,
+    // proceeds left at 0 -- this isn't posting a new voucher (the real disposal economics
+    // already live in the pre-existing, now-tagged entries), and disposed.proceeds isn't shown
+    // anywhere in the Register itself.
+    ...(group.disposedDate ? { disposed: { date: group.disposedDate, proceeds: 0 } } : {}),
   };
   const withNewAsset: Ledger = { ...data, fixedAssets: [...(data.fixedAssets ?? []), asset] };
   return reconcileLegacyAssetCost(withNewAsset, group.accountId);
 }
 
 // Refreshes an already-synced asset's cost/purchaseDate from its tag group -- e.g. a 2nd
-// installment posted later under the same tag. Useful life/salvage are left untouched (already
+// installment posted later under the same tag, or a disposal/write-off newly tagged under the
+// same Fixed Asset # as its original purchase. Useful life/salvage are left untouched (already
 // set from the first sync).
 export function updateTaggedAssetCost(data: Ledger, group: TaggedAssetGroup): Ledger {
   if (!group.existingAssetId) return data;
   const updated = (data.fixedAssets ?? []).map((a) =>
-    a.id === group.existingAssetId ? { ...a, cost: group.cost, purchaseDate: group.purchaseDate } : a
+    a.id === group.existingAssetId
+      ? {
+          ...a,
+          cost: group.cost,
+          purchaseDate: group.purchaseDate,
+          ...(group.disposedDate && !a.disposed ? { disposed: { date: group.disposedDate, proceeds: 0 } } : {}),
+        }
+      : a
   );
   return reconcileLegacyAssetCost({ ...data, fixedAssets: updated }, group.accountId);
 }
