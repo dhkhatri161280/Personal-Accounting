@@ -292,10 +292,40 @@ export function tagExistingAsset(data: Ledger, asset: FixedAsset, tag: string): 
     if (t.deleted || t.cancelled || !t.entries.some((e) => e.accountId === asset.accountId)) return t;
     return { ...t, entries: t.entries.map((e) => (e.accountId === asset.accountId ? { ...e, assetTag: cleanTag } : e)) };
   });
-  const realBalance = ledgerBalanceAsOf({ ...data, transactions }, asset.accountId, "9999-12-31");
+  // Cost must come from the Dr (cost-adding) side alone, not the net real balance -- an asset
+  // tagged retroactively after already being fully written off by hand (Cr entries posted before
+  // this asset was ever registered) would otherwise compute cost as its current $0 balance and
+  // vanish from the Register, whose own display filters out near-zero-cost assets. Any Cr side is
+  // instead read as evidence of a disposal that happened outside the app's own Dispose flow.
+  const ownEntries = transactions
+    .filter((t) => !t.deleted && !t.cancelled)
+    .flatMap((t) => t.entries.filter((e) => e.accountId === asset.accountId).map((e) => ({ ...e, date: t.date })));
+  const drTotal = round2(ownEntries.filter((e) => e.amount < 0).reduce((s, e) => s - e.amount, 0));
+  const crTotal = round2(ownEntries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0));
+  const netBalance = round2(drTotal - crTotal);
+  // Only treated as already-disposed when credits fully offset the debits down to zero (or past
+  // it) -- a partial credit (e.g. one installment of a multi-part purchase getting refunded) isn't
+  // a disposal and must keep netting normally against cost, not get flagged here.
+  const alreadyDisposed = !asset.disposed && crTotal > 0 && netBalance <= 0.005;
+  const lastCreditDate = alreadyDisposed
+    ? ownEntries.filter((e) => e.amount > 0).reduce((max, e) => (e.date > max ? e.date : max), "")
+    : undefined;
   const fixedAssets = (data.fixedAssets ?? [])
     .filter((a) => !duplicate || a.id !== duplicate.id)
-    .map((a) => (a.id === asset.id ? { ...a, sourceAccountId: asset.accountId, sourceTag: cleanTag, cost: round2(realBalance) } : a));
+    .map((a) =>
+      a.id === asset.id
+        ? {
+            ...a,
+            sourceAccountId: asset.accountId,
+            sourceTag: cleanTag,
+            cost: drTotal,
+            // proceeds left at 0 -- unlike disposeAsset's own Dispose flow, this isn't posting a
+            // new voucher (the real disposal economics already live in the pre-existing, now-
+            // tagged entries), and disposed.proceeds isn't shown anywhere in the Register itself.
+            ...(alreadyDisposed && lastCreditDate ? { disposed: { date: lastCreditDate, proceeds: 0 } } : {}),
+          }
+        : a
+    );
   return { ...data, transactions, fixedAssets };
 }
 
