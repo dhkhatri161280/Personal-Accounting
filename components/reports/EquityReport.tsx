@@ -116,6 +116,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
       setDrilldownSortDir("asc");
     }
   };
+  const [drilldownGroupBy, setDrilldownGroupBy] = useState<"grant" | "vestDate" | null>(null);
   const [grantFilter, setGrantFilter] = useState<string | null>(null);
   const [recordVestFor, setRecordVestFor] = useState<{ grantId: string; vestId: string } | null>(null);
   const [recordVestForm, setRecordVestForm] = useState({ vestPrice: "", taxShares: "", sharesHeld: "" });
@@ -764,6 +765,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                     setDrilldownColFilterOpen(null);
                     setDrilldownColSearch("");
                     setDrilldownSortKey(null);
+                    setDrilldownGroupBy(null);
                   }}
                 >
                   <StatIcon kind={SUMMARY_ICON[key].icon} color={SUMMARY_ICON[key].color} />
@@ -817,6 +819,19 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 {summaryFilter === "sold" && "User-Sold Lots"}
                 {summaryFilter === "espp" && "ESPP Holdings"}
               </strong>
+              {(summaryFilter === "vested" || summaryFilter === "tax" || summaryFilter === "sold") && (
+                <label className="equity-drilldown-subtotal-picker">
+                  Subtotal by
+                  <select
+                    value={drilldownGroupBy ?? ""}
+                    onChange={(e) => setDrilldownGroupBy((e.target.value || null) as "grant" | "vestDate" | null)}
+                  >
+                    <option value="">None</option>
+                    <option value="grant">Grant</option>
+                    <option value="vestDate">Vest Date</option>
+                  </select>
+                </label>
+              )}
               {(drilldownDateFilter !== null || drilldownGrantFilter !== null) && (
                 <button
                   type="button"
@@ -925,6 +940,39 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   </button>
                 </th>
               );
+              // Subtotal groups -- shares/value columns get summed per group (matches the
+              // grand-total row's own logic below), price columns (Award/Vest/Live/Sale $/sh)
+              // stay blank since summing or averaging a price isn't a meaningful number.
+              const groupKeyOf = (row: { g: RsuGrant; v: RsuVest }) =>
+                drilldownGroupBy === "grant" ? row.g.id : drilldownGroupBy === "vestDate" ? row.v.vestDate : "";
+              const groupLabelOf = (row: { g: RsuGrant; v: RsuVest }) =>
+                drilldownGroupBy === "grant"
+                  ? `${row.g.ticker} ${fmtDate(row.g.grantDate)}`
+                  : new Date(row.v.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+              const groupSubtotal = (rows: { g: RsuGrant; v: RsuVest }[]) => {
+                const grantShares = rows.reduce((s, { v }) => s + v.shares, 0);
+                const taxShares = rows.reduce((s, { v }) => s + (v.taxShares ?? 0), 0);
+                const heldShares = rows.reduce((s, { v }) => s + v.sharesHeld, 0);
+                const soldShares = rows.reduce((s, { v }) => {
+                  const tax = v.taxShares ?? 0;
+                  return s + Math.max(0, v.shares - tax - v.sharesHeld);
+                }, 0);
+                const value = rows.reduce((s, row) => s + (rowSortValue(row, "value") as number), 0);
+                return { grantShares, taxShares, heldShares, soldShares, value };
+              };
+              const groups = drilldownGroupBy
+                ? Array.from(
+                    sortedRows.reduce((map, row) => {
+                      const key = groupKeyOf(row);
+                      const list = map.get(key) ?? [];
+                      list.push(row);
+                      map.set(key, list);
+                      return map;
+                    }, new Map<string, { g: RsuGrant; v: RsuVest }[]>())
+                  )
+                    .sort((a, b) => a[0].localeCompare(b[0]))
+                    .map(([key, rows]) => ({ key, label: groupLabelOf(rows[0]), rows }))
+                : null;
               return (
               <table className="equity-table equity-drilldown-table">
                 <thead>
@@ -1029,7 +1077,13 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   {sortedRows.length === 0 && (
                     <tr><td colSpan={totalCols} className="equity-empty">No entries match these filters.</td></tr>
                   )}
-                  {sortedRows.flatMap(({ g, v }) => {
+                  {(groups ?? [{ key: "", label: "", rows: sortedRows }]).flatMap(({ key: groupKey, label: groupLabel, rows: groupRows }) => [
+                    groups && (
+                      <tr key={`grp-${groupKey}`} className="equity-drilldown-group-row">
+                        <td colSpan={totalCols}>{groupLabel}</td>
+                      </tr>
+                    ),
+                    ...groupRows.flatMap(({ g, v }) => {
                         const tax = v.taxShares ?? 0;
                         const sold = Math.max(0, v.shares - tax - v.sharesHeld);
                         const sp = v.salePrice ?? v.vestPrice;
@@ -1085,7 +1139,35 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                             </tr>
                           ),
                         ];
-                      })}
+                      }),
+                    groups && (() => {
+                      const st = groupSubtotal(groupRows);
+                      return (
+                        <tr key={`grp-${groupKey}-subtotal`} className="equity-drilldown-subtotal-row">
+                          <td colSpan={2}>Subtotal</td>
+                          <td className="right equity-amt">{st.grantShares.toLocaleString()}</td>
+                          <td />
+                          <td />
+                          <td className="right equity-amt">{st.taxShares.toLocaleString()}</td>
+                          <td className="right equity-amt">{st.heldShares.toLocaleString()}</td>
+                          {summaryFilter === "vested" && (
+                            <>
+                              <td />
+                              <td className="right equity-gain-pos">{fmt(st.value)}</td>
+                            </>
+                          )}
+                          {summaryFilter === "tax" && <td className="right equity-amt">{fmt(st.value)}</td>}
+                          {summaryFilter === "sold" && (
+                            <>
+                              <td className="right equity-amt">{st.soldShares.toLocaleString()}</td>
+                              <td />
+                              <td className="right equity-amt">{fmt(st.value)}</td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })(),
+                  ])}
                 </tbody>
                 <tfoot>
                   <tr>

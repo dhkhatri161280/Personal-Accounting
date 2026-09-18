@@ -7904,7 +7904,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-drilldown { margin-top: 1rem; border: 1px solid #bfdbfe; border-radius: 10px; background: #f8fafc; overflow: visible; }
 .equity-drilldown-head { display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: #eff6ff; border-bottom: 1px solid #bfdbfe; border-radius: 9px 9px 0 0; }
 .equity-drilldown-head strong { font-size: var(--fs-lg); color: #1d4ed8; }
-.equity-drilldown-clear-all { font-size: var(--fs-sm); padding: 2px 8px; border-radius: 4px; background: #fff; border: 1px solid #bfdbfe; color: #2563eb; cursor: pointer; margin-left: auto; margin-right: 0.6rem; }
+.equity-drilldown-clear-all { font-size: var(--fs-sm); padding: 2px 8px; border-radius: 4px; background: #fff; border: 1px solid #bfdbfe; color: #2563eb; cursor: pointer; margin-right: 0.6rem; }
+.equity-drilldown-subtotal-picker { display: flex; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); color: #1d4ed8; margin-left: auto; margin-right: 0.6rem; }
+.equity-drilldown-subtotal-picker select { font-size: var(--fs-sm); padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; background: #fff; color: #1e293b; }
+.equity-drilldown-group-row td { background: #eef2ff; font-weight: 700; color: #3730a3; padding: 6px 8px !important; }
+.equity-drilldown-subtotal-row td { background: #f8fafc; font-weight: 700; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1; }
 .equity-drilldown-close { font-size: var(--fs-base); padding: 2px 8px; border-radius: 4px; background: #fff; border: 1px solid #bfdbfe; color: #2563eb; cursor: pointer; }
 .equity-drilldown-table { margin: 0; border-radius: 0; border: none; }
 .equity-drilldown-row { cursor: pointer; }
