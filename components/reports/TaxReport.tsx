@@ -133,13 +133,17 @@ export type YearSalaryTaxSummary = {
 // Same aggregation formulas the single-year view below uses (override-aware: a manual period
 // correction replaces that period's Excel-imported value, a voucher-derived period adds on top,
 // a row's separate "Stocks" vesting-tax-event columns always add in) -- reimplemented here as a
-// standalone, year-parameterized function so the "All Years" summary can compute every year the
-// same way without touching (and risking regressing) the existing single-year computation below,
-// which stays wired to component state/closures for its own click-through popups.
-function computeYearSummary(rawYr: PayrollYear, equity: EquityData | undefined): YearSalaryTaxSummary {
+// standalone, year-parameterized function so both "All Years" summaries (payroll totals, and the
+// federal/state tax estimate below) can compute every year the same way without touching (and
+// risking regressing) the existing single-year computation below, which stays wired to component
+// state/closures for its own click-through popups.
+function computeYearAggregates(rawYr: PayrollYear) {
   const yr = normalizePayrollYear(rawYr);
   const rows = yr.rows;
   const gross = row(rows, "Gross Salary");
+  const federal = row(rows, "Federal");
+  const medicare = row(rows, "Medicare");
+  const stateWH = row(rows, "State W/H");
   const totalTax = row(rows, "Total Tax");
   const netSalary = row(rows, "Net Salary", 1) ?? row(rows, "Net Salary", 0);
   const afterTax = row(rows, "After Tax Salary");
@@ -169,24 +173,149 @@ function computeYearSummary(rawYr: PayrollYear, equity: EquityData | undefined):
     return sum + (gross?.stockValues?.reduce((s, v) => s + v, 0) ?? 0) + voucherPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
   }
 
+  return {
+    yr,
+    totalGross: overriddenGrossTotal(),
+    totalFederal: overriddenTotal(federal, "federal"),
+    totalMedicare: overriddenTotal(medicare, "medicare"),
+    totalStateWH: overriddenTotal(stateWH, "stateWH"),
+    totalTaxAll: overriddenTotal(totalTax, "totalTax"),
+    totalNet: overriddenTotal(netSalary, "net"),
+    totalAfterTax: sumRow(afterTax),
+    totalEffective: sumRow(effective),
+    totalK401: overriddenTotal(k401, "k401"),
+    totalK401Emplr: overriddenTotal(k401Emplr, "k401Emplr"),
+    totalEsppDeduction: overriddenTotal(esppRow, "espp"),
+  };
+}
+
+function computeYearSummary(rawYr: PayrollYear, equity: EquityData | undefined): YearSalaryTaxSummary {
+  const agg = computeYearAggregates(rawYr);
   // RSU vest records come from Reports > Equity (authoritative for date/shares/price), same
   // source the single-year "Stock (RSU) Vested" card uses -- only actually-vested (not pending)
   // tranches whose vest date falls in this year.
   const rsuVested = (equity?.grants ?? [])
-    .flatMap((g) => g.vests.filter((v) => !v.pending && v.vestDate.startsWith(yr.year)))
+    .flatMap((g) => g.vests.filter((v) => !v.pending && v.vestDate.startsWith(agg.yr.year)))
     .reduce((s, v) => s + v.shares * v.vestPrice, 0);
 
   return {
-    year: yr.year,
-    gross: overriddenGrossTotal(),
-    totalTax: overriddenTotal(totalTax, "totalTax"),
-    net: overriddenTotal(netSalary, "net"),
-    afterTax: sumRow(afterTax),
-    effective: sumRow(effective),
-    k401Self: overriddenTotal(k401, "k401"),
-    k401Employer: overriddenTotal(k401Emplr, "k401Emplr"),
-    espp: overriddenTotal(esppRow, "espp"),
+    year: agg.yr.year,
+    gross: agg.totalGross,
+    totalTax: agg.totalTaxAll,
+    net: agg.totalNet,
+    afterTax: agg.totalAfterTax,
+    effective: agg.totalEffective,
+    k401Self: agg.totalK401,
+    k401Employer: agg.totalK401Emplr,
+    espp: agg.totalEsppDeduction,
     rsuVested,
+  };
+}
+
+export type YearFederalStateTaxEstimate = {
+  year: string;
+  agi: number;
+  deductionUsed: number;
+  usedItemized: boolean;
+  longTermGain: number;
+  estimatedFederalTax: number;
+  federalWithheld: number;
+  federalRefund: number;
+  federalBalanceDue: number;
+  stateCode: string;
+  stateName: string;
+  stateTaxableIncome: number;
+  estimatedStateTax: number;
+  stateWithheld: number;
+  stateRefund: number;
+  stateBalanceDue: number;
+};
+
+// Same federal/state estimate the single-year view below computes (lines ~950+), reimplemented
+// standalone and year-parameterized for the same reason computeYearSummary above is -- filing
+// status and HSA coverage are a single, global assumption in this report (not stored per year),
+// so every year's estimate uses whatever the user currently has selected, matching how the
+// single-year view already treats them.
+function computeYearTaxEstimate(
+  rawYr: PayrollYear,
+  transactions: Tx[],
+  accounts: Account[],
+  equity: EquityData | undefined,
+  filingStatus: UsFilingStatus,
+  hsaCoverage: HsaCoverage
+): YearFederalStateTaxEstimate {
+  const agg = computeYearAggregates(rawYr);
+  const year = agg.yr.year;
+  const taxableWages = Math.max(0, agg.totalGross - agg.totalK401);
+  const taxEstimateYear = listUsTaxYears().includes(year) ? year : listUsTaxYears()[0]!;
+  const gainEvents = [...classifyRsuSales(equity?.grants ?? [], year, 365), ...classifyEsppSales(equity?.esppPurchases ?? [], year, 365)];
+  const gainTotals = summarizeCapitalGains(gainEvents);
+  const deductionMatches = matchDeductionLedgers(accounts, transactions, year);
+  const hsaContributionTotal = findHsaContributions(transactions, year).reduce((s, h) => s + h.amount, 0);
+  const hsaDeduction = computeHsaDeduction(taxEstimateYear, hsaCoverage, hsaContributionTotal);
+  const preliminaryAgi = Math.max(
+    0,
+    taxableWages + gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction - hsaDeduction
+  );
+  const federalItemized = computeItemizedDeduction(taxEstimateYear, preliminaryAgi, {
+    medicalExpenses: deductionTotal(deductionMatches, "medical"),
+    propertyTax: deductionTotal(deductionMatches, "propertyTax"),
+    stateIncomeTaxPaid: deductionTotal(deductionMatches, "stateIncomeTax"),
+    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    charitable: deductionTotal(deductionMatches, "charitable"),
+  });
+  const taxEstimate = estimateUsFederalTax({
+    taxYear: taxEstimateYear,
+    filingStatus,
+    wages: taxableWages,
+    federalWithheld: agg.totalFederal,
+    medicareWages: agg.totalGross,
+    medicareWithheld: agg.totalMedicare,
+    shortTermGainTaxable: gainTotals.shortTermGainTaxable,
+    longTermGainTaxable: gainTotals.longTermGainTaxable,
+    capitalLossDeduction: gainTotals.ordinaryLossDeduction,
+    aboveLineDeduction: hsaDeduction,
+    itemizedDeduction: federalItemized.total,
+  });
+
+  const stateResidency = resolveStateResidency(taxEstimateYear);
+  const stateAgi = stateResidency.code === "AZ" ? taxEstimate.agi : taxEstimate.agi + taxEstimate.aboveLineDeduction;
+  const stateItemizedInputs = {
+    medicalExpenses: deductionTotal(deductionMatches, "medical"),
+    propertyTax: deductionTotal(deductionMatches, "propertyTax"),
+    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    charitable: deductionTotal(deductionMatches, "charitable"),
+  };
+  const stateItemized =
+    stateResidency.code === "NJ"
+      ? computeNjPropertyTaxDeduction(stateItemizedInputs.propertyTax)
+      : stateResidency.code === "AZ"
+        ? computeAzItemizedDeduction(stateAgi, stateItemizedInputs)
+        : computeCaItemizedDeduction(stateAgi, stateItemizedInputs);
+  const stateTaxEstimate =
+    stateResidency.code === "NJ"
+      ? estimateNjStateTax({ taxYear: taxEstimateYear, filingStatus, agi: stateAgi, propertyTax: stateItemizedInputs.propertyTax, stateWithheld: agg.totalStateWH })
+      : stateResidency.code === "AZ"
+        ? estimateAzStateTax({ taxYear: taxEstimateYear, filingStatus, agi: stateAgi, itemizedDeduction: stateItemized, stateWithheld: agg.totalStateWH })
+        : estimateCaStateTax({ taxYear: taxEstimateYear, filingStatus, agi: stateAgi, itemizedDeduction: stateItemized, stateWithheld: agg.totalStateWH });
+
+  return {
+    year,
+    agi: taxEstimate.agi,
+    deductionUsed: taxEstimate.deductionUsed,
+    usedItemized: taxEstimate.usedItemized,
+    longTermGain: taxEstimate.longTermGain,
+    estimatedFederalTax: taxEstimate.estimatedTax,
+    federalWithheld: taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld,
+    federalRefund: taxEstimate.refund,
+    federalBalanceDue: taxEstimate.balanceDue,
+    stateCode: stateResidency.code,
+    stateName: stateResidency.name,
+    stateTaxableIncome: stateTaxEstimate.taxableIncome,
+    estimatedStateTax: stateTaxEstimate.estimatedTax,
+    stateWithheld: stateTaxEstimate.stateWithheld,
+    stateRefund: stateTaxEstimate.refund,
+    stateBalanceDue: stateTaxEstimate.balanceDue,
   };
 }
 
@@ -675,6 +804,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // rendered near the Year pills below.
   const allYearsSummary = years
     .map((y) => computeYearSummary(y, equity))
+    .sort((a, b) => b.year.localeCompare(a.year));
+
+  // Every imported year's federal/state estimate, side by side -- see the "All Years" table
+  // rendered near "Estimated Tax Liability" below. Uses the currently-selected filing status/HSA
+  // coverage for every year (same single, global assumption the year-at-a-time view uses).
+  const allYearsTaxEstimate = years
+    .map((y) => computeYearTaxEstimate(y, transactions, accounts, equity, filingStatus, hsaCoverage))
     .sort((a, b) => b.year.localeCompare(a.year));
 
   const allManualPeriods = yr.manualPeriods ?? [];
@@ -1591,6 +1727,80 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           {" "}{taxEstimate.rules.ruleVersion} / {stateTaxEstimate.rules.ruleVersion}.
         </p>
       </details>
+
+      {allYearsTaxEstimate.length > 1 && (
+        <details style={{ margin: "0 0 0.75rem" }}>
+          <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
+            All Years — Federal &amp; State Tax ({allYearsTaxEstimate.length} years, click to expand)
+          </summary>
+          <div className="columnar-report-scroll" style={{ marginTop: "0.5rem" }}>
+            <table className="equity-table equity-drilldown-table">
+              <thead>
+                <tr>
+                  <th>Year</th>
+                  <th className="right">AGI</th>
+                  <th className="right">Deduction Used</th>
+                  <th className="right">LTCG</th>
+                  <th className="right">Est. Federal Tax</th>
+                  <th className="right">Federal Withheld</th>
+                  <th className="right">Federal Refund / (Due)</th>
+                  <th>State</th>
+                  <th className="right">State Taxable Income</th>
+                  <th className="right">Est. State Tax</th>
+                  <th className="right">State Withheld</th>
+                  <th className="right">State Refund / (Due)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allYearsTaxEstimate.map((r) => (
+                  <tr key={r.year}>
+                    <td>
+                      <button type="button" style={linkBtnStyle} onClick={() => { setSelectedYear(r.year); setViewPeriod(null); }}>
+                        {r.year}
+                      </button>
+                    </td>
+                    <td className="right equity-amt">{fmt(r.agi)}</td>
+                    <td className="right equity-amt">{fmt(r.deductionUsed)}</td>
+                    <td className="right equity-amt">{fmt(r.longTermGain)}</td>
+                    <td className="right equity-amt">{fmt(r.estimatedFederalTax)}</td>
+                    <td className="right equity-amt">{fmt(r.federalWithheld)}</td>
+                    <td className={`right equity-amt ${r.federalRefund > 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>
+                      {r.federalRefund > 0 ? fmt(r.federalRefund) : `(${fmt(r.federalBalanceDue)})`}
+                    </td>
+                    <td>{r.stateCode}</td>
+                    <td className="right equity-amt">{fmt(r.stateTaxableIncome)}</td>
+                    <td className="right equity-amt">{fmt(r.estimatedStateTax)}</td>
+                    <td className="right equity-amt">{fmt(r.stateWithheld)}</td>
+                    <td className={`right equity-amt ${r.stateRefund > 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>
+                      {r.stateRefund > 0 ? fmt(r.stateRefund) : `(${fmt(r.stateBalanceDue)})`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.agi, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.deductionUsed, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.longTermGain, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.estimatedFederalTax, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.federalWithheld, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.federalRefund - r.federalBalanceDue, 0))}</td>
+                  <td />
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.stateTaxableIncome, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.estimatedStateTax, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.stateWithheld, 0))}</td>
+                  <td className="right equity-amt">{fmt(allYearsTaxEstimate.reduce((s, r) => s + r.stateRefund - r.stateBalanceDue, 0))}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p style={{ fontSize: 11, opacity: 0.6, margin: "0.4rem 0 0" }}>
+            Uses the Filing status/HSA coverage selected above for every year. Same estimate/not-tax-advice caveats as the single-year view.
+          </p>
+        </details>
+      )}
+
       <div className="equity-summary-row">
         {[
           {
