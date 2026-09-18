@@ -20,7 +20,7 @@ import {
   defaultUsefulLifeForClass,
   suggestNextAssetTag,
 } from "@/lib/fixed-assets";
-import { getOrCreateAssetAccount, findLegacyCostMismatches, repairLegacyAssetCosts } from "@/lib/fixed-assets-ledger";
+import { getOrCreateAssetAccount, findLegacyCostMismatches, repairLegacyAssetCosts, tagExistingAsset } from "@/lib/fixed-assets-ledger";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 
@@ -729,6 +729,12 @@ export function MastersPanel({
   // Cost/Purchase Date are a derived fact of the real ledger once a real voucher gets tagged to it
   // (or via the "Tag" action below for an already-posted purchase), never something to guess up
   // front. This creates a $0 shell ledger/master ready to receive that real posting.
+  //
+  // If a tag is typed in THIS SAME form and the name matched an already-existing ledger (one with
+  // real prior vouchers, e.g. created outside this flow), route it through tagExistingAsset just
+  // like the standalone "🏷 Tag" action below -- otherwise this silently left cost at $0 and never
+  // tagged the ledger's actual entries at all, so a pre-existing asset (especially one already
+  // disposed by hand before ever being registered) never showed up in the Register.
   function addAsset() {
     const name = assetName.trim();
     if (!name) return;
@@ -736,7 +742,7 @@ export function MastersPanel({
     const tag = assetTagInput.trim();
     const today = todayLocalIso();
     const { data: withAcct, account } = getOrCreateAssetAccount(assetLedger, name, 0, today);
-    const asset: FixedAsset = {
+    const shell: FixedAsset = {
       id: crypto.randomUUID(),
       name,
       accountId: account.id,
@@ -745,9 +751,10 @@ export function MastersPanel({
       cost: 0,
       salvageValue: 0,
       usefulLifeMonths: defaultUsefulLifeForClass(cls),
-      ...(tag ? { sourceAccountId: account.id, sourceTag: tag } : {}),
     };
-    const next: MasterLedger = { ...withAcct, fixedAssets: [...(withAcct.fixedAssets ?? []), asset] };
+    const withShell = { ...withAcct, fixedAssets: [...(withAcct.fixedAssets ?? []), shell] };
+    const next = (tag ? tagExistingAsset(withShell as unknown as Ledger, shell, tag) : withShell) as unknown as MasterLedger;
+    const asset = (next.fixedAssets ?? []).find((a) => a.id === shell.id) ?? shell;
     onSave(next, `Fixed asset ${asset.name} added${tag ? ` (${tag})` : ""}.`);
     setShowAddAsset(false);
     setAssetName("");

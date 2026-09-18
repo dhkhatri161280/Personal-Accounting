@@ -310,6 +310,13 @@ export function tagExistingAsset(data: Ledger, asset: FixedAsset, tag: string): 
   const lastCreditDate = alreadyDisposed
     ? ownEntries.filter((e) => e.amount > 0).reduce((max, e) => (e.date > max ? e.date : max), "")
     : undefined;
+  // purchaseDate was never derived from real history here -- it stayed whatever the asset shell
+  // was created with (e.g. "+ Add Fixed Asset" hardcodes today's date), so a retroactively-tagged
+  // asset showed its registration date as its purchase date instead of the actual one. Use the
+  // earliest debit entry's date, same source the cost figure above now comes from.
+  const earliestDebitDate = ownEntries
+    .filter((e) => e.amount < 0)
+    .reduce((min, e) => (min === "" || e.date < min ? e.date : min), "");
   const fixedAssets = (data.fixedAssets ?? [])
     .filter((a) => !duplicate || a.id !== duplicate.id)
     .map((a) =>
@@ -319,6 +326,7 @@ export function tagExistingAsset(data: Ledger, asset: FixedAsset, tag: string): 
             sourceAccountId: asset.accountId,
             sourceTag: cleanTag,
             cost: drTotal,
+            ...(earliestDebitDate ? { purchaseDate: earliestDebitDate } : {}),
             // proceeds left at 0 -- unlike disposeAsset's own Dispose flow, this isn't posting a
             // new voucher (the real disposal economics already live in the pre-existing, now-
             // tagged entries), and disposed.proceeds isn't shown anywhere in the Register itself.
