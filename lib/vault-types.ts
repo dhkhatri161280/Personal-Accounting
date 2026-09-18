@@ -475,6 +475,11 @@ export type Ledger = {
   // exists) may also contain non-retirement capital, so only the user-entered retirement portion
   // counts here.
   retirementOtherInvestments?: { id: string; label: string; amount: number }[];
+  // Estimated monthly Social Security benefit at each claiming age, manually copied from the
+  // annual SSA statement -- a reference figure only (no ledger posting, no reconciliation), same
+  // treatment as retirementOtherInvestments above. statementDate is when that SSA statement was
+  // issued, so a stale estimate is visible rather than silently assumed current.
+  socialSecurityEstimate?: { at62?: number; atFullRetirement?: number; at70?: number; statementDate?: string };
   // Per-fiscal-year budgets for the Budget vs Actual report, one entry per FY the user has
   // budgeted. See lib/budget.ts for how these are generated/compared against actuals.
   budgets?: Budget[];

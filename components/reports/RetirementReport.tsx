@@ -162,6 +162,48 @@ export function RetirementReport({
     await saveOtherInvestments(otherInvestments.filter((r) => r.id !== id));
   }
 
+  // Social Security -- pure reference figures copied from the annual SSA statement, no ledger
+  // tie-in (see socialSecurityEstimate on Ledger). Editable in place rather than a list, since
+  // it's a single record, not a growing set of entries like otherInvestments above.
+  const ssEstimate = data.socialSecurityEstimate;
+  const [editingSs, setEditingSs] = useState(false);
+  const [ssForm, setSsForm] = useState({
+    at62: ssEstimate?.at62 != null ? String(ssEstimate.at62) : "",
+    atFullRetirement: ssEstimate?.atFullRetirement != null ? String(ssEstimate.atFullRetirement) : "",
+    at70: ssEstimate?.at70 != null ? String(ssEstimate.at70) : "",
+    statementDate: ssEstimate?.statementDate ?? "",
+  });
+  const [savingSs, setSavingSs] = useState(false);
+
+  function startEditSs() {
+    setSsForm({
+      at62: ssEstimate?.at62 != null ? String(ssEstimate.at62) : "",
+      atFullRetirement: ssEstimate?.atFullRetirement != null ? String(ssEstimate.atFullRetirement) : "",
+      at70: ssEstimate?.at70 != null ? String(ssEstimate.at70) : "",
+      statementDate: ssEstimate?.statementDate ?? "",
+    });
+    setEditingSs(true);
+  }
+
+  async function saveSs() {
+    if (!onSave) return;
+    setSavingSs(true);
+    try {
+      await onSave({
+        ...data,
+        socialSecurityEstimate: {
+          at62: ssForm.at62 ? Number(ssForm.at62) : undefined,
+          atFullRetirement: ssForm.atFullRetirement ? Number(ssForm.atFullRetirement) : undefined,
+          at70: ssForm.at70 ? Number(ssForm.at70) : undefined,
+          statementDate: ssForm.statementDate || undefined,
+        },
+      });
+      setEditingSs(false);
+    } finally {
+      setSavingSs(false);
+    }
+  }
+
   return (
     <div className="data-panel">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
@@ -210,6 +252,88 @@ export function RetirementReport({
           included when connecting (some institutions ask you to pick which accounts to share).
         </p>
       )}
+
+      <div className="data-panel" style={{ marginBottom: 16 }}>
+        <h4 style={{ margin: "0 0 8px" }}>Social Security</h4>
+        <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
+          Estimated monthly benefit at each claiming age, copied from your annual SSA statement
+          (ssa.gov). Reference only — not tied to any ledger account, and not projected forward;
+          re-enter it whenever a new statement arrives.
+        </p>
+        {!editingSs ? (
+          <>
+            {ssEstimate && (ssEstimate.at62 != null || ssEstimate.atFullRetirement != null || ssEstimate.at70 != null) ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>At 62</div>
+                  <strong className="equity-amt">{ssEstimate.at62 != null ? `${fmt(ssEstimate.at62)}/mo` : "—"}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>At Full Retirement Age</div>
+                  <strong className="equity-amt">{ssEstimate.atFullRetirement != null ? `${fmt(ssEstimate.atFullRetirement)}/mo` : "—"}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>At 70</div>
+                  <strong className="equity-amt">{ssEstimate.at70 != null ? `${fmt(ssEstimate.at70)}/mo` : "—"}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Statement Date</div>
+                  <strong>{ssEstimate.statementDate ? new Date(ssEstimate.statementDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }) : "—"}</strong>
+                </div>
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, opacity: 0.7, margin: "0 0 10px" }}>No estimate entered yet.</p>
+            )}
+            <button type="button" className="tr-refresh-btn" onClick={startEditSs}>
+              {ssEstimate ? "Edit" : "+ Add estimate"}
+            </button>
+          </>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              At 62 ($/mo)
+              <input
+                type="number"
+                value={ssForm.at62}
+                onChange={(e) => setSsForm((f) => ({ ...f, at62: e.target.value }))}
+                style={{ width: 120 }}
+              />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              At Full Retirement Age ($/mo)
+              <input
+                type="number"
+                value={ssForm.atFullRetirement}
+                onChange={(e) => setSsForm((f) => ({ ...f, atFullRetirement: e.target.value }))}
+                style={{ width: 120 }}
+              />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              At 70 ($/mo)
+              <input
+                type="number"
+                value={ssForm.at70}
+                onChange={(e) => setSsForm((f) => ({ ...f, at70: e.target.value }))}
+                style={{ width: 120 }}
+              />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              Statement Date
+              <input
+                type="date"
+                value={ssForm.statementDate}
+                onChange={(e) => setSsForm((f) => ({ ...f, statementDate: e.target.value }))}
+              />
+            </label>
+            <button type="button" className="tr-refresh-btn" disabled={savingSs} onClick={saveSs}>
+              {savingSs ? "Saving…" : "Save"}
+            </button>
+            <button type="button" className="tr-refresh-btn" disabled={savingSs} onClick={() => setEditingSs(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
 
       {accounts && accounts.length > 0 && (
         <>
