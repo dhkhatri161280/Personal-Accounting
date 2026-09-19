@@ -52,7 +52,10 @@ function toNum(s: string | undefined): number {
 }
 
 function usDateToIso(s: string): string {
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  // Trimmed and matched anywhere in the string, not anchored to the whole thing -- pdfjs can
+  // hand back a cell's text with stray leading/trailing whitespace (including non-breaking
+  // spaces some PDF generators use for alignment) that a `^...$` anchor would reject outright.
+  const m = s.trim().match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})/);
   if (!m) return "";
   return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
 }

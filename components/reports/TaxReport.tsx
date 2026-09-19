@@ -643,7 +643,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       const { parsePaystubPdf } = await import("@/lib/parse-paystub-pdf");
       const parsed = await parsePaystubPdf(file);
       if (!parsed.periodEnd) {
-        setPaystubError("Could not read the pay period dates from this PDF — please check the file.");
+        // Surface exactly what the PDF's own text near "Period" looked like -- two rounds of
+        // guessing at the date format from a screenshot alone didn't find the real cause, so
+        // showing the raw extracted text directly in the error is more useful than a third guess.
+        const periodIdx = parsed.rawText.indexOf("Period");
+        const nearPeriod = periodIdx >= 0 ? parsed.rawText.slice(periodIdx, periodIdx + 120) : "(no \"Period\" text found anywhere in this PDF)";
+        setPaystubError(`Could not read the pay period dates from this PDF — please check the file. Raw text found: "${nearPeriod}"`);
         return;
       }
 
