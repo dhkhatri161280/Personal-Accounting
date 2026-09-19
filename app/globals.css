@@ -8462,6 +8462,15 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   font-size: var(--fs-2xl) !important;
 }
 
+/* Equity Holdings has exactly 7 cards, always -- unlike Tax's variable-count row, this row's
+   count never changes, so a lower, permanent per-card floor (rather than a breakpoint-driven
+   wrap) is safe here. Scoped to .equity-report only -- .equity-summary-row/-card is shared by
+   several other report pages (Tax, Recon, Bank Reconciliation, India Tax, Net Worth, Cash Flow)
+   that were not asked for and must not be affected. */
+.ui-refresh .equity-report .equity-summary-row {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+}
+
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
    instead of same-weight-as-everything-else text. */
 .ui-refresh .equity-title-row h3 { font-size: 22px !important; font-weight: 800 !important; letter-spacing: -0.01em; }
