@@ -8462,35 +8462,58 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   font-size: var(--fs-2xl) !important;
 }
 
-/* Equity Holdings has exactly 7 cards, always -- unlike Tax's variable-count row, this row's
-   count never changes, so a lower, permanent per-card floor (rather than a breakpoint-driven
-   wrap) is safe here. Scoped to .equity-report only -- .equity-summary-row/-card is shared by
-   several other report pages (Tax, Recon, Bank Reconciliation, India Tax, Net Worth, Cash Flow)
-   that were not asked for and must not be affected. */
-.ui-refresh .equity-report .equity-summary-row {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
-}
-
-/* Tax/India Tax's own scoped .tax-report override (further up this file) predates this later,
-   !important-heavy .ui-refresh grid rule and no longer wins the cascade -- confirmed live: its
-   9-card payroll row and 6-card federal row were still wrapping at the shared 190px floor. Same
-   fix as Equity above, just a lower floor since Tax's rows run up to 9 cards, not 7. */
+/* Equity's 7 cards and Tax/India Tax's 9- and 6-card rows (shared .equity-summary-row/-card,
+   scoped here to .equity-report/.tax-report so Recon/Bank Reconciliation/Net Worth/Cash Flow
+   are untouched) need to stay on one row, on one line each, with the dollar figure never
+   wrapping or clipping -- three constraints that a fixed equal-width grid column can't
+   simultaneously guarantee, since a column's width is set by "container width ÷ card count",
+   not by what any one card's own content actually needs. Two earlier attempts at a shared
+   equal-width floor both failed live: a 140-190px floor still let a real 7-8 digit balance
+   overflow past its card at a plausible column width, and forcing the amount to wrap next
+   just broke it mid-digit ($760,113.2 / 5) instead.
+   The fix: stop dividing the row into N equal columns. Size each card to its OWN content
+   (never narrower than its number needs, so nowrap is always safe) and let the row itself
+   scroll horizontally -- not wrap to a second row -- on the rare screen too narrow to show
+   every card at once. This is correct for any dollar amount, including ones that don't exist
+   yet, without retuning a magic pixel width every time a balance grows another digit. */
+.ui-refresh .equity-report .equity-summary-row,
 .ui-refresh .tax-report .equity-summary-row {
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)) !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  align-items: stretch !important;
 }
-
-/* Both floors above are below the 190px the shared .equity-summary-card strong rule's own
-   comment says nowrap needs -- at a real column width in that gap (confirmed live: a computed
-   ~170-180px column with a 6-7 digit dollar figure), the amount overflowed past its card's
-   right edge instead of wrapping, exactly the failure mode that rule's comment warned about.
-   Letting the amount wrap here (rather than trying to re-tune the floor to some magic width
-   that happens to fit today's balances) is the only fix that stays correct as these dollar
-   figures grow -- a taller card from a wrapped 2-line amount is fine (align-items: start on
-   the row already allows uneven column heights); text painted outside the card is not. */
+.ui-refresh .equity-report .equity-summary-col,
+.ui-refresh .tax-report .equity-summary-col {
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+  width: auto !important;
+}
+.ui-refresh .equity-report .equity-summary-card,
+.ui-refresh .tax-report .equity-summary-card {
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+  width: auto !important;
+  gap: 8px !important;
+  padding: 8px 9px !important;
+}
+/* A touch denser than the shared default -- content-sized cards need every spare pixel to
+   stay scroll-free at the narrower end of the app's real content width; still well above the
+   8.5-9px classic scale the old (dead) .tax-report override used, so this stays legible. */
 .ui-refresh .equity-report .equity-summary-card strong,
 .ui-refresh .tax-report .equity-summary-card strong {
-  white-space: normal !important;
-  overflow-wrap: break-word !important;
+  font-size: var(--fs-lg) !important;
+}
+.ui-refresh .equity-report .equity-summary-card span,
+.ui-refresh .equity-report .equity-summary-card em,
+.ui-refresh .tax-report .equity-summary-card span,
+.ui-refresh .tax-report .equity-summary-card em {
+  white-space: nowrap !important;
+}
+.ui-refresh .equity-report .equity-summary-card strong,
+.ui-refresh .tax-report .equity-summary-card strong {
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
 }
 
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
