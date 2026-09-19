@@ -103,6 +103,22 @@ function rowExists(rows: Row[], label: RegExp): boolean {
   return rows.some((r) => label.test(r.cols[0] || ""));
 }
 
+// The "Pay Statement" header box (Period Start/End Date, Pay Date, Document, Net Pay) sits in
+// the top-right corner of the page, at the same Y range as the top-LEFT NVIDIA letterhead/
+// address block -- buildRows groups purely by Y, so those two unrelated columns can merge into
+// one row, with the address text sorted before the label at cols[0] (confirmed live: a real
+// paystub's "Period Start Date" label failed to match cols[0] exactly, even though the parser's
+// own flat rawText -- every text item joined with plain spaces in original reading order, no
+// column grouping at all -- clearly contained "Period Start Date 09/17/2026" back to back).
+// Searching rawText directly for the label immediately followed by a date sidesteps the
+// row/column collision entirely for these three fields.
+function findDateNear(rawText: string, label: RegExp): string {
+  const unanchored = label.source.replace(/^\^/, "").replace(/\$$/, "");
+  const pattern = new RegExp(unanchored + "\\D{0,10}(\\d{1,2}\\s*/\\s*\\d{1,2}\\s*/\\s*\\d{4})", "i");
+  const m = rawText.match(pattern);
+  return m ? m[1] : "";
+}
+
 export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -145,9 +161,9 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   }
 
   // ── Header dates + net pay ──────────────────────────────────────────────
-  const periodStartRaw = rowValueRaw(rows, /^Period Start Date$/i, 1);
-  const periodEndRaw = rowValueRaw(rows, /^Period End Date$/i, 1);
-  const payDateRaw = rowValueRaw(rows, /^Pay Date$/i, 1);
+  const periodStartRaw = findDateNear(rawText, /^Period Start Date$/i);
+  const periodEndRaw = findDateNear(rawText, /^Period End Date$/i);
+  const payDateRaw = findDateNear(rawText, /^Pay Date$/i);
   const periodStart = usDateToIso(periodStartRaw);
   const periodEnd = usDateToIso(periodEndRaw);
   const payDate = usDateToIso(payDateRaw);
@@ -220,11 +236,4 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
     federal, ssn, medicare, stateWH, stateSDI, totalTax,
     distribution, rawText, warnings,
   };
-}
-
-// Same lookup as rowValue() but returns the raw string instead of parsing it as a dollar
-// amount -- used for the date fields.
-function rowValueRaw(rows: Row[], label: RegExp, colIndex: number): string {
-  const row = rows.find((r) => label.test(r.cols[0] || ""));
-  return row ? (row.cols[colIndex] || "") : "";
 }
