@@ -731,7 +731,6 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               <div className="equity-summary-card-body">
                 <span>Total Holdings</span>
                 <strong className="equity-amt">{fmt(summaryTotalHoldingsValue)}</strong>
-                <em>RSU + ESPP held @ live price</em>
               </div>
             </div>
             <p className="equity-card-count">
@@ -741,12 +740,6 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           {(["vested", "tax", "sold", "espp"] as const).map((key) => {
             const labels = { vested: "Vested Value", tax: "Tax Value", sold: "Sold Value", espp: "ESPP Value" };
             const values = { vested: summaryVestedValue, tax: summaryTaxValue, sold: summarySoldValue, espp: summaryEsppValue };
-            const subs = {
-              vested: "RSU held shares @ live price",
-              tax: "tax withheld lots @ vest FMV",
-              sold: "user-sold lots @ sale price",
-              espp: "ESPP held shares @ live price",
-            };
             const counts = {
               vested: <><strong>{rsuHeldShares.toLocaleString()}</strong> sh held</>,
               tax: <><strong>{rsuTaxShares.toLocaleString()}</strong> sh withheld</>,
@@ -772,7 +765,6 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                   <div className="equity-summary-card-body">
                     <span>{labels[key]}</span>
                     <strong className="equity-amt">{fmt(values[key])}</strong>
-                    <em>{subs[key]}</em>
                   </div>
                 </button>
                 <p className="equity-card-count">{counts[key]}</p>
@@ -786,7 +778,6 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               <div className="equity-summary-card-body">
                 <span>Scheduled</span>
                 <strong className="equity-amt">{fmt(scheduledValueWithEspp)}</strong>
-                <em>{scheduledSharesWithEspp.toLocaleString()} future vest/ESPP sh @ live price</em>
               </div>
             </button>
             <p className="equity-card-count"><strong>{(rsuUnvestedShares + pendingEsppTotalShares).toLocaleString()}</strong> sh scheduled</p>
@@ -802,7 +793,6 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                     ? <span className="equity-neutral">—</span>
                     : <>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</>}
                 </strong>
-                <em>{dailyHeldShares.toLocaleString()} sh × today&apos;s move</em>
               </div>
             </div>
             <p className="equity-card-count"><strong>{dailyHeldShares.toLocaleString()}</strong> sh held</p>

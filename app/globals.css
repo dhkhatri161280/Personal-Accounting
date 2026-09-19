@@ -8462,6 +8462,24 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   font-size: var(--fs-2xl) !important;
 }
 
+/* Equity Holdings cards no longer carry the inner "@ live price"-style subtitle line (removed
+   from EquityReport.tsx -- the real share count already shown below each card, outside it,
+   made it redundant). Scoped to .equity-report only, deliberately conservative after several
+   earlier, more aggressive attempts at this same "fit on one row" goal broke live in ways local
+   testing here didn't catch -- this only shrinks the amount font a modest amount (15px -> 13px)
+   and drops the floor a matching amount (190px -> 165px), keeping the same nowrap-with-an-
+   ellipsis-safety-net shape already proven for months in the untouched shared rule above. If
+   this still doesn't fit on one row on the real screen, that needs to be confirmed live, not
+   assumed from here. */
+.ui-refresh .equity-report .equity-summary-row {
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)) !important;
+}
+.ui-refresh .equity-report .equity-summary-card strong {
+  font-size: var(--fs-lg) !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
    instead of same-weight-as-everything-else text. */
 .ui-refresh .equity-title-row h3 { font-size: 22px !important; font-weight: 800 !important; letter-spacing: -0.01em; }
