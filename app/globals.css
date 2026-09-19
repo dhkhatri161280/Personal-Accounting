@@ -8464,56 +8464,61 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 
 /* Equity's 7 cards and Tax/India Tax's 9- and 6-card rows (shared .equity-summary-row/-card,
    scoped here to .equity-report/.tax-report so Recon/Bank Reconciliation/Net Worth/Cash Flow
-   are untouched) need to stay on one row, on one line each, with the dollar figure never
-   wrapping or clipping -- three constraints that a fixed equal-width grid column can't
-   simultaneously guarantee, since a column's width is set by "container width ÷ card count",
-   not by what any one card's own content actually needs. Two earlier attempts at a shared
-   equal-width floor both failed live: a 140-190px floor still let a real 7-8 digit balance
-   overflow past its card at a plausible column width, and forcing the amount to wrap next
-   just broke it mid-digit ($760,113.2 / 5) instead.
-   The fix: stop dividing the row into N equal columns. Size each card to its OWN content
-   (never narrower than its number needs, so nowrap is always safe) and let the row itself
-   scroll horizontally -- not wrap to a second row -- on the rare screen too narrow to show
-   every card at once. This is correct for any dollar amount, including ones that don't exist
-   yet, without retuning a magic pixel width every time a balance grows another digit. */
+   are untouched) must always render as exactly one row, filling the FULL real width the page
+   actually has -- not a width guessed in advance. Three earlier attempts all guessed a pixel
+   floor or content width instead of measuring the real one and each failed differently: a
+   140-190px floor let a long balance overflow past its card; forcing the amount to wrap broke
+   it mid-digit ($760,113.2 / 5); sizing cards to content and letting the row scroll left a
+   real ~1900px-wide page short by a handful of pixels and forced an unwanted scrollbar.
+   `repeat(auto-fit, minmax(1px, 1fr))` sidesteps guessing entirely: with a floor of ~1px,
+   auto-fit always places every card in a single row and 1fr divides 100% of whatever the
+   container's real width is evenly across however many cards exist (7, 9, or 6) -- there is
+   never leftover width to scroll into, and never a "too narrow" case that wraps to a second
+   row. The only remaining risk is a column ending up too narrow for its own number at nowrap
+   -- text-overflow: ellipsis is the safety net for that (visually clips to "…" rather than
+   overflowing the card), but at this app's real content width there's room to spare per card,
+   so it should not actually trigger. */
 .ui-refresh .equity-report .equity-summary-row,
 .ui-refresh .tax-report .equity-summary-row {
-  display: flex !important;
-  flex-wrap: nowrap !important;
-  overflow-x: auto !important;
-  align-items: stretch !important;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(1px, 1fr)) !important;
+  gap: 8px !important;
+  flex-wrap: unset !important;
+  overflow-x: visible !important;
+  width: 100% !important;
 }
 .ui-refresh .equity-report .equity-summary-col,
 .ui-refresh .tax-report .equity-summary-col {
-  flex: 0 0 auto !important;
-  min-width: max-content !important;
-  width: auto !important;
+  min-width: 0 !important;
+  width: 100% !important;
 }
 .ui-refresh .equity-report .equity-summary-card,
 .ui-refresh .tax-report .equity-summary-card {
-  flex: 0 0 auto !important;
-  min-width: max-content !important;
-  width: auto !important;
+  min-width: 0 !important;
+  width: 100% !important;
   gap: 8px !important;
   padding: 8px 9px !important;
 }
-/* A touch denser than the shared default -- content-sized cards need every spare pixel to
-   stay scroll-free at the narrower end of the app's real content width; still well above the
-   8.5-9px classic scale the old (dead) .tax-report override used, so this stays legible. */
-.ui-refresh .equity-report .equity-summary-card strong,
-.ui-refresh .tax-report .equity-summary-card strong {
-  font-size: var(--fs-lg) !important;
+.ui-refresh .equity-report .equity-summary-card-body,
+.ui-refresh .tax-report .equity-summary-card-body {
+  min-width: 0 !important;
+  overflow: hidden;
 }
 .ui-refresh .equity-report .equity-summary-card span,
 .ui-refresh .equity-report .equity-summary-card em,
 .ui-refresh .tax-report .equity-summary-card span,
 .ui-refresh .tax-report .equity-summary-card em {
   white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ui-refresh .equity-report .equity-summary-card strong,
 .ui-refresh .tax-report .equity-summary-card strong {
+  font-size: var(--fs-lg) !important;
   white-space: nowrap !important;
-  overflow-wrap: normal !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
