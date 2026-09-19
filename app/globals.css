@@ -8499,6 +8499,41 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   text-overflow: ellipsis;
 }
 
+/* Same density treatment as .equity-report above, applied to Tax/India Tax's own summary
+   rows (up to 9 cards, vs Equity's fixed 7) -- these cards' "sub" text is real, distinct
+   information (e.g. "click for details", effective rate, withholding breakdown), not a
+   duplicate of anything shown elsewhere, so unlike Equity it is kept, just shrunk; it already
+   wraps normally (span/em are not nowrap) so it does not fight the one-row width goal. Floor
+   is proportionally lower than Equity's 115px (9 cards vs 7 in roughly the same real row
+   width) with the same margin-below-the-bare-minimum philosophy. */
+.ui-refresh .tax-report .equity-summary-row {
+  grid-template-columns: repeat(auto-fit, minmax(82px, 1fr)) !important;
+  gap: 5px !important;
+}
+.ui-refresh .tax-report .equity-summary-card {
+  padding: 5px 6px !important;
+  gap: 4px !important;
+}
+.ui-refresh .tax-report .stat-icon {
+  width: 18px !important;
+  height: 18px !important;
+}
+.ui-refresh .tax-report .stat-icon svg {
+  width: 9px !important;
+  height: 9px !important;
+}
+.ui-refresh .tax-report .equity-summary-card span {
+  font-size: var(--fs-2xs) !important;
+}
+.ui-refresh .tax-report .equity-summary-card strong {
+  font-size: var(--fs-2xs) !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ui-refresh .tax-report .equity-summary-card em {
+  font-size: var(--fs-2xs) !important;
+}
+
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
    instead of same-weight-as-everything-else text. */
 .ui-refresh .equity-title-row h3 { font-size: 22px !important; font-weight: 800 !important; letter-spacing: -0.01em; }
