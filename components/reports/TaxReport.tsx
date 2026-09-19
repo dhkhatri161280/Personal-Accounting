@@ -1784,10 +1784,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 onClick={() => setViewPeriod({ type: "vest", date })}
                 style={{ cursor: "pointer", background: "#eef2ff" }}
               >
-                <td title={hasOverride ? "RSU vesting event — tax entered from real vesting pay-stub(s)" : "Quarterly RSU vesting event, from the payroll Excel's 'Stocks' columns"}>
+                <td
+                  style={{ whiteSpace: "nowrap" }}
+                  title={hasOverride ? "RSU vesting event — tax entered from real vesting pay-stub(s)" : "Quarterly RSU vesting event, from the payroll Excel's 'Stocks' columns"}
+                >
                   {new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })} Vesting
                   {anyPending && <em style={{ fontSize: 10, opacity: 0.6 }}> (scheduled)</em>}
-                  {hasOverride && <em style={{ fontSize: 10, opacity: 0.6 }}> (from pay-stub)</em>}
+                  {hasOverride && <em style={{ fontSize: 10, opacity: 0.6 }}> (pay-stub)</em>}
                 </td>
                 <td className="right">{anyPending ? <span style={{ opacity: 0.3 }}>—</span> : <span className="equity-amt">{fmt(grossVal)}</span>}</td>
                 <td className="right">{showDash(fed)}</td>
