@@ -151,14 +151,19 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   if (!periodStart || !periodEnd) warnings.push("Could not detect the pay period dates — please check the period this belongs to.");
   if (!payDate) warnings.push("Could not detect the pay date.");
 
+  // Checking row EXISTENCE, not the parsed value, for these "could not detect" warnings -- a
+  // stock-only "vesting" pay statement (no regular salary paid that run, taxes withheld entirely
+  // via shares) legitimately has $0.00 Net Pay and $0.00 Salary, which isn't a parse failure.
+  // rowValue() already returns 0 (not an error) when a row is genuinely absent -- see its own
+  // comment -- so testing the number itself can't tell "row missing" apart from "row says $0".
   const netPay = rowValue(rows, /^Net Pay$/i, 1);
-  if (!netPay) warnings.push("Could not detect Net Pay.");
+  if (!rowExists(rows, /^Net Pay$/i)) warnings.push("Could not detect Net Pay.");
 
   // ── Earnings ─────────────────────────────────────────────────────────────
   // "Salary" has Hours + Pay Rate before Current (index 3); rows with no hourly rate
   // (Wireless Device, imputed-income lines) go straight to Current at index 1.
   const base = rowValue(rows, /^Salary$/i, 3);
-  if (!base) warnings.push("Could not detect Salary (Base) — please check manually.");
+  if (!rowExists(rows, /^Salary$/i)) warnings.push("Could not detect Salary (Base) — please check manually.");
   const telephone = rowValue(rows, /^Wireless Device$/i, 1);
 
   // ── Deductions (Employee Current is column index 2 for every deduction row) ──
@@ -181,8 +186,8 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   const stateWH = rowValue(rows, /State Income Tax$/i, 1);
   const stateSDIRowExists = rowExists(rows, /Voluntary Plan EE$/i) || rowExists(rows, /\bSDI\b/i);
   const stateSDI = rowValue(rows, /Voluntary Plan EE$/i, 1) || rowValue(rows, /\bSDI\b/i, 1);
-  if (!federal) warnings.push("Could not detect Federal Income Tax — please check manually.");
-  if (!stateWH) warnings.push("Could not detect state income tax withholding — please check manually.");
+  if (!rowExists(rows, /^Federal Income Tax$/i)) warnings.push("Could not detect Federal Income Tax — please check manually.");
+  if (!rowExists(rows, /State Income Tax$/i)) warnings.push("Could not detect state income tax withholding — please check manually.");
   if (!stateSDIRowExists) warnings.push("No state SDI/Voluntary Plan line found — defaulted to $0; confirm that's correct for this state/period.");
 
   const totalTax = federal + ssn + medicare + stateWH + stateSDI;

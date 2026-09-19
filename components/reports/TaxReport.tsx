@@ -470,7 +470,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     target: { id: string | null; periodIndex?: number; label: string };
     parsed: ParsedPaystub;
     tieOut: { voucher: Tx; voucherNet: number } | null;
+    // Set when this period already has real (non-estimated) saved numbers from an earlier
+    // paystub -- NVIDIA issues one separate "Pay Statement" PDF per RSU lot vesting on the same
+    // date, all with identical period dates, so a second (third, fourth...) upload for the same
+    // period is normal, not a re-upload of the same document. Non-null offers "add to this" as
+    // the default instead of silently clobbering the first paystub's numbers.
+    priorSaved: ManualPayrollPeriod | null;
   } | null>(null);
+  const [paystubMode, setPaystubMode] = useState<"replace" | "add">("replace");
   const [savingPaystub, setSavingPaystub] = useState(false);
   // Maps a Net Pay Distribution account's last-4 digits to a friendly bank name (e.g. "5570" ->
   // "BofA") -- the paystub PDF itself only ever shows masked account numbers, never bank names,
@@ -668,7 +675,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         : findPayrollVoucher(transactions, yr.year, target.label, yr.periodLabels, claimedTxGuids);
       if (linkedTx) tieOut = { voucher: linkedTx, voucherNet: voucherNetAmount(linkedTx, accounts) };
 
-      setPaystubReview({ target, parsed, tieOut });
+      // Real, already-saved numbers (not still a voucher-derived estimate) on the SAME period
+      // this upload resolved to -- almost certainly a second paystub for a same-day multi-lot
+      // vesting, not a duplicate upload of the first one. Offer to add rather than overwrite.
+      const priorSaved = existingManual && !existingManual.estimated ? existingManual : null;
+      setPaystubMode(priorSaved ? "add" : "replace");
+      setPaystubReview({ target, parsed, tieOut, priorSaved });
     } catch (err: any) {
       setPaystubError("Failed to parse paystub PDF: " + (err?.message ?? "Unknown error"));
     } finally {
@@ -680,13 +692,27 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     if (!paystubReview) return;
     setSavingPaystub(true);
     try {
-      const { target, parsed } = paystubReview;
+      const { target, parsed, priorSaved } = paystubReview;
+      // "Add" sums this paystub's numbers onto whatever was already saved for this exact period
+      // -- NVIDIA issues one Pay Statement PDF per RSU lot vesting the same day, so a same-day
+      // multi-lot vest needs every one of them uploaded and totaled, not the last one clobbering
+      // the rest. "Replace" (the default when there's no prior real data) behaves as before.
+      const add = paystubMode === "add" && priorSaved;
       const fields = {
-        base: parsed.base, telephone: parsed.telephone, medical: parsed.medical,
-        k401: parsed.k401, k401Emplr: parsed.k401Emplr, espp: parsed.espp,
-        federal: parsed.federal, ssn: parsed.ssn, medicare: parsed.medicare,
-        stateWH: parsed.stateWH, stateSDI: parsed.stateSDI,
-        totalTax: parsed.totalTax, net: parsed.netPay, estimated: false as const,
+        base: (add ? priorSaved.base : 0) + parsed.base,
+        telephone: (add ? priorSaved.telephone : 0) + parsed.telephone,
+        medical: (add ? priorSaved.medical : 0) + parsed.medical,
+        k401: (add ? priorSaved.k401 : 0) + parsed.k401,
+        k401Emplr: (add ? priorSaved.k401Emplr ?? 0 : 0) + parsed.k401Emplr,
+        espp: (add ? priorSaved.espp ?? 0 : 0) + parsed.espp,
+        federal: (add ? priorSaved.federal : 0) + parsed.federal,
+        ssn: (add ? priorSaved.ssn : 0) + parsed.ssn,
+        medicare: (add ? priorSaved.medicare : 0) + parsed.medicare,
+        stateWH: (add ? priorSaved.stateWH : 0) + parsed.stateWH,
+        stateSDI: (add ? priorSaved.stateSDI : 0) + parsed.stateSDI,
+        totalTax: (add ? priorSaved.totalTax : 0) + parsed.totalTax,
+        net: (add ? priorSaved.net : 0) + parsed.netPay,
+        estimated: false as const,
       };
       const updatedYears = payroll!.years.map((y) => {
         if (y.year !== yr.year) return y;
@@ -1206,12 +1232,33 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         </p>
 
         {paystubReview && (() => {
-          const { target, parsed, tieOut } = paystubReview;
+          const { target, parsed, tieOut, priorSaved } = paystubReview;
           const netVariance = tieOut ? tieOut.voucherNet - parsed.netPay : 0;
           const netMismatch = tieOut && Math.abs(netVariance) > 1;
+          const resultingNet = paystubMode === "add" && priorSaved ? priorSaved.net + parsed.netPay : parsed.netPay;
           return (
             <div className="equity-inline-detail" style={{ marginTop: "0.75rem", border: "1px solid #cbd5e1", borderRadius: 8, padding: "0.75rem" }}>
               <strong>Parsed paystub — {periodEndLabel(target.label, yr.year)}</strong>
+              {priorSaved && (
+                <div style={{ margin: "0.5rem 0", padding: "0.5rem", background: "#fefce8", borderRadius: 6, fontSize: 13 }}>
+                  This period already has saved data ({fmt(priorSaved.net)} net) — NVIDIA issues one
+                  Pay Statement PDF per RSU lot vesting the same day, so this is likely another lot
+                  from the same vesting date, not a re-upload.
+                  <div style={{ display: "flex", gap: "1rem", marginTop: "0.4rem" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", cursor: "pointer" }}>
+                      <input type="radio" checked={paystubMode === "add"} onChange={() => setPaystubMode("add")} />
+                      Add to existing total
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", cursor: "pointer" }}>
+                      <input type="radio" checked={paystubMode === "replace"} onChange={() => setPaystubMode("replace")} />
+                      Replace existing data
+                    </label>
+                  </div>
+                  <p style={{ margin: "0.4rem 0 0", fontWeight: 600 }}>
+                    Resulting Net for this period: {fmt(resultingNet)}
+                  </p>
+                </div>
+              )}
               <div className="tax-parsed-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.4rem", margin: "0.5rem 0", fontSize: 13 }}>
                 <span>Base: {fmt(parsed.base)}</span>
                 <span>Telephone: {fmt(parsed.telephone)}</span>
@@ -1272,7 +1319,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               )}
               <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
                 <button className="equity-refresh" onClick={savePaystubReview} disabled={savingPaystub}>
-                  {savingPaystub ? "Saving…" : "Save to Tax Tab"}
+                  {savingPaystub ? "Saving…" : priorSaved && paystubMode === "add" ? "Add to Tax Tab" : "Save to Tax Tab"}
                 </button>
                 <button className="equity-refresh" onClick={() => setPaystubReview(null)} disabled={savingPaystub}>
                   Discard
