@@ -900,6 +900,37 @@ function buildDraft(
     }
   }
 
+  // Fidelity HSA transfer (checking ↔ Fidelity HSA): the bank-side leg of a transfer to/from the
+  // Fidelity HSA shows up with the ACH descriptor "FID BKG SVC" (or similar), not an institution
+  // named "Fidelity" -- this is a Contra (both legs are Cash & Bank accounts), never an expense.
+  // Matched on tx.name text rather than institution, same as the BofA card-bill-payment rule above,
+  // since the transaction's own institution is the bank (BofA), not Fidelity. Narration deliberately
+  // keeps the standalone word "HSA" -- lib/tax-deductions.ts's HSA_NARRATION_RE/HSA_FSA_NARRATION_RE
+  // key off exactly that to find above-the-line HSA contributions and avoid double-counting them
+  // as a Schedule A medical expense.
+  if (/fid\s*bkg\s*svc|fidelity.*\bhsa\b|\bhsa\b.*fidelity/i.test(tx.name)) {
+    const hsaAcc = findAcct(accounts, "HSA Fidelity Account");
+    const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America");
+    if (hsaAcc && bankAcc) {
+      const toHsa = tx.amount > 0; // Plaid convention: positive = money leaving the bank account
+      return {
+        entries: toHsa
+          ? [
+              { accountId: hsaAcc.id, accountName: hsaAcc.name, amount: -netDeposit },
+              { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
+            ]
+          : [
+              { accountId: bankAcc.id, accountName: bankAcc.name, amount: -netDeposit },
+              { accountId: hsaAcc.id, accountName: hsaAcc.name, amount: netDeposit },
+            ],
+        voucherType: "Contra",
+        narration: toHsa ? "Transfer to HSA Account" : "Transfer from HSA Account",
+        confidence: 0.9,
+        source: "history",
+      };
+    }
+  }
+
   // ── Pattern match from vault history ──
   const match = matchFromHistory(tx, historyIndex);
   if (match) {
