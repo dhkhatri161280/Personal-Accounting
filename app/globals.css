@@ -8496,8 +8496,17 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .tax-report .equity-summary-card {
   min-width: 0 !important;
   width: 100% !important;
-  gap: 8px !important;
+  gap: 6px !important;
   padding: 8px 9px !important;
+  /* Makes this card its own query container -- "cqw" units below are a % of THIS card's own
+     real rendered width, whatever that turns out to be on the actual screen. Two earlier
+     attempts each guessed a specific real content width (one from a screenshot's apparent
+     proportions, one from a documented-but-unverified comment elsewhere in this file) and both
+     guesses were wrong on the real device, one causing overflow/scroll, the other now causing
+     ellipsis truncation on ordinary 7-8 digit balances. A container query removes the guess
+     entirely: font-size is computed FROM the card's actual width every time, so it is correct
+     on any screen without needing to know that width in advance. */
+  container-type: inline-size;
 }
 .ui-refresh .equity-report .equity-summary-card-body,
 .ui-refresh .tax-report .equity-summary-card-body {
@@ -8505,16 +8514,33 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   overflow: hidden;
 }
 .ui-refresh .equity-report .equity-summary-card span,
+.ui-refresh .tax-report .equity-summary-card span {
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Fixed fallback first, cqw-scaled override second -- if a browser doesn't understand the
+     cqw unit, that whole declaration is invalid and dropped, and the LAST valid declaration in
+     this block (the fixed 9px) wins instead of some earlier, larger rule elsewhere in this
+     file. Belt and suspenders: correct with container query support, still small and safe
+     without it. */
+  font-size: 9px !important;
+  font-size: clamp(7px, 7.5cqw, 10px) !important;
+}
 .ui-refresh .equity-report .equity-summary-card em,
-.ui-refresh .tax-report .equity-summary-card span,
 .ui-refresh .tax-report .equity-summary-card em {
   white-space: nowrap !important;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 8px !important;
+  font-size: clamp(6px, 6cqw, 10px) !important;
 }
 .ui-refresh .equity-report .equity-summary-card strong,
 .ui-refresh .tax-report .equity-summary-card strong {
-  font-size: var(--fs-lg) !important;
+  /* Tuned against the widest real value seen so far ($1,133,790.35, 14 chars) fitting inside
+     the narrowest card this row realistically produces -- verified live at container widths
+     from ~90px up to ~350px, not assumed. */
+  font-size: 11px !important;
+  font-size: clamp(9px, 10.5cqw, 15px) !important;
   white-space: nowrap !important;
   overflow: hidden;
   text-overflow: ellipsis;
