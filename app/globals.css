@@ -8479,6 +8479,20 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)) !important;
 }
 
+/* Both floors above are below the 190px the shared .equity-summary-card strong rule's own
+   comment says nowrap needs -- at a real column width in that gap (confirmed live: a computed
+   ~170-180px column with a 6-7 digit dollar figure), the amount overflowed past its card's
+   right edge instead of wrapping, exactly the failure mode that rule's comment warned about.
+   Letting the amount wrap here (rather than trying to re-tune the floor to some magic width
+   that happens to fit today's balances) is the only fix that stays correct as these dollar
+   figures grow -- a taller card from a wrapped 2-line amount is fine (align-items: start on
+   the row already allows uneven column heights); text painted outside the card is not. */
+.ui-refresh .equity-report .equity-summary-card strong,
+.ui-refresh .tax-report .equity-summary-card strong {
+  white-space: normal !important;
+  overflow-wrap: break-word !important;
+}
+
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
    instead of same-weight-as-everything-else text. */
 .ui-refresh .equity-title-row h3 { font-size: 22px !important; font-weight: 800 !important; letter-spacing: -0.01em; }
