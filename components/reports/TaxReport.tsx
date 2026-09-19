@@ -1554,7 +1554,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const mEsppShares = mEspp.reduce((s, e) => s + e.shares, 0);
             const node = (
               <Fragment key={key}>
-                <tr onClick={() => setViewPeriod({ type: "manual", id: m.id })} style={{ cursor: "pointer", background: isOverride ? "#eff6ff" : m.estimated ? "#fffbeb" : undefined }}>
+                {/* Background only ever flags "still using estimated numbers, needs your input" (amber)
+                    -- NOT "this row was edited/corrected at some point," which is permanent history,
+                    not an action item, and confusingly looked identical to a still-needs-attention
+                    flag when it kept its own background color here. The "(edited)"/"(from voucher,
+                    edited)" text label below still records that provenance, just without implying
+                    the row needs anything further. */}
+                <tr onClick={() => setViewPeriod({ type: "manual", id: m.id })} style={{ cursor: "pointer", background: m.estimated ? "#fffbeb" : undefined }}>
                   <td title={`${m.label} — ${isOverride ? "corrected from the Excel import" : "posted in the vault but not yet in the imported Excel file"}`}>
                     {periodEndLabel(m.label, yr.year)} <em style={{ fontSize: 10, opacity: 0.6 }}>{isOverride ? "(edited)" : m.estimated ? "(from voucher, estimated)" : "(from voucher, edited)"}</em>
                   </td>
@@ -1674,8 +1680,25 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         <p className="equity-seed-note" style={{ marginTop: "0.5rem" }}>
           {voucherPeriods.length > 0 && `${voucherPeriods.length} pay period(s) auto-added from posted vouchers. `}
           {overrideByIndex.size > 0 && `${overrideByIndex.size} period(s) corrected from the Excel import. `}
-          Rows highlighted above — expand any row (including regular Excel-imported ones) and click "✎ Edit" to enter real paystub numbers.
+          Expand any row (including regular Excel-imported ones) and click "✎ Edit" to enter real paystub
+          numbers.
         </p>
+      )}
+      {allManualPeriods.length > 0 && (
+        <details style={{ margin: "0.35rem 0 0" }}>
+          <summary style={{ fontSize: 12, opacity: 0.7, cursor: "pointer", listStyle: "none" }}>
+            ℹ️ What the row colors mean →
+          </summary>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0 0" }}>
+            <span style={{ background: "#fffbeb", padding: "0 4px" }}>Amber</span> rows are still using
+            estimated numbers — expand and click "✎ Edit" to enter real paystub numbers; the highlight
+            clears once saved. <span style={{ background: "#eef2ff", padding: "0 4px" }}>Indigo</span> rows
+            below are RSU vesting events, not pay periods — that color is permanent, just marking the row
+            type, not something to fix. A row labeled "(edited)" has no highlight — it already has real
+            numbers, the label is only a note that it came from a correction rather than the original
+            Excel import.
+          </p>
+        </details>
       )}
 
       <div className="equity-section-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>

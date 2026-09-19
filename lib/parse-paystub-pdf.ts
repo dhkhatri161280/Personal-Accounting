@@ -120,6 +120,27 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   const rows = buildRows(allItems);
   const warnings: string[] = [];
 
+  // A genuine NVIDIA pay-stub always has at least one of these anchor rows. If NONE are present,
+  // this isn't a pay-stub this parser can read at all -- most likely an RSU vesting/grant
+  // confirmation, a different paystub template, or a scanned/image-only PDF (pdfjs only reads
+  // embedded text, so a scan yields zero text items and every row lookup below would silently
+  // come back empty) -- fail loudly and specifically here instead of stumbling into the vaguer
+  // "Could not read the pay period dates" message once every single field comes back blank.
+  const looksLikePaystub =
+    rowExists(rows, /^Period Start Date$/i) ||
+    rowExists(rows, /^Period End Date$/i) ||
+    rowExists(rows, /^Pay Date$/i) ||
+    rowExists(rows, /^Salary$/i) ||
+    rowExists(rows, /^Net Pay$/i);
+  if (!looksLikePaystub) {
+    throw new Error(
+      "This doesn't look like an NVIDIA payroll pay-stub — no Period Start/End Date, Salary, or Net Pay rows were found. " +
+      "If this is an RSU vesting/grant confirmation, that's a different document and isn't supported by this upload " +
+      "(vesting data comes from the payroll Excel import instead). If it IS a pay-stub, it may be a scanned image " +
+      "rather than a real PDF with selectable text, which this parser can't read."
+    );
+  }
+
   // ── Header dates + net pay ──────────────────────────────────────────────
   const periodStartRaw = rowValueRaw(rows, /^Period Start Date$/i, 1);
   const periodEndRaw = rowValueRaw(rows, /^Period End Date$/i, 1);
