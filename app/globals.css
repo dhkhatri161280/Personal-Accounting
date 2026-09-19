@@ -8464,18 +8464,37 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 
 /* Equity Holdings cards no longer carry the inner "@ live price"-style subtitle line (removed
    from EquityReport.tsx -- the real share count already shown below each card, outside it,
-   made it redundant). Scoped to .equity-report only, deliberately conservative after several
-   earlier, more aggressive attempts at this same "fit on one row" goal broke live in ways local
-   testing here didn't catch -- this only shrinks the amount font a modest amount (15px -> 13px)
-   and drops the floor a matching amount (190px -> 165px), keeping the same nowrap-with-an-
-   ellipsis-safety-net shape already proven for months in the untouched shared rule above. If
-   this still doesn't fit on one row on the real screen, that needs to be confirmed live, not
-   assumed from here. */
+   made it redundant).
+   The 165px floor confirmed live: 6 cards fit per row, the 7th wrapped -- that's real,
+   measured evidence the real usable row width is roughly 1040-1215px (6*165+5*10 to
+   7*165+6*10), the first actual data point in this whole thread instead of a guess. That
+   measurement was also taken through this app's real Geist font, which this repo's own local
+   dev server cannot actually load (confirmed: browser console errors trying to fetch Geist's
+   .woff2 files here) -- every earlier local verification in this thread silently measured text
+   against a fallback system font instead, which may be narrower than Geist actually renders.
+   Aiming well below the bare minimum (~140px) that only the low end of the real range needs,
+   rather than right up against it, to leave margin for that unmeasurable font-width gap. */
 .ui-refresh .equity-report .equity-summary-row {
-  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)) !important;
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)) !important;
+  gap: 6px !important;
+}
+.ui-refresh .equity-report .equity-summary-card {
+  padding: 6px 7px !important;
+  gap: 5px !important;
+}
+.ui-refresh .equity-report .stat-icon {
+  width: 22px !important;
+  height: 22px !important;
+}
+.ui-refresh .equity-report .stat-icon svg {
+  width: 11px !important;
+  height: 11px !important;
+}
+.ui-refresh .equity-report .equity-summary-card span {
+  font-size: var(--fs-2xs) !important;
 }
 .ui-refresh .equity-report .equity-summary-card strong {
-  font-size: var(--fs-lg) !important;
+  font-size: var(--fs-xs) !important;
   overflow: hidden;
   text-overflow: ellipsis;
 }
