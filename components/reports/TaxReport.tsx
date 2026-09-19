@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, RsuGrant, RsuVest, EsppPurchase, Account } from "@/lib/vault-types";
+import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, ManualVestTax, RsuGrant, RsuVest, EsppPurchase, Account } from "@/lib/vault-types";
 import { findPayrollVoucher, findAllPayrollVouchers, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear, matchPayrollPeriod, inferPeriodLabel } from "@/lib/payroll-match";
 import type { ParsedPaystub } from "@/lib/parse-paystub-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
@@ -466,16 +466,24 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const paystubFileInputRef = useRef<HTMLInputElement>(null);
   const [parsingPaystub, setParsingPaystub] = useState(false);
   const [paystubError, setPaystubError] = useState("");
+  // A regular pay-period paystub ("period") vs. an off-cycle, single-day, stock-only vesting
+  // pay-stub ("vest") -- the latter never matches a regular semi-monthly Pay Period or a Receipt
+  // voucher at all (confirmed: "RSU Vesting paystub will not match with any of the receipt
+  // vouchers in app"), and instead feeds the RSU vest row's tax columns (see manualVestTax).
+  type PaystubTarget =
+    | { kind: "period"; id: string | null; periodIndex?: number; label: string }
+    | { kind: "vest"; date: string; stockIdx: number };
   const [paystubReview, setPaystubReview] = useState<{
-    target: { id: string | null; periodIndex?: number; label: string };
+    target: PaystubTarget;
     parsed: ParsedPaystub;
     tieOut: { voucher: Tx; voucherNet: number } | null;
-    // Set when this period already has real (non-estimated) saved numbers from an earlier
-    // paystub -- NVIDIA issues one separate "Pay Statement" PDF per RSU lot vesting on the same
-    // date, all with identical period dates, so a second (third, fourth...) upload for the same
-    // period is normal, not a re-upload of the same document. Non-null offers "add to this" as
-    // the default instead of silently clobbering the first paystub's numbers.
-    priorSaved: ManualPayrollPeriod | null;
+    // Set when this period/vest already has real (non-estimated) saved numbers from an earlier
+    // paystub -- NVIDIA issues one separate "Pay Statement" PDF (or, for a vest, one PAGE within
+    // one PDF) per RSU lot vesting on the same date, all with identical period dates, so a
+    // second (third, fourth...) upload for the same period is normal, not a re-upload of the
+    // same document. Non-null offers "add to this" as the default instead of silently
+    // clobbering the first paystub's numbers.
+    priorSaved: ManualPayrollPeriod | ManualVestTax | null;
   } | null>(null);
   const [paystubMode, setPaystubMode] = useState<"replace" | "add">("replace");
   const [savingPaystub, setSavingPaystub] = useState(false);
@@ -652,38 +660,66 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         return;
       }
 
-      const yearIdx = years.findIndex((y) => y.year === yr.year);
-      const match = matchPayrollPeriod(payroll, parsed.periodEnd);
-      const inferredLabel = inferPeriodLabel(parsed.periodEnd);
-      const label = match && match.yearIdx === yearIdx ? (yr.periodLabels[match.periodIndex] || inferredLabel) : inferredLabel;
-      // A manual entry for this exact label always wins, whether it's a voucher-derived
-      // estimate (posted before the real paystub existed -- periodIndex undefined, txGuid set)
-      // or a prior correction (periodIndex set). Checking the Excel column match FIRST used to
-      // ignore an already-linked voucher entirely and create a second, disconnected row with no
-      // voucher link -- exactly the "why two Aug 31 rows" case this was built to fix.
-      const existingManual = (yr.manualPeriods ?? []).find((m) => m.label === label);
-      let target: { id: string | null; periodIndex?: number; label: string };
-      if (existingManual) {
-        target = { id: existingManual.id, periodIndex: existingManual.periodIndex, label };
-      } else if (match && match.yearIdx === yearIdx) {
-        target = { id: null, periodIndex: match.periodIndex, label };
-      } else {
-        target = { id: null, periodIndex: undefined, label };
+      // A real regular paystub always spans a multi-day period (e.g. 09/01-09/15); Period Start
+      // === Period End is NVIDIA's signature for an off-cycle, single-day, stock-only "vesting"
+      // pay statement -- confirmed live against a real one (Period/Pay Date all 09/17/2026,
+      // Salary/Net Pay $0.00, only the "Restricted Stoc" earnings line and tax withholding
+      // populated). Those never correspond to a regular semi-monthly Pay Period or a posted
+      // Receipt voucher, and instead belong on the matching RSU vest row's tax columns.
+      const singleDayRun = !!parsed.periodEnd && parsed.periodStart === parsed.periodEnd;
+      const VEST_MATCH_WINDOW_DAYS = 14;
+      let vestMatch: { date: string; stockIdx: number } | null = null;
+      if (singleDayRun) {
+        const target = new Date(parsed.periodEnd + "T00:00:00Z").getTime();
+        let bestDiff = Infinity;
+        for (const g of vestGroups) {
+          const diffDays = Math.abs((target - new Date(g.date + "T00:00:00Z").getTime()) / 86400000);
+          if (diffDays <= VEST_MATCH_WINDOW_DAYS && diffDays < bestDiff) { bestDiff = diffDays; vestMatch = { date: g.date, stockIdx: g.stockIdx }; }
+        }
       }
 
-      // Same tie-out comparison as the Pay Periods table, surfaced immediately here instead of
-      // requiring a save-then-look-at-the-table round trip.
+      let target: PaystubTarget;
       let tieOut: { voucher: Tx; voucherNet: number } | null = null;
-      const existingManualForTarget = target.id ? (yr.manualPeriods ?? []).find((m) => m.id === target.id) : undefined;
-      const linkedTx = existingManualForTarget?.txGuid
-        ? transactions.find((t) => t.guid === existingManualForTarget.txGuid)
-        : findPayrollVoucher(transactions, yr.year, target.label, yr.periodLabels, claimedTxGuids);
-      if (linkedTx) tieOut = { voucher: linkedTx, voucherNet: voucherNetAmount(linkedTx, accounts) };
+      let priorSaved: ManualPayrollPeriod | ManualVestTax | null;
 
-      // Real, already-saved numbers (not still a voucher-derived estimate) on the SAME period
-      // this upload resolved to -- almost certainly a second paystub for a same-day multi-lot
-      // vesting, not a duplicate upload of the first one. Offer to add rather than overwrite.
-      const priorSaved = existingManual && !existingManual.estimated ? existingManual : null;
+      if (vestMatch) {
+        target = { kind: "vest", date: vestMatch.date, stockIdx: vestMatch.stockIdx };
+        priorSaved = vestTaxByDate.get(vestMatch.date) ?? null;
+        // No voucher tie-out for a vest -- the whole reason this path exists is that a vesting
+        // pay-stub never matches a posted Receipt voucher at all.
+      } else {
+        const yearIdx = years.findIndex((y) => y.year === yr.year);
+        const match = matchPayrollPeriod(payroll, parsed.periodEnd);
+        const inferredLabel = inferPeriodLabel(parsed.periodEnd);
+        const label = match && match.yearIdx === yearIdx ? (yr.periodLabels[match.periodIndex] || inferredLabel) : inferredLabel;
+        // A manual entry for this exact label always wins, whether it's a voucher-derived
+        // estimate (posted before the real paystub existed -- periodIndex undefined, txGuid set)
+        // or a prior correction (periodIndex set). Checking the Excel column match FIRST used to
+        // ignore an already-linked voucher entirely and create a second, disconnected row with no
+        // voucher link -- exactly the "why two Aug 31 rows" case this was built to fix.
+        const existingManual = (yr.manualPeriods ?? []).find((m) => m.label === label);
+        if (existingManual) {
+          target = { kind: "period", id: existingManual.id, periodIndex: existingManual.periodIndex, label };
+        } else if (match && match.yearIdx === yearIdx) {
+          target = { kind: "period", id: null, periodIndex: match.periodIndex, label };
+        } else {
+          target = { kind: "period", id: null, periodIndex: undefined, label };
+        }
+
+        // Same tie-out comparison as the Pay Periods table, surfaced immediately here instead of
+        // requiring a save-then-look-at-the-table round trip.
+        const periodTarget = target as { kind: "period"; id: string | null; periodIndex?: number; label: string };
+        const existingManualForTarget = periodTarget.id ? (yr.manualPeriods ?? []).find((m) => m.id === periodTarget.id) : undefined;
+        const linkedTx = existingManualForTarget?.txGuid
+          ? transactions.find((t) => t.guid === existingManualForTarget.txGuid)
+          : findPayrollVoucher(transactions, yr.year, periodTarget.label, yr.periodLabels, claimedTxGuids);
+        if (linkedTx) tieOut = { voucher: linkedTx, voucherNet: voucherNetAmount(linkedTx, accounts) };
+
+        // Real, already-saved numbers (not still a voucher-derived estimate) on the SAME period
+        // this upload resolved to -- almost certainly a second paystub for a same-day multi-lot
+        // vesting, not a duplicate upload of the first one. Offer to add rather than overwrite.
+        priorSaved = existingManual && !existingManual.estimated ? existingManual : null;
+      }
       setPaystubMode(priorSaved ? "add" : "replace");
       setPaystubReview({ target, parsed, tieOut, priorSaved });
     } catch (err: any) {
@@ -698,25 +734,49 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     setSavingPaystub(true);
     try {
       const { target, parsed, priorSaved } = paystubReview;
-      // "Add" sums this paystub's numbers onto whatever was already saved for this exact period
-      // -- NVIDIA issues one Pay Statement PDF per RSU lot vesting the same day, so a same-day
-      // multi-lot vest needs every one of them uploaded and totaled, not the last one clobbering
-      // the rest. "Replace" (the default when there's no prior real data) behaves as before.
-      const add = paystubMode === "add" && priorSaved;
+      // "Add" sums this paystub's numbers onto whatever was already saved for this exact
+      // period/vest -- NVIDIA issues one Pay Statement PDF (or, for a vest, one PAGE within one
+      // PDF, already summed by parsePaystubPdf) per RSU lot vesting the same day, so uploading a
+      // second FILE for the same date needs to total onto the first, not clobber it. "Replace"
+      // (the default when there's no prior real data) behaves as a plain overwrite.
+      const add = paystubMode === "add" && !!priorSaved;
+
+      if (target.kind === "vest") {
+        const prior = add ? (priorSaved as ManualVestTax | null) : null;
+        const entry: ManualVestTax = {
+          date: target.date,
+          federal: (prior?.federal ?? 0) + parsed.federal,
+          ssn: (prior?.ssn ?? 0) + parsed.ssn,
+          medicare: (prior?.medicare ?? 0) + parsed.medicare,
+          stateWH: (prior?.stateWH ?? 0) + parsed.stateWH,
+          stateSDI: (prior?.stateSDI ?? 0) + parsed.stateSDI,
+          totalTax: (prior?.totalTax ?? 0) + parsed.totalTax,
+        };
+        const updatedYears = payroll!.years.map((y) => {
+          if (y.year !== yr.year) return y;
+          const existing = (y.manualVestTax ?? []).filter((v) => v.date !== target.date);
+          return { ...y, manualVestTax: [...existing, entry] };
+        });
+        await onSave({ ...payroll!, years: updatedYears });
+        setPaystubReview(null);
+        return;
+      }
+
+      const prior = add ? (priorSaved as ManualPayrollPeriod | null) : null;
       const fields = {
-        base: (add ? priorSaved.base : 0) + parsed.base,
-        telephone: (add ? priorSaved.telephone : 0) + parsed.telephone,
-        medical: (add ? priorSaved.medical : 0) + parsed.medical,
-        k401: (add ? priorSaved.k401 : 0) + parsed.k401,
-        k401Emplr: (add ? priorSaved.k401Emplr ?? 0 : 0) + parsed.k401Emplr,
-        espp: (add ? priorSaved.espp ?? 0 : 0) + parsed.espp,
-        federal: (add ? priorSaved.federal : 0) + parsed.federal,
-        ssn: (add ? priorSaved.ssn : 0) + parsed.ssn,
-        medicare: (add ? priorSaved.medicare : 0) + parsed.medicare,
-        stateWH: (add ? priorSaved.stateWH : 0) + parsed.stateWH,
-        stateSDI: (add ? priorSaved.stateSDI : 0) + parsed.stateSDI,
-        totalTax: (add ? priorSaved.totalTax : 0) + parsed.totalTax,
-        net: (add ? priorSaved.net : 0) + parsed.netPay,
+        base: (prior?.base ?? 0) + parsed.base,
+        telephone: (prior?.telephone ?? 0) + parsed.telephone,
+        medical: (prior?.medical ?? 0) + parsed.medical,
+        k401: (prior?.k401 ?? 0) + parsed.k401,
+        k401Emplr: (prior?.k401Emplr ?? 0) + parsed.k401Emplr,
+        espp: (prior?.espp ?? 0) + parsed.espp,
+        federal: (prior?.federal ?? 0) + parsed.federal,
+        ssn: (prior?.ssn ?? 0) + parsed.ssn,
+        medicare: (prior?.medicare ?? 0) + parsed.medicare,
+        stateWH: (prior?.stateWH ?? 0) + parsed.stateWH,
+        stateSDI: (prior?.stateSDI ?? 0) + parsed.stateSDI,
+        totalTax: (prior?.totalTax ?? 0) + parsed.totalTax,
+        net: (prior?.net ?? 0) + parsed.netPay,
         estimated: false as const,
       };
       const updatedYears = payroll!.years.map((y) => {
@@ -976,6 +1036,28 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   )
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, items], idx) => ({ date, items, stockIdx: idx }));
+
+  // Real tax entered from an actual vesting pay-stub (see handlePaystubUpload) overrides the
+  // Excel-imported "Stocks" column entirely for that date once it exists -- a brand-new vest
+  // usually has no Excel figure at all yet, which is exactly the case this exists for. Returns
+  // the same "null means genuinely no data yet" shape stockVal() does (rendered as "—", distinct
+  // from a real $0), rather than coercing an absent override into 0.
+  const vestTaxByDate = new Map((yr.manualVestTax ?? []).map((v) => [v.date, v]));
+  function vestTax(date: string, stockIdx: number): {
+    federal: number | null; ssn: number | null; medicare: number | null;
+    stateWH: number | null; stateSDI: number | null; totalTax: number | null;
+  } {
+    const override = vestTaxByDate.get(date);
+    if (override) return override;
+    return {
+      federal: stockVal(federal, stockIdx),
+      ssn: stockVal(ssn, stockIdx),
+      medicare: stockVal(medicare, stockIdx),
+      stateWH: stockVal(stateWH, stockIdx),
+      stateSDI: stockVal(stateSDI, stockIdx),
+      totalTax: stockVal(totalTax, stockIdx),
+    };
+  }
 
   // ESPP purchases come from Reports > Equity the same way RSU vests do.
   const yearEspp = (equity?.esppPurchases ?? [])
@@ -1240,15 +1322,32 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           const { target, parsed, tieOut, priorSaved } = paystubReview;
           const netVariance = tieOut ? tieOut.voucherNet - parsed.netPay : 0;
           const netMismatch = tieOut && Math.abs(netVariance) > 1;
-          const resultingNet = paystubMode === "add" && priorSaved ? priorSaved.net + parsed.netPay : parsed.netPay;
+          const isVest = target.kind === "vest";
+          const priorPeriod = !isVest ? (priorSaved as ManualPayrollPeriod | null) : null;
+          const priorVest = isVest ? (priorSaved as ManualVestTax | null) : null;
+          const resultingNet = paystubMode === "add" && priorPeriod ? priorPeriod.net + parsed.netPay : parsed.netPay;
+          const resultingVestTax = paystubMode === "add" && priorVest ? priorVest.totalTax + parsed.totalTax : parsed.totalTax;
+          const title = isVest
+            ? `${new Date(target.date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })} Vesting`
+            : periodEndLabel(target.label, yr.year);
           return (
             <div className="equity-inline-detail" style={{ marginTop: "0.75rem", border: "1px solid #cbd5e1", borderRadius: 8, padding: "0.75rem" }}>
-              <strong>Parsed paystub — {periodEndLabel(target.label, yr.year)}</strong>
-              {priorSaved && (
+              <strong>Parsed paystub — {title}</strong>
+              {parsed.pageCount > 1 && (
+                <p style={{ fontSize: 12, opacity: 0.7, margin: "0.25rem 0 0" }}>
+                  This PDF has {parsed.pageCount} Pay Statement pages (one per RSU lot vesting this date) — summed into the figures below.
+                </p>
+              )}
+              {isVest && (
+                <p style={{ fontSize: 12, opacity: 0.7, margin: "0.25rem 0 0" }}>
+                  Matched to this RSU vest by date, not a pay period or voucher — a vesting pay-stub never links to a posted Receipt.
+                </p>
+              )}
+              {(priorPeriod || priorVest) && (
                 <div style={{ margin: "0.5rem 0", padding: "0.5rem", background: "#fefce8", borderRadius: 6, fontSize: 13 }}>
-                  This period already has saved data ({fmt(priorSaved.net)} net) — NVIDIA issues one
-                  Pay Statement PDF per RSU lot vesting the same day, so this is likely another lot
-                  from the same vesting date, not a re-upload.
+                  This {isVest ? "vest" : "period"} already has saved data ({isVest ? fmt(priorVest!.totalTax) : fmt(priorPeriod!.net)} {isVest ? "total tax" : "net"}) —
+                  NVIDIA issues one Pay Statement PDF (or, for a vest, one page within one PDF) per RSU lot vesting the same day,
+                  so this is likely another lot from the same date, not a re-upload.
                   <div style={{ display: "flex", gap: "1rem", marginTop: "0.4rem" }}>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.3rem", cursor: "pointer" }}>
                       <input type="radio" checked={paystubMode === "add"} onChange={() => setPaystubMode("add")} />
@@ -1260,23 +1359,24 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                     </label>
                   </div>
                   <p style={{ margin: "0.4rem 0 0", fontWeight: 600 }}>
-                    Resulting Net for this period: {fmt(resultingNet)}
+                    Resulting {isVest ? "Total Tax" : "Net"} for this {isVest ? "vest" : "period"}: {fmt(isVest ? resultingVestTax : resultingNet)}
                   </p>
                 </div>
               )}
               <div className="tax-parsed-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.4rem", margin: "0.5rem 0", fontSize: 13 }}>
-                <span>Base: {fmt(parsed.base)}</span>
-                <span>Telephone: {fmt(parsed.telephone)}</span>
-                <span>Medical: {fmt(parsed.medical)}</span>
-                <span>401K: {fmt(parsed.k401)}</span>
-                <span>401K Employer: {fmt(parsed.k401Emplr)}</span>
-                <span>ESPP: {fmt(parsed.espp)}</span>
+                {!isVest && <span>Base: {fmt(parsed.base)}</span>}
+                {!isVest && <span>Telephone: {fmt(parsed.telephone)}</span>}
+                {!isVest && <span>Medical: {fmt(parsed.medical)}</span>}
+                {!isVest && <span>401K: {fmt(parsed.k401)}</span>}
+                {!isVest && <span>401K Employer: {fmt(parsed.k401Emplr)}</span>}
+                {!isVest && <span>ESPP: {fmt(parsed.espp)}</span>}
                 <span>Federal: {fmt(parsed.federal)}</span>
                 <span>SSN: {fmt(parsed.ssn)}</span>
                 <span>Medicare: {fmt(parsed.medicare)}</span>
                 <span>State W/H: {fmt(parsed.stateWH)}</span>
                 <span>State SDI: {fmt(parsed.stateSDI)}</span>
-                <span><strong>Net: {fmt(parsed.netPay)}</strong></span>
+                <span><strong>Total Tax: {fmt(parsed.totalTax)}</strong></span>
+                {!isVest && <span><strong>Net: {fmt(parsed.netPay)}</strong></span>}
               </div>
               {parsed.distribution.length > 0 && (
                 <div style={{ fontSize: 12, opacity: 0.8, margin: "0.25rem 0" }}>
@@ -1308,7 +1408,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   )}
                 </div>
               )}
-              {tieOut ? (
+              {!isVest && (tieOut ? (
                 <p className="tax-tieout-msg" style={{ fontSize: 13, fontWeight: 600, color: netMismatch ? "#dc2626" : "#16a34a", margin: "0.4rem 0" }}>
                   {netMismatch
                     ? `⚠ Linked voucher (${tieOut.voucher.type} #${tieOut.voucher.number || "—"}) shows ${fmt(tieOut.voucherNet)} — differs from this paystub's real Net by ${fmt(netVariance)}.`
@@ -1316,7 +1416,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </p>
               ) : (
                 <p style={{ fontSize: 13, opacity: 0.7, margin: "0.4rem 0" }}>No voucher linked to this period yet.</p>
-              )}
+              ))}
               {parsed.warnings.length > 0 && (
                 <ul style={{ fontSize: 12, color: "#b45309", margin: "0.4rem 0", paddingLeft: "1.2rem" }}>
                   {parsed.warnings.map((w, i) => <li key={i}>{w}</li>)}
@@ -1666,12 +1766,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const anyPending = items.some(({ vest }) => vest.pending);
             const shares = items.reduce((s, { vest }) => s + vest.shares, 0);
             const grossVal = items.reduce((s, { vest }) => s + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0);
-            const fed = stockVal(federal, stockIdx);
-            const ssnV = stockVal(ssn, stockIdx);
-            const med = stockVal(medicare, stockIdx);
-            const swh = stockVal(stateWH, stockIdx);
-            const ssdi = stockVal(stateSDI, stockIdx);
-            const taxV = stockVal(totalTax, stockIdx);
+            const vTax = vestTax(date, stockIdx);
+            const fed = vTax.federal;
+            const ssnV = vTax.ssn;
+            const med = vTax.medicare;
+            const swh = vTax.stateWH;
+            const ssdi = vTax.stateSDI;
+            const taxV = vTax.totalTax;
+            const hasOverride = vestTaxByDate.has(date);
             // Vest events don't carry a stored "Net" figure the way a paystub period does --
             // compute it the same way the popup's donut does (gross minus everything withheld).
             const netVal = grossVal - (fed ?? 0) - (ssnV ?? 0) - (med ?? 0) - (swh ?? 0) - (ssdi ?? 0);
@@ -1682,9 +1784,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 onClick={() => setViewPeriod({ type: "vest", date })}
                 style={{ cursor: "pointer", background: "#eef2ff" }}
               >
-                <td title="Quarterly RSU vesting event, from the payroll Excel's 'Stocks' columns">
+                <td title={hasOverride ? "RSU vesting event — tax entered from real vesting pay-stub(s)" : "Quarterly RSU vesting event, from the payroll Excel's 'Stocks' columns"}>
                   {new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })} Vesting
                   {anyPending && <em style={{ fontSize: 10, opacity: 0.6 }}> (scheduled)</em>}
+                  {hasOverride && <em style={{ fontSize: 10, opacity: 0.6 }}> (from pay-stub)</em>}
                 </td>
                 <td className="right">{anyPending ? <span style={{ opacity: 0.3 }}>—</span> : <span className="equity-amt">{fmt(grossVal)}</span>}</td>
                 <td className="right">{showDash(fed)}</td>
@@ -2084,15 +2187,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             const shares = vg.items.reduce((s, { vest }) => s + vest.shares, 0);
             const grossVal = vg.items.reduce((s, { vest }) => s + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0);
             const vestLabel = `${new Date(vg.date + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })} Vesting`;
+            const vTax = vestTax(vg.date, vg.stockIdx);
             period = {
               label: vestLabel,
               gross: grossVal,
-              federal: stockVal(federal, vg.stockIdx) ?? 0,
-              ssn: stockVal(ssn, vg.stockIdx) ?? 0,
-              medicare: stockVal(medicare, vg.stockIdx) ?? 0,
-              stateWH: stockVal(stateWH, vg.stockIdx) ?? 0,
-              stateSDI: stockVal(stateSDI, vg.stockIdx) ?? 0,
-              totalTax: stockVal(totalTax, vg.stockIdx) ?? 0,
+              federal: vTax.federal ?? 0,
+              ssn: vTax.ssn ?? 0,
+              medicare: vTax.medicare ?? 0,
+              stateWH: vTax.stateWH ?? 0,
+              stateSDI: vTax.stateSDI ?? 0,
+              totalTax: vTax.totalTax ?? 0,
               k401: 0, k401Emplr: 0, medical: 0, espp: 0, base: 0, telephone: 0,
               isEditing: false,
               onEdit: null,

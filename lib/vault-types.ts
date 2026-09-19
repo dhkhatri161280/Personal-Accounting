@@ -168,6 +168,24 @@ export type ManualPayrollPeriod = {
   estimated: boolean;   // true until the user edits it with real paystub numbers
 };
 
+// Real tax withheld on a specific RSU vesting event, entered from the actual "stock-only"
+// off-cycle pay-stub(s) NVIDIA issues for it -- one separate PDF per RSU lot vesting the same
+// day, so `federal`/`ssn`/etc. here are the SUM across however many of those were uploaded for
+// this date, not any single one. Keyed by the vest date (matches TaxReport's vestGroups[].date)
+// rather than by a stockIdx, since stockIdx is recomputed at render time from the current vest
+// list and could shift if an earlier grant is added later -- the date is what's actually stable.
+// Overrides the Excel-imported "Stocks" column figure for that vest entirely once it exists
+// (not added on top of it): a fresh vest usually has no Excel figure yet at all.
+export type ManualVestTax = {
+  date: string;    // YYYY-MM-DD, the vest date
+  federal: number;
+  ssn: number;
+  medicare: number;
+  stateWH: number;
+  stateSDI: number;
+  totalTax: number;
+};
+
 // Records that a Plaid-confirmed bank deposit was matched to a specific pay period —
 // set when the user saves an auto-detected payroll transaction in Plaid Import.
 export type PayrollMatch = {
@@ -185,6 +203,7 @@ export type PayrollYear = {
   rows: PayrollRow[];
   matches?: PayrollMatch[];
   manualPeriods?: ManualPayrollPeriod[];
+  manualVestTax?: ManualVestTax[];
 };
 
 export type PayrollData = {

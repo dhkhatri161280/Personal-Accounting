@@ -9,6 +9,13 @@
 // TWO dollar amounts before the one that matters), so a plain "first $ after the label" regex
 // would silently grab the Pay Rate instead of the actual earning. Reconstructing rows by Y
 // position and reading a specific column INDEX avoids that whole class of mistake.
+//
+// Each PDF PAGE is parsed independently, then summed -- confirmed live: NVIDIA issues a
+// multi-page "Pay Statement" PDF for a same-day multi-lot RSU vesting, one full page per lot,
+// each with its own Period/Pay dates (identical across pages) and its own Federal/State/
+// Medicare withholding on just that lot's value. An earlier version merged every page's text
+// into one shared row set before extracting anything, so `rows.find()` (first match only)
+// silently returned just ONE page's numbers -- not the total -- for every field.
 
 export interface ParsedPaystubDistribution {
   accountLast4: string;
@@ -23,6 +30,7 @@ export interface ParsedPaystub {
   netPay: number;
   // Mapped to the same fields the Tax tab's manual-period form (MANUAL_FIELDS in
   // components/reports/TaxReport.tsx) already uses -- so this can pre-fill that exact form.
+  // Summed across every page of the PDF that looks like its own Pay Statement.
   base: number; // Salary
   telephone: number; // Wireless Device
   medical: number; // Medical + Dental + Vision + Legal Plan (matches the app's existing
@@ -40,6 +48,7 @@ export interface ParsedPaystub {
   totalTax: number;
   distribution: ParsedPaystubDistribution[];
   rawText: string;
+  pageCount: number; // how many pages looked like a real Pay Statement page (>1 means summed)
   warnings: string[];
 }
 
@@ -110,63 +119,43 @@ function rowExists(rows: Row[], label: RegExp): boolean {
 // paystub's "Period Start Date" label failed to match cols[0] exactly, even though the parser's
 // own flat rawText -- every text item joined with plain spaces in original reading order, no
 // column grouping at all -- clearly contained "Period Start Date 09/17/2026" back to back).
-// Searching rawText directly for the label immediately followed by a date sidesteps the
-// row/column collision entirely for these three fields.
-function findDateNear(rawText: string, label: RegExp): string {
+// Searching a page's own flat text directly for the label immediately followed by a date
+// sidesteps the row/column collision entirely for these three fields.
+function findDateNear(pageText: string, label: RegExp): string {
   const unanchored = label.source.replace(/^\^/, "").replace(/\$$/, "");
   const pattern = new RegExp(unanchored + "\\D{0,10}(\\d{1,2}\\s*/\\s*\\d{1,2}\\s*/\\s*\\d{4})", "i");
-  const m = rawText.match(pattern);
+  const m = pageText.match(pattern);
   return m ? m[1] : "";
 }
 
-export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
-  const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+type PageFields = {
+  periodStart: string; periodEnd: string; payDate: string; netPay: number;
+  base: number; telephone: number; medical: number; k401: number; k401Emplr: number; espp: number;
+  federal: number; ssn: number; medicare: number; stateWH: number; stateSDI: number; totalTax: number;
+  distribution: ParsedPaystubDistribution[];
+  warnings: string[];
+};
 
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-  const allItems: { str: string; x: number; y: number }[] = [];
-  let rawText = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    for (const item of content.items as any[]) {
-      allItems.push({ str: item.str, x: item.transform[4], y: item.transform[5] });
-    }
-    rawText += content.items.map((item: any) => item.str).join(" ") + "\n";
-  }
-  const rows = buildRows(allItems);
-  const warnings: string[] = [];
-
-  // A genuine NVIDIA pay-stub always has at least one of these anchor rows. If NONE are present,
-  // this isn't a pay-stub this parser can read at all -- most likely an RSU vesting/grant
-  // confirmation, a different paystub template, or a scanned/image-only PDF (pdfjs only reads
-  // embedded text, so a scan yields zero text items and every row lookup below would silently
-  // come back empty) -- fail loudly and specifically here instead of stumbling into the vaguer
-  // "Could not read the pay period dates" message once every single field comes back blank.
-  const looksLikePaystub =
+// A genuine NVIDIA pay-stub page always has at least one of these anchor rows -- used both to
+// decide whether the WHOLE upload is a pay-stub at all, and (per page) whether a given page of
+// a multi-page PDF is its own Pay Statement worth including, vs. some unrelated trailing page.
+function looksLikePaystubPage(rows: Row[]): boolean {
+  return (
     rowExists(rows, /^Period Start Date$/i) ||
     rowExists(rows, /^Period End Date$/i) ||
     rowExists(rows, /^Pay Date$/i) ||
     rowExists(rows, /^Salary$/i) ||
-    rowExists(rows, /^Net Pay$/i);
-  if (!looksLikePaystub) {
-    throw new Error(
-      "This doesn't look like an NVIDIA payroll pay-stub — no Period Start/End Date, Salary, or Net Pay rows were found. " +
-      "If this is an RSU vesting/grant confirmation, that's a different document and isn't supported by this upload " +
-      "(vesting data comes from the payroll Excel import instead). If it IS a pay-stub, it may be a scanned image " +
-      "rather than a real PDF with selectable text, which this parser can't read."
-    );
-  }
+    rowExists(rows, /^Net Pay$/i)
+  );
+}
+
+function parsePageFields(rows: Row[], pageText: string): PageFields {
+  const warnings: string[] = [];
 
   // ── Header dates + net pay ──────────────────────────────────────────────
-  const periodStartRaw = findDateNear(rawText, /^Period Start Date$/i);
-  const periodEndRaw = findDateNear(rawText, /^Period End Date$/i);
-  const payDateRaw = findDateNear(rawText, /^Pay Date$/i);
-  const periodStart = usDateToIso(periodStartRaw);
-  const periodEnd = usDateToIso(periodEndRaw);
-  const payDate = usDateToIso(payDateRaw);
+  const periodStart = usDateToIso(findDateNear(pageText, /^Period Start Date$/i));
+  const periodEnd = usDateToIso(findDateNear(pageText, /^Period End Date$/i));
+  const payDate = usDateToIso(findDateNear(pageText, /^Pay Date$/i));
   if (!periodStart || !periodEnd) warnings.push("Could not detect the pay period dates — please check the period this belongs to.");
   if (!payDate) warnings.push("Could not detect the pay date.");
 
@@ -224,7 +213,6 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
       distribution.push({ accountLast4: m[1].replace(/^x+/i, ""), accountType: m[2], amount: toNum(m[3]) });
     }
   }
-  if (distribution.length === 0) warnings.push("Could not detect the Net Pay Distribution accounts — please check the bank split manually.");
   const distTotal = distribution.reduce((s, d) => s + d.amount, 0);
   if (netPay && distribution.length > 0 && Math.abs(distTotal - netPay) > 0.02) {
     warnings.push(`Net Pay Distribution accounts sum to ${distTotal.toFixed(2)}, which doesn't match Net Pay ${netPay.toFixed(2)} — please double-check.`);
@@ -234,6 +222,75 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
     periodStart, periodEnd, payDate, netPay,
     base, telephone, medical, k401, k401Emplr, espp,
     federal, ssn, medicare, stateWH, stateSDI, totalTax,
-    distribution, rawText, warnings,
+    distribution, warnings,
+  };
+}
+
+export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  let rawText = "";
+  const pages: PageFields[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const items = (content.items as any[]).map((item) => ({ str: item.str, x: item.transform[4], y: item.transform[5] }));
+    const pageText = (content.items as any[]).map((item) => item.str).join(" ") + "\n";
+    rawText += pageText;
+
+    const rows = buildRows(items);
+    if (!looksLikePaystubPage(rows)) continue; // a non-paystub page (cover sheet, etc.) — skip it
+    pages.push(parsePageFields(rows, pageText));
+  }
+
+  // No page anywhere in the PDF looked like a pay-stub at all -- most likely an RSU vesting/
+  // grant confirmation, a different paystub template, or a scanned/image-only PDF (pdfjs only
+  // reads embedded text, so a scan yields zero text items and every row lookup comes back
+  // empty) -- fail loudly and specifically here instead of stumbling into the vaguer "Could not
+  // read the pay period dates" once every single field comes back blank.
+  if (pages.length === 0) {
+    throw new Error(
+      "This doesn't look like an NVIDIA payroll pay-stub — no Period Start/End Date, Salary, or Net Pay rows were found. " +
+      "If this is an RSU vesting/grant confirmation, that's a different document and isn't supported by this upload " +
+      "(vesting data comes from the payroll Excel import instead). If it IS a pay-stub, it may be a scanned image " +
+      "rather than a real PDF with selectable text, which this parser can't read."
+    );
+  }
+
+  // Dates: every page of a same-day multi-lot vesting PDF shares identical Period/Pay dates --
+  // take the first page's, and flag (not fail) if a later page disagrees, since that would mean
+  // an unrelated pay-stub got appended to the same file rather than another lot of the same vest.
+  const first = pages[0];
+  const dateMismatch = pages.some((p) => p.periodEnd && first.periodEnd && p.periodEnd !== first.periodEnd);
+  const warnings = [...first.warnings];
+  if (dateMismatch) {
+    warnings.push(`This PDF's ${pages.length} pages don't all share the same pay period dates — only summing pages that match the first page's period; please check for an unrelated page.`);
+  }
+  const summedPages = dateMismatch ? pages.filter((p) => p.periodEnd === first.periodEnd) : pages;
+  if (pages.length > 1) warnings.push(...pages.slice(1).flatMap((p) => p.warnings));
+
+  const sum = (f: (p: PageFields) => number) => summedPages.reduce((s, p) => s + f(p), 0);
+  const netPay = sum((p) => p.netPay);
+  const distribution = summedPages.flatMap((p) => p.distribution);
+  // Checked once at the aggregate level, not per page -- a $0-net-pay "stock only" vesting page
+  // (taxes withheld entirely via shares) legitimately has no distribution row, which isn't worth
+  // flagging; only a real nonzero net pay with nowhere identified to land is actually suspicious.
+  if (netPay > 0.005 && distribution.length === 0) {
+    warnings.push("Could not detect the Net Pay Distribution accounts — please check the bank split manually.");
+  }
+
+  return {
+    periodStart: first.periodStart, periodEnd: first.periodEnd, payDate: first.payDate,
+    netPay,
+    base: sum((p) => p.base), telephone: sum((p) => p.telephone), medical: sum((p) => p.medical),
+    k401: sum((p) => p.k401), k401Emplr: sum((p) => p.k401Emplr), espp: sum((p) => p.espp),
+    federal: sum((p) => p.federal), ssn: sum((p) => p.ssn), medicare: sum((p) => p.medicare),
+    stateWH: sum((p) => p.stateWH), stateSDI: sum((p) => p.stateSDI), totalTax: sum((p) => p.totalTax),
+    distribution,
+    rawText, pageCount: summedPages.length, warnings,
   };
 }
