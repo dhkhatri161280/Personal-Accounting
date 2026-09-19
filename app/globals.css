@@ -8471,6 +8471,14 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
 }
 
+/* Tax/India Tax's own scoped .tax-report override (further up this file) predates this later,
+   !important-heavy .ui-refresh grid rule and no longer wins the cascade -- confirmed live: its
+   9-card payroll row and 6-card federal row were still wrapping at the shared 190px floor. Same
+   fix as Equity above, just a lower floor since Tax's rows run up to 9 cards, not 7. */
+.ui-refresh .tax-report .equity-summary-row {
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)) !important;
+}
+
 /* Section headers ("Tax & Paystub Details", "Pay Periods — 2026") — real hierarchy
    instead of same-weight-as-everything-else text. */
 .ui-refresh .equity-title-row h3 { font-size: 22px !important; font-weight: 800 !important; letter-spacing: -0.01em; }
