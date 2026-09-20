@@ -390,14 +390,14 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
           const taxShares = vest.taxShares ?? 0;
           return (
             <tr key={vest.id}>
-              <td>{new Date(vest.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
-              <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {fmtDate(grant.grantDate)}</td>
+              <td style={{ whiteSpace: "nowrap" }}>{new Date(vest.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
+              <td className="equity-neutral" style={{ fontSize: 11, whiteSpace: "nowrap" }}>{grant.ticker} granted {fmtDate(grant.grantDate)}</td>
               <td className="right">{vest.shares.toLocaleString()}</td>
               <td className="right">{vest.pending ? "—" : taxShares.toLocaleString()}</td>
               <td className="right">{vest.pending ? "—" : (vest.shares - taxShares).toLocaleString()}</td>
-              <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
-              <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
-              <td>{vest.pending ? <span style={{ color: "#888" }}>Scheduled</span> : <span style={{ color: "#16a34a" }}>Vested</span>}</td>
+              <td className="right" style={{ whiteSpace: "nowrap" }}>{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
+              <td className="right equity-amt" style={{ whiteSpace: "nowrap" }}>{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
+              <td style={{ whiteSpace: "nowrap" }}>{vest.pending ? <span style={{ color: "#888" }}>Scheduled</span> : <span style={{ color: "#16a34a" }}>Vested</span>}</td>
             </tr>
           );
         })}
