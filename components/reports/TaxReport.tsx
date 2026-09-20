@@ -515,6 +515,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [showDeductionsModal, setShowDeductionsModal] = useState(false);
   const [showTaxPlanningModal, setShowTaxPlanningModal] = useState(false);
   const [periodBreakdownModal, setPeriodBreakdownModal] = useState<{ label: string; row: PayrollRow | undefined } | null>(null);
+  // Line-item derivation for the Federal/State tax estimate summary cards -- several of those
+  // cards (AGI, Estimated Tax, Withheld, Refund/Balance Due) had no click handler at all, so the
+  // "sub" caption text was the only explanation offered for how the number was computed. Every
+  // line here reuses an already-computed field from taxEstimate/stateTaxEstimate, never
+  // re-derives the math, so the modal can't drift from what's actually displayed on the card.
+  const [taxBreakdownModal, setTaxBreakdownModal] = useState<{ title: string; lines: { label: string; value: number; bold?: boolean }[] } | null>(null);
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
@@ -1986,10 +1992,22 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         {[
           {
             label: "AGI", value: taxEstimate.agi,
-            sub: hsaDeduction > 0
+            sub: (hsaDeduction > 0
               ? `wages less 401(k) & ${fmt(hsaDeduction)} HSA + net capital gains`
-              : `wages less ${fmt(totalK401)} 401(k) + net capital gains`,
+              : `wages less ${fmt(totalK401)} 401(k) + net capital gains`) + " — click for details →",
             icon: "wallet" as IconKind, color: "#1e40af",
+            onClick: () => setTaxBreakdownModal({
+              title: "AGI — how it's derived",
+              lines: [
+                { label: "Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages },
+                { label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable },
+                { label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction },
+                { label: "Less: HSA Deduction (above-the-line)", value: -hsaDeduction },
+                { label: "= Ordinary Income", value: taxEstimate.ordinaryIncome, bold: true },
+                { label: "+ Long-Term Capital Gain", value: taxEstimate.longTermGain },
+                { label: "= AGI", value: taxEstimate.agi, bold: true },
+              ],
+            }),
           },
           {
             label: "Deduction Used", value: taxEstimate.deductionUsed,
@@ -2008,19 +2026,59 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           },
           {
             label: "Estimated Federal Tax", value: taxEstimate.estimatedTax,
-            sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)} + Medicare ${fmt(taxEstimate.additionalMedicareTax)} + NIIT ${fmt(taxEstimate.niit)}`,
+            sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)} + Medicare ${fmt(taxEstimate.additionalMedicareTax)} + NIIT ${fmt(taxEstimate.niit)} — click for details →`,
             icon: "receipt" as IconKind, color: "#dc2626",
+            onClick: () => setTaxBreakdownModal({
+              title: "Estimated Federal Tax — how it's derived",
+              lines: [
+                { label: "Tax on Ordinary Income (brackets)", value: taxEstimate.ordinaryTax },
+                { label: "Tax on Long-Term Capital Gain", value: taxEstimate.ltcgTax },
+                { label: "Additional Medicare Tax (0.9% over threshold)", value: taxEstimate.additionalMedicareTax },
+                { label: "Net Investment Income Tax (NIIT, 3.8%)", value: taxEstimate.niit },
+                { label: "= Estimated Federal Tax", value: taxEstimate.estimatedTax, bold: true },
+              ],
+            }),
           },
           {
             label: "Federal Withheld", value: taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld,
-            sub: taxEstimate.additionalMedicareWithheld > 0
+            sub: (taxEstimate.additionalMedicareWithheld > 0
               ? `${fmt(taxEstimate.federalWithheld)} income tax + ${fmt(taxEstimate.additionalMedicareWithheld)} Medicare`
-              : "from payroll",
+              : "from payroll") + " — click for details →",
             icon: "shield" as IconKind, color: "#16a34a",
+            onClick: () => setTaxBreakdownModal({
+              title: "Federal Withheld — how it's derived",
+              lines: [
+                { label: "Federal Income Tax Withheld (payroll)", value: taxEstimate.federalWithheld },
+                { label: "Additional Medicare Tax Withheld", value: taxEstimate.additionalMedicareWithheld },
+                { label: "= Total Federal Withheld", value: taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld, bold: true },
+              ],
+            }),
           },
           taxEstimate.refund > 0
-            ? { label: "Estimated Federal Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a" }
-            : { label: "Estimated Federal Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626" },
+            ? {
+                label: "Estimated Federal Refund", value: taxEstimate.refund, sub: "withheld exceeds estimated tax — click for details →",
+                icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a",
+                onClick: () => setTaxBreakdownModal({
+                  title: "Estimated Federal Refund — how it's derived",
+                  lines: [
+                    { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax },
+                    { label: "Less: Total Federal Withheld", value: -(taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld) },
+                    { label: "= Estimated Refund", value: taxEstimate.refund, bold: true },
+                  ],
+                }),
+              }
+            : {
+                label: "Estimated Federal Balance Due", value: taxEstimate.balanceDue, sub: "estimated tax exceeds withheld — click for details →",
+                icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626",
+                onClick: () => setTaxBreakdownModal({
+                  title: "Estimated Federal Balance Due — how it's derived",
+                  lines: [
+                    { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax },
+                    { label: "Less: Total Federal Withheld", value: -(taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld) },
+                    { label: "= Estimated Balance Due", value: taxEstimate.balanceDue, bold: true },
+                  ],
+                }),
+              },
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
             <div
@@ -2051,15 +2109,74 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       </div>
       <div className="equity-summary-row">
         {[
-          { label: `${stateResidency.code} Taxable Income`, value: stateTaxEstimate.taxableIncome, sub: stateTaxEstimate.usedItemized ? `itemized (beats ${stateResidency.code} standard)` : `${stateResidency.code} standard deduction`, icon: "cash" as IconKind, color: "#0891b2" },
-          { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, sub: stateTaxEstimate.mentalHealthTax > 0 ? `incl. ${fmt(stateTaxEstimate.mentalHealthTax)} Mental Health Services Tax` : "brackets only", icon: "receipt" as IconKind, color: "#dc2626" },
-          { label: `${stateResidency.code} Withheld`, value: stateTaxEstimate.stateWithheld, sub: "from payroll (State W/H)", icon: "shield" as IconKind, color: "#16a34a" },
+          {
+            label: `${stateResidency.code} Taxable Income`, value: stateTaxEstimate.taxableIncome,
+            sub: (stateTaxEstimate.usedItemized ? `itemized (beats ${stateResidency.code} standard)` : `${stateResidency.code} standard deduction`) + " — click for details →",
+            icon: "cash" as IconKind, color: "#0891b2",
+            onClick: () => setTaxBreakdownModal({
+              title: `${stateResidency.code} Taxable Income — how it's derived`,
+              lines: [
+                { label: "AGI (state proxy)", value: stateAgi },
+                { label: `Less: Deduction Used (${stateTaxEstimate.usedItemized ? "itemized" : "standard"})`, value: -stateTaxEstimate.deductionUsed },
+                { label: `= ${stateResidency.code} Taxable Income`, value: stateTaxEstimate.taxableIncome, bold: true },
+              ],
+            }),
+          },
+          {
+            label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax,
+            sub: (stateTaxEstimate.mentalHealthTax > 0 ? `incl. ${fmt(stateTaxEstimate.mentalHealthTax)} Mental Health Services Tax` : "brackets only") + " — click for details →",
+            icon: "receipt" as IconKind, color: "#dc2626",
+            onClick: () => setTaxBreakdownModal({
+              title: `Estimated ${stateResidency.code} Tax — how it's derived`,
+              lines: [
+                { label: "Bracket Tax", value: stateTaxEstimate.bracketTax },
+                { label: "Mental Health Services Tax (1% over threshold)", value: stateTaxEstimate.mentalHealthTax },
+                { label: `= Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, bold: true },
+              ],
+            }),
+          },
+          {
+            label: `${stateResidency.code} Withheld`, value: stateTaxEstimate.stateWithheld, sub: "from payroll (State W/H) — click for details →",
+            icon: "shield" as IconKind, color: "#16a34a",
+            onClick: () => setTaxBreakdownModal({
+              title: `${stateResidency.code} Withheld — how it's derived`,
+              lines: [
+                { label: "State Income Tax Withheld (payroll, State W/H)", value: stateTaxEstimate.stateWithheld, bold: true },
+              ],
+            }),
+          },
           stateTaxEstimate.refund > 0
-            ? { label: `Estimated ${stateResidency.code} Refund`, value: stateTaxEstimate.refund, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a" }
-            : { label: `Estimated ${stateResidency.code} Balance Due`, value: stateTaxEstimate.balanceDue, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626" },
+            ? {
+                label: `Estimated ${stateResidency.code} Refund`, value: stateTaxEstimate.refund, sub: "withheld exceeds estimated tax — click for details →",
+                icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a",
+                onClick: () => setTaxBreakdownModal({
+                  title: `Estimated ${stateResidency.code} Refund — how it's derived`,
+                  lines: [
+                    { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax },
+                    { label: `Less: ${stateResidency.code} Withheld`, value: -stateTaxEstimate.stateWithheld },
+                    { label: "= Estimated Refund", value: stateTaxEstimate.refund, bold: true },
+                  ],
+                }),
+              }
+            : {
+                label: `Estimated ${stateResidency.code} Balance Due`, value: stateTaxEstimate.balanceDue, sub: "estimated tax exceeds withheld — click for details →",
+                icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626",
+                onClick: () => setTaxBreakdownModal({
+                  title: `Estimated ${stateResidency.code} Balance Due — how it's derived`,
+                  lines: [
+                    { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax },
+                    { label: `Less: ${stateResidency.code} Withheld`, value: -stateTaxEstimate.stateWithheld },
+                    { label: "= Estimated Balance Due", value: stateTaxEstimate.balanceDue, bold: true },
+                  ],
+                }),
+              },
         ].map((c) => (
           <div key={c.label} className="equity-summary-col">
-            <div className="equity-summary-card">
+            <div
+              className="equity-summary-card"
+              style={{ cursor: "pointer" }}
+              onClick={c.onClick}
+            >
               <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
@@ -2351,6 +2468,30 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           </Modal>
         );
       })()}
+
+      {taxBreakdownModal && (
+        <Modal title={taxBreakdownModal.title} onClose={() => setTaxBreakdownModal(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {taxBreakdownModal.lines.map((l, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex", justifyContent: "space-between", gap: "1rem",
+                  fontWeight: l.bold ? 700 : 400,
+                  borderTop: l.bold ? "1px solid #e2e8f0" : undefined,
+                  paddingTop: l.bold ? "0.4rem" : undefined,
+                }}
+              >
+                <span>{l.label}</span>
+                <span className="equity-amt">{fmt(l.value)}</span>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 11, opacity: 0.6, marginTop: "0.75rem" }}>
+            Estimate only — not tax advice. See "Estimate only" above for full assumptions & limitations.
+          </p>
+        </Modal>
+      )}
 
       {showGainEventsModal && (
         <Modal title={`RSU & ESPP Sales — ${yr.year}`} onClose={() => setShowGainEventsModal(false)} wide>
