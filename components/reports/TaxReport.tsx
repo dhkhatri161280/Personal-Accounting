@@ -397,6 +397,29 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
           );
         })}
       </tbody>
+      {items.length > 0 && (() => {
+        // Vest $/sh has no meaningful sum (a per-share price, not an amount) -- left blank.
+        // Tax Sh/Net Sh/Value only total the already-vested rows, same as each row itself only
+        // shows "—" for a still-scheduled one (its withholding/value aren't known yet).
+        const totalShares = items.reduce((s, { vest }) => s + vest.shares, 0);
+        const vested = items.filter(({ vest }) => !vest.pending);
+        const totalTaxShares = vested.reduce((s, { vest }) => s + (vest.taxShares ?? 0), 0);
+        const totalNetShares = vested.reduce((s, { vest }) => s + (vest.shares - (vest.taxShares ?? 0)), 0);
+        const totalValue = vested.reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
+        return (
+          <tfoot>
+            <tr>
+              <td colSpan={2}>Total</td>
+              <td className="right">{totalShares.toLocaleString()}</td>
+              <td className="right">{totalTaxShares.toLocaleString()}</td>
+              <td className="right">{totalNetShares.toLocaleString()}</td>
+              <td className="right">—</td>
+              <td className="right equity-amt">{fmt(totalValue)}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        );
+      })()}
     </table>
   );
 }
