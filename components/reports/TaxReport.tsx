@@ -137,7 +137,7 @@ export type YearSalaryTaxSummary = {
 // federal/state tax estimate below) can compute every year the same way without touching (and
 // risking regressing) the existing single-year computation below, which stays wired to component
 // state/closures for its own click-through popups.
-function computeYearAggregates(rawYr: PayrollYear) {
+function computeYearAggregates(rawYr: PayrollYear, equity?: EquityData) {
   const yr = normalizePayrollYear(rawYr);
   const rows = yr.rows;
   const gross = row(rows, "Gross Salary");
@@ -156,13 +156,33 @@ function computeYearAggregates(rawYr: PayrollYear) {
   const voucherPeriods = allManualPeriods.filter((m) => m.periodIndex === undefined);
   const overrideByIndex = new Map(allManualPeriods.filter((m) => m.periodIndex !== undefined).map((m) => [m.periodIndex!, m]));
 
+  // Same fix as the single-year view's own overriddenTotal/overriddenGrossTotal: a vest's real
+  // gross (equity-derived, not Excel) and a real vesting pay-stub's tax override (manualVestTax)
+  // must count here too, or this "All Years" table silently disagrees with the single-year cards
+  // for the current year the moment either one is used and the Excel import hasn't caught up.
+  const vestDates = Array.from(new Set((equity?.grants ?? []).flatMap((g) => g.vests.filter((v) => v.vestDate.startsWith(yr.year)).map((v) => v.vestDate)))).sort();
+  const vestTaxByDate = new Map((yr.manualVestTax ?? []).map((v) => [v.date, v]));
+  const vestGrossTotal = (equity?.grants ?? [])
+    .flatMap((g) => g.vests)
+    .filter((v) => !v.pending && v.vestDate.startsWith(yr.year))
+    .reduce((s, v) => s + v.shares * v.vestPrice, 0);
+  const VEST_TAX_FIELDS = new Set(["federal", "ssn", "medicare", "stateWH", "stateSDI", "totalTax"]);
+  function vestStockTotal(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod): number {
+    if (!VEST_TAX_FIELDS.has(field as string)) return baseRowForField?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+    return vestDates.reduce((s, date, stockIdx) => {
+      const override = vestTaxByDate.get(date);
+      const v = override ? (override as unknown as Record<string, number>)[field as string] : (baseRowForField?.stockValues?.[stockIdx] ?? 0);
+      return s + (v ?? 0);
+    }, 0);
+  }
+
   function overriddenTotal(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod): number {
     let sum = 0;
     for (let i = 0; i < yr.periodLabels.length; i++) {
       const ov = overrideByIndex.get(i);
       sum += ov ? (Number(ov[field]) || 0) : (baseRowForField?.values[i] ?? 0);
     }
-    return sum + (baseRowForField?.stockValues?.reduce((s, v) => s + v, 0) ?? 0) + voucherPeriods.reduce((s, m) => s + (Number(m[field]) || 0), 0);
+    return sum + vestStockTotal(baseRowForField, field) + voucherPeriods.reduce((s, m) => s + (Number(m[field]) || 0), 0);
   }
   function overriddenGrossTotal(): number {
     let sum = 0;
@@ -170,7 +190,7 @@ function computeYearAggregates(rawYr: PayrollYear) {
       const ov = overrideByIndex.get(i);
       sum += ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0);
     }
-    return sum + (gross?.stockValues?.reduce((s, v) => s + v, 0) ?? 0) + voucherPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
+    return sum + vestGrossTotal + voucherPeriods.reduce((s, m) => s + m.base + m.telephone, 0);
   }
 
   return {
@@ -190,7 +210,7 @@ function computeYearAggregates(rawYr: PayrollYear) {
 }
 
 function computeYearSummary(rawYr: PayrollYear, equity: EquityData | undefined): YearSalaryTaxSummary {
-  const agg = computeYearAggregates(rawYr);
+  const agg = computeYearAggregates(rawYr, equity);
   // RSU vest records come from Reports > Equity (authoritative for date/shares/price), same
   // source the single-year "Stock (RSU) Vested" card uses -- only actually-vested (not pending)
   // tranches whose vest date falls in this year.
@@ -244,7 +264,7 @@ function computeYearTaxEstimate(
   filingStatus: UsFilingStatus,
   hsaCoverage: HsaCoverage
 ): YearFederalStateTaxEstimate {
-  const agg = computeYearAggregates(rawYr);
+  const agg = computeYearAggregates(rawYr, equity);
   const year = agg.yr.year;
   const taxableWages = Math.max(0, agg.totalGross - agg.totalK401);
   const taxEstimateYear = listUsTaxYears().includes(year) ? year : listUsTaxYears()[0]!;
@@ -947,15 +967,91 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const manualBase = voucherPeriods.reduce((s, m) => s + m.base, 0);
   const manualTelephone = voucherPeriods.reduce((s, m) => s + m.telephone, 0);
 
+  // RSU vest records come from Reports > Equity (authoritative for date/shares/price) —
+  // the Excel's own Stock row doesn't break its cumulative total down per vest.
+  const yearVests = (equity?.grants ?? [])
+    .flatMap((g) => g.vests.filter((v) => v.vestDate.startsWith(yr.year)).map((v) => ({ grant: g, vest: v })))
+    .sort((a, b) => a.vest.vestDate.localeCompare(b.vest.vestDate));
+  const stockVestedValue = yearVests
+    .filter(({ vest }) => !vest.pending)
+    .reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
+  const stockScheduledShares = yearVests.filter(({ vest }) => vest.pending).reduce((s, { vest }) => s + vest.shares, 0);
+
+  // Group vest events by date (multiple grants can vest the same day) and line them up in
+  // chronological order with the Excel's "Stocks" columns — column N is the Nth vest date of
+  // the year (quarterly: Mar/Jun/Sep/Dec), not a lump sum for the whole year.
+  const vestGroups = Array.from(
+    yearVests.reduce((map, item) => {
+      const list = map.get(item.vest.vestDate) ?? [];
+      list.push(item);
+      map.set(item.vest.vestDate, list);
+      return map;
+    }, new Map<string, { grant: RsuGrant; vest: RsuVest }[]>())
+  )
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, items], idx) => ({ date, items, stockIdx: idx }));
+
+  // Real tax entered from an actual vesting pay-stub (see handlePaystubUpload) overrides the
+  // Excel-imported "Stocks" column entirely for that date once it exists -- a brand-new vest
+  // usually has no Excel figure at all yet, which is exactly the case this exists for. Returns
+  // the same "null means genuinely no data yet" shape stockVal() does (rendered as "—", distinct
+  // from a real $0), rather than coercing an absent override into 0.
+  const vestTaxByDate = new Map((yr.manualVestTax ?? []).map((v) => [v.date, v]));
+  function vestTax(date: string, stockIdx: number): {
+    federal: number | null; ssn: number | null; medicare: number | null;
+    stateWH: number | null; stateSDI: number | null; totalTax: number | null;
+  } {
+    const override = vestTaxByDate.get(date);
+    if (override) return override;
+    return {
+      federal: stockVal(federal, stockIdx),
+      ssn: stockVal(ssn, stockIdx),
+      medicare: stockVal(medicare, stockIdx),
+      stateWH: stockVal(stateWH, stockIdx),
+      stateSDI: stockVal(stateSDI, stockIdx),
+      totalTax: stockVal(totalTax, stockIdx),
+    };
+  }
+  // Sum of every vest's real gross value -- computed LIVE from equity data (shares x vest
+  // price actually received), the same authoritative source the Pay Periods table's own vest
+  // rows use, NOT the Excel "Stocks" column, which is only as current as the last import and
+  // can be entirely missing for a vest that happened after it (confirmed live: a brand-new vest
+  // was completely absent from the Excel Stocks column, silently understating Gross Salary --
+  // and therefore taxable wages/AGI -- by its full real value).
+  const vestGrossTotal = vestGroups.reduce(
+    (s, g) => s + g.items.reduce((gs, { vest }) => gs + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0),
+    0
+  );
+  const VEST_TAX_FIELDS = new Set(["federal", "ssn", "medicare", "stateWH", "stateSDI", "totalTax"]);
+  // Same override rule as vestTax() above, generalized across whichever of the 6 tax fields
+  // this row is -- a real vesting pay-stub's numbers replace the Excel Stocks-column figure for
+  // that date entirely, not just in the Pay Periods table display but in every year TOTAL that
+  // feeds the Estimated Tax Liability cards, AGI, and Federal/State Withheld too.
+  function vestStockTotal(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod): number {
+    if (!VEST_TAX_FIELDS.has(field as string)) return baseRowForField?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+    return vestGroups.reduce((s, g) => {
+      const override = vestTaxByDate.get(g.date);
+      const v = override ? (override as unknown as Record<string, number>)[field as string] : (baseRowForField?.stockValues?.[g.stockIdx] ?? 0);
+      return s + (v ?? 0);
+    }, 0);
+  }
+  const stockFederal = vestStockTotal(federal, "federal");
+  const stockSsn = vestStockTotal(ssn, "ssn");
+  const stockMedicare = vestStockTotal(medicare, "medicare");
+  const stockStateWH = vestStockTotal(stateWH, "stateWH");
+  const stockStateSDI = vestStockTotal(stateSDI, "stateSDI");
+  const stockTaxTotal = vestStockTotal(totalTax, "totalTax");
+
   // Sum a row across every Excel period, substituting an override's value wherever one
-  // exists for that period index, then add the (unaffected) Stocks-column total.
+  // exists for that period index, then add the vest total (Excel Stocks column, or a real
+  // vesting pay-stub's override when one exists for that vest date).
   function overriddenTotal(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod): number {
     let sum = 0;
     for (let i = 0; i < yr.periodLabels.length; i++) {
       const ov = overrideByIndex.get(i);
       sum += ov ? (Number(ov[field]) || 0) : (baseRowForField?.values[i] ?? 0);
     }
-    return sum + (baseRowForField?.stockValues?.reduce((s, v) => s + v, 0) ?? 0);
+    return sum + vestStockTotal(baseRowForField, field);
   }
   function overriddenGrossTotal(): number {
     let sum = 0;
@@ -963,7 +1059,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       const ov = overrideByIndex.get(i);
       sum += ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0);
     }
-    return sum + (gross?.stockValues?.reduce((s, v) => s + v, 0) ?? 0);
+    return sum + vestGrossTotal;
   }
 
   // The most recently PAID period (by end date, not just latest index) -- used as the model
@@ -1022,58 +1118,6 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const totalBaseYtd = overriddenTotal(baseRow, "base") + manualBase;
   const totalTelephoneYtd = overriddenTotal(telRow, "telephone") + manualTelephone;
   const effectiveRate = totalGross > 0 ? (totalTaxAll / totalGross) * 100 : 0;
-
-  // RSU vest records come from Reports > Equity (authoritative for date/shares/price) —
-  // the Excel's own Stock row doesn't break its cumulative total down per vest.
-  const yearVests = (equity?.grants ?? [])
-    .flatMap((g) => g.vests.filter((v) => v.vestDate.startsWith(yr.year)).map((v) => ({ grant: g, vest: v })))
-    .sort((a, b) => a.vest.vestDate.localeCompare(b.vest.vestDate));
-  const stockVestedValue = yearVests
-    .filter(({ vest }) => !vest.pending)
-    .reduce((s, { vest }) => s + vest.shares * vest.vestPrice, 0);
-  const stockScheduledShares = yearVests.filter(({ vest }) => vest.pending).reduce((s, { vest }) => s + vest.shares, 0);
-  const stockFederal = federal?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
-  const stockSsn = ssn?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
-  const stockMedicare = medicare?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
-  const stockStateWH = stateWH?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
-  const stockStateSDI = stateSDI?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
-  const stockTaxTotal = totalTax?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
-
-  // Group vest events by date (multiple grants can vest the same day) and line them up in
-  // chronological order with the Excel's "Stocks" columns — column N is the Nth vest date of
-  // the year (quarterly: Mar/Jun/Sep/Dec), not a lump sum for the whole year.
-  const vestGroups = Array.from(
-    yearVests.reduce((map, item) => {
-      const list = map.get(item.vest.vestDate) ?? [];
-      list.push(item);
-      map.set(item.vest.vestDate, list);
-      return map;
-    }, new Map<string, { grant: RsuGrant; vest: RsuVest }[]>())
-  )
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, items], idx) => ({ date, items, stockIdx: idx }));
-
-  // Real tax entered from an actual vesting pay-stub (see handlePaystubUpload) overrides the
-  // Excel-imported "Stocks" column entirely for that date once it exists -- a brand-new vest
-  // usually has no Excel figure at all yet, which is exactly the case this exists for. Returns
-  // the same "null means genuinely no data yet" shape stockVal() does (rendered as "—", distinct
-  // from a real $0), rather than coercing an absent override into 0.
-  const vestTaxByDate = new Map((yr.manualVestTax ?? []).map((v) => [v.date, v]));
-  function vestTax(date: string, stockIdx: number): {
-    federal: number | null; ssn: number | null; medicare: number | null;
-    stateWH: number | null; stateSDI: number | null; totalTax: number | null;
-  } {
-    const override = vestTaxByDate.get(date);
-    if (override) return override;
-    return {
-      federal: stockVal(federal, stockIdx),
-      ssn: stockVal(ssn, stockIdx),
-      medicare: stockVal(medicare, stockIdx),
-      stateWH: stockVal(stateWH, stockIdx),
-      stateSDI: stockVal(stateSDI, stockIdx),
-      totalTax: stockVal(totalTax, stockIdx),
-    };
-  }
 
   // ESPP purchases come from Reports > Equity the same way RSU vests do.
   const yearEspp = (equity?.esppPurchases ?? [])
@@ -2265,7 +2309,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           )}
           {stockTaxTotal > 0 && (
             <>
-              <strong style={{ fontSize: 13, display: "block", marginTop: "1rem" }}>Additional tax withheld on vesting events (from payroll Excel)</strong>
+              <strong style={{ fontSize: 13, display: "block", marginTop: "1rem" }}>Additional tax withheld on vesting events (Excel import, or a real vesting pay-stub where uploaded)</strong>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem 2rem", marginTop: "0.5rem" }}>
                 {[
                   ["Federal", stockFederal], ["SSN", stockSsn], ["Medicare", stockMedicare],
@@ -2305,6 +2349,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
 
       {periodBreakdownModal && (() => {
         const { row, field, isGross, total } = periodBreakdownModal;
+        type Row = { sortKey: string; key: string; label: string; title?: string; value: number };
         // Same override-substitution rule overriddenGrossTotal()/overriddenTotal() already use
         // for the card's own total -- a period with a manual correction shows the corrected
         // value here too, not the stale raw Excel figure the card no longer counts.
@@ -2320,14 +2365,37 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           const ov = overrideByIndex.get(i);
           return ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0);
         };
+        const excelRows: Row[] = yr.periodLabels.map((label, i) => {
+          const v = valueFor(i);
+          if (anchorFor(i) === 0 && v === 0) return null; // no pay period recorded yet
+          const range = label ? parsePeriodRange(label, yr.year) : null;
+          return { sortKey: range?.end ?? "9999-99-99", key: label || String(i), label: label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`, value: v };
+        }).filter((r): r is Row => r !== null);
         // Pay periods the Excel import doesn't cover at all (posted from a voucher/paystub) --
         // only these cards' totals actually include them (manualGross/manualTax/etc.), so only
         // show them here when `field`/`isGross` says this card's total does too.
-        const manualRows = (field || isGross)
+        const manualRows: Row[] = (field || isGross)
           ? voucherPeriods
-              .map((m) => ({ id: m.id, label: m.label, value: isGross ? m.base + m.telephone : field ? Number(m[field]) || 0 : 0 }))
+              .map((m) => {
+                const value = isGross ? m.base + m.telephone : field ? Number(m[field]) || 0 : 0;
+                const range = parsePeriodRange(m.label, yr.year);
+                return { sortKey: range?.end ?? m.label, key: m.id, label: `${periodEndLabel(m.label, yr.year)} (paystub)`, title: `${m.label} — posted from a voucher/paystub, not in the Excel import`, value };
+              })
               .filter((r) => Math.abs(r.value) > 0.005)
           : [];
+        // A vest's real gross (equity-derived) or real tax (manualVestTax, when entered) overrides
+        // the Excel Stocks-column figure the same way the year TOTAL now does -- reading raw
+        // row.stockValues here unconditionally, like before, silently dropped a vest (e.g. a
+        // brand-new one) the Excel import doesn't have a column for at all yet.
+        const vestRows: Row[] = vestGroups.map((g) => {
+          let v: number | null;
+          if (isGross) v = g.items.reduce((s, { vest }) => s + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0);
+          else if (field) v = (vestTax(g.date, g.stockIdx) as unknown as Record<string, number | null>)[field as string] ?? null;
+          else v = row?.stockValues?.[g.stockIdx] ?? null;
+          if (v === null || Math.abs(v) < 0.005) return null;
+          return { sortKey: g.date, key: g.date, label: `${fmtDate(g.date)} (vesting)`, value: v };
+        }).filter((r): r is Row => r !== null);
+        const allRows = [...excelRows, ...manualRows, ...vestRows].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
         return (
           <Modal title={`${periodBreakdownModal.label} — ${yr.year}`} onClose={() => setPeriodBreakdownModal(null)} wide>
             <table className="equity-table equity-drilldown-table">
@@ -2338,32 +2406,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </tr>
               </thead>
               <tbody>
-                {yr.periodLabels.map((label, i) => {
-                  const v = valueFor(i);
-                  if (anchorFor(i) === 0 && v === 0) return null; // no pay period recorded yet
-                  return (
-                    <tr key={label || i}>
-                      <td title={label || undefined}>{label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`}</td>
-                      <td className="right">{fmt(v)}</td>
-                    </tr>
-                  );
-                })}
-                {manualRows.map((r) => (
-                  <tr key={r.id}>
-                    <td title={`${r.label} — posted from a voucher/paystub, not in the Excel import`}>{periodEndLabel(r.label, yr.year)} (paystub)</td>
+                {allRows.map((r) => (
+                  <tr key={r.key}>
+                    <td title={r.title}>{r.label}</td>
                     <td className="right">{fmt(r.value)}</td>
                   </tr>
                 ))}
-                {vestGroups.map(({ date, stockIdx }) => {
-                  const v = row?.stockValues?.[stockIdx];
-                  if (v === undefined || Math.abs(v) < 0.005) return null;
-                  return (
-                    <tr key={date}>
-                      <td>{fmtDate(date)} (vesting)</td>
-                      <td className="right">{fmt(v)}</td>
-                    </tr>
-                  );
-                })}
               </tbody>
               <tfoot>
                 <tr>
