@@ -366,15 +366,20 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
   return (
     <table className="equity-table" style={{ width: "100%" }}>
       <thead>
+        {/* Same fix the drill-down tables already needed (see .equity-drilldown-table th in
+            globals.css): the generic theme padding/font-size wasn't sized for an 8-column table,
+            so 2-word headers ("Tax Sh", "Net Sh", "Vest $/sh") wrapped to two lines and made the
+            whole table look broken. Force single-line headers so columns size to their content
+            instead. */}
         <tr>
-          <th>Vest Date</th>
-          <th>Grant</th>
-          <th className="right">Shares</th>
-          <th className="right">Tax Sh</th>
-          <th className="right">Net Sh</th>
-          <th className="right">Vest $/sh</th>
-          <th className="right">Value</th>
-          <th>Status</th>
+          <th style={{ whiteSpace: "nowrap" }}>Vest Date</th>
+          <th style={{ whiteSpace: "nowrap" }}>Grant</th>
+          <th className="right" style={{ whiteSpace: "nowrap" }}>Shares</th>
+          <th className="right" style={{ whiteSpace: "nowrap" }}>Tax Sh</th>
+          <th className="right" style={{ whiteSpace: "nowrap" }}>Net Sh</th>
+          <th className="right" style={{ whiteSpace: "nowrap" }}>Vest $/sh</th>
+          <th className="right" style={{ whiteSpace: "nowrap" }}>Value</th>
+          <th style={{ whiteSpace: "nowrap" }}>Status</th>
         </tr>
       </thead>
       <tbody>
