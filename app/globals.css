@@ -9031,7 +9031,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   box-shadow: 0 24px 70px -12px rgba(15, 23, 42, 0.35), 0 2px 8px rgba(15, 23, 42, 0.08);
   overflow: hidden;
 }
-.fw-panel--wide { width: min(780px, calc(100vw - 24px)); }
+.fw-panel--wide { width: min(820px, calc(100vw - 24px)); }
 .fw-head {
   display: flex;
   align-items: center;
