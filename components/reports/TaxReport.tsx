@@ -2731,6 +2731,24 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </tr>
               ))}
             </tbody>
+            {gainEvents.length > 0 && (() => {
+              const totalShares = gainEvents.reduce((s, g) => s + g.shares, 0);
+              const totalCostBasis = gainEvents.reduce((s, g) => s + g.costBasis, 0);
+              const totalProceeds = gainEvents.reduce((s, g) => s + g.proceeds, 0);
+              const totalGain = gainEvents.reduce((s, g) => s + g.gain, 0);
+              return (
+                <tfoot>
+                  <tr>
+                    <td>Total</td>
+                    <td className="right">{totalShares.toLocaleString()}</td>
+                    <td className="right">{fmt(totalCostBasis)}</td>
+                    <td className="right">{fmt(totalProceeds)}</td>
+                    <td className="right equity-amt" style={{ color: totalGain >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(totalGain)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              );
+            })()}
           </table>
           <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
             Only lots with an entered sale price count as a realized sale — see Reports → Equity to add one.
@@ -2777,6 +2795,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </tr>
               ))}
             </tbody>
+            {deductionMatches.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td colSpan={2}>Total</td>
+                  <td className="right equity-amt">{fmt(deductionMatches.reduce((s, m) => s + m.total, 0))}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
           <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.75rem" }}>
             Federal itemized total {fmt(federalItemized.total)} (medical above 7.5% AGI floor: {fmt(federalItemized.medicalDeductible)};
@@ -2814,6 +2840,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={2}>Total</td>
+                    <td className="right equity-amt">{fmt(hsaContributionTotal)}</td>
+                  </tr>
+                </tfoot>
               </table>
               <p className="tax-note-figure" style={{ fontSize: 12, opacity: 0.7, marginTop: "0.5rem" }}>
                 Total {fmt(hsaContributionTotal)}, capped at the {hsaCoverage} IRS limit — {fmt(hsaDeduction)} actually deducted from

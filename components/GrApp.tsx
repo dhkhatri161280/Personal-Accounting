@@ -1995,6 +1995,21 @@ export function GrApp() {
                   </tr>
                 ))}
               </tbody>
+              {(() => {
+                const totalReal = fxRevaluation.reduce((s, p) => s + p.realGrowthInr, 0);
+                const totalFx = fxRevaluation.reduce((s, p) => s + p.fxGainLossInr, 0);
+                const totalChange = fxRevaluation.reduce((s, p) => s + p.totalChangeInr, 0);
+                return (
+                  <tfoot>
+                    <tr>
+                      <td>Total</td>
+                      <td className="right">{fmt(totalReal)}</td>
+                      <td className="right" style={{ color: totalFx >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(totalFx)}</td>
+                      <td className="right">{fmt(totalChange)}</td>
+                    </tr>
+                  </tfoot>
+                );
+              })()}
             </table>
           )}
         </div>

@@ -1287,6 +1287,24 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                   );
                 })}
               </tbody>
+              {fyList.length > 0 && (() => {
+                const rows = fyList.map((fy) => summarizeFy(fy, months, itrYears));
+                const sum = (f: (r: ReturnType<typeof summarizeFy>) => number) => rows.reduce((s, r) => s + f(r), 0);
+                return (
+                  <tfoot>
+                    <tr>
+                      <td>Total</td>
+                      <td className="right">{fmt(sum((r) => r.gross))}</td>
+                      <td className="right">{fmt(sum((r) => r.deductions))}</td>
+                      <td className="right">{fmt(sum((r) => r.net))}</td>
+                      <td className="right">{fmt(sum((r) => r.grossTotalIncome))}</td>
+                      <td className="right">{fmt(sum((r) => r.section80Raw))}</td>
+                      <td className="right">{fmt(sum((r) => r.taxableIncome))}</td>
+                      <td className="right">{fmt(sum((r) => r.taxDeductedPayroll))}</td>
+                    </tr>
+                  </tfoot>
+                );
+              })()}
             </table>
           ) : allYearsTab === "tax" ? (
             <table className="equity-table equity-drilldown-table">
@@ -1342,6 +1360,26 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                   );
                 })}
               </tbody>
+              {fyList.length > 0 && (() => {
+                const rows = fyList.map((fy) => summarizeFy(fy, months, itrYears));
+                const sum = (f: (r: ReturnType<typeof summarizeFy>) => number) => rows.reduce((s, r) => s + f(r), 0);
+                const totalRefund = sum((r) => r.refund);
+                return (
+                  <tfoot>
+                    <tr>
+                      <td>Total</td>
+                      <td className="right">{fmt(sum((r) => r.grossTotalIncome))}</td>
+                      <td className="right">{fmt(sum((r) => r.chVIA))}</td>
+                      <td className="right">{fmt(sum((r) => r.taxableIncome))}</td>
+                      <td className="right">{fmt(sum((r) => r.taxPayable))}</td>
+                      <td className="right">{fmt(sum((r) => r.tds))}</td>
+                      <td className="right">{fmt(sum((r) => r.advanceSelfAssessment))}</td>
+                      <td className="right">{fmt(sum((r) => r.taxesPaidTotal))}</td>
+                      <td className="right" style={totalRefund < 0 ? { color: "#dc2626" } : undefined}>{fmt(totalRefund)}</td>
+                    </tr>
+                  </tfoot>
+                );
+              })()}
             </table>
           ) : (
             // "Monthly Detail" -- every real payslip month across every FY, same columns and
