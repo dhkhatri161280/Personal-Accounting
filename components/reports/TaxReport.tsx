@@ -514,7 +514,17 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [showGainEventsModal, setShowGainEventsModal] = useState(false);
   const [showDeductionsModal, setShowDeductionsModal] = useState(false);
   const [showTaxPlanningModal, setShowTaxPlanningModal] = useState(false);
-  const [periodBreakdownModal, setPeriodBreakdownModal] = useState<{ label: string; row: PayrollRow | undefined } | null>(null);
+  // `total` is always the SAME value already shown on the triggering card (totalGross,
+  // totalTaxAll, etc.) -- passed through rather than recomputed, so the modal's footer can
+  // never drift from the card that opened it. `field`/`isGross` (optional) make the per-period
+  // row list override- and voucher-period-aware too, for the cards whose own total already is
+  // (gross/totalTax/net/k401/k401Emplr) -- confirmed live: without this, the modal for "Gross
+  // Salary" showed a Total $20k+ short of the card, since it read raw Excel values only and
+  // silently dropped both manual corrections AND paystub-only periods outside the Excel import.
+  const [periodBreakdownModal, setPeriodBreakdownModal] = useState<{
+    label: string; row: PayrollRow | undefined; total: number;
+    field?: keyof ManualPayrollPeriod; isGross?: boolean;
+  } | null>(null);
   // Line-item derivation for the Federal/State tax estimate summary cards -- several of those
   // cards (AGI, Estimated Tax, Withheld, Refund/Balance Due) had no click handler at all, so the
   // "sub" caption text was the only explanation offered for how the number was computed. Every
@@ -1200,17 +1210,22 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     todayIso,
   });
   const taxPlanningTotalSavings = taxPlanningScenarios.reduce((s, sc) => s + sc.totalSavings, 0);
+  // Positive = projected to owe more; negative = projected refund. FullYearProjection only
+  // stores a one-sided federal balanceDue (0 when it'd actually be a refund) and no state
+  // balance field at all -- computed directly here instead so both directions render correctly.
+  const projectedFederalBalance = taxPlanningProjection.projectedFederalTax - taxPlanningProjection.fullYearFederalWithheld;
+  const projectedStateBalance = taxPlanningProjection.projectedStateTax - taxPlanningProjection.fullYearStateWithheld;
 
   const summaryCards: { label: string; value: number; sub: string; onClick?: () => void; icon: IconKind; color: string }[] = [
-    { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Gross Salary", row: gross }), icon: "cash", color: "#1e40af" },
-    { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate — click for details →`, onClick: () => setPeriodBreakdownModal({ label: "Total Tax", row: totalTax }), icon: "receipt", color: "#dc2626" },
-    { label: "Net Salary", value: totalNet, sub: "after deductions — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Net Salary", row: netSalary }), icon: "wallet", color: "#16a34a" },
-    { label: "After Tax Salary", value: totalAfterTax, sub: "take-home — click for details →", onClick: () => setPeriodBreakdownModal({ label: "After Tax Salary", row: afterTax }), icon: "bank", color: "#0891b2" },
-    { label: "401K (Employee)", value: totalK401, sub: "payroll deduction — click for details →", onClick: () => setPeriodBreakdownModal({ label: "401K (Employee)", row: k401 }), icon: "shield", color: "#7c3aed" },
-    { label: "401K Employer Match", value: totalK401Emplr, sub: "not in the paycheck deposit — click for details →", onClick: () => setPeriodBreakdownModal({ label: "401K Employer Match", row: k401Emplr }), icon: "shield", color: "#9333ea" },
+    { label: "Gross Salary", value: totalGross, sub: "Base + Bonus + Stock + other — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Gross Salary", row: gross, total: totalGross, isGross: true }), icon: "cash", color: "#1e40af" },
+    { label: "Total Tax", value: totalTaxAll, sub: `${effectiveRate.toFixed(1)}% effective rate — click for details →`, onClick: () => setPeriodBreakdownModal({ label: "Total Tax", row: totalTax, total: totalTaxAll, field: "totalTax" }), icon: "receipt", color: "#dc2626" },
+    { label: "Net Salary", value: totalNet, sub: "after deductions — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Net Salary", row: netSalary, total: totalNet, field: "net" }), icon: "wallet", color: "#16a34a" },
+    { label: "After Tax Salary", value: totalAfterTax, sub: "take-home — click for details →", onClick: () => setPeriodBreakdownModal({ label: "After Tax Salary", row: afterTax, total: totalAfterTax }), icon: "bank", color: "#0891b2" },
+    { label: "401K (Employee)", value: totalK401, sub: "payroll deduction — click for details →", onClick: () => setPeriodBreakdownModal({ label: "401K (Employee)", row: k401, total: totalK401, field: "k401" }), icon: "shield", color: "#7c3aed" },
+    { label: "401K Employer Match", value: totalK401Emplr, sub: "not in the paycheck deposit — click for details →", onClick: () => setPeriodBreakdownModal({ label: "401K Employer Match", row: k401Emplr, total: totalK401Emplr, field: "k401Emplr" }), icon: "shield", color: "#9333ea" },
     { label: "ESPP Deduction", value: totalEsppDeduction, sub: `${fmt(esppDiscountValue)} discount value — click for details →`, onClick: () => setShowEsppModal(true), icon: "tag", color: "#d97706" },
     { label: "Stock (RSU) Vested", value: stockVestedValue, sub: "click for vest details →", onClick: () => setShowRsuModal(true), icon: "stock", color: "#1e40af" },
-    { label: "Effective Salary", value: totalEffective, sub: "incl. employer 401K + ESPP — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Effective Salary", row: effective }), icon: "trending-up", color: "#16a34a" },
+    { label: "Effective Salary", value: totalEffective, sub: "incl. employer 401K + ESPP — click for details →", onClick: () => setPeriodBreakdownModal({ label: "Effective Salary", row: effective, total: totalEffective }), icon: "trending-up", color: "#16a34a" },
   ];
 
   function openVoucherModal(tx: Tx) {
@@ -2004,7 +2019,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 { label: "= Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages, bold: true },
                 { label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable },
                 { label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction },
-                { label: "Less: HSA Deduction (above-the-line)", value: -hsaDeduction },
+                {
+                  label: hsaContributionTotal > hsaDeduction
+                    ? `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, capped at IRS annual limit)`
+                    : `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, under the IRS annual limit)`,
+                  value: -hsaDeduction,
+                },
                 { label: "= Ordinary Income", value: taxEstimate.ordinaryIncome, bold: true },
                 { label: "+ Long-Term Capital Gain", value: taxEstimate.longTermGain },
                 { label: "= AGI", value: taxEstimate.agi, bold: true },
@@ -2118,7 +2138,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             onClick: () => setTaxBreakdownModal({
               title: `${stateResidency.code} Taxable Income — how it's derived`,
               lines: [
-                { label: "AGI (state proxy)", value: stateAgi },
+                { label: "Federal AGI", value: taxEstimate.agi },
+                ...(stateResidency.code === "AZ" ? [] : [
+                  { label: `+ HSA Deduction Added Back (${stateResidency.name} doesn't conform to federal HSA treatment)`, value: taxEstimate.aboveLineDeduction },
+                ]),
+                { label: `= ${stateResidency.code} AGI (proxy)`, value: stateAgi, bold: true },
                 { label: `Less: Deduction Used (${stateTaxEstimate.usedItemized ? "itemized" : "standard"})`, value: -stateTaxEstimate.deductionUsed },
                 { label: `= ${stateResidency.code} Taxable Income`, value: stateTaxEstimate.taxableIncome, bold: true },
               ],
@@ -2190,6 +2214,49 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         ))}
       </div>
 
+      {taxYearIsOpenForPlanning && (
+        <details style={{ margin: "1rem 0 0" }}>
+          <summary className="tax-summary-figure" style={{ fontSize: 13, fontWeight: 600, cursor: "pointer", listStyle: "none" }}>
+            📅 Projected Full Year (through Dec 31, {yr.year}) — {taxPlanningProjection.periodsRemaining} paycheck(s)
+            {taxPlanningProjection.futureVestShares > 0 && <> + {taxPlanningProjection.futureVestShares.toLocaleString()} scheduled RSU shares</>} still to come, click to expand
+          </summary>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0" }}>
+            Remaining paychecks modeled on {taxPlanningProjection.modeledOnLastPaystub ? "your most recent paystub" : "a whole-year average"}
+            {taxPlanningProjection.futureVestShares > 0 && (
+              taxPlanningProjection.livePriceUsed
+                ? <>; scheduled RSU shares valued at today's live price (${taxPlanningProjection.livePriceUsed.toFixed(2)})</>
+                : <>; no live stock price available, so scheduled RSU value isn't included yet</>
+            )}. Click any card below for the full projection detail (assumptions, per-paycheck model, ESPP).
+          </p>
+          <div className="equity-summary-row">
+            {[
+              { label: "Projected Gross (full year)", value: taxPlanningProjection.fullYearGross, sub: "YTD + remaining paychecks + scheduled RSU", icon: "cash" as IconKind, color: "#1e40af" },
+              { label: "Projected Federal Tax", value: taxPlanningProjection.projectedFederalTax, sub: "full-year estimate", icon: "receipt" as IconKind, color: "#dc2626" },
+              { label: "Projected Federal Withheld", value: taxPlanningProjection.fullYearFederalWithheld, sub: "YTD + remaining paychecks", icon: "shield" as IconKind, color: "#16a34a" },
+              projectedFederalBalance > 0
+                ? { label: "Projected Federal Balance Due", value: projectedFederalBalance, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626" }
+                : { label: "Projected Federal Refund", value: -projectedFederalBalance, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a" },
+              { label: `Projected ${stateResidency.code} Tax`, value: taxPlanningProjection.projectedStateTax, sub: "full-year estimate", icon: "receipt" as IconKind, color: "#dc2626" },
+              { label: `Projected ${stateResidency.code} Withheld`, value: taxPlanningProjection.fullYearStateWithheld, sub: "YTD + remaining paychecks", icon: "shield" as IconKind, color: "#16a34a" },
+              projectedStateBalance > 0
+                ? { label: `Projected ${stateResidency.code} Balance Due`, value: projectedStateBalance, sub: "estimated tax exceeds withheld", icon: "scale" as IconKind, color: "#dc2626", amountColor: "#dc2626" }
+                : { label: `Projected ${stateResidency.code} Refund`, value: -projectedStateBalance, sub: "withheld exceeds estimated tax", icon: "scale" as IconKind, color: "#16a34a", amountColor: "#16a34a" },
+            ].map((c) => (
+              <div key={c.label} className="equity-summary-col">
+                <div className="equity-summary-card" style={{ cursor: "pointer" }} onClick={() => setShowTaxPlanningModal(true)}>
+                  <StatIcon kind={c.icon} color={c.color} />
+                  <div className="equity-summary-card-body">
+                    <span>{c.label}</span>
+                    <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
+                    <em>{c.sub} — click for details →</em>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {showRsuModal && (
         <Modal title={`RSU Vesting — ${yr.year}`} onClose={() => setShowRsuModal(false)} wide>
           <VestTable items={yearVests} fmt={fmt} />
@@ -2236,49 +2303,81 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         </Modal>
       )}
 
-      {periodBreakdownModal && (
-        <Modal title={`${periodBreakdownModal.label} — ${yr.year}`} onClose={() => setPeriodBreakdownModal(null)} wide>
-          <table className="equity-table equity-drilldown-table">
-            <thead>
-              <tr>
-                <th>Period</th>
-                <th className="right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {yr.periodLabels.map((label, i) => {
-                const v = periodBreakdownModal.row?.values[i] ?? 0;
-                if ((gross?.values[i] ?? 0) === 0 && v === 0) return null; // no pay period recorded yet
-                return (
-                  <tr key={label || i}>
-                    <td title={label || undefined}>{label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`}</td>
-                    <td className="right">{fmt(v)}</td>
+      {periodBreakdownModal && (() => {
+        const { row, field, isGross, total } = periodBreakdownModal;
+        // Same override-substitution rule overriddenGrossTotal()/overriddenTotal() already use
+        // for the card's own total -- a period with a manual correction shows the corrected
+        // value here too, not the stale raw Excel figure the card no longer counts.
+        const valueFor = (i: number): number => {
+          const ov = overrideByIndex.get(i);
+          if (ov) {
+            if (isGross) return ov.base + ov.telephone;
+            if (field) return Number(ov[field]) || 0;
+          }
+          return row?.values[i] ?? 0;
+        };
+        const anchorFor = (i: number): number => {
+          const ov = overrideByIndex.get(i);
+          return ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0);
+        };
+        // Pay periods the Excel import doesn't cover at all (posted from a voucher/paystub) --
+        // only these cards' totals actually include them (manualGross/manualTax/etc.), so only
+        // show them here when `field`/`isGross` says this card's total does too.
+        const manualRows = (field || isGross)
+          ? voucherPeriods
+              .map((m) => ({ id: m.id, label: m.label, value: isGross ? m.base + m.telephone : field ? Number(m[field]) || 0 : 0 }))
+              .filter((r) => Math.abs(r.value) > 0.005)
+          : [];
+        return (
+          <Modal title={`${periodBreakdownModal.label} — ${yr.year}`} onClose={() => setPeriodBreakdownModal(null)} wide>
+            <table className="equity-table equity-drilldown-table">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th className="right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {yr.periodLabels.map((label, i) => {
+                  const v = valueFor(i);
+                  if (anchorFor(i) === 0 && v === 0) return null; // no pay period recorded yet
+                  return (
+                    <tr key={label || i}>
+                      <td title={label || undefined}>{label ? periodEndLabel(label, yr.year) : `Period ${i + 1}`}</td>
+                      <td className="right">{fmt(v)}</td>
+                    </tr>
+                  );
+                })}
+                {manualRows.map((r) => (
+                  <tr key={r.id}>
+                    <td title={`${r.label} — posted from a voucher/paystub, not in the Excel import`}>{periodEndLabel(r.label, yr.year)} (paystub)</td>
+                    <td className="right">{fmt(r.value)}</td>
                   </tr>
-                );
-              })}
-              {vestGroups.map(({ date, stockIdx }) => {
-                const v = periodBreakdownModal.row?.stockValues?.[stockIdx];
-                if (v === undefined || Math.abs(v) < 0.005) return null;
-                return (
-                  <tr key={date}>
-                    <td>{fmtDate(date)} (vesting)</td>
-                    <td className="right">{fmt(v)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>Total</td>
-                <td className="right">{fmt(sumRow(periodBreakdownModal.row))}</td>
-              </tr>
-            </tfoot>
-          </table>
-          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
-            <button onClick={() => setPeriodBreakdownModal(null)}>Close</button>
-          </div>
-        </Modal>
-      )}
+                ))}
+                {vestGroups.map(({ date, stockIdx }) => {
+                  const v = row?.stockValues?.[stockIdx];
+                  if (v === undefined || Math.abs(v) < 0.005) return null;
+                  return (
+                    <tr key={date}>
+                      <td>{fmtDate(date)} (vesting)</td>
+                      <td className="right">{fmt(v)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td className="right">{fmt(total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+            <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setPeriodBreakdownModal(null)}>Close</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {viewPeriod && (() => {
         // Excel-imported and manually-entered (or voucher-derived) periods carry the same
