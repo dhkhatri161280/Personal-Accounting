@@ -1999,7 +1999,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
             onClick: () => setTaxBreakdownModal({
               title: "AGI — how it's derived",
               lines: [
-                { label: "Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages },
+                { label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other)", value: totalGross },
+                { label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1)", value: -totalK401 },
+                { label: "= Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages, bold: true },
                 { label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable },
                 { label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction },
                 { label: "Less: HSA Deduction (above-the-line)", value: -hsaDeduction },
