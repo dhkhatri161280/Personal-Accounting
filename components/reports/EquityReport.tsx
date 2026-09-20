@@ -134,6 +134,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
   // future quarter for years and is only actually needed once that quarter arrives.
   const [showAllVestDays, setShowAllVestDays] = useState(false);
   const [showScheduled, setShowScheduled] = useState(false);
+  // "Total Holdings" and "Daily G/(L)" had no click-through at all, unlike every sibling card in
+  // this same row (Vested/Tax/Sold/ESPP Value, Scheduled) -- a roll-up total with no way to see
+  // what it's built from. Reuses the same "how it's derived" breakdown pattern already shipped
+  // for the Tax report's cards.
+  const [equityBreakdownModal, setEquityBreakdownModal] = useState<{ title: string; lines: { label: string; value: number; bold?: boolean }[] } | null>(null);
 
   // ── Inline edit state (Mark Sold) ─────────────────────────────────────────
   const [editVest, setEditVest] = useState<{ grantId: string; vestId: string } | null>(null);
@@ -726,13 +731,23 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               hold today (RSU vested + ESPP), the number people actually look for and had to
               add up themselves from the other cards. */}
           <div className="equity-summary-col">
-            <div className="equity-summary-card equity-summary-card--current">
+            <button
+              className="equity-summary-card equity-summary-card--current equity-summary-stat"
+              onClick={() => setEquityBreakdownModal({
+                title: "Total Holdings — how it's derived",
+                lines: [
+                  { label: "Vested Value (RSU held @ live price)", value: summaryVestedValue },
+                  { label: "+ ESPP Value (ESPP held @ live price)", value: summaryEsppValue },
+                  { label: "= Total Holdings", value: summaryTotalHoldingsValue, bold: true },
+                ],
+              })}
+            >
               <StatIcon kind="wallet" color="#1d4ed8" />
               <div className="equity-summary-card-body">
                 <span>Total Holdings</span>
                 <strong className="equity-amt">{fmt(summaryTotalHoldingsValue)}</strong>
               </div>
-            </div>
+            </button>
             <p className="equity-card-count">
               <strong>{(rsuHeldShares + esppHeldShares).toLocaleString()}</strong> sh held
             </p>
@@ -784,7 +799,19 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           </div>
           {/* Daily G/(L) card */}
           <div className="equity-summary-col">
-            <div className={`equity-summary-card equity-summary-stat equity-daily-gl-card ${dailyGL === null ? "" : dailyGL >= 0 ? "equity-daily-gl-card--pos" : "equity-daily-gl-card--neg"}`}>
+            <button
+              className={`equity-summary-card equity-summary-stat equity-daily-gl-card ${dailyGL === null ? "" : dailyGL >= 0 ? "equity-daily-gl-card--pos" : "equity-daily-gl-card--neg"}`}
+              disabled={dailyGL === null}
+              onClick={() => dailyGL !== null && setEquityBreakdownModal({
+                title: "Daily G/(L) — how it's derived",
+                lines: [
+                  { label: "Today's Price", value: cur },
+                  { label: "Yesterday's Close", value: prevClose ?? 0 },
+                  { label: "Change per Share", value: cur - (prevClose ?? 0) },
+                  { label: `= Daily G/(L) (${dailyHeldShares.toLocaleString()} sh × change)`, value: dailyGL, bold: true },
+                ],
+              })}
+            >
               <StatIcon kind="trending-up" color={dailyGL === null ? "#64748b" : dailyGL >= 0 ? "#16a34a" : "#dc2626"} />
               <div className="equity-summary-card-body">
                 <span>Daily G/(L)</span>
@@ -794,7 +821,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                     : <>{dailyGL >= 0 ? "+" : ""}{fmt(dailyGL)}</>}
                 </strong>
               </div>
-            </div>
+            </button>
             <p className="equity-card-count"><strong>{dailyHeldShares.toLocaleString()}</strong> sh held</p>
           </div>
         </div>
@@ -1429,6 +1456,27 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
           )}
         </div>
       </div>
+
+      {equityBreakdownModal && (
+        <Modal title={equityBreakdownModal.title} onClose={() => setEquityBreakdownModal(null)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {equityBreakdownModal.lines.map((l, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex", justifyContent: "space-between", gap: "1rem",
+                  fontWeight: l.bold ? 700 : 400,
+                  borderTop: l.bold ? "1px solid #e2e8f0" : undefined,
+                  paddingTop: l.bold ? "0.4rem" : undefined,
+                }}
+              >
+                <span>{l.label}</span>
+                <span className="equity-amt">{fmt(l.value)}</span>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {showScheduled && (
         <Modal title="Scheduled — Date-Wise Breakdown (RSU + ESPP)" onClose={() => setShowScheduled(false)} wide>

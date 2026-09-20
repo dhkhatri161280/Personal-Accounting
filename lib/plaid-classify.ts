@@ -5,12 +5,22 @@
 // as its narration instead of a clean "{Card} Payment" label).
 
 export function isCcAcct(a: { name: string; parent?: string }): boolean {
-  // Must literally say "credit card" in the account name — avoids false matches on
-  // "credit union", "income credit", etc.
+  // The account's own group is authoritative when it says so -- falls back to requiring the
+  // literal words "credit card" in the name (avoids false matches on "credit union", "income
+  // credit", etc.) only when the group isn't/doesn't say "Credit Card", so a card account named
+  // without that literal substring is still recognized as long as it's actually filed there.
+  if ((a.parent || "").trim().toLowerCase() === "credit card") return true;
   return /credit card/i.test(a.name);
 }
 
 export function isBankAcct(a: { name: string; parent?: string }): boolean {
+  // Same principle, and the concrete fix for a confirmed live bug: "HSA Fidelity Account" (a
+  // real vault ledger, parent "Bank Accounts") matches none of the name patterns below, so
+  // reversing a posted HSA transfer voucher produced the wrong type (Receipt instead of Contra)
+  // until this fixed it. A name-only fallback is inherently fragile against any account whose
+  // name doesn't happen to contain one of a fixed list of words -- the account's actual group is
+  // the real signal and should win whenever it's available.
+  if ((a.parent || "").trim().toLowerCase() === "bank accounts") return true;
   const n = a.name.toLowerCase();
   // Match known bank/depository account patterns; explicitly exclude expense/income names
   if (/exps?|expense|income|revenue|wages|salary|rent|fee|charge|tax|insurance/i.test(n)) return false;

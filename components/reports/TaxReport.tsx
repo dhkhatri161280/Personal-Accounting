@@ -142,8 +142,10 @@ function computeYearAggregates(rawYr: PayrollYear, equity?: EquityData) {
   const rows = yr.rows;
   const gross = row(rows, "Gross Salary");
   const federal = row(rows, "Federal");
+  const ssn = row(rows, "SSN");
   const medicare = row(rows, "Medicare");
   const stateWH = row(rows, "State W/H");
+  const stateSDI = row(rows, "State SDI");
   const totalTax = row(rows, "Total Tax");
   const netSalary = row(rows, "Net Salary", 1) ?? row(rows, "Net Salary", 0);
   const afterTax = row(rows, "After Tax Salary");
@@ -175,6 +177,25 @@ function computeYearAggregates(rawYr: PayrollYear, equity?: EquityData) {
       return s + (v ?? 0);
     }, 0);
   }
+  // Same "After Tax Salary" fix as the single-year view: net-of-withholding value of every vest,
+  // replacing this row's own (possibly missing/stale) Excel stockValues for the vest component.
+  const vestGrossByDate = new Map<string, number>();
+  for (const g of equity?.grants ?? []) {
+    for (const v of g.vests) {
+      if (v.pending || !v.vestDate.startsWith(yr.year)) continue;
+      vestGrossByDate.set(v.vestDate, (vestGrossByDate.get(v.vestDate) ?? 0) + v.shares * v.vestPrice);
+    }
+  }
+  const vestAfterTaxTotal = vestDates.reduce((s, date, stockIdx) => {
+    const gross = vestGrossByDate.get(date) ?? 0;
+    const override = vestTaxByDate.get(date);
+    const fed = override ? override.federal : (federal?.stockValues?.[stockIdx] ?? 0);
+    const ssnV = override ? override.ssn : (ssn?.stockValues?.[stockIdx] ?? 0);
+    const med = override ? override.medicare : (medicare?.stockValues?.[stockIdx] ?? 0);
+    const swh = override ? override.stateWH : (stateWH?.stockValues?.[stockIdx] ?? 0);
+    const sdi = override ? override.stateSDI : (stateSDI?.stockValues?.[stockIdx] ?? 0);
+    return s + gross - fed - ssnV - med - swh - sdi;
+  }, 0);
 
   function overriddenTotal(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod): number {
     let sum = 0;
@@ -201,8 +222,8 @@ function computeYearAggregates(rawYr: PayrollYear, equity?: EquityData) {
     totalStateWH: overriddenTotal(stateWH, "stateWH"),
     totalTaxAll: overriddenTotal(totalTax, "totalTax"),
     totalNet: overriddenTotal(netSalary, "net"),
-    totalAfterTax: sumRow(afterTax),
-    totalEffective: sumRow(effective),
+    totalAfterTax: (afterTax?.values ?? []).reduce((s, v) => s + v, 0) + vestAfterTaxTotal,
+    totalEffective: (effective?.values ?? []).reduce((s, v) => s + v, 0) + vestGrossTotal,
     totalK401: overriddenTotal(k401, "k401"),
     totalK401Emplr: overriddenTotal(k401Emplr, "k401Emplr"),
     totalEsppDeduction: overriddenTotal(esppRow, "espp"),
@@ -1041,6 +1062,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const stockStateWH = vestStockTotal(stateWH, "stateWH");
   const stockStateSDI = vestStockTotal(stateSDI, "stateSDI");
   const stockTaxTotal = vestStockTotal(totalTax, "totalTax");
+  // Net-of-withholding value of every vest -- same formula the Pay Periods table's own vest row
+  // uses for its "Net" column, reused here so "After Tax Salary" gets the same live-vest fix
+  // Gross/Tax already got (a vest that postdates the last Excel import was entirely missing from
+  // this row's Excel-only Stocks column too, understating it the same way).
+  const vestAfterTaxTotal = vestGroups.reduce((s, g) => {
+    const grossVal = g.items.reduce((gs, { vest }) => gs + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0);
+    const vt = vestTax(g.date, g.stockIdx);
+    return s + grossVal - (vt.federal ?? 0) - (vt.ssn ?? 0) - (vt.medicare ?? 0) - (vt.stateWH ?? 0) - (vt.stateSDI ?? 0);
+  }, 0);
 
   // Sum a row across every Excel period, substituting an override's value wherever one
   // exists for that period index, then add the vest total (Excel Stocks column, or a real
@@ -1109,8 +1139,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const totalStateSDI = overriddenTotal(stateSDI, "stateSDI") + manualStateSDI;
   const totalTaxAll = overriddenTotal(totalTax, "totalTax") + manualTax;
   const totalNet = overriddenTotal(netSalary, "net") + manualNet;
-  const totalAfterTax = sumRow(afterTax);
-  const totalEffective = sumRow(effective);
+  // Unlike every other total above, After Tax Salary/Effective Salary have no corresponding
+  // field on ManualPayrollPeriod (they're Excel-only imported columns, never recorded for a
+  // manual/voucher period) -- so this doesn't attempt override-awareness for a manually-
+  // corrected period, only the same concrete, confirmed gap just fixed for Gross/Tax: the raw
+  // per-period values come straight from Excel, but the vest component is replaced with the
+  // live equity-derived figure instead of the row's own (possibly missing/stale) stockValues.
+  const totalAfterTax = (afterTax?.values ?? []).reduce((s, v) => s + v, 0) + vestAfterTaxTotal;
+  const totalEffective = (effective?.values ?? []).reduce((s, v) => s + v, 0) + vestGrossTotal;
   const totalK401 = overriddenTotal(k401, "k401") + manualK401;
   const totalK401Emplr = overriddenTotal(k401Emplr, "k401Emplr") + manualK401Emplr;
   const totalEsppDeduction = overriddenTotal(esppRow, "espp") + manualEspp;

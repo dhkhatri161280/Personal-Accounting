@@ -1,5 +1,5 @@
 import type { Account, FixedAsset, Ledger, Tx } from "./vault-types";
-import { nextTransactionIds, nextVoucherNumber, ledgerBalanceAsOf } from "./vault-accounting";
+import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting";
 import { appendAuditEntry } from "./audit";
 import {
   ACCUMULATED_DEPRECIATION_ACCOUNT_NAME,
@@ -256,30 +256,47 @@ export function discoverTaggedAssetGroups(data: Ledger): TaggedAssetGroup[] {
     .sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate));
 }
 
-// Recomputes the ledger's one untagged/legacy asset (if it has one) as: this account's real,
-// full GL balance minus every OTHER (tagged) asset's cost on the same ledger. Exact by
-// construction, so it can't drift regardless of how many tags exist, what order they were synced
-// in, or whether a tag's own net is a credit (a return/refund) rather than a debit -- unlike
-// incrementally subtracting each new tag's cost one at a time, which clamped at zero and silently
-// discarded the remainder once enough tags had been carved out of the same legacy sibling.
+// The legacy/untagged portion of a shared ledger is exactly "every entry with no Entry.assetTag"
+// -- every OTHER sibling's own entries always carry its own tag, so this is robust regardless of
+// whether a sibling is itself disposed (unlike the old realBalance-minus-othersCost formula,
+// which had to filter out disposed siblings specifically to avoid double-subtracting their
+// history, and produced the legacy's NET balance rather than its gross cost).
+function legacyDrCr(data: Ledger, accountId: number): { drTotal: number; crTotal: number; lastCrDate: string } {
+  let drTotal = 0, crTotal = 0, lastCrDate = "";
+  for (const t of data.transactions) {
+    if (t.deleted || t.cancelled) continue;
+    for (const e of t.entries) {
+      if (e.accountId !== accountId || e.assetTag) continue;
+      const amt = round2(Math.abs(e.amount));
+      if (e.amount < 0) drTotal = round2(drTotal + amt);
+      else { crTotal = round2(crTotal + amt); if (t.date > lastCrDate) lastCrDate = t.date; }
+    }
+  }
+  return { drTotal, crTotal, lastCrDate };
+}
+
+// Recomputes the ledger's one untagged/legacy asset (if it has one): cost = its own gross Dr
+// total (not a net balance, so it can't drift regardless of how many tags exist or what order
+// they were synced in), and -- same Dr/Cr-netting bug already fixed 3 times over for TAGGED
+// assets -- surfaces as Disposed when an untagged Cr write-off fully offsets it, instead of
+// silently sitting at ~$0 "Active" until it drops under the Register's display filter and
+// vanishes with no explanation.
 function reconcileLegacyAssetCost(data: Ledger, accountId: number): Ledger {
   const fixedAssets = data.fixedAssets ?? [];
   const legacy = fixedAssets.find((a) => a.accountId === accountId && !a.sourceTag && !a.disposed);
   if (!legacy) return data;
-  const realBalance = ledgerBalanceAsOf(data, accountId, "9999-12-31");
-  const othersCost = fixedAssets
-    .filter((a) => a.accountId === accountId && a.id !== legacy.id && !a.disposed)
-    .reduce((s, a) => s + a.cost, 0);
+  const { drTotal, crTotal, lastCrDate } = legacyDrCr(data, accountId);
+  const disposed = crTotal > 0 && round2(drTotal - crTotal) <= 0.005 ? { date: lastCrDate, proceeds: 0 } : legacy.disposed;
   return {
     ...data,
-    fixedAssets: fixedAssets.map((a) => (a.id === legacy.id ? { ...a, cost: round2(realBalance - othersCost) } : a)),
+    fixedAssets: fixedAssets.map((a) => (a.id === legacy.id ? { ...a, cost: drTotal, ...(disposed ? { disposed } : {}) } : a)),
   };
 }
 
 // One legacy asset per already-tagged ledger, whose stored cost doesn't match what
-// reconcileLegacyAssetCost would now compute -- surfaces the pre-existing bug's damage (assets
-// synced before the fix used the old incremental-subtraction approach, which could clamp at zero
-// and lose money) so it can be repaired with one click instead of silently staying wrong.
+// reconcileLegacyAssetCost would now compute, OR whose ledger history shows it's actually been
+// disposed but the stored record doesn't say so yet -- surfaces both so either can be repaired
+// with one click instead of silently staying wrong.
 export function findLegacyCostMismatches(data: Ledger): { accountId: number; name: string; currentCost: number; correctCost: number }[] {
   const fixedAssets = data.fixedAssets ?? [];
   const accountIds = new Set(fixedAssets.filter((a) => a.sourceTag && !a.disposed).map((a) => a.accountId));
@@ -287,12 +304,11 @@ export function findLegacyCostMismatches(data: Ledger): { accountId: number; nam
   for (const accountId of accountIds) {
     const legacy = fixedAssets.find((a) => a.accountId === accountId && !a.sourceTag && !a.disposed);
     if (!legacy) continue;
-    const realBalance = ledgerBalanceAsOf(data, accountId, "9999-12-31");
-    const othersCost = fixedAssets
-      .filter((a) => a.accountId === accountId && a.id !== legacy.id && !a.disposed)
-      .reduce((s, a) => s + a.cost, 0);
-    const correctCost = round2(realBalance - othersCost);
-    if (Math.abs(correctCost - legacy.cost) > 0.005) out.push({ accountId, name: legacy.name, currentCost: legacy.cost, correctCost });
+    const { drTotal, crTotal } = legacyDrCr(data, accountId);
+    const nowDisposed = crTotal > 0 && round2(drTotal - crTotal) <= 0.005;
+    if (Math.abs(drTotal - legacy.cost) > 0.005 || nowDisposed) {
+      out.push({ accountId, name: legacy.name, currentCost: legacy.cost, correctCost: drTotal });
+    }
   }
   return out;
 }

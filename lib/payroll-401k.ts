@@ -8,20 +8,31 @@ function row(rows: PayrollRow[], label: string): PayrollRow | undefined {
 export type K401YearTotal = { year: string; self: number; employer: number };
 
 // Lifetime employee vs. employer 401(k) contribution totals across every imported payroll year --
-// same computation TaxReport.tsx's "401(k) Contributions by Year" drilldown uses: one row per
-// year, sourced from each year's CUMULATIVE "401K"/"401K Emplr" column (not the annual column,
-// which is blank for employer match in the source sheet), so this also works for a year still in
-// progress.
+// same computation TaxReport.tsx's "401(k) Contributions by Year" drilldown AND
+// RetirementReport.tsx both use: one row per year, sourced from each year's CUMULATIVE "401K"/
+// "401K Emplr" column (not the annual column, which is blank for employer match in the source
+// sheet), so this also works for a year still in progress.
+//
+// The Excel CUMULATIVE column is only as current as the last import -- a paystub posted (e.g.
+// via Upload Paystub PDF or a Plaid-matched voucher) since then is entirely missing from it,
+// the same staleness class Gross Salary/Total Tax had until fixed in TaxReport.tsx. Voucher-
+// derived periods (posted from a paystub, not yet reflected in a re-import) are added on top so
+// this doesn't silently understate a very recent contribution.
 export function compute401kByYear(payroll: PayrollData | undefined): K401YearTotal[] {
   if (!payroll) return [];
   return payroll.years
     .slice()
     .sort((a, b) => a.year.localeCompare(b.year))
-    .map((y) => ({
-      year: y.year,
-      self: row(y.rows, "401K")?.cumulative ?? 0,
-      employer: row(y.rows, "401K Emplr")?.cumulative ?? 0,
-    }))
+    .map((y) => {
+      const voucherPeriods = (y.manualPeriods ?? []).filter((m) => m.periodIndex === undefined);
+      const voucherSelf = voucherPeriods.reduce((s, m) => s + m.k401, 0);
+      const voucherEmployer = voucherPeriods.reduce((s, m) => s + (m.k401Emplr ?? 0), 0);
+      return {
+        year: y.year,
+        self: (row(y.rows, "401K")?.cumulative ?? 0) + voucherSelf,
+        employer: (row(y.rows, "401K Emplr")?.cumulative ?? 0) + voucherEmployer,
+      };
+    })
     .filter((r) => r.self > 0.005 || r.employer > 0.005);
 }
 
