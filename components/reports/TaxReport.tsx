@@ -370,6 +370,8 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
           <th>Vest Date</th>
           <th>Grant</th>
           <th className="right">Shares</th>
+          <th className="right">Tax Sh</th>
+          <th className="right">Net Sh</th>
           <th className="right">Vest $/sh</th>
           <th className="right">Value</th>
           <th>Status</th>
@@ -377,18 +379,23 @@ function VestTable({ items, fmt }: { items: { grant: RsuGrant; vest: RsuVest }[]
       </thead>
       <tbody>
         {items.length === 0 && (
-          <tr><td colSpan={6} style={{ opacity: 0.5 }}>No RSU vests recorded.</td></tr>
+          <tr><td colSpan={8} style={{ opacity: 0.5 }}>No RSU vests recorded.</td></tr>
         )}
-        {items.map(({ grant, vest }) => (
-          <tr key={vest.id}>
-            <td>{new Date(vest.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
-            <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {fmtDate(grant.grantDate)}</td>
-            <td className="right">{vest.shares.toLocaleString()}</td>
-            <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
-            <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
-            <td>{vest.pending ? <span style={{ color: "#888" }}>Scheduled</span> : <span style={{ color: "#16a34a" }}>Vested</span>}</td>
-          </tr>
-        ))}
+        {items.map(({ grant, vest }) => {
+          const taxShares = vest.taxShares ?? 0;
+          return (
+            <tr key={vest.id}>
+              <td>{new Date(vest.vestDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</td>
+              <td className="equity-neutral" style={{ fontSize: 11 }}>{grant.ticker} granted {fmtDate(grant.grantDate)}</td>
+              <td className="right">{vest.shares.toLocaleString()}</td>
+              <td className="right">{vest.pending ? "—" : taxShares.toLocaleString()}</td>
+              <td className="right">{vest.pending ? "—" : (vest.shares - taxShares).toLocaleString()}</td>
+              <td className="right">{vest.pending ? "—" : `$${vest.vestPrice.toFixed(2)}`}</td>
+              <td className="right equity-amt">{vest.pending ? "—" : fmt(vest.shares * vest.vestPrice)}</td>
+              <td>{vest.pending ? <span style={{ color: "#888" }}>Scheduled</span> : <span style={{ color: "#16a34a" }}>Vested</span>}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
