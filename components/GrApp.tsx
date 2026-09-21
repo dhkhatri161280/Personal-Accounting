@@ -131,10 +131,20 @@ function normKey(name: string) {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+// The group name (`parent`) plus any user-configured MasterGroup override is the live source of
+// truth everywhere else in this app (see natureForRecon in ReconReport.tsx and classifyNature in
+// lib/net-worth-trend.ts, both of which check the override first) -- this used to be regex-only,
+// so a custom/renamed Tally group matching none of the patterns below silently fell through to
+// the "Asset" default even if the user had explicitly configured its real nature, inflating GR's
+// consolidated net worth exactly like the isBankAcct/isCcAcct name-only-matching bug did.
 function grNature(
-  parent: string
+  parent: string,
+  groupNatures: Map<string, string> = new Map()
 ): "Income" | "Expense" | "Bank" | "Cash" | "Capital" | "Liability" | "Asset" {
   const p = parent.toLowerCase();
+  if (p.includes("(asset)")) return "Asset";
+  const configured = groupNatures.get(p);
+  if (configured) return configured === "Investment" ? "Asset" : (configured as ReturnType<typeof grNature>);
   if (/bank accounts?$/i.test(p)) return "Bank";
   if (/cash.in.hand|petty cash/i.test(p)) return "Cash";
   if (/^(direct incomes?|indirect incomes?|sales accounts?)$/i.test(p)) return "Income";
@@ -153,6 +163,7 @@ export function GrApp() {
   const [phase, setPhase] = useState<Phase>("init");
   const [statusMsg, setStatusMsg] = useState("");
   const [gr, setGr] = useState<GrLedger | null>(null);
+  const [groupNatures, setGroupNatures] = useState<Map<string, string>>(new Map());
   const [fxRevaluation, setFxRevaluation] = useState<FxRevaluationPoint[]>([]);
   const [editMode, setEditMode] = useState(false);
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -321,6 +332,15 @@ export function GrApp() {
 
       const consolidated = consolidateLedger(usData, inData, rates);
       setGr(consolidated);
+      // Merge both books' user-configured group nature overrides (MasterGroup.nature) into one
+      // lookup grNature() checks before falling back to its regex patterns -- see grNature's own
+      // comment. India's overrides win on a name collision since it's applied second, matching
+      // no particular precedence requirement (a same-named group with conflicting natures across
+      // books would be an existing data inconsistency, not something this ordering creates).
+      const mergedGroupNatures = new Map<string, string>();
+      for (const g of usData.groups ?? []) mergedGroupNatures.set(g.name.toLowerCase(), g.nature);
+      for (const g of inData.groups ?? []) mergedGroupNatures.set(g.name.toLowerCase(), g.nature);
+      setGroupNatures(mergedGroupNatures);
       // US book's own native-USD net worth trend (no conversion) -- the input the FX Revaluation
       // section decomposes into real growth vs. currency movement using the same rate table.
       const usTrend = computeNetWorthTrend(usData.accounts, usData.transactions, usData.groups ?? []);
@@ -597,10 +617,10 @@ export function GrApp() {
       Math.abs(a.openingInr) > tol
   );
 
-  const incomeAccounts = activeAccounts.filter((a) => grNature(a.parent) === "Income");
-  const expenseAccounts = activeAccounts.filter((a) => grNature(a.parent) === "Expense");
+  const incomeAccounts = activeAccounts.filter((a) => grNature(a.parent, groupNatures) === "Income");
+  const expenseAccounts = activeAccounts.filter((a) => grNature(a.parent, groupNatures) === "Expense");
   const bankCashAccounts = activeAccounts.filter((a) =>
-    ["Bank", "Cash"].includes(grNature(a.parent))
+    ["Bank", "Cash"].includes(grNature(a.parent, groupNatures))
   );
 
   // Display order for the Cash & Bank Accounts breakdown: Credit Cards,
@@ -623,24 +643,24 @@ export function GrApp() {
 
   // Balance Sheet: classify all active non-P&L accounts — exclude zero closing (same as US/India)
   const bsAssets = activeAccounts
-    .filter((a) => ["Asset", "Bank", "Cash"].includes(grNature(a.parent)) && Math.abs(a.closingInr) > tol)
+    .filter((a) => ["Asset", "Bank", "Cash"].includes(grNature(a.parent, groupNatures)) && Math.abs(a.closingInr) > tol)
     .map(toRow);
   const bsLiabs = activeAccounts
-    .filter((a) => ["Liability", "Capital"].includes(grNature(a.parent)) && Math.abs(a.closingInr) > tol)
+    .filter((a) => ["Liability", "Capital"].includes(grNature(a.parent, groupNatures)) && Math.abs(a.closingInr) > tol)
     .map(toRow);
   // capitalTransfer = all-time net of income/expense accounts (credit-positive convention)
   // positive = surplus (income > expense) → shows on Liability side of BS
   const capitalTransfer = activeAccounts
-    .filter((a) => ["Income", "Expense"].includes(grNature(a.parent)))
+    .filter((a) => ["Income", "Expense"].includes(grNature(a.parent, groupNatures)))
     .reduce((s, a) => s + a.closingInr, 0);
 
   // Net Worth: real debt only (loans, credit cards, sundry creditors) -- excludes Capital
   // Account/Reserves & Surplus, which are the accumulated net worth itself, not money owed to
   // someone else (see BalanceSheetReport's bsLiabs above, which needs both for BS presentation).
   const nwLiabs = activeAccounts
-    .filter((a) => grNature(a.parent) === "Liability" && Math.abs(a.closingInr) > tol)
+    .filter((a) => grNature(a.parent, groupNatures) === "Liability" && Math.abs(a.closingInr) > tol)
     .map(toRow);
-  const netWorthTrend = computeGrNetWorthTrend(gr.accounts, gr.transactions, grNature);
+  const netWorthTrend = computeGrNetWorthTrend(gr.accounts, gr.transactions, (parent) => grNature(parent, groupNatures));
 
   // I&E rows for GroupedReport — use period-specific activity
   const ieExpenseRows = expenseAccounts
@@ -734,7 +754,7 @@ export function GrApp() {
   // Dashboard card account groups
   const investmentAccounts = activeAccounts.filter((a) => /investment/i.test(a.parent));
   const fixedAssetAccounts = activeAccounts.filter((a) => /fixed assets?/i.test(a.parent));
-  const capitalAccounts = activeAccounts.filter((a) => grNature(a.parent) === "Capital");
+  const capitalAccounts = activeAccounts.filter((a) => grNature(a.parent, groupNatures) === "Capital");
   // Assets are stored credit-positive so negate for display (same as BS Assets side)
   const dashInvestmentsTotal = investmentAccounts.reduce((s, a) => s - a.closingInr, 0);
   const dashFixedAssetsTotal = fixedAssetAccounts.reduce((s, a) => s - a.closingInr, 0);
@@ -1440,7 +1460,7 @@ export function GrApp() {
           {report === "trial" && (() => {
             const tbRows = [...activeAccounts]
               .map((a) => {
-                const isIE = ["Income", "Expense"].includes(grNature(a.parent));
+                const isIE = ["Income", "Expense"].includes(grNature(a.parent, groupNatures));
                 const pdr = periodCalc.dr.get(normKey(a.name)) || 0;
                 const pcr = periodCalc.cr.get(normKey(a.name)) || 0;
                 let dr: number, cr: number;
@@ -1779,7 +1799,7 @@ export function GrApp() {
                 { totalDrInr: 0, totalCrInr: 0, usDrUsd: 0, usCrUsd: 0 }
               );
               const periodNet = ps.totalDrInr - ps.totalCrInr;
-              const isIE = ["Income", "Expense"].includes(grNature(selectedAccount.parent));
+              const isIE = ["Income", "Expense"].includes(grNature(selectedAccount.parent, groupNatures));
               return (
                 <section className="drill-summary">
                   <div className="drill-summary-row">
@@ -1986,7 +2006,10 @@ export function GrApp() {
               <tbody>
                 {fxRevaluation.map((p) => (
                   <tr key={p.fy}>
-                    <td>{p.fy}</td>
+                    <td title={p.yearsSpanned > 1 ? `No US-book activity in between -- this figure spans ${p.yearsSpanned} fiscal years, not one.` : undefined}>
+                      {p.fy}
+                      {p.yearsSpanned > 1 && <span style={{ marginLeft: 4, opacity: 0.6 }}>⚠</span>}
+                    </td>
                     <td className="right">{fmt(p.realGrowthInr)}</td>
                     <td className="right" style={{ color: p.fxGainLossInr >= 0 ? "#16a34a" : "#dc2626" }}>
                       {fmt(p.fxGainLossInr)}

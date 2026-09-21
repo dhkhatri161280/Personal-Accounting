@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { ThemeProvider } from "@mui/material/styles";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
@@ -54,19 +54,6 @@ import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
 import { UnlockScreen } from "@/components/vault/UnlockScreen";
-import { GroupedReport } from "@/components/reports/GroupedReport";
-import { ColumnarIncomeExpenditure } from "@/components/reports/ColumnarIncomeExpenditure";
-import { ColumnarBalanceSheet } from "@/components/reports/ColumnarBalanceSheet";
-import { ColumnarCashFlow } from "@/components/reports/ColumnarCashFlow";
-import { BudgetVsActual } from "@/components/reports/BudgetVsActual";
-import { BankReconciliation } from "@/components/reports/BankReconciliation";
-import { MultiYearTrend } from "@/components/reports/MultiYearTrend";
-import { AuditLog } from "@/components/reports/AuditLog";
-import { FixedAssetRegister } from "@/components/reports/FixedAssetRegister";
-import { PrepaidExpenseRegister } from "@/components/reports/PrepaidExpenseRegister";
-import { LoanRegister } from "@/components/reports/LoanRegister";
-import { LoansAdvancesFxRegister } from "@/components/reports/LoansAdvancesFxRegister";
-import { PeriodCloseChecklist } from "@/components/reports/PeriodCloseChecklist";
 import { postAmortization } from "@/lib/prepaid-expense-ledger";
 import {
   FIXED_ASSETS_GROUP_NAME,
@@ -77,9 +64,6 @@ import {
   UNTAGGED_ASSET_FILTER,
 } from "@/lib/fixed-assets";
 import { autoSyncTaggedAssets, tagExistingAsset } from "@/lib/fixed-assets-ledger";
-import { FinancialRatios } from "@/components/reports/FinancialRatios";
-import { CashFlowForecast } from "@/components/reports/CashFlowForecast";
-import { FundSummary } from "@/components/reports/FundSummary";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
@@ -88,23 +72,47 @@ import { ExportButton } from "@/components/ExportButton";
 import { useExpandCollapseAll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
 import { computePendingEsppCycles, esppPurchasePrice } from "@/lib/payroll-401k";
-import { CashFlowReport } from "@/components/reports/CashFlowReport";
-import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
-import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
+import { equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
 import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
-import { EquityReport } from "@/components/reports/EquityReport";
-import { TradingReport } from "@/components/reports/TradingReport";
-import { RetirementReport } from "@/components/reports/RetirementReport";
-import { TaxReport } from "@/components/reports/TaxReport";
-import { IndiaTaxReport } from "@/components/reports/IndiaTaxReport";
-import { ReconReport } from "@/components/reports/ReconReport";
-import { BalanceConfirmationLetter } from "@/components/reports/BalanceConfirmationLetter";
 import { StatIcon } from "@/components/Icon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
+
+// Every "Reports" tab component below is lazy-loaded: VaultApp.tsx used to statically import all
+// 26 of these (15,676 combined lines), so every user got every report's JS on first load even
+// though a session typically only opens 1-2 reports -- this was by far the largest chunk in the
+// app (1.6MB uncompressed). Only whichever report `report === "..."` actually renders now pulls
+// in its own code, on demand. All report-render call sites are wrapped in one shared <Suspense>
+// (see the "reports" tab JSX below) since only one of these is ever mounted at a time anyway.
+const GroupedReport = lazy(() => import("@/components/reports/GroupedReport").then((m) => ({ default: m.GroupedReport })));
+const ColumnarIncomeExpenditure = lazy(() => import("@/components/reports/ColumnarIncomeExpenditure").then((m) => ({ default: m.ColumnarIncomeExpenditure })));
+const ColumnarBalanceSheet = lazy(() => import("@/components/reports/ColumnarBalanceSheet").then((m) => ({ default: m.ColumnarBalanceSheet })));
+const ColumnarCashFlow = lazy(() => import("@/components/reports/ColumnarCashFlow").then((m) => ({ default: m.ColumnarCashFlow })));
+const BudgetVsActual = lazy(() => import("@/components/reports/BudgetVsActual").then((m) => ({ default: m.BudgetVsActual })));
+const BankReconciliation = lazy(() => import("@/components/reports/BankReconciliation").then((m) => ({ default: m.BankReconciliation })));
+const MultiYearTrend = lazy(() => import("@/components/reports/MultiYearTrend").then((m) => ({ default: m.MultiYearTrend })));
+const AuditLog = lazy(() => import("@/components/reports/AuditLog").then((m) => ({ default: m.AuditLog })));
+const FixedAssetRegister = lazy(() => import("@/components/reports/FixedAssetRegister").then((m) => ({ default: m.FixedAssetRegister })));
+const PrepaidExpenseRegister = lazy(() => import("@/components/reports/PrepaidExpenseRegister").then((m) => ({ default: m.PrepaidExpenseRegister })));
+const LoanRegister = lazy(() => import("@/components/reports/LoanRegister").then((m) => ({ default: m.LoanRegister })));
+const LoansAdvancesFxRegister = lazy(() => import("@/components/reports/LoansAdvancesFxRegister").then((m) => ({ default: m.LoansAdvancesFxRegister })));
+const PeriodCloseChecklist = lazy(() => import("@/components/reports/PeriodCloseChecklist").then((m) => ({ default: m.PeriodCloseChecklist })));
+const FinancialRatios = lazy(() => import("@/components/reports/FinancialRatios").then((m) => ({ default: m.FinancialRatios })));
+const CashFlowForecast = lazy(() => import("@/components/reports/CashFlowForecast").then((m) => ({ default: m.CashFlowForecast })));
+const FundSummary = lazy(() => import("@/components/reports/FundSummary").then((m) => ({ default: m.FundSummary })));
+const CashFlowReport = lazy(() => import("@/components/reports/CashFlowReport").then((m) => ({ default: m.CashFlowReport })));
+const BalanceSheetReport = lazy(() => import("@/components/reports/BalanceSheetReport").then((m) => ({ default: m.BalanceSheetReport })));
+const NetWorthReport = lazy(() => import("@/components/reports/NetWorthReport").then((m) => ({ default: m.NetWorthReport })));
+const EquityReport = lazy(() => import("@/components/reports/EquityReport").then((m) => ({ default: m.EquityReport })));
+const TradingReport = lazy(() => import("@/components/reports/TradingReport").then((m) => ({ default: m.TradingReport })));
+const RetirementReport = lazy(() => import("@/components/reports/RetirementReport").then((m) => ({ default: m.RetirementReport })));
+const TaxReport = lazy(() => import("@/components/reports/TaxReport").then((m) => ({ default: m.TaxReport })));
+const IndiaTaxReport = lazy(() => import("@/components/reports/IndiaTaxReport").then((m) => ({ default: m.IndiaTaxReport })));
+const ReconReport = lazy(() => import("@/components/reports/ReconReport").then((m) => ({ default: m.ReconReport })));
+const BalanceConfirmationLetter = lazy(() => import("@/components/reports/BalanceConfirmationLetter").then((m) => ({ default: m.BalanceConfirmationLetter })));
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
@@ -3122,7 +3130,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </div>
           )}
           {importSource === "retirement" && book !== "india" && (
-            <RetirementReport data={data} fmt={fmt} onSave={(next) => save(next, "bank-import")} />
+            <Suspense fallback={<div className="data-panel">Loading report…</div>}>
+              <RetirementReport data={data} fmt={fmt} onSave={(next) => save(next, "bank-import")} />
+            </Suspense>
           )}
         </>
       )}
@@ -3409,7 +3419,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </div>
       )}
       {tab === "reports" && (
-        <>
+        <Suspense fallback={<div className="data-panel">Loading report…</div>}>
           {(() => {
             type ReportItem = { id: string; label: string; onClick: () => void };
             type ReportGroup = { id: string; label: string; items: ReportItem[] };
@@ -4346,7 +4356,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDrilldown={(req) => setColumnarDrilldown(req)}
             />
           )}
-        </>
+        </Suspense>
       )}
       {tab === "new" && (
         <div className="data-panel form-panel">

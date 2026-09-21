@@ -50,18 +50,29 @@ export function compute401kLifetimeTotals(payroll: PayrollData | undefined): { s
 // a brand-new offering period would otherwise show (nothing's been deducted yet in the first few
 // days of a new cycle). NVIDIA pays semi-monthly (24 periods/year), so this is meant to be
 // multiplied by ~12 periods per 6-month ESPP cycle by the caller.
+//
+// Same staleness class 401(k) had (see compute401kByYear above): a voucher-derived period posted
+// since the last Excel re-import is otherwise entirely missing here, so a just-changed ESPP
+// contribution rate wouldn't be picked up as "most recent" until the next re-import.
 export function mostRecentEsppPerPeriod(payroll: PayrollData | undefined): number {
   if (!payroll) return 0;
   const candidates: { end: string; value: number }[] = [];
   for (const y of payroll.years) {
     const esppRow = row(y.rows, "ESPP");
-    if (!esppRow) continue;
-    for (let i = 0; i < y.periodLabels.length; i++) {
-      const value = esppRow.values[i] ?? 0;
-      if (value <= 0) continue;
-      const range = parsePeriodRange(y.periodLabels[i], y.year);
+    if (esppRow) {
+      for (let i = 0; i < y.periodLabels.length; i++) {
+        const value = esppRow.values[i] ?? 0;
+        if (value <= 0) continue;
+        const range = parsePeriodRange(y.periodLabels[i], y.year);
+        if (!range) continue;
+        candidates.push({ end: range.end, value });
+      }
+    }
+    for (const m of y.manualPeriods ?? []) {
+      if (m.periodIndex !== undefined || !m.espp || m.espp <= 0) continue;
+      const range = parsePeriodRange(m.label, y.year);
       if (!range) continue;
-      candidates.push({ end: range.end, value });
+      candidates.push({ end: range.end, value: m.espp });
     }
   }
   candidates.sort((a, b) => b.end.localeCompare(a.end));
@@ -83,13 +94,25 @@ function realEsppByPeriodEnd(payroll: PayrollData | undefined): Map<string, numb
   if (!payroll) return map;
   for (const y of payroll.years) {
     const esppRow = row(y.rows, "ESPP");
-    if (!esppRow) continue;
-    for (let i = 0; i < y.periodLabels.length; i++) {
-      const value = esppRow.values[i] ?? 0;
-      if (value <= 0) continue;
-      const range = parsePeriodRange(y.periodLabels[i], y.year);
+    if (esppRow) {
+      for (let i = 0; i < y.periodLabels.length; i++) {
+        const value = esppRow.values[i] ?? 0;
+        if (value <= 0) continue;
+        const range = parsePeriodRange(y.periodLabels[i], y.year);
+        if (!range) continue;
+        map.set(range.end, value);
+      }
+    }
+    // Voucher-derived periods (posted from a paystub, not yet reflected in a re-import) --
+    // same reason compute401kByYear/mostRecentEsppPerPeriod above add these on top of the Excel
+    // columns: without this, a recently posted ESPP deduction is invisible to the $21,250/year
+    // cap simulation and it keeps applying the old projected rate past where the real plan
+    // would have paused.
+    for (const m of y.manualPeriods ?? []) {
+      if (m.periodIndex !== undefined || !m.espp || m.espp <= 0) continue;
+      const range = parsePeriodRange(m.label, y.year);
       if (!range) continue;
-      map.set(range.end, value);
+      map.set(range.end, m.espp);
     }
   }
   return map;

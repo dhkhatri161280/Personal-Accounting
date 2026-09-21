@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { getApplicableDailyRate, type DailyFxRates } from "@/lib/fx-daily";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
@@ -48,6 +48,13 @@ export function LoansAdvancesFxRegister({
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  // "historical" (default, matches how this register originally shipped): each row's Balance is
+  // the running sum of every transaction translated at ITS OWN date's rate. "mtm": every Balance
+  // figure instead revalues the current INR balance at TODAY's rate, like a bank statement's
+  // "value in USD today" -- Debit/Credit amounts stay historical either way (what that specific
+  // payment was actually worth on the day it happened doesn't change retroactively).
+  const [valuationMode, setValuationMode] = useState<"historical" | "mtm">("historical");
+  const todayStr = todayLocalIso();
 
   const groupAccounts = useMemo(
     () =>
@@ -103,8 +110,11 @@ export function LoansAdvancesFxRegister({
     for (const r of periodRows) set.add(r.date);
     for (const e of priorEntries) set.add(e.date);
     if (selectedAccount && selectedAccount.openingBalance !== 0) set.add(periodStart);
+    // Always fetched (not just when mark-to-market is selected) so switching the toggle is
+    // instant, no fetch-on-demand delay.
+    set.add(todayStr);
     return Array.from(set).sort().join(",");
-  }, [periodRows, priorEntries, selectedAccount, periodStart]);
+  }, [periodRows, priorEntries, selectedAccount, periodStart, todayStr]);
 
   useEffect(() => {
     const neededDates = neededDatesKey ? neededDatesKey.split(",") : [];
@@ -158,6 +168,8 @@ export function LoansAdvancesFxRegister({
   }, [selectedAccount, priorEntries, dailyRates, periodStart]);
 
   const openingInr = -openingRawInr;
+  const todaysRate = getApplicableDailyRate(dailyRates, todayStr);
+  const openingUsdMtm = openingInr / todaysRate;
 
   let runningRawInr = openingRawInr;
   let runningUsd = openingUsd;
@@ -166,11 +178,21 @@ export function LoansAdvancesFxRegister({
     const rate = getApplicableDailyRate(dailyRates, r.date);
     const amountUsd = -r.amountInr / rate;
     runningUsd += amountUsd;
-    return { ...r, rate, amountUsd, balanceInr: -runningRawInr, balanceUsd: runningUsd };
+    const balanceInr = -runningRawInr;
+    return {
+      ...r,
+      rate,
+      amountUsd,
+      balanceInr,
+      balanceUsd: valuationMode === "mtm" ? balanceInr / todaysRate : runningUsd,
+    };
   });
 
   const closingInr = -runningRawInr;
-  const closingUsd = runningUsd;
+  const closingUsdHistorical = runningUsd;
+  const closingUsdMtm = closingInr / todaysRate;
+  const openingUsdDisplay = valuationMode === "mtm" ? openingUsdMtm : openingUsd;
+  const closingUsd = valuationMode === "mtm" ? closingUsdMtm : closingUsdHistorical;
   const totalDebitInr = periodRows.filter((r) => r.amountInr < 0).reduce((s, r) => s - r.amountInr, 0);
   const totalCreditInr = periodRows.filter((r) => r.amountInr > 0).reduce((s, r) => s + r.amountInr, 0);
   // Kept in the same signed polarity each row's own USD sub-line already shows (Lent positive,
@@ -185,9 +207,10 @@ export function LoansAdvancesFxRegister({
       <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
         Every voucher posted to the selected "Loans &amp; Advances (Asset)" ledger, translated to USD at the
         INR/USD rate on that transaction's own date (sourced from frankfurter.app, cached once per date). Lent
-        (Dr) increases the outstanding USD balance; Repaid (Cr) reduces it — a running historical-cost USD
-        balance, not a mark-to-market revaluation of the whole balance at today's rate. Follows the header's
-        Financial period selector, same as every other report.
+        (Dr)/Repaid (Cr) amounts always show what that specific payment was worth in USD on the day it happened.
+        The Balance column follows the toggle below: Historical-cost accumulates each payment's own-date USD
+        value; Mark-to-market instead revalues today's outstanding INR balance at today's rate. Follows the
+        header's Financial period selector, same as every other report.
       </p>
       {groupAccounts.length === 0 ? (
         <p style={{ opacity: 0.7 }}>No ledgers found under "Loans &amp; Advances (Asset)".</p>
@@ -204,6 +227,13 @@ export function LoansAdvancesFxRegister({
                 ))}
               </select>
             </label>
+            <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, marginLeft: 16 }}>
+              Balance valuation
+              <select value={valuationMode} onChange={(e) => setValuationMode(e.target.value as "historical" | "mtm")}>
+                <option value="historical">Historical-cost</option>
+                <option value="mtm">Mark-to-market (today's rate)</option>
+              </select>
+            </label>
             {status === "loading" && <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 10 }}>Loading FX rates…</span>}
             {status === "error" && (
               <span style={{ fontSize: 12, color: "#dc2626", marginLeft: 10 }}>Couldn't load some FX rates: {errorMsg}</span>
@@ -218,7 +248,10 @@ export function LoansAdvancesFxRegister({
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, margin: "0 0 6px" }}>
                 <span style={{ fontSize: 12, opacity: 0.7 }}>
-                  Opening: {fmt(openingInr)} ≈ {usdFmt(openingUsd)} &nbsp;·&nbsp; Closing: {fmt(closingInr)} ≈ {usdFmt(closingUsd)}
+                  Opening: {fmt(openingInr)} ≈ {usdFmt(openingUsdDisplay)} &nbsp;·&nbsp; Closing: {fmt(closingInr)} ≈ {usdFmt(closingUsd)}
+                  {valuationMode === "mtm" && (
+                    <span title={`Today's rate: ${todaysRate.toFixed(4)} (${fmtDate(todayStr)})`}> · MTM @ {todaysRate.toFixed(4)}</span>
+                  )}
                 </span>
                 {periodRows.length > 0 && (
                   <ExportButton

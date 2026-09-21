@@ -74,7 +74,8 @@ export function neededRateMonths(usTxns: Tx[]): string[] {
 }
 
 export type FxRevaluationPoint = {
-  fy: string; // "FYxx-yy" label
+  fy: string; // "FYxx-yy" label, or "FYxx-yy → FYzz-ww" when yearsSpanned > 1
+  yearsSpanned: number; // 1 for a normal consecutive-FY point; >1 when an inactive FY in between was skipped
   realGrowthInr: number;
   fxGainLossInr: number;
   totalChangeInr: number;
@@ -101,8 +102,18 @@ export function computeFxRevaluation(
     const rateEnd = getApplicableRate(fxRates, curr.fyEndDate);
     const realGrowthInr = (curr.netWorth - prev.netWorth) * rateEnd;
     const fxGainLossInr = prev.netWorth * (rateEnd - rateStart);
+    // usTrend only has a point for a fiscal year that actually contained a transaction (see
+    // computeNetWorthTrend) -- an inactive FY in between (no US-book activity that year) is
+    // simply absent from the array, so `curr` right after `prev` isn't guaranteed to be the very
+    // next fiscal year. Both fyEndDate values are always "YYYY-03-31", so the FY number is just
+    // that year minus 1. Label the point with the real multi-year span it covers instead of
+    // silently attributing a 2+ year change to what looks like a single FY.
+    const prevFy = Number(prev.fyEndDate.slice(0, 4)) - 1;
+    const currFy = Number(curr.fyEndDate.slice(0, 4)) - 1;
+    const yearsSpanned = currFy - prevFy;
     points.push({
-      fy: curr.label,
+      fy: yearsSpanned > 1 ? `${prev.label} → ${curr.label}` : curr.label,
+      yearsSpanned,
       realGrowthInr,
       fxGainLossInr,
       totalChangeInr: realGrowthInr + fxGainLossInr,
@@ -225,10 +236,14 @@ export function consolidateLedger(
     if (!ga.sources.includes("IN")) ga.sources.push("IN");
     const dr = inDr.get(acc.id) || 0,
       cr = inCr.get(acc.id) || 0;
-    ga.inOpeningInr = acc.openingBalance;
-    ga.inDebitInr = dr;
-    ga.inCreditInr = cr;
-    ga.inClosingInr = acc.openingBalance - dr + cr;
+    // += , not = -- two distinct accounts (different real accountId) can share one normKey()
+    // bucket here (duplicate/whitespace-differing ledger name), and a plain assignment would
+    // silently discard whichever account got merged into the bucket first instead of summing
+    // both into the consolidated figure.
+    ga.inOpeningInr += acc.openingBalance;
+    ga.inDebitInr += dr;
+    ga.inCreditInr += cr;
+    ga.inClosingInr += acc.openingBalance - dr + cr;
   }
 
   // US accounts: convert at per-tx rates, track native totals for closing USD
@@ -267,11 +282,13 @@ export function consolidateLedger(
       (usDrNative.get(acc.id) || 0) +
       (usCrNative.get(acc.id) || 0);
 
-    ga.usOpeningUsd = acc.openingBalance;
-    ga.usOpeningInr = acc.openingBalance * latestRate;
-    ga.usDebitInr = drInr;
-    ga.usCreditInr = crInr;
-    ga.usClosingUsd = closingUsd;
+    // += , not = -- same reason as the IN loop above: two distinct US accounts can normalize to
+    // the same getAcc() bucket, and assignment would silently drop the first one's contribution.
+    ga.usOpeningUsd += acc.openingBalance;
+    ga.usOpeningInr += acc.openingBalance * latestRate;
+    ga.usDebitInr += drInr;
+    ga.usCreditInr += crInr;
+    ga.usClosingUsd += closingUsd;
 
     // Historic INR closing (what per-rate conversion gives)
     const historicInr = acc.openingBalance * latestRate - drInr + crInr;
@@ -282,7 +299,7 @@ export function consolidateLedger(
     totalFxAdj += fxDiff;
 
     // Use fair-value so zero-USD accounts → zero INR contribution
-    ga.usClosingInr = fairInr;
+    ga.usClosingInr += fairInr;
   }
 
   // Combine account totals
