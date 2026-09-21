@@ -20,16 +20,34 @@ type LedgerRow = {
   amountInr: number; // signed, this app's convention: negative = debit (lent), positive = credit (repaid)
 };
 
-// Translates every posting to the India book's "Loans & Advances (Asset)" ledgers into USD using
-// the real INR/USD rate on each transaction's own date -- funds lent out of this book are really
+// Translates postings to one India-book "Loans & Advances (Asset)" ledger into USD using the real
+// INR/USD rate on each transaction's own date -- funds lent out of this book are really
 // US-sourced money, so seeing the outstanding balance in USD terms (not just INR) matters for
 // gauging real exposure. Deliberately a separate daily-rate lookup (lib/fx-daily.ts) from the
 // monthly-average one GR Consolidated uses elsewhere -- that one is a previous-month approximation,
 // this feature was explicitly asked to use the literal date's rate.
-export function LoansAdvancesFxRegister({ data, fmt }: { data: Ledger; fmt: (n: number) => string }) {
+//
+// Styled and scoped like the app's own single-ledger drill-down (opening balance folded from
+// everything before the period, only in-period postings listed, running balance per row) and
+// follows the header's "Financial period" selector via periodStart/periodEnd -- the same
+// convention FundSummary already uses (see VaultApp.tsx's fundSummaryStart/fundSummaryEnd).
+export function LoansAdvancesFxRegister({
+  data,
+  fmt,
+  periodStart,
+  periodEnd,
+  periodLabel,
+}: {
+  data: Ledger;
+  fmt: (n: number) => string;
+  periodStart: string;
+  periodEnd: string;
+  periodLabel: string;
+}) {
   const [dailyRates, setDailyRates] = useState<DailyFxRates>({});
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const groupAccounts = useMemo(
     () =>
@@ -39,33 +57,54 @@ export function LoansAdvancesFxRegister({ data, fmt }: { data: Ledger; fmt: (n: 
     [data.accounts]
   );
 
-  const rowsByAccount = useMemo(() => {
-    const map = new Map<number, LedgerRow[]>();
-    for (const acc of groupAccounts) map.set(acc.id, []);
+  useEffect(() => {
+    if (groupAccounts.length === 0) {
+      if (selectedId !== null) setSelectedId(null);
+    } else if (selectedId === null || !groupAccounts.some((a) => a.id === selectedId)) {
+      setSelectedId(groupAccounts[0].id);
+    }
+  }, [groupAccounts, selectedId]);
+
+  const selectedAccount = groupAccounts.find((a) => a.id === selectedId) ?? null;
+
+  // Opening balance = ledger's static opening + every posting dated before the period, folded
+  // into one figure (raw sign convention: negative = net debit). Only postings within
+  // [periodStart, periodEnd] are kept as visible rows, matching VaultApp's own `calc`.
+  const { openingRawInr, priorEntries, periodRows } = useMemo(() => {
+    if (!selectedAccount) return { openingRawInr: 0, priorEntries: [] as { date: string; amount: number }[], periodRows: [] as LedgerRow[] };
+    let openingRawInr = selectedAccount.openingBalance;
+    const priorEntries: { date: string; amount: number }[] = [];
+    const rows: LedgerRow[] = [];
     for (const t of data.transactions) {
       if (t.deleted || t.cancelled) continue;
       for (const e of t.entries) {
-        const rows = map.get(e.accountId);
-        if (!rows) continue;
-        rows.push({
-          key: `${t.guid}-${e.accountId}`,
-          date: t.date,
-          voucherType: t.type,
-          voucherNumber: t.number,
-          narration: t.narration,
-          amountInr: e.amount,
-        });
+        if (e.accountId !== selectedAccount.id) continue;
+        if (t.date < periodStart) {
+          openingRawInr += e.amount;
+          priorEntries.push({ date: t.date, amount: e.amount });
+        } else if (t.date <= periodEnd) {
+          rows.push({
+            key: `${t.guid}-${e.accountId}`,
+            date: t.date,
+            voucherType: t.type,
+            voucherNumber: t.number,
+            narration: t.narration,
+            amountInr: e.amount,
+          });
+        }
       }
     }
-    for (const rows of map.values()) rows.sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
-    return map;
-  }, [data.transactions, groupAccounts]);
+    rows.sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
+    return { openingRawInr, priorEntries, periodRows: rows };
+  }, [data.transactions, selectedAccount, periodStart, periodEnd]);
 
   const neededDatesKey = useMemo(() => {
     const set = new Set<string>();
-    for (const rows of rowsByAccount.values()) for (const r of rows) set.add(r.date);
+    for (const r of periodRows) set.add(r.date);
+    for (const e of priorEntries) set.add(e.date);
+    if (selectedAccount && selectedAccount.openingBalance !== 0) set.add(periodStart);
     return Array.from(set).sort().join(",");
-  }, [rowsByAccount]);
+  }, [periodRows, priorEntries, selectedAccount, periodStart]);
 
   useEffect(() => {
     const neededDates = neededDatesKey ? neededDatesKey.split(",") : [];
@@ -109,110 +148,166 @@ export function LoansAdvancesFxRegister({ data, fmt }: { data: Ledger; fmt: (n: 
     };
   }, [neededDatesKey]);
 
+  // openingUsd carries the same "positive = net amount lent out" polarity as each row's own
+  // translated amountUsd below, so the running total can just keep adding onto it.
+  const openingUsd = useMemo(() => {
+    if (!selectedAccount) return 0;
+    let usd = selectedAccount.openingBalance !== 0 ? -selectedAccount.openingBalance / getApplicableDailyRate(dailyRates, periodStart) : 0;
+    for (const e of priorEntries) usd += -e.amount / getApplicableDailyRate(dailyRates, e.date);
+    return usd;
+  }, [selectedAccount, priorEntries, dailyRates, periodStart]);
+
+  const openingInr = -openingRawInr;
+
+  let runningRawInr = openingRawInr;
+  let runningUsd = openingUsd;
+  const rendered = periodRows.map((r) => {
+    runningRawInr += r.amountInr;
+    const rate = getApplicableDailyRate(dailyRates, r.date);
+    const amountUsd = -r.amountInr / rate;
+    runningUsd += amountUsd;
+    return { ...r, rate, amountUsd, balanceInr: -runningRawInr, balanceUsd: runningUsd };
+  });
+
+  const closingInr = -runningRawInr;
+  const closingUsd = runningUsd;
+  const totalDebitInr = periodRows.filter((r) => r.amountInr < 0).reduce((s, r) => s - r.amountInr, 0);
+  const totalCreditInr = periodRows.filter((r) => r.amountInr > 0).reduce((s, r) => s + r.amountInr, 0);
+
   return (
     <div className="data-panel">
       <h3>Loans &amp; Advances — USD Translation</h3>
       <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Every voucher posted to the India book's "Loans &amp; Advances (Asset)" ledgers, translated to USD at the
+        Every voucher posted to the selected "Loans &amp; Advances (Asset)" ledger, translated to USD at the
         INR/USD rate on that transaction's own date (sourced from frankfurter.app, cached once per date). Lent
         (Dr) increases the outstanding USD balance; Repaid (Cr) reduces it — a running historical-cost USD
-        balance, not a mark-to-market revaluation of the whole balance at today's rate.
+        balance, not a mark-to-market revaluation of the whole balance at today's rate. Follows the header's
+        Financial period selector, same as every other report.
       </p>
-      {status === "loading" && <p style={{ fontSize: 12, opacity: 0.7 }}>Loading FX rates…</p>}
-      {status === "error" && (
-        <p style={{ fontSize: 12, color: "#dc2626" }}>Couldn't load some FX rates: {errorMsg}</p>
-      )}
       {groupAccounts.length === 0 ? (
         <p style={{ opacity: 0.7 }}>No ledgers found under "Loans &amp; Advances (Asset)".</p>
       ) : (
-        groupAccounts.map((acc) => {
-          const rows = rowsByAccount.get(acc.id) ?? [];
-          let runningUsd = 0;
-          const rendered = rows.map((r) => {
-            const rate = getApplicableDailyRate(dailyRates, r.date);
-            const amountUsd = -r.amountInr / rate;
-            runningUsd += amountUsd;
-            return { ...r, rate, amountUsd, runningUsd };
-          });
-          const currentBalanceInr = rows.reduce((s, r) => s - r.amountInr, acc.openingBalance);
-          const currentBalanceUsd = rendered.length ? rendered[rendered.length - 1].runningUsd : 0;
-          return (
-            <div key={acc.id} style={{ marginBottom: "1.5rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 6px" }}>
-                <h4 style={{ margin: 0 }}>{acc.name}</h4>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, opacity: 0.7 }}>
-                    Outstanding: {fmt(currentBalanceInr)} ≈ {usdFmt(currentBalanceUsd)}
-                  </span>
-                  {rows.length > 0 && (
-                    <ExportButton
-                      onExport={async () => {
-                        const header = ["Date", "Voucher Type", "Voucher #", "Narration", "Amount (INR)", "FX Rate", "Amount (USD)", "Running Balance (USD)"];
-                        const body = rendered.map((r) => [
-                          fmtDate(r.date),
-                          r.voucherType,
-                          r.voucherNumber,
-                          r.narration,
-                          -r.amountInr,
-                          r.rate,
-                          r.amountUsd,
-                          r.runningUsd,
-                        ]);
-                        await exportWorkbook(`${acc.name} - USD Translation.xlsx`, [{ name: "USD Translation", rows: [header, ...body] }]);
-                      }}
-                    />
-                  )}
-                </div>
+        <>
+          <div className="report-line" style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
+              Ledger
+              <select value={selectedId ?? ""} onChange={(e) => setSelectedId(Number(e.target.value))}>
+                {groupAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {status === "loading" && <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 10 }}>Loading FX rates…</span>}
+            {status === "error" && (
+              <span style={{ fontSize: 12, color: "#dc2626", marginLeft: 10 }}>Couldn't load some FX rates: {errorMsg}</span>
+            )}
+          </div>
+
+          {selectedAccount && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, margin: "0 0 4px" }}>
+                <h4 style={{ margin: 0 }}>{selectedAccount.name}</h4>
+                <span style={{ fontSize: 12, opacity: 0.7 }}>{periodLabel}</span>
               </div>
-              {rows.length === 0 ? (
-                <p style={{ fontSize: 12, opacity: 0.6 }}>No postings on this ledger.</p>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, margin: "0 0 6px" }}>
+                <span style={{ fontSize: 12, opacity: 0.7 }}>
+                  Opening: {fmt(openingInr)} ≈ {usdFmt(openingUsd)} &nbsp;·&nbsp; Closing: {fmt(closingInr)} ≈ {usdFmt(closingUsd)}
+                </span>
+                {periodRows.length > 0 && (
+                  <ExportButton
+                    onExport={async () => {
+                      const header = ["Date", "Voucher Type", "Voucher #", "Narration", "Debit (INR)", "Credit (INR)", "FX Rate", "Amount (USD)", "Running Balance (INR)", "Running Balance (USD)"];
+                      const body = rendered.map((r) => [
+                        fmtDate(r.date),
+                        r.voucherType,
+                        r.voucherNumber,
+                        r.narration,
+                        r.amountInr < 0 ? -r.amountInr : "",
+                        r.amountInr > 0 ? r.amountInr : "",
+                        r.rate,
+                        r.amountUsd,
+                        r.balanceInr,
+                        r.balanceUsd,
+                      ]);
+                      await exportWorkbook(`${selectedAccount.name} - USD Translation.xlsx`, [{ name: "USD Translation", rows: [header, ...body] }]);
+                    }}
+                  />
+                )}
+              </div>
+              {periodRows.length === 0 ? (
+                <p style={{ fontSize: 12, opacity: 0.6 }}>No postings on this ledger in {periodLabel}.</p>
               ) : (
-                <div className="columnar-report-scroll">
-                  <table className="columnar-report-table budget-table">
+                <div style={{ overflowX: "auto" }}>
+                  <table className="fx-ledger-table">
                     <thead>
                       <tr>
                         <th>Date</th>
                         <th>Voucher</th>
-                        <th>Narration</th>
-                        <th className="right">Lent (Dr)</th>
-                        <th className="right">Repaid (Cr)</th>
-                        <th className="right">FX Rate</th>
-                        <th className="right">USD Amount</th>
-                        <th className="right">Running USD Balance</th>
+                        <th className="fx-narration">Narration</th>
+                        <th className="right">Debit</th>
+                        <th className="right">Credit</th>
+                        <th className="right">Balance</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rendered.map((r) => (
-                        <tr key={r.key}>
-                          <td>{fmtDate(r.date)}</td>
-                          <td>
-                            {r.voucherType} {r.voucherNumber}
-                          </td>
-                          <td>{r.narration || "—"}</td>
-                          <td className="right">{r.amountInr < 0 ? fmt(-r.amountInr) : "—"}</td>
-                          <td className="right">{r.amountInr > 0 ? fmt(r.amountInr) : "—"}</td>
-                          <td className="right">{r.rate.toFixed(4)}</td>
-                          <td className="right">{usdFmt(r.amountUsd)}</td>
-                          <td className="right">{usdFmt(r.runningUsd)}</td>
-                        </tr>
-                      ))}
+                      {rendered.map((r) => {
+                        const rateTitle = `FX rate ${r.rate.toFixed(4)} on ${fmtDate(r.date)}`;
+                        return (
+                          <tr key={r.key}>
+                            <td>{fmtDate(r.date)}</td>
+                            <td>
+                              {r.voucherType} {r.voucherNumber}
+                            </td>
+                            <td className="fx-narration" title={r.narration}>
+                              {r.narration || "—"}
+                            </td>
+                            <td className="right" title={r.amountInr < 0 ? rateTitle : undefined}>
+                              {r.amountInr < 0 ? (
+                                <>
+                                  {fmt(-r.amountInr)}
+                                  <span className="fx-usd-sub">≈ {usdFmt(r.amountUsd)}</span>
+                                </>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="right" title={r.amountInr > 0 ? rateTitle : undefined}>
+                              {r.amountInr > 0 ? (
+                                <>
+                                  {fmt(r.amountInr)}
+                                  <span className="fx-usd-sub">≈ {usdFmt(r.amountUsd)}</span>
+                                </>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="right">
+                              {fmt(r.balanceInr)}
+                              <span className="fx-usd-sub">≈ {usdFmt(r.balanceUsd)}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr>
                         <td colSpan={3}>Total</td>
-                        <td className="right">{fmt(rows.filter((r) => r.amountInr < 0).reduce((s, r) => s - r.amountInr, 0))}</td>
-                        <td className="right">{fmt(rows.filter((r) => r.amountInr > 0).reduce((s, r) => s + r.amountInr, 0))}</td>
-                        <td></td>
-                        <td></td>
-                        <td className="right">{usdFmt(currentBalanceUsd)}</td>
+                        <td className="right">{fmt(totalDebitInr)}</td>
+                        <td className="right">{fmt(totalCreditInr)}</td>
+                        <td className="right">
+                          {fmt(closingInr)}
+                          <span className="fx-usd-sub">≈ {usdFmt(closingUsd)}</span>
+                        </td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
               )}
             </div>
-          );
-        })
+          )}
+        </>
       )}
     </div>
   );

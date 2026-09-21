@@ -4313,7 +4313,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <LoanRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
           )}
           {report === "loansfx" && data && book === "india" && (
-            <LoansAdvancesFxRegister data={data} fmt={fmt} />
+            <LoansAdvancesFxRegister
+              data={data}
+              fmt={fmt}
+              periodStart={fundSummaryStart}
+              periodEnd={fundSummaryEnd}
+              periodLabel={periodLabel}
+            />
           )}
           {report === "closechecklist" && data && (
             <PeriodCloseChecklist

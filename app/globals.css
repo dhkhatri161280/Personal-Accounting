@@ -2924,6 +2924,59 @@ aside .install-app {
   font-size: var(--fs-md);
   padding-top: 8px;
 }
+/* Compact Tally-style single-ledger table (LoansAdvancesFxRegister) -- deliberately few, narrow
+   columns (Date/Voucher/Narration/Debit/Credit/Balance) instead of one column per figure, so an
+   FX-translated register fits the page width without horizontal scroll; each amount cell carries
+   its USD-equivalent as a smaller second line rather than a separate column. */
+.fx-ledger-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.fx-ledger-table th,
+.fx-ledger-table td {
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.fx-ledger-table th.right,
+.fx-ledger-table td.right {
+  text-align: right;
+}
+.fx-ledger-table th.fx-narration,
+.fx-ledger-table td.fx-narration {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  cursor: default;
+}
+.fx-ledger-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f8faff;
+  font-size: 11px;
+  color: #64748b;
+  border-bottom: 1px solid #dce2eb;
+}
+.fx-ledger-table tbody tr {
+  border-bottom: 1px solid #edf0f4;
+}
+.fx-ledger-table tbody tr:hover {
+  background: #f8faff;
+}
+.fx-ledger-table tfoot td {
+  border-top: 2px solid #dce2eb;
+  font-weight: 600;
+  padding-top: 7px;
+}
+.fx-usd-sub {
+  display: block;
+  font-size: 10px;
+  opacity: 0.6;
+  margin-top: 1px;
+  font-weight: 400;
+}
 /* Mobile card layout for TransactionTable's `mobileCards` opt-in (Day Book only for now) --
    replaces the horizontally-scrolling table below a phone-width breakpoint (see
    hooks/useIsNarrowViewport.ts) with a vertically-stacked list, same data/actions. */
