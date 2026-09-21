@@ -97,6 +97,25 @@ export function classifySchwabActivity(activities: SchwabActivity[]): Classified
   return { trades, transfersIn, dividendsInterest, other };
 }
 
+// A pure share movement between the user's OWN Schwab accounts (Equity Award Center -> Trust),
+// never a real new vest deposit or purchase -- Schwab's Trader API reports this as type
+// "RECEIVE_AND_DELIVER" with netAmount 0 (no cash moved) and an EQUITY leg. Same idea as
+// findUnpairedPositiveJournalActivities above (recognizing an internal cash sweep so it's never
+// mistaken for new income), just for shares instead of cash.
+//
+// Safe to treat this signature as ALWAYS an internal transfer only because this app's Schwab
+// connection is to the Trust account specifically, and real vests always land in Equity Award
+// Center first (a separate, unconnected account) -- they never arrive directly in Trust. If the
+// connected account ever changes to one vests can land in directly, this assumption would need
+// revisiting (a genuine new vest could then carry the same RECEIVE_AND_DELIVER/$0 signature).
+export function isInternalEquityTransfer(a: SchwabActivity): boolean {
+  return (
+    a.type === "RECEIVE_AND_DELIVER" &&
+    Math.abs(a.netAmount) < 0.005 &&
+    a.transferItems.some((t) => t.instrument?.assetType === "EQUITY")
+  );
+}
+
 // Narration a posted dividend/interest voucher for this activity carries -- shared between the
 // posting function and any future "already recorded" check, same convention as
 // TradingReport's incomeNarration for CSV rows.

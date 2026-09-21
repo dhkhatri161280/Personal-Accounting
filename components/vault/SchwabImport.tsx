@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import {
   classifySchwabActivity,
   findUnpairedPositiveJournalActivities,
+  isInternalEquityTransfer,
   primaryInstrument,
   activityNarration,
   type SchwabActivity,
@@ -122,7 +123,7 @@ function applySchwabSync(trades: Trade[], actions: SchwabSyncAction[], todayIso:
   return next;
 }
 
-type ImportedActivity = { activityId: number; kind: "trade" | "transferIn" | "dividendInterest" | "vest" | "esppPurchase" | "dismissed"; importedAt: string };
+type ImportedActivity = { activityId: number; kind: "trade" | "transferIn" | "dividendInterest" | "vest" | "esppPurchase" | "dismissed" | "internalTransfer"; importedAt: string };
 
 function isEquitySymbol(a: SchwabActivity): boolean {
   const inst = primaryInstrument(a);
@@ -270,7 +271,14 @@ export function SchwabImport({ data, onSave }: Props) {
   // NVDA (and anything else in SCHWAB_SYNC_EXCLUDE) is RSU-sourced and tracked in the Equity
   // report, not Trading -- split out BEFORE classifying so it can never end up with a "Confirm
   // cost basis" button that would create a duplicate/wrong Trading lot for it.
-  const equityOnly = useMemo(() => pending.filter(isEquitySymbol), [pending]);
+  const equityCandidates = useMemo(() => pending.filter(isEquitySymbol), [pending]);
+  // Shares journaled in from Equity Award Center (a separate, unconnected account) -- never a
+  // real new vest, since this app's Schwab connection is Trust-only and vests always land in
+  // Equity Award Center first. Auto-recognized and excluded from the review list entirely (see
+  // the effect below), same treatment findUnpairedPositiveJournalActivities already gives a
+  // recognized cash sweep between the user's own accounts -- no manual dismiss needed.
+  const internalTransfers = useMemo(() => equityCandidates.filter(isInternalEquityTransfer), [equityCandidates]);
+  const equityOnly = useMemo(() => equityCandidates.filter((a) => !isInternalEquityTransfer(a)), [equityCandidates]);
   const tradingPending = useMemo(() => pending.filter((a) => !isEquitySymbol(a)), [pending]);
   const classified = useMemo(() => classifySchwabActivity(tradingPending), [tradingPending]);
 
@@ -279,6 +287,24 @@ export function SchwabImport({ data, onSave }: Props) {
     await apiFetch("/api/schwab/imported-activities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setImported((prev) => [...prev, { ...body, importedAt: new Date().toISOString() }]);
   }
+
+  // Silently marks each recognized internal transfer as tracked -- fires once per activity as it
+  // shows up (the underlying `pending` list shrinks as each one gets marked, so this naturally
+  // stops re-firing once none are left), no user interaction required.
+  useEffect(() => {
+    if (internalTransfers.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const a of internalTransfers) {
+        if (cancelled) return;
+        await markImported(a, "internalTransfer");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [internalTransfers]);
 
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
 
