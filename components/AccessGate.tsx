@@ -76,9 +76,17 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
     setHasBiometric(configured);
     const existing = getAccessToken();
     if (existing) {
-      apiFetch("/api/auth/verify")
+      // Nothing renders while status is "checking" (see below) -- an unbounded network hang
+      // here (a flaky connection, a corporate proxy, anything) would otherwise leave the whole
+      // app showing a blank page forever with no way to recover except clearing site data.
+      // Bounded to 8s so the user always sees SOMETHING (falls back to the access-code form,
+      // same as if there were no saved session at all).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      apiFetch("/api/auth/verify", { signal: controller.signal })
         .then((r) => setStatus(r.ok ? "unlocked" : "locked"))
-        .catch(() => setStatus("locked"));
+        .catch(() => setStatus("locked"))
+        .finally(() => clearTimeout(timer));
       return;
     }
     setStatus("locked");
@@ -152,7 +160,13 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
     setShowPasswordFallback(true);
   }
 
-  if (status === "checking") return null;
+  if (status === "checking")
+    return (
+      <div className="unlock">
+        <div className="vault-mark">DK</div>
+        <p>Loading…</p>
+      </div>
+    );
   if (status === "unlocked")
     return (
       <>
