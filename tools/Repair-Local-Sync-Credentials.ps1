@@ -23,8 +23,10 @@ Write-Host 'Credentials are protected by Windows DPAPI for this Windows user.' -
 Save-DpapiSecret 'site' 'Enter the FinTech by DK website password'
 Save-DpapiSecret 'india-vault' 'Enter the INDIA encrypted vault password'
 Save-DpapiSecret 'us-vault' 'Enter the US encrypted vault password'
+Save-DpapiSecret 'access-code' 'Enter the App access code (from Password Manager, separate from the vault password)'
+Save-DpapiSecret 'sync-secret' 'Enter the SYNC_SECRET Worker secret (used to publish sync status)'
 
-foreach ($name in 'site','india-vault','us-vault') {
+foreach ($name in 'site','india-vault','us-vault','access-code','sync-secret') {
   $file = Join-Path $state "$name.dpapi"
   $payload = (Get-Content -Raw -LiteralPath $file).Trim()
   if ($payload -notmatch '^[0-9A-Fa-f]+$') { throw "Credential verification failed for $name" }

@@ -1,0 +1,10 @@
+const path=require('path'),{spawnSync}=require('child_process');
+const engine=process.argv[2],book=String(process.argv[3]||'').toLowerCase();
+if(!['master-sync','number-repair','preview','tally-to-app','app-to-tally'].includes(engine)||!['us','india'].includes(book))throw Error('Invalid engine or book');
+const names={'master-sync':'master-sync.js','number-repair':'repair-voucher-numbering.js',preview:'manual-sync-preview-v2.js','tally-to-app':'apply-one-tally-change.js','app-to-tally':'apply-one-app-change.js'};
+const sourcePath=path.join(__dirname,names[engine]),port=book==='india'?'9000':'9001';
+if(!require('fs').existsSync(sourcePath))throw Error(`Missing sync engine: ${sourcePath}`);
+if(process.env.PL_TALLY_PORT&&process.env.PL_TALLY_PORT!==port)throw Error(`Port routing mismatch for ${book}: expected ${port}, received ${process.env.PL_TALLY_PORT}`);
+const result=spawnSync(process.execPath,[sourcePath,book],{env:{...process.env,PL_TALLY_PORT:port},stdio:'inherit',windowsHide:true});
+if(result.error)throw result.error;
+process.exitCode=result.status??1;
