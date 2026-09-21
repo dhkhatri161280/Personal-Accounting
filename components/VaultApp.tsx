@@ -65,6 +65,7 @@ import { AuditLog } from "@/components/reports/AuditLog";
 import { FixedAssetRegister } from "@/components/reports/FixedAssetRegister";
 import { PrepaidExpenseRegister } from "@/components/reports/PrepaidExpenseRegister";
 import { LoanRegister } from "@/components/reports/LoanRegister";
+import { LoansAdvancesFxRegister } from "@/components/reports/LoansAdvancesFxRegister";
 import { PeriodCloseChecklist } from "@/components/reports/PeriodCloseChecklist";
 import { postAmortization } from "@/lib/prepaid-expense-ledger";
 import {
@@ -3440,6 +3441,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   { id: "fixedassets", label: "Fixed Assets", onClick: () => setReport("fixedassets") },
                   { id: "prepaid", label: "Prepaid Expenses", onClick: () => setReport("prepaid") },
                   { id: "loans", label: "Loans", onClick: () => setReport("loans") },
+                  ...(book === "india" ? [{ id: "loansfx", label: "Loans & Advances (USD)", onClick: () => setReport("loansfx") }] : []),
                   { id: "recurring", label: "Recurring", onClick: () => setReport("recurring") },
                 ],
               },
@@ -4309,6 +4311,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "loans" && data && (
             <LoanRegister data={data} fmt={fmt} onSave={(next) => save(next, "reports")} />
+          )}
+          {report === "loansfx" && data && book === "india" && (
+            <LoansAdvancesFxRegister data={data} fmt={fmt} />
           )}
           {report === "closechecklist" && data && (
             <PeriodCloseChecklist
