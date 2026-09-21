@@ -49,7 +49,7 @@ import {
   nextTransactionIds,
   nextVoucherNumber,
 } from "@/lib/vault-accounting";
-import { fmtDate, todayLocalIso } from "@/lib/format-date";
+import { fmtDate, todayLocalIso, isOlderThanMonths } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
@@ -1779,6 +1779,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         action: { label: "Post", onClick: () => void postRecurringTemplate(due.template) },
       });
     }
+  }
+  // Social Security-only (India has no SSA equivalent) -- SSA issues a fresh annual statement
+  // roughly once a year, so flag it once the one on file is over 13 months old rather than
+  // letting it silently sit there forever. Same cutoff RetirementReport.tsx's own inline warning
+  // uses, via the same shared helper.
+  if (book !== "india" && data?.socialSecurityEstimate?.statementDate && isOlderThanMonths(data.socialSecurityEstimate.statementDate, 13, todayStr)) {
+    attentionItems.push({
+      label: "Social Security estimate is stale",
+      detail: `Last updated from the ${fmtGrantDate(data.socialSecurityEstimate.statementDate)} SSA statement — check ssa.gov for a newer one and update it in Reports → Retirement.`,
+      action: { label: "Update", onClick: () => { setImportSource("retirement"); setTab("bank-import"); } },
+    });
   }
   // R2's free tier is 10GB storage -- only worth a flag once meaningfully close to that (70%),
   // since a personal ledger's receipt/statement attachments are realistically nowhere near it

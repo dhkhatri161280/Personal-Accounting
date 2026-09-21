@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { compute401kLifetimeTotals } from "@/lib/payroll-401k";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { isOlderThanMonths, todayLocalIso } from "@/lib/format-date";
 
 interface PlaidInvestmentAccount {
   account_id: string;
@@ -167,6 +168,11 @@ export function RetirementReport({
   // tie-in (see socialSecurityEstimate on Ledger). Editable in place rather than a list, since
   // it's a single record, not a growing set of entries like otherInvestments above.
   const ssEstimate = data.socialSecurityEstimate;
+  // SSA issues a fresh annual statement roughly once a year -- flag it once the one on file is
+  // over 13 months old rather than letting it silently sit there forever. Same 13-month cutoff
+  // (not 12) the "Needs Attention" bell reminder uses (see VaultApp.tsx), one month of slack for
+  // whenever your actual statement date lands.
+  const ssStale = !!ssEstimate?.statementDate && isOlderThanMonths(ssEstimate.statementDate, 13, todayLocalIso());
   const [editingSs, setEditingSs] = useState(false);
   const [ssForm, setSsForm] = useState({
     at62: ssEstimate?.at62 != null ? String(ssEstimate.at62) : "",
@@ -412,7 +418,13 @@ export function RetirementReport({
                   <strong>{ssEstimate.statementDate ? new Date(ssEstimate.statementDate + "T00:00:00Z").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }) : "—"}</strong>
                 </div>
               </div>
-            ) : (
+            ) : null}
+            {ssStale && (
+              <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 10px" }} title="SSA issues a fresh annual statement roughly once a year">
+                ⚠ Over 13 months old — check ssa.gov for a newer statement and update this.
+              </p>
+            )}
+            {!(ssEstimate && (ssEstimate.at62 != null || ssEstimate.atFullRetirement != null || ssEstimate.at70 != null)) && (
               <p style={{ fontSize: 13, opacity: 0.7, margin: "0 0 10px" }}>No estimate entered yet.</p>
             )}
             <button type="button" className="tr-refresh-btn" onClick={startEditSs}>

@@ -23,6 +23,19 @@ export function todayLocalIso(): string {
 // todayLocalIso above. Used as the default date for the Dashboard's Daily Spend card (see
 // components/DailySpendCard.tsx), since "how much did I spend yesterday" is the common case
 // (today's postings are often still incomplete when someone checks in the morning).
+// True once `todayIso` is more than `months` past `dateIso` -- e.g. flagging a Social Security
+// estimate (see components/reports/RetirementReport.tsx) whose statement date is over 13 months
+// old, since SSA issues a fresh annual statement roughly once a year. Generic date-add-and-compare,
+// not tied to any one caller's business rule.
+export function isOlderThanMonths(dateIso: string, months: number, todayIso: string): boolean {
+  const m = dateIso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return false;
+  const cutoff = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  cutoff.setUTCMonth(cutoff.getUTCMonth() + months);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
+  return todayIso > cutoffIso;
+}
+
 export function yesterdayLocalIso(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
