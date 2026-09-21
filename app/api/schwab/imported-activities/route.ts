@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -28,11 +29,16 @@ async function load(): Promise<ImportedSchwabActivity[]> {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
   return Response.json(await load());
 }
 
 export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let body: Omit<ImportedSchwabActivity, "importedAt"> & { importedAt?: string };
   try {
     body = await request.json();
@@ -52,6 +58,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let body: { activityId: number };
   try {
     body = await request.json();

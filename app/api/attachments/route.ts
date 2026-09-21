@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken, requireAccessTokenFromHeaderOrQuery } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -10,6 +11,9 @@ const MAX_SIZE = 20 * 1024 * 1024; // 20MB -- comfortably covers a receipt photo
 // stays scoped to the voucher it was attached from. Returns just the metadata the client stores
 // on Tx.attachments -- the vault blob never holds the file bytes themselves (see lib/vault-types.ts).
 export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let form: FormData;
   try {
     form = await request.formData();
@@ -44,8 +48,13 @@ export async function POST(request: Request) {
   });
 }
 
-// Streams one attachment back for viewing/downloading.
+// Streams one attachment back for viewing/downloading. Reached via a plain <a href target="_blank">
+// link (VaultApp.tsx), not a fetch() call -- token accepted via query param, see
+// requireAccessTokenFromHeaderOrQuery.
 export async function GET(request: Request) {
+  const denied = requireAccessTokenFromHeaderOrQuery(request, bindings);
+  if (denied) return denied;
+
   const key = new URL(request.url).searchParams.get("key");
   if (!key) return new Response("Missing key", { status: 400 });
 
@@ -68,6 +77,9 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   const key = new URL(request.url).searchParams.get("key");
   if (!key) return new Response("Missing key", { status: 400 });
   try {

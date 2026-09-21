@@ -12,6 +12,7 @@ import {
   type ReconAccountStatus,
 } from "@/lib/plaid-recon";
 import { exportWorkbook } from "@/lib/export-excel";
+import { apiFetch } from "@/lib/api-fetch";
 import { ExportButton } from "@/components/ExportButton";
 import { useExpandCollapseAll } from "@/components/reports/ColumnarSection";
 import { todayLocalIso } from "@/lib/format-date";
@@ -36,7 +37,7 @@ export function BankReconciliation({
     setFetching(true);
     setStatus("Fetching live balances from Plaid…");
     try {
-      const r = await fetch("/api/plaid/transactions");
+      const r = await apiFetch("/api/plaid/transactions");
       const { transactions, accounts, errors } = (await r.json()) as {
         transactions: PlaidTxSummary[];
         accounts: PlaidAccountSummary[];

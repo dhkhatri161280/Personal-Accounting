@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { plaidBase, plaidCreds, type PlaidClientKey } from "@/lib/plaid-client";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -16,6 +17,9 @@ const CONNECTIONS_KEY = "plaid.connections";
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "https://fintech-by-dk-generic.digneshkhatri.workers.dev" };
 
 export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   if (!bindings.PLAID_CLIENT_ID || !bindings.PLAID_SECRET)
     return new Response("Plaid not configured", { status: 503, headers: CORS_HEADERS });
 

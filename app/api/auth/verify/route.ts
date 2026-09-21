@@ -5,12 +5,11 @@ import { requireAccessToken } from "@/lib/api-auth";
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
-// Returns the Teller application ID to the client (needed for Teller Connect widget)
+// Dedicated, side-effect-free endpoint for AccessGate.tsx to check a candidate access code
+// against the real one, without piggybacking on some other route that has real side effects
+// (a KV write, an external API call) just to borrow its auth check.
 export async function GET(request: Request) {
   const denied = requireAccessToken(request, bindings);
   if (denied) return denied;
-
-  const appId = bindings.TELLER_APP_ID;
-  if (!appId) return Response.json({ error: "Teller not configured" }, { status: 503 });
-  return Response.json({ applicationId: appId });
+  return Response.json({ ok: true });
 }

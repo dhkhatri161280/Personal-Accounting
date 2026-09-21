@@ -68,6 +68,7 @@ import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
 import { exportWorkbook } from "@/lib/export-excel";
+import { apiFetch, getAccessToken } from "@/lib/api-fetch";
 import { ExportButton } from "@/components/ExportButton";
 import { useExpandCollapseAll, type DrilldownRequest } from "@/components/reports/ColumnarSection";
 import { vouchersForAccountsInRange, type ColumnarRow, type PeriodBoundary } from "@/lib/columnar-report";
@@ -350,7 +351,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
       );
       const corrected = await encryptVault(decrypted, pw),
-        saved = await fetch(apiUrl, {
+        saved = await apiFetch(apiUrl, {
           method: "PUT",
           headers: { "Content-Type": "application/json", "If-Match": etag },
           body: JSON.stringify(corrected),
@@ -713,7 +714,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     recomputeVoucherNumbers(next);
     setStatus("Encrypting and saving...");
     const vault = await encryptVault(next, password),
-      r = await fetch(apiUrl, {
+      r = await apiFetch(apiUrl, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -788,7 +789,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (autoSyncTriggerTimer.current) clearTimeout(autoSyncTriggerTimer.current);
     autoSyncTriggerTimer.current = setTimeout(() => {
       autoSyncTriggerTimer.current = null;
-      fetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {});
+      apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {});
     }, 20000);
   }
 
@@ -880,7 +881,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // rather than on every render, just to power the Needs Attention free-tier check below.
   useEffect(() => {
     if (!data) return;
-    fetch("/api/attachments/usage")
+    apiFetch("/api/attachments/usage")
       .then((r) => r.json())
       .then((j: unknown) => {
         const u = j as { totalBytes?: number; objectCount?: number };
@@ -983,13 +984,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // Scope to only the connections known to carry an investment account -- this effect fires
     // on every Dashboard load, so an unscoped fetch here silently re-refreshed all 6 connections
     // (regular banks included) on every visit, not just the 2 that actually matter for this.
-    fetch("/api/plaid/connections")
+    apiFetch("/api/plaid/connections")
       .then((r) => r.json())
       .then((cs: unknown) => {
         const conns = cs as { institution_name: string; hasInvestmentAccount?: boolean }[];
         const names = conns.filter((c) => c.hasInvestmentAccount !== false).map((c) => c.institution_name);
         const qs = names.length ? `?institution=${names.map(encodeURIComponent).join(",")}` : "";
-        return fetch(`/api/plaid/transactions${qs}`);
+        return apiFetch(`/api/plaid/transactions${qs}`);
       })
       .then((r) => r.json())
       .then((d: unknown) => {
@@ -1509,7 +1510,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       form.append("file", file);
       form.append("book", book);
       form.append("txGuid", t.guid);
-      const r = await fetch("/api/attachments", { method: "POST", body: form });
+      const r = await apiFetch("/api/attachments", { method: "POST", body: form });
       if (!r.ok) {
         setStatus(`Attachment upload failed (${r.status}).`);
         return;
@@ -1527,7 +1528,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (!data) return;
     if (!confirm("Remove this attachment?")) return;
     try {
-      await fetch(`/api/attachments?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+      await apiFetch(`/api/attachments?key=${encodeURIComponent(key)}`, { method: "DELETE" });
     } catch {
       // Fall through and remove the reference anyway -- an orphaned R2 object is harmless,
       // whereas leaving a broken link on the voucher (pointing at a file the user just asked
@@ -4909,7 +4910,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               )}
               {(selectedVoucher.attachments ?? []).map((att) => (
                 <div className="report-line" key={att.key}>
-                  <a href={`/api/attachments?key=${encodeURIComponent(att.key)}`} target="_blank" rel="noopener noreferrer">
+                  <a href={`/api/attachments?key=${encodeURIComponent(att.key)}&token=${encodeURIComponent(getAccessToken() || "")}`} target="_blank" rel="noopener noreferrer">
                     {att.filename}
                   </a>
                   <span style={{ display: "flex", gap: 8, alignItems: "center" }}>

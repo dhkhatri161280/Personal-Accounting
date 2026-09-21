@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { getValidAccessToken } from "@/lib/schwab-oauth";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -10,6 +11,9 @@ export const dynamic = "force-dynamic";
 // can inspect a REAL response before deciding how to map it into the UI, rather than guessing
 // field names ahead of time.
 export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   const symbols = new URL(request.url).searchParams.get("symbols");
   if (!symbols) return Response.json({ error: "Missing ?symbols=A,B,C" }, { status: 400 });
 

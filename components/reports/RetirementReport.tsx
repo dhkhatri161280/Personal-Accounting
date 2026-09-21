@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { StatIcon } from "@/components/Icon";
+import { apiFetch } from "@/lib/api-fetch";
 import { compute401kLifetimeTotals } from "@/lib/payroll-401k";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
@@ -74,13 +75,13 @@ export function RetirementReport({
       // the Plaid tab's own Fetch already does. hasInvestmentAccount is cached once per
       // connection server-side (see app/api/plaid/transactions/route.ts); a connection with it
       // still unknown just gets included, so nothing is silently skipped.
-      const connsRes = await fetch("/api/plaid/connections");
+      const connsRes = await apiFetch("/api/plaid/connections");
       const conns = (await connsRes.json()) as { institution_name: string; hasInvestmentAccount?: boolean }[];
       const investmentInstitutions = conns.filter((c) => c.hasInvestmentAccount !== false).map((c) => c.institution_name);
       const qs = investmentInstitutions.length
         ? `?institution=${investmentInstitutions.map(encodeURIComponent).join(",")}`
         : "";
-      const r = await fetch(`/api/plaid/transactions${qs}`);
+      const r = await apiFetch(`/api/plaid/transactions${qs}`);
       const json = (await r.json()) as { accounts?: PlaidInvestmentAccount[]; errors?: string[] };
       if (json.errors?.length) setError(json.errors.join(", "));
       const filtered = (json.accounts ?? []).filter((a) => a.type === "investment" && !EXCLUDED_SUBTYPES.has(a.subtype));

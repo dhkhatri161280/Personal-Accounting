@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -49,6 +50,9 @@ function tellerFetch(url: string, accessToken: string): Promise<Response> {
 }
 
 export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let enrollments: Enrollment[] = [];
   try {
     const raw = await bindings.VAULT.get(ENROLLMENTS_KEY);

@@ -4,6 +4,7 @@ import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
 import type { WatchlistEntry } from "@/lib/watchlist-default";
 import type { Trade, Ledger, Tx } from "@/lib/vault-types";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
+import { apiFetch } from "@/lib/api-fetch";
 import { StatIcon } from "@/components/Icon";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { nextVoucherNumber, nextTransactionIds, recomputeVoucherNumbers } from "@/lib/vault-accounting";
@@ -218,7 +219,7 @@ export function TradingReport({
   // rest of the report if Schwab is briefly unreachable.
   const [schwabCash, setSchwabCash] = useState<number | null>(null);
   useEffect(() => {
-    fetch("/api/schwab/positions")
+    apiFetch("/api/schwab/positions")
       .then((r) => r.json())
       .then((d: unknown) => {
         const j = d as { accounts?: { cashBalance?: number }[] };
@@ -292,7 +293,7 @@ export function TradingReport({
     setAiRefreshing(true);
     setAiError(null);
     try {
-      const res  = await fetch("/api/watchlist/refresh", { method: "POST" });
+      const res  = await apiFetch("/api/watchlist/refresh", { method: "POST" });
       const data = await res.json() as { items?: WatchlistEntry[]; updatedAt?: string; source?: string; marketSnapshot?: { spy?: number; qqq?: number; vix?: number }; error?: string };
       if (data.items && data.items.length > 0) {
         setWatchlistItems(data.items);
@@ -309,7 +310,7 @@ export function TradingReport({
 
   // ── Layer 2: load watchlist from KV on mount ─────────────────────────────
   useEffect(() => {
-    fetch("/api/watchlist")
+    apiFetch("/api/watchlist")
       .then(r => r.json())
       .then((raw: unknown) => {
         const data = raw as { items?: WatchlistEntry[]; updatedAt?: string | null; source?: string | null; marketSnapshot?: { spy?: number; qqq?: number; vix?: number } };

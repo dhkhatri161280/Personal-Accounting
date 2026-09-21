@@ -2,12 +2,16 @@ import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { WATCHLIST_DEFAULT } from "@/lib/watchlist-default";
 import { withEdgeCache } from "@/lib/edge-cache";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 const KV_KEY = "watchlist:v1";
 
 export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   return withEdgeCache(request, 300, async () => {
     try {
       const raw = await bindings.VAULT.get(KV_KEY);
@@ -23,6 +27,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(req: Request) {
+  const denied = requireAccessToken(req, bindings);
+  if (denied) return denied;
+
   try {
     const body = await req.json();
     await bindings.VAULT.put(KV_KEY, JSON.stringify(body));

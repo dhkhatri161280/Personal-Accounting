@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { getValidAccessToken } from "@/lib/schwab-oauth";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -33,7 +34,10 @@ export interface NormalizedPosition {
 // Normalized to just what a sync/reconciliation feature needs: current quantity, blended average
 // cost, and market value per symbol. No lot-level detail is available (see /schwab/transactions --
 // that data isn't accessible under this product), so this is a snapshot, not a history.
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   const token = await getValidAccessToken(bindings);
   if (!token.ok) return Response.json({ error: `Schwab not usable: ${token.reason}` }, { status: 401 });
 

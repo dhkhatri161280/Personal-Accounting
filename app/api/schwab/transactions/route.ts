@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { getValidAccessToken } from "@/lib/schwab-oauth";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -19,6 +20,9 @@ async function getAccountHashes(accessToken: string): Promise<{ accountNumber: s
 // position with a multi-year cost basis) won't be captured by a single call; the real sync will
 // need to page backward in <=1-year windows to go further back.
 export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   const url = new URL(request.url);
   const startDate = url.searchParams.get("startDate") ?? new Date(Date.now() - 364 * 86_400_000).toISOString();
   const endDate = url.searchParams.get("endDate") ?? new Date().toISOString();

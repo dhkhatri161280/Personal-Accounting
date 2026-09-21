@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -23,7 +24,10 @@ async function loadEnrollments(): Promise<Enrollment[]> {
 }
 
 // List enrollments — strips access_token before sending to client
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let enrollments: Enrollment[];
   try {
     enrollments = await loadEnrollments();
@@ -37,6 +41,9 @@ export async function GET() {
 
 // Remove an enrollment by enrollment_id
 export async function DELETE(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let body: { enrollment_id?: string };
   try {
     body = await request.json();

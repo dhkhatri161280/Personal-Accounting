@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { SyncHealth } from "@/lib/vault-types";
+import { apiFetch } from "@/lib/api-fetch";
 
 export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClick: () => void }) {
   const [triggerState, setTriggerState] = useState<"idle" | "sending" | "sent">("idle");
@@ -22,7 +23,7 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
     if (triggerState !== "idle") return;
     setTriggerState("sending");
     try {
-      await fetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" });
+      await apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" });
     } catch {
       // best effort
     }

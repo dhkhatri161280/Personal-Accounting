@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -25,6 +26,9 @@ async function loadEnrollments(): Promise<Enrollment[]> {
 
 // Called after Teller Connect succeeds — stores the enrollment access token
 export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let body: { access_token?: string; user_id?: string; institution_name?: string; enrollment_id?: string };
   try {
     body = await request.json();

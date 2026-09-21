@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -25,11 +26,16 @@ async function load(): Promise<ConfirmedMatch[]> {
   } catch { return []; }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
   return Response.json(await load());
 }
 
 export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let body: {
     tx_id: string;
     merchant_key: string;
@@ -76,6 +82,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let body: { tx_id: string };
   try { body = await request.json(); }
   catch { return new Response("Invalid JSON", { status: 400 }); }

@@ -1,8 +1,12 @@
 import { env } from "cloudflare:workers";
 import { NextResponse } from "next/server";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 const bindings = env as unknown as AppBindings;
 export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   try {
     const b = (await request.json()) as any;
     const amount = Number(b.amount);

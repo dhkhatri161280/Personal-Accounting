@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { todayLocalIso } from "@/lib/format-date";
+import { apiFetch } from "@/lib/api-fetch";
 export function TransactionForm({
   accounts,
 }: {
@@ -13,7 +14,7 @@ export function TransactionForm({
     e.preventDefault();
     setStatus("Saving…");
     const data = Object.fromEntries(new FormData(e.currentTarget));
-    const r = await fetch("/api/transactions", {
+    const r = await apiFetch("/api/transactions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),

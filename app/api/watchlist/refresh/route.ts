@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { WATCHLIST_DEFAULT, type WatchlistEntry } from "@/lib/watchlist-default";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -45,7 +46,10 @@ function isValidPick(e: unknown): e is AiPick {
   return true;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   const apiKey = bindings.GROQ_API_KEY;
   if (!apiKey) {
     return Response.json({ error: "GROQ_API_KEY not configured. Run: npx wrangler secret put GROQ_API_KEY --config wrangler.biometric.json" }, { status: 503 });

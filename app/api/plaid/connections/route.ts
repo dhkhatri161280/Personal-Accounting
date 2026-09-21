@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -23,7 +24,10 @@ async function loadConnections(): Promise<Connection[]> {
 }
 
 // List connections (strips access_token — never sent to client)
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let connections: Connection[];
   try {
     connections = await loadConnections();
@@ -37,6 +41,9 @@ export async function GET() {
 
 // Disconnect a bank by item_id
 export async function DELETE(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let body: { item_id?: string };
   try {
     body = await request.json();

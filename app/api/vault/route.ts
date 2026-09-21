@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,9 @@ export async function HEAD(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   const body = await request.text();
   if (body.length < 100 || body.length > 24_000_000)
     return new Response("Invalid vault", { status: 400 });

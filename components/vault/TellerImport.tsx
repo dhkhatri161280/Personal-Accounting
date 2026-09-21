@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
+import { apiFetch } from "@/lib/api-fetch";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -344,7 +345,7 @@ function TellerConnectButton({ appId, onConnected }: { appId: string; onConnecte
   const [error, setError] = useState("");
 
   const { open, ready } = useTellerConnect(appId, (e) => {
-    fetch("/api/teller/enroll", {
+    apiFetch("/api/teller/enroll", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -379,7 +380,7 @@ export function TellerImport({ data, onSave }: Props) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch("/api/teller/app-id")
+    apiFetch("/api/teller/app-id")
       .then((r) => r.json())
       .then((d: any) => { if (d.applicationId) setAppId(d.applicationId); })
       .catch(() => {});
@@ -387,7 +388,7 @@ export function TellerImport({ data, onSave }: Props) {
   }, []);
 
   function reloadEnrollments() {
-    fetch("/api/teller/enrollments")
+    apiFetch("/api/teller/enrollments")
       .then((r) => r.json())
       .then((es: unknown) => setEnrollments(es as Enrollment[]))
       .catch(() => {});
@@ -397,7 +398,7 @@ export function TellerImport({ data, onSave }: Props) {
     setFetching(true);
     setStatus("Fetching transactions from connected banks & cards…");
     try {
-      const r = await fetch("/api/teller/transactions");
+      const r = await apiFetch("/api/teller/transactions");
       const { transactions, errors } = (await r.json()) as { transactions: TellerTxRaw[]; errors: string[] };
       if (errors?.length) setStatus(`Partial fetch — ${errors.join(", ")}`);
       else setStatus("");
@@ -424,7 +425,7 @@ export function TellerImport({ data, onSave }: Props) {
   }
 
   async function disconnect(enrollment_id: string) {
-    await fetch("/api/teller/enrollments", {
+    await apiFetch("/api/teller/enrollments", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enrollment_id }),

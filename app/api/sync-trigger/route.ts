@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,9 @@ export async function GET(request: Request) {
 
 // Called by the app UI "Sync Now" button
 export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   if (!bindings.VAULT) return new Response("Storage not configured", { status: 503 });
   const book = bookOf(request);
   try {

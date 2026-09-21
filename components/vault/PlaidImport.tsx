@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePlaidLink, type PlaidLinkOnSuccess, type PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
+import { apiFetch } from "@/lib/api-fetch";
 import { matchPayrollPeriod, rowValue } from "@/lib/payroll-match";
 import {
   MORTGAGE_STANDARD_PAYMENT,
@@ -1305,7 +1306,7 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/plaid/link-token", { method: "POST" })
+    apiFetch("/api/plaid/link-token", { method: "POST" })
       .then((r) => r.json())
       .then((d: any) => {
         if (d.link_token) { setLinkToken(d.link_token); setLinkClient(d.client); }
@@ -1321,7 +1322,7 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
       const id = (metadata?.institution as any)?.institution_id || "";
       // Must tag the connection with the SAME project that created this link_token -- the
       // public_token can only be exchanged with that same client_id/secret pair.
-      fetch("/api/plaid/exchange", {
+      apiFetch("/api/plaid/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ public_token: publicToken, institution_name: name, institution_id: id, client: linkClient }),
@@ -1362,7 +1363,7 @@ function PlaidReconnectButton({
   function startReconnect() {
     setLoading(true);
     setError("");
-    fetch("/api/plaid/link-token", {
+    apiFetch("/api/plaid/link-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ item_id: itemId }),
@@ -1438,7 +1439,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   // allowed to match then.
   const [investmentMatchOverrides, setInvestmentMatchOverrides] = useState<Set<string>>(new Set());
   useEffect(() => {
-    fetch("/api/plaid/investment-match-overrides")
+    apiFetch("/api/plaid/investment-match-overrides")
       .then((r) => r.json() as Promise<{ voucher_guid: string; plaid_transaction_id: string }[]>)
       .then((pairs) => setInvestmentMatchOverrides(new Set(pairs.map((p) => `${p.voucher_guid}|${p.plaid_transaction_id}`))))
       .catch(() => {});
@@ -1446,7 +1447,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   async function rejectInvestmentMatch(guid: string, plaidTransactionId: string) {
     setInvestmentMatchOverrides((prev) => new Set(prev).add(`${guid}|${plaidTransactionId}`));
     try {
-      await fetch("/api/plaid/investment-match-overrides", {
+      await apiFetch("/api/plaid/investment-match-overrides", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ voucher_guid: guid, plaid_transaction_id: plaidTransactionId }),
@@ -1471,7 +1472,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   const [savingManual, setSavingManual] = useState(false);
 
   function reloadConnections() {
-    fetch("/api/plaid/connections")
+    apiFetch("/api/plaid/connections")
       .then((r) => r.json())
       .then((cs: unknown) => {
         const list = cs as Connection[];
@@ -1505,7 +1506,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   useEffect(() => { reloadConnections(); }, []);
 
   useEffect(() => {
-    fetch("/api/plaid/confirmed-matches")
+    apiFetch("/api/plaid/confirmed-matches")
       .then((r) => r.json())
       .then((ms: unknown) => setConfirmedMatches(ms as ConfirmedMatch[]))
       .catch(() => {});
@@ -1548,7 +1549,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       const qs = fetchingAll
         ? ""
         : `?institution=${selectedConns.map((c) => encodeURIComponent(c.institution_name)).join(",")}`;
-      const r = await fetch(`/api/plaid/transactions${qs}`);
+      const r = await apiFetch(`/api/plaid/transactions${qs}`);
       const { transactions, accounts: rawPlaidAccts, investmentTransactions, errors, itemErrors } = (await r.json()) as {
         transactions: PlaidTxRaw[];
         accounts: PlaidAccount[];
@@ -1607,7 +1608,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   }
 
   async function disconnect(item_id: string) {
-    await fetch("/api/plaid/connections", {
+    await apiFetch("/api/plaid/connections", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ item_id }),
@@ -1656,7 +1657,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       await Promise.all(
         targets.map(async ({ r, idx }) => {
           try {
-            const res = await fetch("/api/categorize", {
+            const res = await apiFetch("/api/categorize", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -2017,7 +2018,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     const creditEntry = vault.entries.find((e) => e.amount > 0);
     const merchantKey = (tx.merchant_name || tx.name || "")
       .toLowerCase().split(/\W+/).find((w) => w.length > 2) || "";
-    await fetch("/api/plaid/confirmed-matches", {
+    await apiFetch("/api/plaid/confirmed-matches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2080,7 +2081,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     const creditEntry = vault.entries.find((e) => e.amount > 0);
     const merchantKey = (tx.merchant_name || tx.name || "")
       .toLowerCase().split(/\W+/).find((w) => w.length > 2) || "";
-    await fetch("/api/plaid/confirmed-matches", {
+    await apiFetch("/api/plaid/confirmed-matches", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2125,7 +2126,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   async function undoPendingMatch(rowIdx: number) {
     const tx = pendingRows[rowIdx]?.plaidTx;
     if (!tx) return;
-    await fetch("/api/plaid/confirmed-matches", {
+    await apiFetch("/api/plaid/confirmed-matches", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tx_id: tx.transaction_id }),

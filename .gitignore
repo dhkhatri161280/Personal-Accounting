@@ -30,6 +30,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Local Cloudflare Workers secrets for `vinext dev`/wrangler dev -- never had a gitignore entry
+# before, so this was a real (if so-far unexploited -- confirmed via `git log` -- no leaked secret
+# in history) gap.
+.dev.vars*
 
 # vercel
 .vercel

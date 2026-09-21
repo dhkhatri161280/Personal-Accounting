@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { plaidBase, plaidCreds, type PlaidClientKey } from "@/lib/plaid-client";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -8,6 +9,9 @@ export const dynamic = "force-dynamic";
 const CONNECTIONS_KEY = "plaid.connections";
 
 export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   // Optional item_id -> "update mode": re-authenticates the SAME existing Item (same access
   // token, same transaction history) instead of creating a brand new connection. Required
   // whenever a bank reports ITEM_LOGIN_REQUIRED (credentials/MFA changed) -- just going through

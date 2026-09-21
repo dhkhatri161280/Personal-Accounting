@@ -26,6 +26,7 @@ import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
+import { apiFetch } from "@/lib/api-fetch";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { TabSidebar } from "@/components/TabSidebar";
@@ -238,7 +239,7 @@ export function GrApp() {
   // across to the US-book worker's already-public Plaid endpoint directly (see the CORS allowance
   // added there for this exact origin, in app/api/plaid/transactions/route.ts).
   useEffect(() => {
-    fetch("https://personal-ledger-dk.digneshkhatri.workers.dev/api/plaid/transactions?institution=Merrill,Fidelity")
+    apiFetch("https://personal-ledger-dk.digneshkhatri.workers.dev/api/plaid/transactions?institution=Merrill,Fidelity")
       .then((r) => r.json())
       .then((d: unknown) => {
         const j = d as { accounts?: { type: string; subtype: string; balances: { current: number | null } }[] };

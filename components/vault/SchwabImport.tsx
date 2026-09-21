@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { Ledger, Tx, Trade, RsuGrant, RsuVest, EsppPurchase } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds, ledgerBalanceAsOf } from "@/lib/vault-accounting";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
+import { apiFetch } from "@/lib/api-fetch";
 import {
   classifySchwabActivity,
   findUnpairedPositiveJournalActivities,
@@ -140,7 +141,7 @@ export function SchwabImport({ data, onSave }: Props) {
   // ── Connection status ────────────────────────────────────────────────────────────────────
   const [status, setStatus] = useState<{ connected: false } | { connected: true; daysUntilReauth: number } | null>(null);
   useEffect(() => {
-    fetch("/api/schwab/status")
+    apiFetch("/api/schwab/status")
       .then((r) => r.json())
       .then((raw: unknown) => {
         const d = raw as { connected: boolean; daysUntilReauth?: number };
@@ -150,7 +151,7 @@ export function SchwabImport({ data, onSave }: Props) {
   }, []);
   async function disconnect() {
     if (!confirm("Disconnect from Schwab? You can reconnect any time.")) return;
-    await fetch("/api/schwab/status", { method: "DELETE" });
+    await apiFetch("/api/schwab/status", { method: "DELETE" });
     setStatus({ connected: false });
   }
 
@@ -165,7 +166,7 @@ export function SchwabImport({ data, onSave }: Props) {
     setPosSyncLoading(true);
     setPosSyncError(null);
     try {
-      const res = await fetch("/api/schwab/positions");
+      const res = await apiFetch("/api/schwab/positions");
       const json = (await res.json()) as { accounts?: Array<{ positions?: SchwabPosition[]; error?: string }>; error?: string };
       if (json.error) throw new Error(json.error);
       const positions = (json.accounts ?? []).flatMap((a) => a.positions ?? []);
@@ -193,7 +194,7 @@ export function SchwabImport({ data, onSave }: Props) {
   // ── Transaction history sync (new) ───────────────────────────────────────────────────────
   const [imported, setImported] = useState<ImportedActivity[]>([]);
   useEffect(() => {
-    fetch("/api/schwab/imported-activities")
+    apiFetch("/api/schwab/imported-activities")
       .then((r) => r.json())
       .then((raw: unknown) => setImported(raw as ImportedActivity[]))
       .catch(() => setImported([]));
@@ -207,7 +208,7 @@ export function SchwabImport({ data, onSave }: Props) {
 
   async function fetchWindow(startDate: string, endDate: string): Promise<SchwabActivity[]> {
     const url = `/api/schwab/transactions?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     const json = (await res.json()) as { accounts?: Array<{ data?: SchwabActivity[]; error?: string }>; error?: string };
     if (json.error) throw new Error(json.error);
     return (json.accounts ?? []).flatMap((a) => a.data ?? []);
@@ -275,7 +276,7 @@ export function SchwabImport({ data, onSave }: Props) {
 
   async function markImported(a: SchwabActivity, kind: ImportedActivity["kind"]) {
     const body = { activityId: a.activityId, kind };
-    await fetch("/api/schwab/imported-activities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    await apiFetch("/api/schwab/imported-activities", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setImported((prev) => [...prev, { ...body, importedAt: new Date().toISOString() }]);
   }
 
@@ -413,7 +414,7 @@ export function SchwabImport({ data, onSave }: Props) {
   // here instead of a manually uploaded CSV.
   const [schwabCashBalance, setSchwabCashBalance] = useState<number | null>(null);
   useEffect(() => {
-    fetch("/api/schwab/positions")
+    apiFetch("/api/schwab/positions")
       .then((r) => r.json())
       .then((d: unknown) => {
         const j = d as { accounts?: { cashBalance?: number }[] };

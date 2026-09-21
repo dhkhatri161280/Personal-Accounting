@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { requireAccessToken } from "@/lib/api-auth";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -8,7 +9,10 @@ export const dynamic = "force-dynamic";
 // keyed by book/txGuid/... -- see app/api/attachments/route.ts). R2 has no single "bucket size"
 // call, so this lists every object and sums size -- cheap for a personal ledger's attachment
 // count, paginated defensively in case that ever changes.
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
   let totalBytes = 0;
   let objectCount = 0;
   let cursor: string | undefined;

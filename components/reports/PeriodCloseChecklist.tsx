@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { periodKeyOf, isPeriodClosed } from "@/lib/vault-accounting";
+import { apiFetch } from "@/lib/api-fetch";
 import { reconciliationStatusForAccounts, DIFF_TOL, type PlaidAccountSummary, type PlaidTxSummary } from "@/lib/plaid-recon";
 import { pendingDepreciationMonths } from "@/lib/fixed-assets";
 import { pendingAmortizationMonths } from "@/lib/prepaid-expense";
@@ -48,7 +49,7 @@ export function PeriodCloseChecklist({
   useEffect(() => {
     if (!showBankRecon) return;
     setFetching(true);
-    fetch("/api/plaid/transactions")
+    apiFetch("/api/plaid/transactions")
       .then((r) => r.json() as Promise<{ transactions?: PlaidTxSummary[]; accounts?: PlaidAccountSummary[] }>)
       .then((d) => setPlaidData({ accounts: d.accounts ?? [], transactions: d.transactions ?? [] }))
       .catch(() => setPlaidData({ accounts: [], transactions: [] }))
