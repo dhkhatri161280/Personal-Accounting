@@ -173,6 +173,11 @@ export function LoansAdvancesFxRegister({
   const closingUsd = runningUsd;
   const totalDebitInr = periodRows.filter((r) => r.amountInr < 0).reduce((s, r) => s - r.amountInr, 0);
   const totalCreditInr = periodRows.filter((r) => r.amountInr > 0).reduce((s, r) => s + r.amountInr, 0);
+  // Kept in the same signed polarity each row's own USD sub-line already shows (Lent positive,
+  // Repaid negative -- see amountUsd below), not flipped to a positive magnitude, so the total
+  // reads as a straight sum of the column above it.
+  const totalDebitUsd = rendered.filter((r) => r.amountInr < 0).reduce((s, r) => s + r.amountUsd, 0);
+  const totalCreditUsd = rendered.filter((r) => r.amountInr > 0).reduce((s, r) => s + r.amountUsd, 0);
 
   return (
     <div className="data-panel">
@@ -294,8 +299,14 @@ export function LoansAdvancesFxRegister({
                     <tfoot>
                       <tr>
                         <td colSpan={3}>Total</td>
-                        <td className="right">{fmt(totalDebitInr)}</td>
-                        <td className="right">{fmt(totalCreditInr)}</td>
+                        <td className="right">
+                          {fmt(totalDebitInr)}
+                          <span className="fx-usd-sub">≈ {usdFmt(totalDebitUsd)}</span>
+                        </td>
+                        <td className="right">
+                          {fmt(totalCreditInr)}
+                          <span className="fx-usd-sub">≈ {usdFmt(totalCreditUsd)}</span>
+                        </td>
                         <td className="right">
                           {fmt(closingInr)}
                           <span className="fx-usd-sub">≈ {usdFmt(closingUsd)}</span>
