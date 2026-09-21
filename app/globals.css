@@ -8085,7 +8085,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-del-btn { font-size: var(--fs-sm); padding: 1px 5px; color: #dc2626; border-color: #fca5a5; border-radius: 3px; background: #fff5f5; cursor: pointer; }
 .equity-add-vest-btn { margin-top: 0.75rem; font-size: var(--fs-base); padding: 3px 10px; border-radius: 5px; cursor: pointer; }
 
-.equity-section-total { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: var(--surface2, #f8fafc); border-radius: 6px; font-size: var(--fs-md); font-weight: 700; margin-bottom: 0.5rem; }
+/* font-size deliberately matches .equity-grant-head's own (unset, so it inherits the page's
+   16px base) rather than shrinking to one of the --fs-* tokens -- the Total row used to render
+   noticeably smaller than the grant rows above it (16px/400 vs 12px/700), which read as a
+   mismatch rather than the intended "total stands out via bold + shaded background" emphasis. */
+.equity-section-total { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: var(--surface2, #f8fafc); border-radius: 6px; font-weight: 700; margin-bottom: 0.5rem; }
 .equity-section-total span:first-child { flex: 1; }
 
 .equity-espp-table { width: 100%; font-size: var(--fs-md); border-collapse: collapse; margin-top: 0.25rem; border: 1px solid var(--border, #e2e8f0); border-radius: 6px; overflow: hidden; }
