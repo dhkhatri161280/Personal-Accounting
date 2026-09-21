@@ -12,7 +12,10 @@ type SpendLine = {
   voucherNumber: string;
   narration: string;
   accountName: string;
-  amount: number; // always positive -- spent for Expense rows, received for Income rows
+  // Signed: positive = spend (Expense section) / earned (Income section); negative = a refund or
+  // reversal against that same category -- e.g. a Receipt crediting an Expense ledger (money
+  // reimbursed for something already spent) reduces net spend rather than being invisible.
+  amount: number;
 };
 
 function isoDaysAgo(days: number): string {
@@ -47,9 +50,12 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     for (const t of data.transactions) {
       if (t.deleted || t.cancelled || t.date < startDate || t.date > endDate) continue;
       for (const e of t.entries) {
-        const isExpense = expenseAccountIds.has(e.accountId) && e.amount < 0;
-        const isIncome = incomeAccountIds.has(e.accountId) && e.amount > 0;
+        const isExpense = expenseAccountIds.has(e.accountId);
+        const isIncome = incomeAccountIds.has(e.accountId);
         if (!isExpense && !isIncome) continue;
+        // Expense: debit (negative entry) increases spend -> positive; credit (positive entry,
+        // e.g. a reimbursement) reduces it -> negative. Income: credit (positive) increases
+        // earned -> positive; debit (negative, e.g. a reversed/bounced payment) reduces it.
         const line: SpendLine = {
           key: `${t.guid}-${e.accountId}`,
           date: t.date,
@@ -57,7 +63,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
           voucherNumber: t.number,
           narration: t.narration,
           accountName: accountName.get(e.accountId) ?? "Unknown",
-          amount: Math.abs(e.amount),
+          amount: isExpense ? -e.amount : e.amount,
         };
         (isExpense ? expense : income).push(line);
       }
@@ -96,7 +102,9 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
       <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
         Postings to Expense and Income category ledgers over any date range you pick -- independent of the header's
         Financial period selector, so you can check an arbitrary window (a trip, a week, a month-to-date) at
-        day-level precision. Transfers, contras, and journals are excluded either way.
+        day-level precision. Transfers, contras, and journals are excluded either way. A refund or reimbursement
+        against either category (e.g. a Receipt crediting an Expense ledger) reduces the total instead of being
+        left out.
       </p>
       <div className="report-line" style={{ marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
@@ -212,7 +220,9 @@ function SpendSection({
                     <td className="fx-narration" title={l.narration}>
                       {l.narration || "—"}
                     </td>
-                    <td className="right">{fmt(l.amount)}</td>
+                    <td className="right" style={l.amount < 0 ? { color: "#6b7280" } : undefined} title={l.amount < 0 ? "Refund / reversal — reduces the total" : undefined}>
+                      {fmt(l.amount)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

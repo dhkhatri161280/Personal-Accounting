@@ -7,7 +7,6 @@ import { useVoucherForm, autoBalance } from "@/hooks/useVoucherForm";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
-import { AccessGateBiometricToggle } from "@/components/AccessGate";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { TabSidebar } from "@/components/TabSidebar";
 import { TransactionTable } from "@/components/TransactionTable";
@@ -2676,7 +2675,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <span className="secure-icon" aria-hidden="true" />
             </button>
           )}
-          <AccessGateBiometricToggle />
           <HeaderToggles
             privacyMode={privacyMode}
             onTogglePrivacy={togglePrivacy}

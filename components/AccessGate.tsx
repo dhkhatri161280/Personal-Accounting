@@ -4,6 +4,9 @@ import { getAccessToken, setAccessToken, clearAccessToken, apiFetch } from "@/li
 import { hasBiometricSeal, enableBiometricSeal, biometricUnseal, removeBiometricSeal } from "@/lib/webauthn-seal";
 
 const BIO_STORAGE_KEY = "dk-access-biometric-v1";
+// Persists a decline so the enable-prompt asks at most once per device, not every session --
+// enrollment is opt-in, not something to keep re-surfacing.
+const DECLINED_KEY = "dk-access-biometric-declined";
 
 // Outermost gate for the whole app (wired into app/layout.tsx) -- separate from the vault
 // password, which is never sent to the server at all (decryption happens entirely client-side,
@@ -20,14 +23,21 @@ const BIO_STORAGE_KEY = "dk-access-biometric-v1";
 // hangs here (a real failure mode VaultApp's own code documents seeing live on some devices)
 // would be worse than in the vault-unlock flow, where a stuck auto-attempt still leaves other UI
 // reachable. Requiring one tap keeps the convenience while keeping that failure mode harmless.
+//
+// Deliberately NO persistent header icon for this (an earlier version added one next to the
+// vault's own biometric toggle -- two near-identical, unlabeled fingerprint icons side by side
+// was confusing clutter, not a real settings surface). Enrollment is instead offered exactly
+// once, right after a successful manual code entry, and never again if declined; removing it
+// later lives on the biometric unlock screen itself, only shown when it's actually relevant.
 export function AccessGate({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<"checking" | "locked" | "unlocked">("checking");
+  const [status, setStatus] = useState<"checking" | "locked" | "prompt-biometric" | "unlocked">("checking");
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
   const [biometricPending, setBiometricPending] = useState(false);
   const [showPasswordFallback, setShowPasswordFallback] = useState(false);
+  const [promptMessage, setPromptMessage] = useState("");
   const biometricInFlight = useRef(false);
 
   useEffect(() => {
@@ -42,15 +52,30 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
       .catch(() => setStatus("locked"));
   }, []);
 
-  async function verifyAndUnlock(code: string): Promise<boolean> {
+  function declinedBiometricPrompt(): boolean {
+    try {
+      return localStorage.getItem(DECLINED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  async function verifyAndUnlock(code: string, fromManualEntry: boolean): Promise<boolean> {
     setAccessToken(code);
     const r = await apiFetch("/api/auth/verify");
-    if (r.ok) {
-      setStatus("unlocked");
-      return true;
+    if (!r.ok) {
+      clearAccessToken();
+      return false;
     }
-    clearAccessToken();
-    return false;
+    // Offer the one-time biometric enrollment prompt only right after a real manual entry (not
+    // after a cached-session check or a biometric unlock itself), and only if this device hasn't
+    // already enrolled or explicitly declined before.
+    if (fromManualEntry && !hasBiometricSeal(BIO_STORAGE_KEY) && !declinedBiometricPrompt() && window.PublicKeyCredential) {
+      setStatus("prompt-biometric");
+    } else {
+      setStatus("unlocked");
+    }
+    return true;
   }
 
   async function submit(e: React.FormEvent) {
@@ -59,7 +84,7 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
     setVerifying(true);
     setError("");
     try {
-      const ok = await verifyAndUnlock(input.trim());
+      const ok = await verifyAndUnlock(input.trim(), true);
       if (!ok) setError("Incorrect access code.");
     } catch {
       setError("Couldn't verify — check your connection and try again.");
@@ -80,7 +105,7 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
         setShowPasswordFallback(true);
         return;
       }
-      const ok = await verifyAndUnlock(result.secret);
+      const ok = await verifyAndUnlock(result.secret, false);
       if (!ok) {
         setError("Saved biometric code is no longer valid. Use the access code instead.");
         setShowPasswordFallback(true);
@@ -91,25 +116,69 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function enableBiometric() {
+  function removeThisDevice() {
+    removeBiometricSeal(BIO_STORAGE_KEY);
+    setHasBiometric(false);
+    setShowPasswordFallback(true);
+  }
+
+  async function acceptBiometricPrompt() {
     const token = getAccessToken();
-    if (!token) return;
+    if (!token) {
+      setStatus("unlocked");
+      return;
+    }
     setBiometricPending(true);
-    setError("");
+    setPromptMessage("");
     try {
       const result = await enableBiometricSeal(BIO_STORAGE_KEY, "FinTech by DK", token);
       if (result.ok) {
         setHasBiometric(true);
+        setPromptMessage("Enabled — you can unlock with biometric next time.");
       } else {
-        setError(`Couldn't enable biometric unlock (${result.error}).`);
+        setPromptMessage(`Couldn't enable (${result.error}). You can still continue.`);
       }
     } finally {
       setBiometricPending(false);
     }
   }
 
+  function declineBiometricPrompt() {
+    try {
+      localStorage.setItem(DECLINED_KEY, "1");
+    } catch {}
+    setStatus("unlocked");
+  }
+
   if (status === "checking") return null;
   if (status === "unlocked") return <>{children}</>;
+
+  if (status === "prompt-biometric") {
+    return (
+      <div className="unlock">
+        <div className="vault-mark">DK</div>
+        <h1>Skip typing this next time?</h1>
+        <p>Enable fingerprint, face, or Windows Hello unlock for the access code on this device.</p>
+        {promptMessage ? (
+          <>
+            <small style={{ display: "block", marginBottom: 12 }}>{promptMessage}</small>
+            <button className="primary" onClick={() => setStatus("unlocked")}>
+              Continue
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="biometric-primary" onClick={acceptBiometricPrompt} disabled={biometricPending}>
+              {biometricPending ? "Confirming..." : "Enable biometric unlock"}
+            </button>
+            <button className="password-fallback" onClick={declineBiometricPrompt}>
+              Not now
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="unlock">
@@ -123,6 +192,9 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
           </button>
           <button className="password-fallback" onClick={() => setShowPasswordFallback(true)}>
             Use access code instead
+          </button>
+          <button className="password-fallback" onClick={removeThisDevice}>
+            Remove biometric from this device
           </button>
         </>
       ) : (
@@ -149,68 +221,5 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
       )}
       {error && <small style={{ color: "#dc2626" }}>{error}</small>}
     </div>
-  );
-}
-
-// Small opt-in control, rendered once the app is unlocked, so a user can enable biometric for the
-// access code the same way VaultApp already lets them enable it for the vault password -- shown
-// by the app itself (e.g. a settings/account area) rather than forced into this file's own gate
-// UI, since it only makes sense to offer AFTER a real code has just been verified.
-export function AccessGateBiometricToggle() {
-  const [hasBiometric, setHasBiometric] = useState(() => hasBiometricSeal(BIO_STORAGE_KEY));
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
-
-  async function enable() {
-    const token = getAccessToken();
-    if (!token) {
-      setMessage("No active access-code session to enroll.");
-      return;
-    }
-    setPending(true);
-    setMessage("");
-    try {
-      const result = await enableBiometricSeal(BIO_STORAGE_KEY, "FinTech by DK", token);
-      if (result.ok) {
-        setHasBiometric(true);
-        setMessage("Biometric unlock enabled for the access code on this device.");
-      } else {
-        setMessage(`Couldn't enable biometric unlock (${result.error}).`);
-      }
-    } finally {
-      setPending(false);
-    }
-  }
-
-  function remove() {
-    removeBiometricSeal(BIO_STORAGE_KEY);
-    setHasBiometric(false);
-    setMessage("Biometric unlock removed for the access code on this device.");
-  }
-
-  return (
-    <>
-      {hasBiometric ? (
-        <button
-          className="secure-action biometric-action biometric-action--on"
-          aria-label="Remove access-code biometric"
-          title="Remove access-code biometric unlock"
-          onClick={remove}
-        >
-          <span className="secure-icon" aria-hidden="true" />
-        </button>
-      ) : (
-        <button
-          className="secure-action biometric-action biometric-action--off"
-          aria-label="Enable access-code biometric"
-          title="Enable biometric unlock for the access code"
-          disabled={pending}
-          onClick={enable}
-        >
-          <span className="secure-icon" aria-hidden="true" />
-        </button>
-      )}
-      {message && <span className="vault-status vault-status-text">{message}</span>}
-    </>
   );
 }
