@@ -7,6 +7,7 @@ import { useVoucherForm, autoBalance } from "@/hooks/useVoucherForm";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
+import { AccessGateBiometricToggle } from "@/components/AccessGate";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { TabSidebar } from "@/components/TabSidebar";
 import { TransactionTable } from "@/components/TransactionTable";
@@ -104,6 +105,7 @@ const PeriodCloseChecklist = lazy(() => import("@/components/reports/PeriodClose
 const FinancialRatios = lazy(() => import("@/components/reports/FinancialRatios").then((m) => ({ default: m.FinancialRatios })));
 const CashFlowForecast = lazy(() => import("@/components/reports/CashFlowForecast").then((m) => ({ default: m.CashFlowForecast })));
 const FundSummary = lazy(() => import("@/components/reports/FundSummary").then((m) => ({ default: m.FundSummary })));
+const SpendReport = lazy(() => import("@/components/reports/SpendReport").then((m) => ({ default: m.SpendReport })));
 const CashFlowReport = lazy(() => import("@/components/reports/CashFlowReport").then((m) => ({ default: m.CashFlowReport })));
 const BalanceSheetReport = lazy(() => import("@/components/reports/BalanceSheetReport").then((m) => ({ default: m.BalanceSheetReport })));
 const NetWorthReport = lazy(() => import("@/components/reports/NetWorthReport").then((m) => ({ default: m.NetWorthReport })));
@@ -2674,6 +2676,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <span className="secure-icon" aria-hidden="true" />
             </button>
           )}
+          <AccessGateBiometricToggle />
           <HeaderToggles
             privacyMode={privacyMode}
             onTogglePrivacy={togglePrivacy}
@@ -3435,6 +3438,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   { id: "cashflow", label: "Cash Flow", onClick: () => setReport("cashflow") },
                   { id: "cash", label: "Cash and Bank", onClick: () => setReport("cash") },
                   { id: "fundsummary", label: "Fund Summary", onClick: () => setReport("fundsummary") },
+                  { id: "spend", label: "Spend Report", onClick: () => setReport("spend") },
                 ],
               },
               {
@@ -4357,6 +4361,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDrilldown={(req) => setColumnarDrilldown(req)}
             />
           )}
+          {report === "spend" && data && <SpendReport data={data} fmt={fmt} />}
         </Suspense>
       )}
       {tab === "new" && (

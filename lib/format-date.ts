@@ -18,3 +18,13 @@ export function todayLocalIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+// Yesterday as YYYY-MM-DD in the caller's local timezone -- same local-vs-UTC reasoning as
+// todayLocalIso above. Used as the default date for the Dashboard's Daily Spend card (see
+// components/DailySpendCard.tsx), since "how much did I spend yesterday" is the common case
+// (today's postings are often still incomplete when someone checks in the morning).
+export function yesterdayLocalIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
