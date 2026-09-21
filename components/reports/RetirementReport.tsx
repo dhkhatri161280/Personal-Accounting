@@ -254,6 +254,136 @@ export function RetirementReport({
         </p>
       )}
 
+      {accounts && accounts.length > 0 && (
+        <>
+          {/* Reuses .dashboard-stats for its button/card chrome (padding, border, typography --
+              all of that is scoped to ".dashboard-stats button", not ".dashboard-balance-card"
+              alone), but that class also carries a FIXED grid-template-areas built for the
+              Dashboard's specific 6 named cards (cash/investment/active/capital/salary/period).
+              An arbitrary/variable number of Retirement cards doesn't match any of those names,
+              so the browser auto-placed them into leftover cells that overlapped the reserved
+              named areas. Overriding grid-template-areas/columns inline (higher specificity than
+              the class rule) keeps the chrome but replaces the fixed layout with a plain
+              auto-fit grid that actually fits this content. */}
+          <div className="stats dashboard-stats" style={{ gridTemplateAreas: "none", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {grouped.map(([inst, accts]) =>
+              accts.map((a) => (
+                <button key={a.account_id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+                  <StatIcon kind="bank" color="#0891b2" />
+                  <div className="dashboard-card-main">
+                    <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
+                    <strong>{fmt(a.balances?.current ?? 0)}</strong>
+                    <small>{a.name}{a.pricingAsOf ? ` · priced as of ${a.pricingAsOf}` : ""}</small>
+                  </div>
+                </button>
+              ))
+            )}
+            {otherInvestments.map((r) => (
+              <button key={r.id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+                <StatIcon kind="bank" color="#0891b2" />
+                <div className="dashboard-card-main">
+                  <span>{r.label}</span>
+                  <strong>{fmt(r.amount)}</strong>
+                  <small>Not tracked via Plaid</small>
+                </div>
+              </button>
+            ))}
+            <button type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
+              <StatIcon kind="scale" color="#7c3aed" />
+              <div className="dashboard-card-main">
+                <span>Total retirement</span>
+                <strong>{fmt(totalBalance)}</strong>
+                <small>
+                  Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}
+                  {otherInvestments.length > 0 ? ` + ${otherInvestments.length} other` : ""}
+                </small>
+              </div>
+            </button>
+          </div>
+
+          {k401Contributions > 0 && (
+            <div className="data-panel" style={{ marginTop: 16, marginBottom: 16 }}>
+              <h4 style={{ margin: "0 0 8px" }}>Retirement contributions vs. real balance</h4>
+              <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
+                Not a reconciliation — these are different numbers by design. "Employee" and
+                "Employer Match" come from your imported paystubs/payroll Excel (same source as
+                Reports &gt; Tax &gt; 401(k) Contributions by Year), covering both the Fidelity
+                401(k) and the Merrill IRA. "Current balance" is the combined real number from
+                both, which also includes investment growth/loss the payroll data never sees.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Employee (payroll deduction)</div>
+                  <strong className="equity-amt">{fmt(k401Self)}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Employer Match</div>
+                  <strong className="equity-amt">{fmt(k401Employer)}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity + Merrill{otherInvestmentsTotal > 0 ? " + Other" : ""})</div>
+                  <strong className="equity-amt">{fmt(totalBalance)}</strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Growth / (loss)</div>
+                  <strong className="equity-amt" style={{ color: totalBalance - k401Contributions >= 0 ? "#16a34a" : "#dc2626" }}>
+                    {fmt(totalBalance - k401Contributions)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="data-panel" style={{ marginBottom: 16 }}>
+            <h4 style={{ margin: "0 0 8px" }}>Other retirement investments (not visible via Plaid)</h4>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
+              Retirement money moved into a private or illiquid investment Plaid can't see (e.g. a
+              portion of a Merrill IRA put into a private deal). Enter only the retirement portion
+              — if the holding account also has non-retirement capital, don't add the full balance.
+            </p>
+            {otherInvestments.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                {otherInvestments.map((r) => (
+                  <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #edf0f4", fontSize: 13 }}>
+                    <span>{r.label}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <strong className="equity-amt">{fmt(r.amount)}</strong>
+                      <button
+                        type="button"
+                        className="tr-refresh-btn"
+                        disabled={savingOther}
+                        onClick={() => removeOtherInvestment(r.id)}
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Label (e.g. Canyon Investment)"
+                value={newOtherLabel}
+                onChange={(e) => setNewOtherLabel(e.target.value)}
+                style={{ flex: "1 1 220px" }}
+              />
+              <input
+                type="number"
+                placeholder="Amount"
+                value={newOtherAmount}
+                onChange={(e) => setNewOtherAmount(e.target.value)}
+                style={{ width: 140 }}
+              />
+              <button type="button" className="tr-refresh-btn" disabled={savingOther || !newOtherLabel.trim() || !Number(newOtherAmount)} onClick={addOtherInvestment}>
+                {savingOther ? "Saving…" : "+ Add"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       <div className="data-panel" style={{ marginBottom: 16 }}>
         <h4 style={{ margin: "0 0 8px" }}>Social Security</h4>
         <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
@@ -335,136 +465,6 @@ export function RetirementReport({
           </div>
         )}
       </div>
-
-      {accounts && accounts.length > 0 && (
-        <>
-          {k401Contributions > 0 && (
-            <div className="data-panel" style={{ marginBottom: 16 }}>
-              <h4 style={{ margin: "0 0 8px" }}>Retirement contributions vs. real balance</h4>
-              <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-                Not a reconciliation — these are different numbers by design. "Employee" and
-                "Employer Match" come from your imported paystubs/payroll Excel (same source as
-                Reports &gt; Tax &gt; 401(k) Contributions by Year), covering both the Fidelity
-                401(k) and the Merrill IRA. "Current balance" is the combined real number from
-                both, which also includes investment growth/loss the payroll data never sees.
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Employee (payroll deduction)</div>
-                  <strong className="equity-amt">{fmt(k401Self)}</strong>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Employer Match</div>
-                  <strong className="equity-amt">{fmt(k401Employer)}</strong>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity + Merrill{otherInvestmentsTotal > 0 ? " + Other" : ""})</div>
-                  <strong className="equity-amt">{fmt(totalBalance)}</strong>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Growth / (loss)</div>
-                  <strong className="equity-amt" style={{ color: totalBalance - k401Contributions >= 0 ? "#16a34a" : "#dc2626" }}>
-                    {fmt(totalBalance - k401Contributions)}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="data-panel" style={{ marginBottom: 16 }}>
-            <h4 style={{ margin: "0 0 8px" }}>Other retirement investments (not visible via Plaid)</h4>
-            <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-              Retirement money moved into a private or illiquid investment Plaid can't see (e.g. a
-              portion of a Merrill IRA put into a private deal). Enter only the retirement portion
-              — if the holding account also has non-retirement capital, don't add the full balance.
-            </p>
-            {otherInvestments.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                {otherInvestments.map((r) => (
-                  <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #edf0f4", fontSize: 13 }}>
-                    <span>{r.label}</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <strong className="equity-amt">{fmt(r.amount)}</strong>
-                      <button
-                        type="button"
-                        className="tr-refresh-btn"
-                        disabled={savingOther}
-                        onClick={() => removeOtherInvestment(r.id)}
-                      >
-                        Remove
-                      </button>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <input
-                type="text"
-                placeholder="Label (e.g. Canyon Investment)"
-                value={newOtherLabel}
-                onChange={(e) => setNewOtherLabel(e.target.value)}
-                style={{ flex: "1 1 220px" }}
-              />
-              <input
-                type="number"
-                placeholder="Amount"
-                value={newOtherAmount}
-                onChange={(e) => setNewOtherAmount(e.target.value)}
-                style={{ width: 140 }}
-              />
-              <button type="button" className="tr-refresh-btn" disabled={savingOther || !newOtherLabel.trim() || !Number(newOtherAmount)} onClick={addOtherInvestment}>
-                {savingOther ? "Saving…" : "+ Add"}
-              </button>
-            </div>
-          </div>
-
-          {/* Reuses .dashboard-stats for its button/card chrome (padding, border, typography --
-              all of that is scoped to ".dashboard-stats button", not ".dashboard-balance-card"
-              alone), but that class also carries a FIXED grid-template-areas built for the
-              Dashboard's specific 6 named cards (cash/investment/active/capital/salary/period).
-              An arbitrary/variable number of Retirement cards doesn't match any of those names,
-              so the browser auto-placed them into leftover cells that overlapped the reserved
-              named areas. Overriding grid-template-areas/columns inline (higher specificity than
-              the class rule) keeps the chrome but replaces the fixed layout with a plain
-              auto-fit grid that actually fits this content. */}
-          <div className="stats dashboard-stats" style={{ gridTemplateAreas: "none", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-            {grouped.map(([inst, accts]) =>
-              accts.map((a) => (
-                <button key={a.account_id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-                  <StatIcon kind="bank" color="#0891b2" />
-                  <div className="dashboard-card-main">
-                    <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
-                    <strong>{fmt(a.balances?.current ?? 0)}</strong>
-                    <small>{a.name}{a.pricingAsOf ? ` · priced as of ${a.pricingAsOf}` : ""}</small>
-                  </div>
-                </button>
-              ))
-            )}
-            {otherInvestments.map((r) => (
-              <button key={r.id} type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-                <StatIcon kind="bank" color="#0891b2" />
-                <div className="dashboard-card-main">
-                  <span>{r.label}</span>
-                  <strong>{fmt(r.amount)}</strong>
-                  <small>Not tracked via Plaid</small>
-                </div>
-              </button>
-            ))}
-            <button type="button" className="dashboard-balance-card" style={{ cursor: "default" }}>
-              <StatIcon kind="scale" color="#7c3aed" />
-              <div className="dashboard-card-main">
-                <span>Total retirement</span>
-                <strong>{fmt(totalBalance)}</strong>
-                <small>
-                  Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}
-                  {otherInvestments.length > 0 ? ` + ${otherInvestments.length} other` : ""}
-                </small>
-              </div>
-            </button>
-          </div>
-        </>
-      )}
     </div>
   );
 }
