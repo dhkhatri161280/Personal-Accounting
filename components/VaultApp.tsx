@@ -2850,15 +2850,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   className="header-settings-row"
                   onClick={() => { setSettingsMenuOpen(false); hasBiometric ? removeBiometric() : enableBiometric(); }}
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M7.1 8.4a7 7 0 0 1 9.8 0" />
-                    <path d="M5 11.2a10 10 0 0 1 14 0" />
-                    <path d="M8.6 12.3a4.8 4.8 0 0 1 6.8 0" />
-                    <path d="M12 13.4c0 3.2-.75 5.55-2.25 7.05" />
-                    <path d="M14.4 13.7c0 2.8.7 4.95 2.1 6.45" />
-                    <path d="M9.5 15.3c-.2 1.45-.75 2.7-1.65 3.75" />
-                    <path d="M16.8 15.9c.18.95.52 1.85 1.02 2.7" />
-                    <path d="M12 10.6a2.8 2.8 0 0 1 2.8 2.8" />
+                  {/* 4 bold nested arcs -- the original 8-path hand-drawn ridge pattern read as a
+                      muddy blob at 17px (confirmed live, flagged by the user). Fewer, thicker
+                      strokes stay legible as a fingerprint at menu-row size instead of a name-only
+                      substitute. */}
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+                    <path d="M12 6a6 6 0 0 0-6 6c0 3-1 6-2 7" />
+                    <path d="M12 6a6 6 0 0 1 6 6c0 1.5-.2 3-.6 4.4" />
+                    <path d="M8.5 20.5c.9-1.7 1.5-4 1.5-6.5a2 2 0 0 1 4 0c0 1 0 2-.3 3" />
+                    <path d="M15.5 20c.3-1 .5-2 .5-3" />
                   </svg>
                   {hasBiometric ? "Remove biometric" : "Enable biometric"}
                 </button>
