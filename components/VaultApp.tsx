@@ -2590,7 +2590,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     <div className={[privacyMode ? "privacy-mode" : "", "ui-refresh"].filter(Boolean).join(" ") || undefined}>
       <header>
         <div>
-          <small>FINTECH BY DK - ACCOUNTING RELEASE 5</small>
+          <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH.</small>
           <div className="book-heading">
             <h1>Dignesh Khatri</h1>
             <span className={`book-badge ${book}`}>
