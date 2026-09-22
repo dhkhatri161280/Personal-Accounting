@@ -804,11 +804,71 @@ header > div:first-child > small,
   color: #7c8aa1;
   font-weight: 800;
 }
+.build-stamp-wrap {
+  position: relative;
+  display: inline-block;
+}
 .build-stamp {
   opacity: 0.7;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: none;
+  font-size: inherit;
+  font-family: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.build-stamp:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+.build-stamp-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 10px 12px;
+  width: 320px;
+  max-width: 80vw;
+  z-index: 40;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+.build-stamp-popover strong {
+  display: block;
+  font-size: var(--fs-sm);
+  color: #334155;
+  margin-bottom: 6px;
+}
+.build-stamp-popover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.build-stamp-popover li {
+  font-size: var(--fs-sm);
+  color: #475569;
+  line-height: 1.4;
+}
+.build-stamp-date {
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+  white-space: nowrap;
 }
 h1 {
   font-size: 24px;
@@ -4922,6 +4982,7 @@ button.group-heading:hover {
   --dk-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M7 10V7a5 5 0 0 1 10 0v3h1.2A1.8 1.8 0 0 1 20 11.8v7.4a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 19.2v-7.4A1.8 1.8 0 0 1 5.8 10H7Zm2.2 0h5.6V7a2.8 2.8 0 0 0-5.6 0v3Z'/%3E%3C/svg%3E");
   --dk-unlock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M5.8 10h12.4A1.8 1.8 0 0 1 20 11.8v7.4a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 19.2v-7.4A1.8 1.8 0 0 1 5.8 10Z'/%3E%3Cpath fill='none' stroke='black' stroke-width='2.1' stroke-linecap='round' d='M8 10V7a4 4 0 0 1 7.4-2.1'/%3E%3C/svg%3E");
   --dk-sync: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z'/%3E%3C/svg%3E");
+  --dk-download: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 16a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z'/%3E%3C/svg%3E");
 }
 
 /* Web + desktop: force symbolic secure buttons. */
@@ -5173,6 +5234,11 @@ button.group-heading:hover {
   background: #28405f !important;
   -webkit-mask: var(--dk-lock) center/contain no-repeat !important;
   mask: var(--dk-lock) center/contain no-repeat !important;
+}
+.header-actions .backup-download-button .secure-icon {
+  background: #28405f !important;
+  -webkit-mask: var(--dk-download) center/contain no-repeat !important;
+  mask: var(--dk-download) center/contain no-repeat !important;
 }
 .header-actions button::before {
   width: 0 !important;

@@ -599,6 +599,31 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setStatus("Biometric unlock removed from this device.");
   }
 
+  // Downloads the raw encrypted vault envelope exactly as stored -- ciphertext only, same reason
+  // GET /api/vault itself needs no access token (see lib/api-auth.ts). Gives the user an offline
+  // copy independent of whatever backups the Tally sync scripts happen to leave behind, without
+  // adding any new security surface: this is the identical bytes the app already fetches on
+  // unlock, just saved to disk instead of decrypted in memory.
+  async function downloadVaultBackup() {
+    try {
+      const r = await fetch(apiUrl, { cache: "no-store" });
+      if (!r.ok) {
+        setStatus(`Backup download failed (${r.status}).`);
+        return;
+      }
+      const text = await r.text();
+      const blob = new Blob([text], { type: "application/json" }),
+        url = URL.createObjectURL(blob),
+        a = document.createElement("a");
+      a.href = url;
+      a.download = `${book}-vault-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setStatus("Backup download failed.");
+    }
+  }
+
   async function lockVault() {
     try {
       await fetch("/_auth/logout", { method: "POST" });
@@ -1911,7 +1936,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // Schwab-only (US book); reads the already-stored OAuth token expiry (no live Schwab API call)
   // -- same "about to silently break" idea as the Tally/Social Security staleness checks above,
   // for the one other external connection with a real expiry date.
-  if (book !== "india" && schwabStatus?.connected && typeof schwabStatus.daysUntilReauth === "number" && schwabStatus.daysUntilReauth <= 14) {
+  //
+  // Schwab's refresh token is HARD-CAPPED at exactly 7 days by Schwab itself (see
+  // lib/schwab-oauth.ts's REFRESH_TOKEN_LIFETIME_MS) and resets back to a fresh 7-day window on
+  // every successful refresh -- so "N days left" can never exceed 7, and showing exactly 7 right
+  // after a normal refresh is the everyday steady state, not a warning. A threshold anywhere near
+  // or above 7 (the original 14 here was a real bug, confirmed live: it fired permanently, every
+  // time, regardless of actual staleness) would always be true. Only flag once it's gotten
+  // genuinely close to the hard wall -- meaning the app hasn't successfully talked to Schwab in
+  // days, which is the actual "about to lose this connection" signal.
+  if (book !== "india" && schwabStatus?.connected && typeof schwabStatus.daysUntilReauth === "number" && schwabStatus.daysUntilReauth <= 2) {
     attentionItems.push({
       label: "Schwab connection needs re-authentication soon",
       detail: `Re-auth required within ${schwabStatus.daysUntilReauth} day${schwabStatus.daysUntilReauth === 1 ? "" : "s"} or the connection will stop working — reconnect it in Import → Schwab.`,
@@ -2805,6 +2839,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             darkMode={darkMode}
             onToggleDarkMode={toggleDarkMode}
           />
+          <button
+            type="button"
+            className="backup-download-button"
+            title="Download an encrypted backup of this book's vault"
+            aria-label="Download encrypted vault backup"
+            onClick={downloadVaultBackup}
+          >
+            <span className="secure-icon" aria-hidden="true" />
+          </button>
           <SyncStatusLock book={book} onClick={lockVault} />
         </div>
         <div className="toolbar-icons">
