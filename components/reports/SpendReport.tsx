@@ -224,7 +224,7 @@ function SpendSection({
           </button>
           {expanded && <SpendVoucherTable lines={lines} total={total} fmt={fmt} color={color} />}
           {drilldown && (
-            <FloatingWindow title={`${drilldown} — ${fmt(drilldownTotal)}`} onClose={() => setDrilldown(null)}>
+            <FloatingWindow title={`${drilldown} — ${fmt(drilldownTotal)}`} onClose={() => setDrilldown(null)} wide>
               <SpendVoucherTable lines={drilldownLines} total={drilldownTotal} fmt={fmt} color={color} hideAccountColumn />
             </FloatingWindow>
           )}
