@@ -192,14 +192,15 @@ function SpendSection({
         <p style={{ fontSize: 12, opacity: 0.6 }}>No {emptyLabel} postings in this range.</p>
       ) : (
         <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          <div className="spend-category-grid">
             {byCategory.map(([name, amt]) => {
               const pct = maxAmt > 0 ? Math.max(0, Math.min(100, (amt / maxAmt) * 100)) : 0;
               return (
-                <span key={name} className="spend-category-chip">
+                <span key={name} className="spend-category-chip" title={`${name}: ${fmt(amt)}`}>
                   <span className="spend-category-chip-fill" style={{ width: `${pct}%`, background: color }} />
                   <span className="spend-category-chip-text">
-                    <b>{name}</b>: {fmt(amt)}
+                    <b>{name}</b>
+                    <em>{fmt(amt)}</em>
                   </span>
                 </span>
               );

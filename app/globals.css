@@ -9116,18 +9116,27 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .voucher-quick-ledger-chip:hover {
   background: #e2e8f0;
 }
-/* Spend Report category chips -- a proportional fill behind the text (relative to that section's
-   largest category) so the biggest spend/income lines visually pop out at a glance instead of
-   every pill reading as equal weight regardless of scale (a $4,000 category looked identical to
-   a $20 one before this). Low opacity so text stays legible against any fill width. */
+/* Spend Report category cards -- a compact grid (name on top, amount below) instead of a wrapped
+   row of variable-width pills, so many categories fit per row instead of just a handful before
+   wrapping. auto-fill + a fixed min width packs as many equal-size cards per row as the panel
+   width allows, at any screen size, without a media query. */
+.spend-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+/* A proportional fill behind the text (relative to that section's largest category) so the
+   biggest spend/income lines visually pop out at a glance instead of every card reading as equal
+   weight regardless of scale (a $4,000 category looked identical to a $20 one before this). Low
+   opacity so text stays legible against any fill width. */
 .spend-category-chip {
   position: relative;
-  display: inline-block;
   font-size: var(--fs-sm);
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 6px 8px;
   overflow: hidden;
 }
 .spend-category-chip-fill {
@@ -9139,6 +9148,20 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .spend-category-chip-text {
   position: relative;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.spend-category-chip-text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.spend-category-chip-text em {
+  font-style: normal;
+  font-weight: 600;
+  font-size: var(--fs-md);
 }
 .voucher-pending-attachments {
   list-style: none;
