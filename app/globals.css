@@ -5235,10 +5235,84 @@ button.group-heading:hover {
   -webkit-mask: var(--dk-lock) center/contain no-repeat !important;
   mask: var(--dk-lock) center/contain no-repeat !important;
 }
-.header-actions .backup-download-button .secure-icon {
-  background: #28405f !important;
-  -webkit-mask: var(--dk-download) center/contain no-repeat !important;
-  mask: var(--dk-download) center/contain no-repeat !important;
+.header-settings-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+/* .header-actions button (above) is a DESCENDANT selector, not a direct-child one -- it
+   !important-clobbers width/height/color/overflow/etc. on every button nested anywhere inside
+   .header-actions, including these menu rows (found live: rows collapsed to 36x36 squares with
+   invisible text/icons until these overrides were added). Matching with an extra class instead
+   of the generic rule's class+element gives these enough specificity to win. */
+.header-actions .header-settings-button {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 11px !important;
+  font-size: 0 !important;
+  color: #28405f !important;
+  overflow: visible !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #fff !important;
+  box-shadow: 0 6px 18px rgba(16, 34, 63, 0.18) !important;
+  transition: box-shadow 0.15s, transform 0.1s, background 0.15s;
+  cursor: pointer;
+}
+.header-actions .header-settings-button:hover {
+  background: #eef5ff !important;
+  box-shadow: 0 8px 22px rgba(16, 34, 63, 0.26) !important;
+}
+.header-actions .header-settings-button svg {
+  width: 18px;
+  height: 18px;
+}
+.header-settings-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 50;
+  width: 220px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(16, 34, 63, 0.22);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.header-actions .header-settings-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  width: 100% !important;
+  height: auto !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 9px 10px !important;
+  background: none !important;
+  color: #28405f !important;
+  font-size: var(--fs-md) !important;
+  font-weight: 600;
+  text-align: left;
+  overflow: visible !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+.header-actions .header-settings-row:hover {
+  background: #eef5ff !important;
+}
+.header-actions .header-settings-row svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
 }
 .header-actions button::before {
   width: 0 !important;
