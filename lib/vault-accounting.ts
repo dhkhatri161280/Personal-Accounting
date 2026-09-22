@@ -371,16 +371,22 @@ export function findClosedPeriodViolations(
   next: Tx[],
   closedPeriods: string[] | undefined,
   exempt?: Set<string>
-): { count: number; examplePeriod: string } | null {
+): { count: number; examplePeriod: string; example: { type: string; number: string; date: string } } | null {
   if (!closedPeriods?.length) return null;
   const closed = new Set(closedPeriods);
   const currentByGuid = new Map(current.map((t) => [t.guid, t]));
   const nextByGuid = new Map(next.map((t) => [t.guid, t]));
   let count = 0;
   let examplePeriod = "";
-  const flag = (period: string) => {
+  let example: { type: string; number: string; date: string } | null = null;
+  const flag = (period: string, t: Tx) => {
     count++;
-    if (!examplePeriod || period < examplePeriod) examplePeriod = period;
+    // Keep the earliest period's voucher as the example shown in the error -- an arbitrary but
+    // stable choice so the message doesn't flicker between different examples on re-renders.
+    if (!examplePeriod || period < examplePeriod) {
+      examplePeriod = period;
+      example = { type: t.type, number: t.number, date: t.date };
+    }
   };
   for (const [guid, t] of nextByGuid) {
     if (exempt?.has(guid)) continue;
@@ -388,17 +394,17 @@ export function findClosedPeriodViolations(
     const period = periodKeyOf(t.date);
     if (!before) {
       // New voucher.
-      if (closed.has(period)) flag(period);
+      if (closed.has(period)) flag(period, t);
     } else if (JSON.stringify(before) !== JSON.stringify(t)) {
       // Edited -- flagged if it's moving INTO, OUT OF, or staying within a closed period.
       const beforePeriod = periodKeyOf(before.date);
-      if (closed.has(beforePeriod) || closed.has(period)) flag(closed.has(period) ? period : beforePeriod);
+      if (closed.has(beforePeriod) || closed.has(period)) flag(closed.has(period) ? period : beforePeriod, t);
     }
   }
   for (const [guid, t] of currentByGuid) {
-    if (!nextByGuid.has(guid) && closed.has(periodKeyOf(t.date))) flag(periodKeyOf(t.date)); // hard delete
+    if (!nextByGuid.has(guid) && closed.has(periodKeyOf(t.date))) flag(periodKeyOf(t.date), t); // hard delete
   }
-  return count > 0 ? { count, examplePeriod } : null;
+  return count > 0 && example ? { count, examplePeriod, example } : null;
 }
 
 export const cleanVoucherDisplay = (value: unknown): string =>

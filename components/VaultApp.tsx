@@ -699,9 +699,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (data) {
       const violation = findClosedPeriodViolations(data.transactions, next.transactions, next.closedPeriods, exemptGuids);
       if (violation) {
+        const ex = violation.example,
+          exLabel = `${ex.type}${ex.number ? ` #${ex.number}` : ""} (${fmtDate(ex.date)})`;
         setStatus(
-          `Blocked: ${violation.count} voucher(s) in closed period ${violation.examplePeriod} would be ` +
-            `created, edited, or deleted. Reopen that period in Masters → Periods to make this change.`
+          violation.count === 1
+            ? `Blocked: ${exLabel} can't be saved — its period is closed.`
+            : `Blocked: ${violation.count} vouchers can't be saved — their period is closed (e.g. ${exLabel}).`
         );
         return false;
       }
@@ -1493,7 +1496,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   async function deleteVoucher(t: Tx) {
     if (!data) return;
     if (isPeriodClosed(data.closedPeriods, t.date)) {
-      setStatus(`This voucher is dated in a closed period (${t.date}) and cannot be deleted. Reopen the period in Masters → Periods first.`);
+      setStatus(`Blocked: this voucher can't be deleted — its period (${fmtDate(t.date)}) is closed.`);
       return;
     }
     if (!confirm(`Permanently delete ${t.type} voucher ${t.number} from both the app and Tally?`))
@@ -2822,7 +2825,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   setTab("masters");
                 }}
               >
-                Reopen in Masters → Periods
+                Open period in Masters
               </button>
             )}
             <button type="button" className="tr-refresh-btn" onClick={() => setStatus("")}>
