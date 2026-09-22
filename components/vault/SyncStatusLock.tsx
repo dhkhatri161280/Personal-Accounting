@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { SyncHealth } from "@/lib/vault-types";
 import { apiFetch } from "@/lib/api-fetch";
+import { timeAgoLabel } from "@/lib/format-date";
 
 export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClick: () => void }) {
   const [triggerState, setTriggerState] = useState<"idle" | "sending" | "sent">("idle");
@@ -67,6 +68,10 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
             ? "Checking sync status…"
             : `${pendingCount || 1} item${(pendingCount || 1) === 1 ? "" : "s"} pending sync`
           : "Sync successful";
+  // The home laptop only reports in when a sync cycle actually runs (every 30 min, or right after
+  // "Sync Now") -- this is also the only signal this app has for whether that laptop is even on,
+  // so surface it here rather than adding a separate heartbeat mechanism.
+  const lastSyncedLabel = health?.lastCheckedAt ? ` Last synced ${timeAgoLabel(health.lastCheckedAt)}.` : "";
 
   const syncNowLabel =
     triggerState === "sending"
@@ -93,8 +98,8 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
       <button
         type="button"
         className={`sync-lock-button ${tone}`}
-        title={`${label}. Lock vault`}
-        aria-label={`${label}. Lock vault`}
+        title={`${label}.${lastSyncedLabel} Lock vault`}
+        aria-label={`${label}.${lastSyncedLabel} Lock vault`}
         onClick={onClick}
       >
         <svg

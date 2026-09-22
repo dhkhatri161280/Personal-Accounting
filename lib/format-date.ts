@@ -41,3 +41,18 @@ export function yesterdayLocalIso(): string {
   d.setDate(d.getDate() - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+// "5 min ago" / "3 hr ago" / "2 days ago" from a full ISO timestamp (not just a date) -- used for
+// the Tally sync lock's "last synced" label and the Needs Attention "sync hasn't reported in a
+// while" check, both of which care about minutes/hours, not just calendar days.
+export function timeAgoLabel(isoTimestamp: string, nowMs: number = Date.now()): string {
+  const then = new Date(isoTimestamp).getTime();
+  if (!Number.isFinite(then)) return "";
+  const minutes = Math.max(0, Math.round((nowMs - then) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}

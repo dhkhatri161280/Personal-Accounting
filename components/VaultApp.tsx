@@ -49,7 +49,7 @@ import {
   nextTransactionIds,
   nextVoucherNumber,
 } from "@/lib/vault-accounting";
-import { fmtDate, todayLocalIso, isOlderThanMonths } from "@/lib/format-date";
+import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
@@ -226,6 +226,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [editingTagValue, setEditingTagValue] = useState(""),
     [editingTagNameValue, setEditingTagNameValue] = useState(""),
     [r2Usage, setR2Usage] = useState<{ totalBytes: number; objectCount: number } | null>(null),
+    [tallySyncHealth, setTallySyncHealth] = useState<SyncHealth | null>(null),
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
     [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null),
@@ -890,6 +891,21 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       })
       .catch(() => {});
   }, [!!data]);
+
+  // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
+  // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
+  // real sync outage was easy to miss because nothing draws your eye to the small lock button.
+  useEffect(() => {
+    if (!data) return;
+    const check = () =>
+      fetch(`/api/sync-status?book=${book}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((h: unknown) => setTallySyncHealth(h as SyncHealth | null))
+        .catch(() => {});
+    check();
+    const timer = setInterval(check, 120000);
+    return () => clearInterval(timer);
+  }, [!!data, book]);
 
   useEffect(() => {
     if (!newVoucherMenuOpen) return;
@@ -1802,6 +1818,27 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       attentionItems.push({
         label: "R2 attachment storage nearing free tier limit",
         detail: `${gb} GB used of the 10GB free tier (${pct.toFixed(0)}%), across ${r2Usage.objectCount} file(s). Beyond 10GB, storage is billed at $0.015/GB-month.`,
+      });
+    }
+  }
+  // Tally sync problems are easy to miss (the lock icon is small and easy to not notice) -- a real
+  // 401 auth regression sat unnoticed for a while before it was found this way. Cycles run every
+  // 30 min automatically, so a "pending" that's sat for over 2 hours (4x normal) means either the
+  // home laptop is off/unreachable or a cycle is genuinely stuck, not just mid-progress.
+  if (tallySyncHealth?.lastCheckedAt) {
+    const STUCK_PENDING_MINUTES = 120;
+    const ageMinutes = (Date.now() - new Date(tallySyncHealth.lastCheckedAt).getTime()) / 60000;
+    if (tallySyncHealth.status === "error") {
+      attentionItems.push({
+        label: "Tally sync error",
+        detail: `${tallySyncHealth.message || "Sync failed"} — last reported ${timeAgoLabel(tallySyncHealth.lastCheckedAt)}.`,
+        action: { label: "Retry sync", onClick: () => { apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {}); } },
+      });
+    } else if (tallySyncHealth.status === "pending" && ageMinutes > STUCK_PENDING_MINUTES) {
+      attentionItems.push({
+        label: "Tally sync may be stuck",
+        detail: `Still shows "in progress" as of ${timeAgoLabel(tallySyncHealth.lastCheckedAt)} — normal cycles run every 30 min. Check that the home laptop is on and Tally is open.`,
+        action: { label: "Retry sync", onClick: () => { apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {}); } },
       });
     }
   }
