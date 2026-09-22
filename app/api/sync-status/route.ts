@@ -92,10 +92,16 @@ export async function PUT(request: Request) {
   cleaned.lastCheckedAt = new Date().toISOString();
 
   // Hard write floor: this is a status ping, not user data, so it's safe to
-  // guarantee at most one real KV write per book per MIN_WRITE_INTERVAL_MS —
-  // no matter how often (or how differently) any caller invokes this, ever.
-  // Combined with the content-equality skip below, this caps worst case at
-  // 2 books * (86400s / 300s) = 576 writes/day, well under the 1000/day quota.
+  // guarantee at most one real KV write per book per MIN_WRITE_INTERVAL_MS for
+  // same-status noise (e.g. a "pending" ping with slightly different counts as
+  // a sync loop progresses). A genuine status TRANSITION (error/pending -> success,
+  // success -> error, etc.) always writes immediately regardless of the floor --
+  // silently withholding that for up to 5 minutes previously left the sync lock
+  // showing a stale error/pending state right after a real fix had already landed
+  // (confirmed live: a fixed sync published "success" 4 minutes after a "pending"
+  // write and the UI kept showing "pending" until the floor expired). Status
+  // transitions are inherently infrequent (at most a couple per cycle), so this
+  // still stays well under the 1000/day KV write quota.
   const MIN_WRITE_INTERVAL_MS = 5 * 60 * 1000;
   try {
     const existingRaw = await bindings.VAULT.get(key(book));
@@ -104,10 +110,11 @@ export async function PUT(request: Request) {
       const { lastCheckedAt: _a, ...existingRest } = existing;
       const { lastCheckedAt: _b, ...newRest } = cleaned;
       const unchanged = JSON.stringify(existingRest) === JSON.stringify(newRest);
+      const statusChanged = existing.status !== cleaned.status;
       const existingAgeMs = existing.lastCheckedAt
         ? Date.now() - new Date(existing.lastCheckedAt).getTime()
         : Infinity;
-      if (unchanged || existingAgeMs < MIN_WRITE_INTERVAL_MS) {
+      if (unchanged || (!statusChanged && existingAgeMs < MIN_WRITE_INTERVAL_MS)) {
         return Response.json({ ok: true, ...existing, lastCheckedAt: existing.lastCheckedAt });
       }
     }
