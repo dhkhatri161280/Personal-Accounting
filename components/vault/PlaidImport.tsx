@@ -40,6 +40,15 @@ interface PlaidInvestmentTx {
   name: string;
   amount: number; // Plaid: positive = money OUT (withdrawal/buy), negative = money IN
   institution_name: string;
+  // Plaid's own transaction classification -- "cash"/"buy"/"sell"/"fee"/"transfer" for type,
+  // further refined by subtype ("withdrawal"/"deposit"/"dividend"/"contribution"/"fee"/etc. under
+  // "cash"). Already present in the raw API response (see app/api/plaid/transactions/route.ts,
+  // which forwards the object as-is) -- just not previously declared here since nothing read
+  // them yet. Used by buildInvestmentWithdrawalRows to isolate real HSA debit-card spend from
+  // the internal buy/sell/contribution/dividend fund-shuffling Plaid also reports for the same
+  // account, which would be nonsense/duplicate import proposals if treated the same way.
+  type?: string;
+  subtype?: string;
 }
 
 interface PlaidAccount {
@@ -85,7 +94,7 @@ interface ImportRow {
   narration: string;
   entries: EntryDraft[];
   confidence: number; // 0–1, 1 = high confidence (payroll template), < 0.5 = needs review
-  source?: "payroll" | "recurring" | "history" | "household" | "ai" | "none" | "duplicate";
+  source?: "payroll" | "recurring" | "history" | "household" | "ai" | "none" | "duplicate" | "investment";
   // Set when `source === "recurring"` -- which RecurringTemplate matched, so saveSelected() can
   // record the posting back onto it (see lib/recurring.ts).
   recurringTemplateId?: string;
@@ -1246,6 +1255,109 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
   });
 }
 
+// Turns unmatched real cash movements out of an investment-type account (HSA debit-card spend,
+// HSA funding transfers, etc.) into importable rows -- previously the Balances tab's Plaid
+// investments feed was ONLY used to check off vault entries that already existed; an unmatched
+// Plaid-side transaction (a real purchase or transfer the user hasn't recorded yet) was never
+// surfaced anywhere. Confirmed live: real Kaiser pharmacy / GoodRx HSA debit-card charges sat
+// fully visible in Plaid's own data with no way to ever import them. Scoped to type "cash" +
+// subtype "withdrawal"/"deposit" only -- excludes the buy/sell/dividend/fee entries Plaid also
+// reports for the same account (internal fund-shuffling, not real external cash movement).
+// "deposit" is only safe to surface this way because the user funds their HSA via a manual bank
+// transfer (confirmed directly, not a payroll deduction that some other import path already
+// records) -- alreadyImported() below still catches the case where the transfer's BofA-side leg
+// was already imported and the user picked HSA as the other side by hand, so this can't double-
+// book that.
+function buildInvestmentWithdrawalRows(
+  investmentTxs: PlaidInvestmentTx[],
+  plaidAcctMap: Map<string, PlaidAccount>,
+  ledger: Ledger
+): ImportRow[] {
+  const accounts = ledger.accounts.filter((a) => a.active !== false);
+
+  const candidates = investmentTxs
+    .filter((t) => t.type === "cash" && (t.subtype === "withdrawal" || t.subtype === "deposit"))
+    .map((t) => {
+      const plaidAcct = plaidAcctMap.get(t.account_id);
+      const vaultAcct = plaidAcct
+        ? matchVaultAccount(
+            {
+              account_id: plaidAcct.account_id,
+              type: plaidAcct.type,
+              subtype: plaidAcct.subtype,
+              name: plaidAcct.name,
+              institution_name: plaidAcct.institution_name,
+              balances: plaidAcct.balances,
+            },
+            accounts
+          )
+        : undefined;
+      // A deposit is almost always funded FROM a real bank account (a transfer), so try to
+      // pre-fill the actual source instead of a generic guess -- Contra vouchers additionally
+      // require every line to be a bank/cash account (see validateEntryRules), so a non-bank
+      // fallback here would just make the row fail to save until the user fixes it anyway.
+      // A withdrawal's other side is an unknowable expense category, so it stays a generic
+      // placeholder for a human (or AI Suggest, since confidence 0.3 below makes these rows
+      // eligible for it) to fill in. Either way, excludes vaultAcct itself -- confirmed live:
+      // when vaultAcct sorted first alphabetically among only 2 accounts, both entry lines
+      // defaulted to the SAME account, which is nonsensical even as a placeholder.
+      const bofaAcct = t.subtype === "deposit" ? findAcct(accounts, "Bank Of America", "Bank of America") : undefined;
+      const fallbackAcct =
+        (bofaAcct && bofaAcct.id !== vaultAcct?.id ? bofaAcct : undefined) ??
+        accounts.filter((a) => a.id !== vaultAcct?.id).sort((a, b) => a.name.localeCompare(b.name))[0];
+      return { t, vaultAcct, fallbackAcct };
+    })
+    // No known GL mapping for this Plaid account yet (see matchVaultAccount), or no other
+    // active ledger exists to pair it with -- nothing useful to propose either way.
+    .filter((x): x is { t: PlaidInvestmentTx; vaultAcct: Account; fallbackAcct: Account } => !!x.vaultAcct && !!x.fallbackAcct);
+
+  const syntheticTxs: PlaidTxRaw[] = candidates.map(({ t }) => ({
+    transaction_id: t.investment_transaction_id,
+    date: t.date,
+    name: t.name,
+    amount: t.amount,
+    account_id: t.account_id,
+    institution_name: t.institution_name,
+  }));
+
+  return candidates.map(({ t, vaultAcct, fallbackAcct }, i) => {
+    const amt = Math.abs(t.amount);
+    // NOT alreadyImported() -- that matcher deliberately excludes any vault entry with a bank/CC
+    // account on BOTH sides (its comment: "Exclude Contra entries... A CC payment has the same
+    // debit-side check as a refund but is NOT a refund"), specifically so a real refund isn't
+    // confused with a card-payment transfer. But a deposit here IS exactly that "both sides
+    // financial" shape (Dr HSA / Cr BofA) -- confirmed live: alreadyImported() failed to
+    // recognize an already-recorded $500 HSA transfer as a match, proposing a duplicate. Instead,
+    // reuse the SAME amount/date matching the Balances tab already uses correctly for this exact
+    // feed (see matchedAgainstInvestment above): Plaid's investment amount sign already matches
+    // the vault entry's own stored sign on this account, no negation needed either direction.
+    const imported = ledger.transactions.some((v) => {
+      if (v.deleted || v.cancelled) return false;
+      const vMs = new Date(v.date + "T12:00:00Z").getTime();
+      const tMs = new Date(t.date + "T12:00:00Z").getTime();
+      if (Math.abs(tMs - vMs) / 86400000 > 5) return false;
+      return v.entries.some((e) => e.accountId === vaultAcct.id && Math.abs(e.amount - t.amount) < 0.05);
+    });
+    // Plaid: positive amount = money OUT of the account (withdrawal), negative = money IN
+    // (deposit) -- this app: Entry.amount negative = Dr, positive = Cr. A withdrawal credits
+    // (decreases) the HSA asset; a deposit debits (increases) it.
+    const isDeposit = t.amount < 0;
+    return {
+      plaidTx: syntheticTxs[i],
+      skip: imported,
+      alreadyImported: imported,
+      voucherType: isDeposit ? "Contra" : "Payment",
+      narration: t.name,
+      entries: [
+        { accountId: fallbackAcct.id, accountName: fallbackAcct.name, amount: isDeposit ? amt : -amt },
+        { accountId: vaultAcct.id, accountName: vaultAcct.name, amount: isDeposit ? -amt : amt },
+      ],
+      confidence: 0.3,
+      source: "investment",
+    };
+  });
+}
+
 // ── Balance reconciliation helpers ────────────────────────────────────────────
 
 // Sum of vault entries with syncStatus==="bank-pending" for this account.
@@ -1619,7 +1731,12 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         };
       });
       flagCrossFeedDuplicates(draftRows, data.transactions);
-      setRows(draftRows);
+      const investmentWithdrawalRows = buildInvestmentWithdrawalRows(
+        investmentTransactions ?? [],
+        plaidAcctMap,
+        data
+      );
+      setRows([...draftRows, ...investmentWithdrawalRows]);
     } catch {
       setStatus("Failed to fetch transactions");
     } finally {
