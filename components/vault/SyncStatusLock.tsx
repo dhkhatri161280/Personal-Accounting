@@ -5,9 +5,7 @@ import type { SyncHealth } from "@/lib/vault-types";
 import { apiFetch } from "@/lib/api-fetch";
 import { timeAgoLabel } from "@/lib/format-date";
 
-export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClick: () => void }) {
-  const [triggerState, setTriggerState] = useState<"idle" | "sending" | "sent">("idle");
-
+function useSyncHealth(book: "us" | "india") {
   const { data: health, isError: fetchError } = useQuery({
     queryKey: ["sync-status", book],
     queryFn: async (): Promise<SyncHealth> => {
@@ -19,18 +17,6 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
     refetchIntervalInBackground: true,
     staleTime: 60000,
   });
-
-  async function handleSyncNow() {
-    if (triggerState !== "idle") return;
-    setTriggerState("sending");
-    try {
-      await apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" });
-    } catch {
-      // best effort
-    }
-    setTriggerState("sent");
-    setTimeout(() => setTriggerState("idle"), 10000);
-  }
 
   const conflicts = Number(health?.conflicts || 0),
     errors = Number(health?.errors || 0),
@@ -46,7 +32,7 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
   // "nothing urgent yet".
   const LARGE_BACKLOG_THRESHOLD = 6;
   const hasLargeBacklog = pendingCount >= LARGE_BACKLOG_THRESHOLD;
-  const tone = fetchError
+  const tone: "error" | "pending" | "success" | "backlog" = fetchError
     ? "error"
     : health === undefined
       ? "pending"
@@ -73,6 +59,25 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
   // so surface it here rather than adding a separate heartbeat mechanism.
   const lastSyncedLabel = health?.lastCheckedAt ? ` Last synced ${timeAgoLabel(health.lastCheckedAt)}.` : "";
 
+  return { tone, label, lastSyncedLabel };
+}
+
+/** Standalone "Sync Now" button -- stays outside the settings menu as a quick action. */
+export function SyncNowButton({ book }: { book: "us" | "india" }) {
+  const [triggerState, setTriggerState] = useState<"idle" | "sending" | "sent">("idle");
+
+  async function handleSyncNow() {
+    if (triggerState !== "idle") return;
+    setTriggerState("sending");
+    try {
+      await apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" });
+    } catch {
+      // best effort
+    }
+    setTriggerState("sent");
+    setTimeout(() => setTriggerState("idle"), 10000);
+  }
+
   const syncNowLabel =
     triggerState === "sending"
       ? "Requesting…"
@@ -81,41 +86,45 @@ export function SyncStatusLock({ book, onClick }: { book: "us" | "india"; onClic
         : "Sync Now";
 
   return (
-    <>
-      <button
-        type="button"
-        className={`sync-now-button ${triggerState}`}
-        title={syncNowLabel}
-        aria-label={syncNowLabel}
-        onClick={handleSyncNow}
-        disabled={triggerState !== "idle"}
-      >
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
-        </svg>
-        <span>{triggerState === "sent" ? "Requested" : "Sync"}</span>
-      </button>
-      <button
-        type="button"
-        className={`sync-lock-button ${tone}`}
-        title={`${label}.${lastSyncedLabel} Lock vault`}
-        aria-label={`${label}.${lastSyncedLabel} Lock vault`}
-        onClick={onClick}
-      >
-        <svg
-          className="sync-lock-icon"
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <rect x="5" y="10" width="14" height="10" rx="2"></rect>
-          <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
-        </svg>
-      </button>
-    </>
+    <button
+      type="button"
+      className={`sync-now-button ${triggerState}`}
+      title={syncNowLabel}
+      aria-label={syncNowLabel}
+      onClick={handleSyncNow}
+      disabled={triggerState !== "idle"}
+    >
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+      </svg>
+      <span>{triggerState === "sent" ? "Requested" : "Sync"}</span>
+    </button>
+  );
+}
+
+/** Small colored dot overlaid on the settings gear button, carrying the sync-health signal that
+ *  used to live on the standalone lock button now that the lock action has moved into the menu. */
+export function SyncStatusDot({ book }: { book: "us" | "india" }) {
+  const { tone, label, lastSyncedLabel } = useSyncHealth(book);
+  return <span className={`sync-status-dot ${tone}`} title={`${label}.${lastSyncedLabel}`} aria-hidden="true" />;
+}
+
+/** "Lock vault" row for the settings dropdown -- replaces the old standalone colored lock button. */
+export function SyncLockMenuRow({ book, onClick }: { book: "us" | "india"; onClick: () => void }) {
+  const { tone, label, lastSyncedLabel } = useSyncHealth(book);
+  return (
+    <button
+      type="button"
+      className={`header-settings-row sync-lock-row ${tone}`}
+      title={`${label}.${lastSyncedLabel} Lock vault`}
+      onClick={onClick}
+    >
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        <rect x="5" y="10" width="14" height="10" rx="2"></rect>
+        <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+      </svg>
+      Lock vault
+      <em className="sync-lock-row-status">{label}</em>
+    </button>
   );
 }

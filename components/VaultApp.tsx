@@ -53,7 +53,7 @@ import {
   draftLinesFromTx,
 } from "@/lib/vault-accounting";
 import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel } from "@/lib/format-date";
-import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
+import { SyncNowButton, SyncStatusDot, SyncLockMenuRow } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
 import { UnlockScreen } from "@/components/vault/UnlockScreen";
@@ -348,7 +348,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // happens here (on unlock, when the vault is actually decrypted) rather than on a server-side
     // schedule, since the server never holds the password and can't touch the vault unattended.
     const { data: decrypted, postedCount: amortizationPosted } = postAmortization(withHousehold, today);
-    const repaired = recomputeVoucherNumbers(decrypted);
+    const { changed: repaired, hadDuplicate } = recomputeVoucherNumbers(decrypted);
     setVaultEtag(etag);
     setPassword(pw);
     setData(decrypted);
@@ -362,7 +362,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (repaired || newAccountCount > 0 || amortizationPosted > 0) {
       setStatus(
         repaired
-          ? "Correcting duplicate voucher number and saving securely..."
+          ? hadDuplicate
+            ? "Correcting a duplicate voucher number and saving securely..."
+            : "Resequencing voucher numbers and saving securely..."
           : amortizationPosted > 0
             ? `Posting ${amortizationPosted} pending prepaid amortization voucher(s)...`
             : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
@@ -377,7 +379,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       const repairedSave = (await saved.json().catch(() => null)) as { etag?: string } | null;
       if (repairedSave?.etag) setVaultEtag(repairedSave.etag);
       const infoMsg = repaired
-        ? "Auto-fixed a duplicate voucher number — no action needed."
+        ? hadDuplicate
+          ? "Auto-fixed a duplicate voucher number — no action needed."
+          : "Voucher numbers resequenced (a backdated entry or deletion shifted the order) — no action needed."
         : amortizationPosted > 0
           ? `Auto-posted ${amortizationPosted} pending prepaid amortization voucher(s).`
           : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
@@ -2842,9 +2846,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
               </svg>
+              <SyncStatusDot book={book} />
             </button>
             {settingsMenuOpen && (
               <div className="header-settings-menu">
+                <SyncLockMenuRow book={book} onClick={() => { setSettingsMenuOpen(false); lockVault(); }} />
                 <button
                   type="button"
                   className="header-settings-row"
@@ -2904,7 +2910,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               </div>
             )}
           </div>
-          <SyncStatusLock book={book} onClick={lockVault} />
+          <SyncNowButton book={book} />
         </div>
         <div className="toolbar-icons">
           <button

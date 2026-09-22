@@ -292,10 +292,20 @@ export const nextVoucherNumber = (
   return String(preceding.length + 1);
 };
 
+export interface RenumberResult {
+  /** True if any voucher's number was changed. */
+  changed: boolean;
+  /** True if two or more vouchers in the same type+FY group genuinely shared the same number before resequencing. */
+  hadDuplicate: boolean;
+}
+
 // Resequence all voucher numbers to match Tally's rule: ascending date order within each type+FY.
-// Mutates data.transactions in place; returns true if any number changed.
-export function recomputeVoucherNumbers(data: Ledger): boolean {
+// Mutates data.transactions in place. `changed` covers routine resequencing too (a backdated
+// voucher shifting everything after it, or a deleted voucher closing a gap) -- only `hadDuplicate`
+// means two vouchers genuinely collided on the same number before this ran.
+export function recomputeVoucherNumbers(data: Ledger): RenumberResult {
   let changed = false;
+  let hadDuplicate = false;
   const byGroup = new Map<string, Tx[]>();
   for (const t of data.transactions) {
     if (t.deleted || t.cancelled) continue;
@@ -304,6 +314,11 @@ export function recomputeVoucherNumbers(data: Ledger): boolean {
     byGroup.get(group)!.push(t);
   }
   for (const [group, txList] of byGroup.entries()) {
+    const seenNumbers = new Set<string>();
+    for (const t of txList) {
+      if (t.number && seenNumbers.has(t.number)) hadDuplicate = true;
+      if (t.number) seenNumbers.add(t.number);
+    }
     // Primary: date asc. Tie-breaker: existing number asc (preserves relative order for same-date). Secondary: id asc.
     txList.sort(
       (a, b) =>
@@ -322,8 +337,8 @@ export function recomputeVoucherNumbers(data: Ledger): boolean {
     const after = txList.slice(-3).map((t) => `${t.date}:#${t.number}`).join(", ");
     if (before !== after) console.log(`[recompute] ${group}: ...${before} → ...${after}`);
   }
-  console.log(`[recompute] done, changed=${changed}`);
-  return changed;
+  console.log(`[recompute] done, changed=${changed}, hadDuplicate=${hadDuplicate}`);
+  return { changed, hadDuplicate };
 }
 
 /** @deprecated Use recomputeVoucherNumbers instead */

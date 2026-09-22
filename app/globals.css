@@ -5357,6 +5357,36 @@ button.group-heading:hover {
   height: 17px;
   flex-shrink: 0;
 }
+/* Small colored dot on the gear button carrying the sync-health signal that used to live on the
+   standalone lock button, now that "Lock vault" moved into the dropdown as a menu row. */
+.sync-status-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  background: #94a3b8;
+  pointer-events: none;
+}
+.sync-status-dot.success { background: #22c55e; }
+.sync-status-dot.pending { background: #eab308; }
+.sync-status-dot.error { background: #ef4444; }
+.sync-status-dot.backlog { background: #fb923c; }
+.header-actions .header-settings-row.sync-lock-row {
+  flex-wrap: wrap;
+}
+.header-actions .header-settings-row.sync-lock-row .sync-lock-row-status {
+  width: 100%;
+  padding-left: 27px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  font-style: normal;
+  color: #7c8ba3;
+}
+.header-actions .header-settings-row.sync-lock-row.error .sync-lock-row-status { color: #b91c1c; }
+.header-actions .header-settings-row.sync-lock-row.backlog .sync-lock-row-status { color: #c2410c; }
 .header-actions button::before {
   width: 0 !important;
   height: 0 !important;
