@@ -8950,6 +8950,26 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   border-radius: 8px;
   font-size: var(--fs-md);
 }
+.voucher-quick-ledgers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.voucher-quick-ledger-chip {
+  font-size: var(--fs-sm);
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: var(--surface2, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  color: #475569;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  margin: 0;
+}
+.voucher-quick-ledger-chip:hover {
+  background: #e2e8f0;
+}
 /* At narrow widths the fixed side/amount/remove columns (84+150+92px) leave the ledger
    dropdown crushed to ~0 width -- verified via scratch test at 390px viewport (select
    width hit 0, panel forced into horizontal scroll). Below 680px, stack each row into its

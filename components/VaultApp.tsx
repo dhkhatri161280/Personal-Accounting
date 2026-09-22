@@ -48,6 +48,9 @@ import {
   isProfitAndLossAccountName,
   nextTransactionIds,
   nextVoucherNumber,
+  mostRecentlyEnteredVoucher,
+  findVoucherByNarration,
+  draftLinesFromTx,
 } from "@/lib/vault-accounting";
 import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel } from "@/lib/format-date";
 import { SyncStatusLock } from "@/components/vault/SyncStatusLock";
@@ -1184,6 +1187,32 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // the first real render once data loads (hook now runs) -- React fatally errors on that
   // mismatch, which is what produced the blank white screen after deploy.
   const [showPeriodInfo, setShowPeriodInfo] = useState(false);
+
+  // Top 8 ledgers by entry count over the last 180 days -- quick-pick chips in the New Voucher
+  // form so a repeat vendor/category doesn't need typing/searching the full ledger list every
+  // time. Recomputed only when `data` itself changes (a save), not per keystroke.
+  const frequentLedgerAccounts = useMemo(() => {
+    if (!data) return [];
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 180);
+    const cutoffIso = cutoff.toISOString().slice(0, 10);
+    const counts = new Map<number, number>();
+    for (const t of data.transactions) {
+      if (t.deleted || t.cancelled || t.date < cutoffIso) continue;
+      for (const e of t.entries) counts.set(e.accountId, (counts.get(e.accountId) || 0) + 1);
+    }
+    const byId = new Map(data.accounts.map((a) => [a.id, a]));
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => byId.get(id))
+      .filter((a): a is Account => !!a && a.active !== false)
+      .slice(0, 8);
+  }, [data]);
+
+  // "Used these ledgers last time" suggestion for the narration field -- set on blur, cleared
+  // whenever the narration changes again or a line already has a ledger selected (don't nag
+  // once the user has clearly started filling the voucher in some other way).
+  const [narrationSuggestion, setNarrationSuggestion] = useState<Tx | null>(null);
 
   if (!data)
     return (
@@ -4425,16 +4454,29 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     ? "Copy and edit voucher"
                     : "Record balanced voucher"}
             </h3>
-            <button
-              onClick={() => {
-                setCopyTx(null);
-                setEditTx(null);
-                setReverseTx(null);
-                if (!copyTx && !editTx && !reverseTx) setTab("dashboard");
-              }}
-            >
-              Cancel
-            </button>
+            <div className="voucher-actions">
+              {!editTx && !copyTx && !reverseTx && data.transactions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const last = mostRecentlyEnteredVoucher(data.transactions);
+                    if (last) copyVoucher(last);
+                  }}
+                >
+                  Same as last voucher
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setCopyTx(null);
+                  setEditTx(null);
+                  setReverseTx(null);
+                  if (!copyTx && !editTx && !reverseTx) setTab("dashboard");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
           {editTx && (
             <p className="edit-note">
@@ -4520,6 +4562,37 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   + Credit line
                 </button>
               </div>
+              {frequentLedgerAccounts.length > 0 && (
+                <div className="voucher-quick-ledgers">
+                  {frequentLedgerAccounts.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      className="voucher-quick-ledger-chip"
+                      title={`Add a line for ${a.name}`}
+                      onClick={() =>
+                        setVoucherLines((lines) => [
+                          ...lines,
+                          {
+                            id: crypto.randomUUID(),
+                            // isDebitNatureAccount (imported above) is scoped to balance-sheet
+                            // accounts only (asset vs liability/capital) and always answers
+                            // "credit" for Expense/Income, which would be wrong here -- a normal
+                            // Expense ledger is Dr-normal in a real voucher. This is a simpler,
+                            // general default covering every category, local to this one chip.
+                            side: /liabilit|capital|income/.test((a.category || "").toLowerCase()) ? "credit" : "debit",
+                            accountId: String(a.id),
+                            amount: "",
+                            assetTag: suggestedAssetTagFor(a.id),
+                          },
+                        ])
+                      }
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="voucher-line-head">
                 <span>Side</span>
                 <span>Ledger</span>
@@ -4550,6 +4623,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     <option value="credit">Cr</option>
                   </select>
                   <select
+                    data-ledger-index={index}
                     value={line.accountId}
                     onChange={(e) => {
                       const nextAccountId = e.target.value;
@@ -4582,6 +4656,25 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                       setVoucherLines((lines) => {
                         const updated = lines.map((row, i) => i === index ? { ...row, amount: val } : row);
                         return autoBalance(updated, index);
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      // Tally-style keyboard flow: Enter in the last line's Amount adds a new line
+                      // and jumps straight to its ledger picker, instead of submitting the whole
+                      // form (the default for Enter in a single input inside a <form>).
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      const isLast = index === voucherLines.length - 1;
+                      const nextIndex = isLast ? voucherLines.length : index + 1;
+                      if (isLast) {
+                        setVoucherLines((lines) => [
+                          ...lines,
+                          { id: crypto.randomUUID(), side: line.side === "debit" ? "credit" : "debit", accountId: "", amount: "" },
+                        ]);
+                      }
+                      requestAnimationFrame(() => {
+                        const el = entryFormRef.current?.querySelector(`[data-ledger-index="${nextIndex}"]`);
+                        (el as HTMLElement | undefined)?.focus();
                       });
                     }}
                     required
@@ -4643,8 +4736,39 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             </section>
             <label className="wide">
               Narration
-              <textarea rows={3} {...voucherForm.register("narration")} />
+              <textarea
+                rows={3}
+                {...voucherForm.register("narration", {
+                  onBlur: (e) => {
+                    if (voucherLines.some((l) => l.accountId)) {
+                      setNarrationSuggestion(null);
+                      return;
+                    }
+                    setNarrationSuggestion(
+                      data ? findVoucherByNarration(data.transactions, e.target.value, editTx?.guid) ?? null : null
+                    );
+                  },
+                })}
+              />
             </label>
+            {narrationSuggestion && (
+              <p className="wide copy-note">
+                Used {narrationSuggestion.entries.map((e) => accountById.get(e.accountId)?.name).filter(Boolean).join(" / ")} last
+                time for this narration.{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVoucherLines(draftLinesFromTx(narrationSuggestion));
+                    setNarrationSuggestion(null);
+                  }}
+                >
+                  Use these ledgers
+                </button>{" "}
+                <button type="button" onClick={() => setNarrationSuggestion(null)}>
+                  Dismiss
+                </button>
+              </p>
+            )}
             <button className="primary wide">
               {editTx
                 ? "Encrypt and update voucher"

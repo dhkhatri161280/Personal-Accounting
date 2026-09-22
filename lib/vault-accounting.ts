@@ -18,6 +18,36 @@ export const draftLinesFromTx = (tx: Tx | null): VoucherLineDraft[] =>
 
 export const centsOf = (value: number | string): number => Math.round(Number(value || 0) * 100);
 
+const isSaveable = (t: Tx) => !t.deleted && !t.cancelled && t.entries.some((e) => e.amount < 0) && t.entries.some((e) => e.amount > 0);
+
+// The voucher this user most recently ENTERED (by createdAt, falling back to id for older rows
+// that predate createdAt) -- not the most recent by date, since a backdated correction shouldn't
+// become "last voucher" for the "Same as last" quick-start button. Powers repeat postings (e.g.
+// several similar Payment vouchers in a row) without retyping the same ledger pair each time.
+export function mostRecentlyEnteredVoucher(transactions: Tx[]): Tx | undefined {
+  return transactions
+    .filter(isSaveable)
+    .reduce<Tx | undefined>((best, t) => {
+      if (!best) return t;
+      const bestTime = best.createdAt ? new Date(best.createdAt).getTime() : 0,
+        tTime = t.createdAt ? new Date(t.createdAt).getTime() : 0;
+      if (tTime !== bestTime) return tTime > bestTime ? t : best;
+      return (Number(t.id) || 0) > (Number(best.id) || 0) ? t : best;
+    }, undefined);
+}
+
+// Finds the most recently entered voucher with the exact same (trimmed, case-insensitive)
+// narration as `narration` -- used to suggest "you used these ledgers last time for this same
+// narration" while entering a new voucher. Deliberately exact-match only, not fuzzy: a wrong
+// fuzzy suggestion for a wrong ledger pair is worse than no suggestion at all.
+export function findVoucherByNarration(transactions: Tx[], narration: string, excludeGuid?: string): Tx | undefined {
+  const norm = narration.trim().toLowerCase();
+  if (!norm) return undefined;
+  return mostRecentlyEnteredVoucher(
+    transactions.filter((t) => t.guid !== excludeGuid && t.narration?.trim().toLowerCase() === norm)
+  );
+}
+
 // Returns `count` unique, unused transaction ids (existing max + 1, 2, 3, ...).
 // Never use `data.transactions.length + 1` inside a batch .map() — every item in the
 // batch reads the same length and ends up with the identical id, silently creating
