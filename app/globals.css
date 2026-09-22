@@ -804,6 +804,12 @@ header > div:first-child > small,
   color: #7c8aa1;
   font-weight: 800;
 }
+.build-stamp {
+  opacity: 0.7;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
 h1 {
   font-size: 24px;
   letter-spacing: -0.04em;
@@ -8969,6 +8975,30 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .voucher-quick-ledger-chip:hover {
   background: #e2e8f0;
+}
+.voucher-pending-attachments {
+  list-style: none;
+  margin: -6px 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.voucher-pending-attachments li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  background: var(--surface2, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.voucher-pending-attachments button {
+  margin: 0;
+  padding: 2px 8px;
+  font-size: 11px;
 }
 /* At narrow widths the fixed side/amount/remove columns (84+150+92px) leave the ledger
    dropdown crushed to ~0 width -- verified via scratch test at 390px viewport (select

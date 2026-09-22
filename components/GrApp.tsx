@@ -29,6 +29,7 @@ import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { apiFetch } from "@/lib/api-fetch";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
+import { BuildStamp } from "@/components/BuildStamp";
 import { TabSidebar } from "@/components/TabSidebar";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
@@ -827,7 +828,7 @@ export function GrApp() {
     <div className={[privacyMode ? "privacy-mode" : "", "ui-refresh"].filter(Boolean).join(" ") || undefined}>
       <header>
         <div>
-          <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH.</small>
+          <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH. <BuildStamp /></small>
           <div className="book-heading">
             <h1>Dignesh Khatri</h1>
             <span className="book-badge gr">US + IN (CONSOLIDATED) - INR</span>

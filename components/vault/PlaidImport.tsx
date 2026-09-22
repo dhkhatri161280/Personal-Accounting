@@ -1560,6 +1560,26 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       if (errors?.length) setStatus(`Partial fetch — ${errors.join(", ")}`);
       else setStatus("");
       setBrokenItems(itemErrors ?? []);
+      // Persist just-detected/just-cleared connection issues so they show in Needs Attention even
+      // if the user doesn't come back to this screen -- only touches connections actually checked
+      // in this fetch, leaving any not-selected connection's prior status untouched. No new Plaid
+      // API call happens here; this only records what the fetch above already returned.
+      {
+        const checkedItemIds = new Set(selectedConns.map((c) => c.item_id));
+        const nextIssues = [
+          ...(data.plaidConnectionIssues ?? []).filter((i) => !checkedItemIds.has(i.itemId)),
+          ...(itemErrors ?? []).map((e) => ({
+            itemId: e.item_id,
+            institutionName: e.institution_name,
+            errorMessage: e.error_message || e.error_code,
+            detectedAt: new Date().toISOString(),
+          })),
+        ];
+        const prior = data.plaidConnectionIssues ?? [];
+        if (JSON.stringify(nextIssues) !== JSON.stringify(prior)) {
+          onSave({ ...data, plaidConnectionIssues: nextIssues });
+        }
+      }
       setInvestmentTxs(investmentTransactions ?? []);
       // Enrich each account with its institution_name inferred from transactions
       const acctToInst = new Map<string, string>();

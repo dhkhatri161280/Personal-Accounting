@@ -8,6 +8,7 @@ import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
 import { HeaderToggles } from "@/components/HeaderToggles";
+import { BuildStamp } from "@/components/BuildStamp";
 import { TabSidebar } from "@/components/TabSidebar";
 import { TransactionTable } from "@/components/TransactionTable";
 import { MastersPanel, type MasterGroup } from "@/components/MastersPanel";
@@ -287,7 +288,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     startNewVoucher,
     voucherDebitDraftTotal,
     voucherCreditDraftTotal,
-  } = useVoucherForm({ data, save, setTab, setStatus, setSelected, setSelectedVoucher });
+    pendingAttachments,
+    attachmentUploading: pendingAttachmentUploading,
+    uploadPendingAttachment,
+    removePendingAttachment,
+  } = useVoucherForm({ data, book, save, setTab, setStatus, setSelected, setSelectedVoucher });
 
   async function cacheUnifiedVaultPassword(pw: string) {
     const secret = sessionStorage.getItem(unifiedSecretKey);
@@ -1214,6 +1219,21 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // once the user has clearly started filling the voucher in some other way).
   const [narrationSuggestion, setNarrationSuggestion] = useState<Tx | null>(null);
 
+  // Schwab OAuth token expiry -- read-only KV lookup (see app/api/schwab/status), never a live
+  // Schwab API call, so it's safe to poll in the background like the Tally sync-status check.
+  const [schwabStatus, setSchwabStatus] = useState<{ connected: boolean; daysUntilReauth?: number } | null>(null);
+  useEffect(() => {
+    if (!data || book === "india") return;
+    const check = () =>
+      apiFetch("/api/schwab/status", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j: unknown) => setSchwabStatus(j as { connected: boolean; daysUntilReauth?: number } | null))
+        .catch(() => {});
+    check();
+    const timer = setInterval(check, 120000);
+    return () => clearInterval(timer);
+  }, [!!data, book]);
+
   if (!data)
     return (
       <UnlockScreen
@@ -1873,6 +1893,30 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         action: { label: "Retry sync", onClick: () => { apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {}); } },
       });
     }
+  }
+  // Plaid connection failures (e.g. ITEM_LOGIN_REQUIRED after a bank forces a password reset)
+  // are otherwise invisible unless the user happens to revisit Import → Plaid and fetch again --
+  // this just reads what PlaidImport.tsx already persisted on its last on-demand fetch, never
+  // triggers a new Plaid API call itself.
+  for (const issue of data?.plaidConnectionIssues ?? []) {
+    attentionItems.push({
+      label: `${issue.institutionName} connection needs reconnecting`,
+      detail: `${issue.errorMessage || "Last fetch failed"} — reconnect it in Import → Plaid.`,
+      action: {
+        label: "Reconnect",
+        onClick: () => { setImportSource("plaid"); setPlaidImportTab("transactions"); setTab("bank-import"); },
+      },
+    });
+  }
+  // Schwab-only (US book); reads the already-stored OAuth token expiry (no live Schwab API call)
+  // -- same "about to silently break" idea as the Tally/Social Security staleness checks above,
+  // for the one other external connection with a real expiry date.
+  if (book !== "india" && schwabStatus?.connected && typeof schwabStatus.daysUntilReauth === "number" && schwabStatus.daysUntilReauth <= 14) {
+    attentionItems.push({
+      label: "Schwab connection needs re-authentication soon",
+      detail: `Re-auth required within ${schwabStatus.daysUntilReauth} day${schwabStatus.daysUntilReauth === 1 ? "" : "s"} or the connection will stop working — reconnect it in Import → Schwab.`,
+      action: { label: "Reconnect", onClick: () => { setImportSource("schwab"); setTab("bank-import"); } },
+    });
   }
 
   // Command-palette destinations: every report/masters/import sub-tab plus the top-level tabs,
@@ -2590,7 +2634,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     <div className={[privacyMode ? "privacy-mode" : "", "ui-refresh"].filter(Boolean).join(" ") || undefined}>
       <header>
         <div>
-          <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH.</small>
+          <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH. <BuildStamp /></small>
           <div className="book-heading">
             <h1>Dignesh Khatri</h1>
             <span className={`book-badge ${book}`}>
@@ -4768,6 +4812,33 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   Dismiss
                 </button>
               </p>
+            )}
+            <label className="wide">
+              Attach receipt (optional)
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                capture="environment"
+                disabled={pendingAttachmentUploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) uploadPendingAttachment(file);
+                }}
+              />
+            </label>
+            {pendingAttachmentUploading && <p className="wide">Uploading…</p>}
+            {pendingAttachments.length > 0 && (
+              <ul className="voucher-pending-attachments wide">
+                {pendingAttachments.map((a) => (
+                  <li key={a.key}>
+                    <span>{a.filename}</span>
+                    <button type="button" onClick={() => removePendingAttachment(a.key)}>
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
             <button className="primary wide">
               {editTx

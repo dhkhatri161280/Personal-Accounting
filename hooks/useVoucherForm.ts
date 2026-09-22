@@ -3,11 +3,12 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { voucherEntrySchema, type VoucherEntryFormValues } from "@/lib/voucher-entry-schema";
 import { validateVoucher } from "@/lib/voucher-validation";
-import type { Account, Ledger, Tx, VoucherLineDraft } from "@/lib/vault-types";
+import type { Account, Attachment, Ledger, Tx, VoucherLineDraft } from "@/lib/vault-types";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { autoSyncTaggedAssets } from "@/lib/fixed-assets-ledger";
 import { inferReversalVoucherType } from "@/lib/plaid-classify";
 import { fmtDate } from "@/lib/format-date";
+import { apiFetch } from "@/lib/api-fetch";
 import {
   blankVoucherLines,
   draftLinesFromTx,
@@ -53,6 +54,7 @@ export function autoBalance(lines: VoucherLineDraft[], changedIndex: number): Vo
 // lib/voucher-validation.js's validateVoucher() exactly as before.
 export function useVoucherForm({
   data,
+  book,
   save,
   setTab,
   setStatus,
@@ -60,6 +62,7 @@ export function useVoucherForm({
   setSelectedVoucher,
 }: {
   data: Ledger | null;
+  book: string;
   save: (next: Ledger, destination?: string, exemptFromPeriodCheck?: Set<string>) => Promise<boolean>;
   setTab: (t: string) => void;
   setStatus: (s: string) => void;
@@ -73,6 +76,14 @@ export function useVoucherForm({
     [newVoucherMenuOpen, setNewVoucherMenuOpen] = useState(false),
     [inlineLedgerSide, setInlineLedgerSide] = useState<"debit" | "credit" | null>(null),
     [voucherLines, setVoucherLines] = useState<VoucherLineDraft[]>(blankVoucherLines()),
+    // A receipt/statement photo can be attached WHILE composing a not-yet-saved voucher (see
+    // uploadPendingAttachment below) -- R2 only needs a book+txGuid, not an existing saved
+    // voucher, so uploading immediately on file pick and stamping the file with this same guid
+    // at save time (in add()) avoids ever chaining two vault save() calls back to back, which
+    // would race against `data`/`vaultEtag` still being the pre-save closure values.
+    [draftGuid, setDraftGuid] = useState<string>(() => crypto.randomUUID()),
+    [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]),
+    [attachmentUploading, setAttachmentUploading] = useState(false),
     // Mirrors the (uncontrolled) voucher-form date input so each ledger line's balance display
     // can recompute "as of" the date currently entered, Tally-style -- kept separate from the
     // input's own defaultValue/form submission so the date field itself doesn't need to become
@@ -149,6 +160,32 @@ export function useVoucherForm({
     ]);
   }
 
+  // Uploads straight to R2 tagged with draftGuid (or the real voucher guid, when editing) --
+  // see the draftGuid state comment above for why this never touches the vault save path.
+  async function uploadPendingAttachment(file: File) {
+    setAttachmentUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("book", book);
+      form.append("txGuid", editTx?.guid || draftGuid);
+      const r = await apiFetch("/api/attachments", { method: "POST", body: form });
+      if (!r.ok) {
+        setStatus(`Attachment upload failed (${r.status}).`);
+        return;
+      }
+      const attachment = (await r.json()) as Attachment;
+      setPendingAttachments((list) => [...list, attachment]);
+    } finally {
+      setAttachmentUploading(false);
+    }
+  }
+
+  function removePendingAttachment(key: string) {
+    setPendingAttachments((list) => list.filter((a) => a.key !== key));
+    apiFetch(`/api/attachments?key=${encodeURIComponent(key)}`, { method: "DELETE" }).catch(() => {});
+  }
+
   // Returns whether the edit form actually opened -- callers (the voucher detail popup) must
   // check this before closing themselves. Previously the popup closed unconditionally on click,
   // so any of the guards below returning early left the user looking at whatever was behind the
@@ -169,6 +206,7 @@ export function useVoucherForm({
     setVoucherLines(draftLinesFromTx(t));
     setVoucherDate(t.date);
     voucherForm.reset({ type: t.type, date: t.date, narration: cleanText(t.narration || "") });
+    setPendingAttachments([]);
     setEditTx(t);
     setCopyTx(null);
     setSelected(null);
@@ -186,6 +224,8 @@ export function useVoucherForm({
     setVoucherLines(draftLinesFromTx(t));
     setVoucherDate(t.date);
     voucherForm.reset({ type: t.type, date: t.date, narration: cleanText(t.narration || "") });
+    setDraftGuid(crypto.randomUUID());
+    setPendingAttachments([]);
     setCopyTx(t);
     setEditTx(null);
     setSelected(null);
@@ -235,6 +275,8 @@ export function useVoucherForm({
       date: today,
       narration: `Reversal of ${t.type} ${t.number} (${fmtDate(t.date)}) — ${cleanText(t.narration || "") || "no narration"}`,
     });
+    setDraftGuid(crypto.randomUUID());
+    setPendingAttachments([]);
     setReverseTx(t);
     setCopyTx(null);
     setEditTx(null);
@@ -277,7 +319,10 @@ export function useVoucherForm({
       date = values.date;
     const tx: Tx = {
       id: editTx?.id || nextTransactionIds(data.transactions, 1)[0],
-      guid: editTx?.guid || crypto.randomUUID(),
+      // Reuses draftGuid (generated up front, see the state comment above) rather than a fresh
+      // crypto.randomUUID() here, so any attachment already uploaded to R2 under that guid
+      // (before this save even ran) lines up with the voucher it gets attached to.
+      guid: editTx?.guid || draftGuid,
       ...(editTx
         ? {
             tallyGuid: editTx.tallyGuid,
@@ -297,7 +342,9 @@ export function useVoucherForm({
       historical: editTx?.historical || false,
       cancelled: editTx?.cancelled || false,
       entries,
-      attachments: editTx?.attachments,
+      attachments: pendingAttachments.length
+        ? [...(editTx?.attachments ?? []), ...pendingAttachments]
+        : editTx?.attachments,
     };
     const validation = validateVoucher(tx, data.accounts);
     if (!validation.valid) {
@@ -331,6 +378,8 @@ export function useVoucherForm({
       setEditTx(null);
       setReverseTx(null);
       setVoucherLines(blankVoucherLines());
+      setPendingAttachments([]);
+      setDraftGuid(crypto.randomUUID());
     }
   }
 
@@ -345,6 +394,8 @@ export function useVoucherForm({
     const today = new Date().toISOString().slice(0, 10);
     setVoucherDate(today);
     voucherForm.reset({ type: type || "Payment", date: today, narration: "" });
+    setDraftGuid(crypto.randomUUID());
+    setPendingAttachments([]);
     setTab("new");
     setStatus("");
   };
@@ -382,5 +433,9 @@ export function useVoucherForm({
     startNewVoucher,
     voucherDebitDraftTotal,
     voucherCreditDraftTotal,
+    pendingAttachments,
+    attachmentUploading,
+    uploadPendingAttachment,
+    removePendingAttachment,
   };
 }

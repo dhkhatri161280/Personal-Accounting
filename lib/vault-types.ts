@@ -522,6 +522,12 @@ export type Ledger = {
   // re-includes them, since the trailing history alone can't tell "finished, one-time" apart
   // from "still recurring, just slow this window". See lib/cash-flow-forecast.ts.
   cashFlowForecastExclusions?: string[];
+  // Plaid connections that failed on their most recent fetch (e.g. ITEM_LOGIN_REQUIRED after a
+  // bank forces a password reset) -- persisted here purely so this can surface in Needs Attention
+  // even when the user hasn't revisited Import -> Plaid since the failure. Populated/cleared as a
+  // side effect of PlaidImport's own on-demand fetch (see components/vault/PlaidImport.tsx);
+  // nothing here ever triggers a new Plaid API call on its own.
+  plaidConnectionIssues?: { itemId: string; institutionName: string; errorMessage?: string; detectedAt: string }[];
 };
 
 export type BankReconException = {

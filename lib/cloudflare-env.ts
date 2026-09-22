@@ -26,4 +26,9 @@ export interface AppBindings {
   // found the Worker's public URL could call them directly and get live, already-decrypted
   // financial data with no password. See lib/api-auth.ts.
   API_ACCESS_TOKEN?: string;
+  // Cloudflare's own record of the currently-running deployment -- see wrangler.biometric.json's
+  // version_metadata binding. Powers the header's real build stamp (see app/api/build-info)
+  // instead of the old manually-typed "Release N" string that never got updated after the first
+  // few deploys and drifted from reality.
+  CF_VERSION_METADATA?: { id: string; tag: string; timestamp: number | string };
 }
