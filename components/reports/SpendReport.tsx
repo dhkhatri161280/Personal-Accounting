@@ -181,6 +181,10 @@ function SpendSection({
   emptyLabel: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // Largest category in this section sets the 100% reference -- byCategory is already sorted
+  // descending, so it's just the first entry. A refund-heavy category with a negative total gets
+  // no fill (0%) rather than a visually meaningless negative-width bar.
+  const maxAmt = byCategory[0]?.[1] ?? 0;
   return (
     <div style={{ marginBottom: 20 }}>
       <h4 style={{ margin: "0 0 6px" }}>{title}</h4>
@@ -189,11 +193,17 @@ function SpendSection({
       ) : (
         <>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-            {byCategory.map(([name, amt]) => (
-              <span key={name} style={{ fontSize: 12, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "4px 8px" }}>
-                <b>{name}</b>: {fmt(amt)}
-              </span>
-            ))}
+            {byCategory.map(([name, amt]) => {
+              const pct = maxAmt > 0 ? Math.max(0, Math.min(100, (amt / maxAmt) * 100)) : 0;
+              return (
+                <span key={name} className="spend-category-chip">
+                  <span className="spend-category-chip-fill" style={{ width: `${pct}%`, background: color }} />
+                  <span className="spend-category-chip-text">
+                    <b>{name}</b>: {fmt(amt)}
+                  </span>
+                </span>
+              );
+            })}
           </div>
           <button type="button" className="tr-refresh-btn" onClick={() => setExpanded((v) => !v)} style={{ marginBottom: 8 }}>
             {expanded ? "Hide vouchers" : `Show ${lines.length} voucher${lines.length !== 1 ? "s" : ""}`}

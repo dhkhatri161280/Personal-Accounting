@@ -9116,6 +9116,30 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .voucher-quick-ledger-chip:hover {
   background: #e2e8f0;
 }
+/* Spend Report category chips -- a proportional fill behind the text (relative to that section's
+   largest category) so the biggest spend/income lines visually pop out at a glance instead of
+   every pill reading as equal weight regardless of scale (a $4,000 category looked identical to
+   a $20 one before this). Low opacity so text stays legible against any fill width. */
+.spend-category-chip {
+  position: relative;
+  display: inline-block;
+  font-size: var(--fs-sm);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  overflow: hidden;
+}
+.spend-category-chip-fill {
+  position: absolute;
+  inset: 0;
+  opacity: 0.16;
+  pointer-events: none;
+}
+.spend-category-chip-text {
+  position: relative;
+  z-index: 1;
+}
 .voucher-pending-attachments {
   list-style: none;
   margin: -6px 0 16px;
