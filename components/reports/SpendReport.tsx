@@ -4,6 +4,7 @@ import type { Ledger } from "@/lib/vault-types";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { FloatingWindow } from "@/components/FloatingWindow";
 
 type SpendLine = {
   key: string;
@@ -181,10 +182,16 @@ function SpendSection({
   emptyLabel: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // Which category's card was clicked, if any -- opens a floating drill-down window scoped to
+  // just that category's lines, separate from the "Show N vouchers" button above (which still
+  // shows the whole section).
+  const [drilldown, setDrilldown] = useState<string | null>(null);
   // Largest category in this section sets the 100% reference -- byCategory is already sorted
   // descending, so it's just the first entry. A refund-heavy category with a negative total gets
   // no fill (0%) rather than a visually meaningless negative-width bar.
   const maxAmt = byCategory[0]?.[1] ?? 0;
+  const drilldownLines = drilldown ? lines.filter((l) => l.accountName === drilldown) : [];
+  const drilldownTotal = drilldown ? drilldownLines.reduce((s, l) => s + l.amount, 0) : 0;
   return (
     <div style={{ marginBottom: 20 }}>
       <h4 style={{ margin: "0 0 6px" }}>{title}</h4>
@@ -196,59 +203,88 @@ function SpendSection({
             {byCategory.map(([name, amt]) => {
               const pct = maxAmt > 0 ? Math.max(0, Math.min(100, (amt / maxAmt) * 100)) : 0;
               return (
-                <span key={name} className="spend-category-chip" title={`${name}: ${fmt(amt)}`}>
+                <button
+                  type="button"
+                  key={name}
+                  className="spend-category-chip"
+                  title={`${name}: ${fmt(amt)} — click for detail`}
+                  onClick={() => setDrilldown(name)}
+                >
                   <span className="spend-category-chip-fill" style={{ width: `${pct}%`, background: color }} />
                   <span className="spend-category-chip-text">
                     <b>{name}</b>
                     <em>{fmt(amt)}</em>
                   </span>
-                </span>
+                </button>
               );
             })}
           </div>
           <button type="button" className="tr-refresh-btn" onClick={() => setExpanded((v) => !v)} style={{ marginBottom: 8 }}>
             {expanded ? "Hide vouchers" : `Show ${lines.length} voucher${lines.length !== 1 ? "s" : ""}`}
           </button>
-          {expanded && (
-            <table className="fx-ledger-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Voucher</th>
-                  <th>Account</th>
-                  <th className="fx-narration">Narration</th>
-                  <th className="right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((l) => (
-                  <tr key={l.key}>
-                    <td>{fmtDate(l.date)}</td>
-                    <td>
-                      {l.voucherType} {l.voucherNumber}
-                    </td>
-                    <td>{l.accountName}</td>
-                    <td className="fx-narration" title={l.narration}>
-                      {l.narration || "—"}
-                    </td>
-                    <td className="right" style={l.amount < 0 ? { color: "#6b7280" } : undefined} title={l.amount < 0 ? "Refund / reversal — reduces the total" : undefined}>
-                      {fmt(l.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={4}>Total</td>
-                  <td className="right" style={{ color }}>
-                    {fmt(total)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+          {expanded && <SpendVoucherTable lines={lines} total={total} fmt={fmt} color={color} />}
+          {drilldown && (
+            <FloatingWindow title={`${drilldown} — ${fmt(drilldownTotal)}`} onClose={() => setDrilldown(null)}>
+              <SpendVoucherTable lines={drilldownLines} total={drilldownTotal} fmt={fmt} color={color} hideAccountColumn />
+            </FloatingWindow>
           )}
         </>
       )}
     </div>
+  );
+}
+
+// Shared by SpendSection's "Show N vouchers" (whole section) and its per-category drill-down
+// popup (see SpendSection above) -- same table, just a different `lines` slice.
+function SpendVoucherTable({
+  lines,
+  total,
+  fmt,
+  color,
+  hideAccountColumn,
+}: {
+  lines: SpendLine[];
+  total: number;
+  fmt: (n: number) => string;
+  color: string;
+  hideAccountColumn?: boolean;
+}) {
+  return (
+    <table className="fx-ledger-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Voucher</th>
+          {!hideAccountColumn && <th>Account</th>}
+          <th className="fx-narration">Narration</th>
+          <th className="right">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map((l) => (
+          <tr key={l.key}>
+            <td>{fmtDate(l.date)}</td>
+            <td>
+              {l.voucherType} {l.voucherNumber}
+            </td>
+            {!hideAccountColumn && <td>{l.accountName}</td>}
+            <td className="fx-narration" title={l.narration}>
+              {l.narration || "—"}
+            </td>
+            <td className="right" style={l.amount < 0 ? { color: "#6b7280" } : undefined} title={l.amount < 0 ? "Refund / reversal — reduces the total" : undefined}>
+              {fmt(l.amount)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colSpan={hideAccountColumn ? 3 : 4}>Total</td>
+          <td className="right" style={{ color }}>
+            {fmt(total)}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 }
