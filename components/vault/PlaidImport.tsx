@@ -1265,13 +1265,14 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
 // reports for the same account (internal fund-shuffling, not real external cash movement).
 // "deposit" is only safe to surface this way because the user funds their HSA via a manual bank
 // transfer (confirmed directly, not a payroll deduction that some other import path already
-// records) -- alreadyImported() below still catches the case where the transfer's BofA-side leg
-// was already imported and the user picked HSA as the other side by hand, so this can't double-
-// book that.
+// records) -- the amount/date dedup below still catches the case where the transfer's BofA-side
+// leg was already imported and the user picked HSA as the other side by hand, so this can't
+// double-book that.
 function buildInvestmentWithdrawalRows(
   investmentTxs: PlaidInvestmentTx[],
   plaidAcctMap: Map<string, PlaidAccount>,
-  ledger: Ledger
+  ledger: Ledger,
+  confirmedMatches: ConfirmedMatch[]
 ): ImportRow[] {
   const accounts = ledger.accounts.filter((a) => a.active !== false);
 
@@ -1331,7 +1332,13 @@ function buildInvestmentWithdrawalRows(
     // reuse the SAME amount/date matching the Balances tab already uses correctly for this exact
     // feed (see matchedAgainstInvestment above): Plaid's investment amount sign already matches
     // the vault entry's own stored sign on this account, no negation needed either direction.
-    const imported = ledger.transactions.some((v) => {
+    // A user-confirmed match (via "Already posted?") always wins, same as every other row type --
+    // confirmed live: without this, "Already posted?" visibly updated the row for the current
+    // session (updateRow sets alreadyImported immediately) but the row came right back on the
+    // next Fetch, since this function's own amount/date dedup below never consulted the
+    // separately-persisted confirmed-match list at all.
+    const confirmed = confirmedMatches.some((m) => m.confirmed_tx_ids.includes(t.investment_transaction_id));
+    const imported = confirmed || ledger.transactions.some((v) => {
       if (v.deleted || v.cancelled) return false;
       const vMs = new Date(v.date + "T12:00:00Z").getTime();
       const tMs = new Date(t.date + "T12:00:00Z").getTime();
@@ -1734,7 +1741,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       const investmentWithdrawalRows = buildInvestmentWithdrawalRows(
         investmentTransactions ?? [],
         plaidAcctMap,
-        data
+        data,
+        confirmedMatches
       );
       setRows([...draftRows, ...investmentWithdrawalRows]);
     } catch {
@@ -3280,7 +3288,16 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                           : g.plaidType === "investment"
                             ? recentVaultEntries
                                 .map((ve, vi) => ({ ve, vi }))
-                                .filter(({ vi }) => !matchedAgainstInvestment.has(vi))
+                                // "Mark as reconciled" (below) previously only hid an entry from the
+                                // drilldown LIST (onlyInVault, above) -- the actual Difference number
+                                // still counted it forever, since Plaid can genuinely never report some
+                                // investment-account transaction types (confirmed live: an HSA
+                                // reimbursement processed through a claims system, not Fidelity's
+                                // ordinary cash ledger, never appears in Plaid's feed at all). Without
+                                // this, a manually-booked entry for exactly that kind of transaction
+                                // would show as a permanent, unresolvable "$-125.00" difference even
+                                // though the books are already fully correct.
+                                .filter(({ vi, ve }) => !matchedAgainstInvestment.has(vi) && !reconExceptionKeys.has(vaultExceptionKey(ve.guid)))
                                 // Negated: the vault already reflects this decrease (an asset account,
                                 // opposite convention from a credit card's balance-owed), so Plaid − Vault
                                 // alone already shows the full gap -- subtracting it back out here (a
