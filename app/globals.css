@@ -5959,11 +5959,11 @@ button.group-heading:hover {
   margin-bottom: 18px;
 }
 .dk-header small {
+  font-family: var(--font-mono), monospace;
   font-size: var(--fs-sm);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   color: #5b6b85;
-  font-weight: 800;
-  font-style: italic;
+  font-weight: 700;
 }
 .dk-header h1 {
   font-size: 31px;
