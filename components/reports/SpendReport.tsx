@@ -96,6 +96,11 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     setStartDate(iso);
     setEndDate(iso);
   }
+  function applyThisMonth() {
+    const d = new Date();
+    setStartDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
+    setEndDate(todayLocalIso());
+  }
 
   return (
     <div className="data-panel">
@@ -127,6 +132,9 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
         </button>
         <button type="button" className="tr-refresh-btn" onClick={() => applyPreset(30)}>
           Last 30 days
+        </button>
+        <button type="button" className="tr-refresh-btn" onClick={applyThisMonth}>
+          This month
         </button>
         {(expenseLines.length > 0 || incomeLines.length > 0) && (
           <ExportButton
