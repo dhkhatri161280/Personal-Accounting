@@ -136,19 +136,18 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
         <button type="button" className="tr-refresh-btn" onClick={applyThisMonth}>
           This month
         </button>
-        {(expenseLines.length > 0 || incomeLines.length > 0) && (
-          <ExportButton
-            onExport={async () => {
-              const header = ["Date", "Voucher Type", "Voucher #", "Account", "Narration", "Amount"];
-              const expenseRows = expenseLines.map((l) => [fmtDate(l.date), l.voucherType, l.voucherNumber, l.accountName, l.narration, l.amount]);
-              const incomeRows = incomeLines.map((l) => [fmtDate(l.date), l.voucherType, l.voucherNumber, l.accountName, l.narration, l.amount]);
-              await exportWorkbook(`Spend Report ${startDate} to ${endDate}.xlsx`, [
-                { name: "Expense", rows: [header, ...expenseRows] },
-                { name: "Income", rows: [header, ...incomeRows] },
-              ]);
-            }}
-          />
-        )}
+        <ExportButton
+          disabled={expenseLines.length === 0 && incomeLines.length === 0}
+          onExport={async () => {
+            const header = ["Date", "Voucher Type", "Voucher #", "Account", "Narration", "Amount"];
+            const expenseRows = expenseLines.map((l) => [fmtDate(l.date), l.voucherType, l.voucherNumber, l.accountName, l.narration, l.amount]);
+            const incomeRows = incomeLines.map((l) => [fmtDate(l.date), l.voucherType, l.voucherNumber, l.accountName, l.narration, l.amount]);
+            await exportWorkbook(`Spend Report ${startDate} to ${endDate}.xlsx`, [
+              { name: "Expense", rows: [header, ...expenseRows] },
+              { name: "Income", rows: [header, ...incomeRows] },
+            ]);
+          }}
+        />
       </div>
 
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap", margin: "0 0 16px" }}>
