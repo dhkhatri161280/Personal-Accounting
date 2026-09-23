@@ -1,6 +1,6 @@
 import type { Account, FixedAsset, Ledger, Tx } from "./vault-types";
-import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting";
-import { appendAuditEntry } from "./audit";
+import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting.ts";
+import { appendAuditEntry } from "./audit.ts";
 import {
   ACCUMULATED_DEPRECIATION_ACCOUNT_NAME,
   DEPRECIATION_EXPENSE_ACCOUNT_NAME,
@@ -11,8 +11,8 @@ import {
   round2,
   assetClassFromTag,
   guessAssetClass,
-} from "./fixed-assets";
-import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity";
+} from "./fixed-assets.ts";
+import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity.ts";
 
 // Finds an existing ledger account by name under the "Fixed Assets" group, or creates one -- used
 // when adding a new asset to the register so its cost shows in the trial balance/balance sheet

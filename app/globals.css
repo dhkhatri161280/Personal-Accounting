@@ -604,10 +604,8 @@ body {
     grid-template-columns: 1fr;
   }
 }
-/* Sits inside .tab-sidebar now (below the FX Rates tab), not the old .app-nav flex row it was
-   built for -- the margin-left:auto that used to push it to the row's far right is gone since
-   .tab-sidebar's own `margin: 0` rule already overrides it (and would win by specificity even if
-   it were still here); it just sits in normal document order like every other sidebar button. */
+/* No margin-left:auto here -- this used to sit in the old .app-nav flex row and get pushed to
+   its far right that way; it now just sits in normal document order in the current nav. */
 .gr-edit-mode-btn {
   padding: 5px 14px;
   border-radius: 6px;
@@ -1516,7 +1514,7 @@ td strong {
 }
 /* The Reports nav's 6 themed group buttons (Statements/Reconciliation/Registers/...) used to sit
    next to the Dashboard card grid and were stretched via CSS grid to match its edge-to-edge
-   width. The nav is now a collapsible left rail on every tab (see .tab-sidebar), not a wide
+   width. The nav is now a horizontal tab bar under the header (see .header-tab-bar), not a wide
    sidebar next to that grid, so stretching them across the whole page just spread 6 short
    buttons out with huge gaps between them -- reverted to the same compact flex-wrap every other
    .report-picker instance already uses (Plaid/Schwab import-source picker, Trash's Deleted/
@@ -1654,85 +1652,6 @@ tfoot th {
   color: #fff;
   border-color: #10223f;
 }
-/* Primary section nav (Dashboard/Day Book/Import/Reports/Masters/Ledgers) as a left sidebar
-   inside the workspace, matching how QuickBooks/Xero/Zoho/NetSuite lay out primary nav (a
-   persistent vertical rail) instead of a horizontal tab row that runs out of room as sections
-   grow -- this is the same reason Reports itself already had to become grouped dropdowns rather
-   than a flat row. The existing dark `<aside>` (components/Nav.tsx) is a separate, book-level
-   switcher (US/India/GR) one level up in the page shell -- this is a second, lighter rail one
-   level in, scoped to sections within the current book, the same "app switcher rail + in-app
-   nav" two-tier pattern used by SAP Fiori/ServiceNow/Atlassian products. */
-.workspace-split {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-}
-.tab-sidebar {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  gap: 6px;
-  width: 168px;
-  flex-shrink: 0;
-  position: sticky;
-  top: 20px;
-}
-.tab-sidebar-toggle {
-  align-self: flex-end;
-  margin: 0 0 4px;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  font-size: var(--fs-md);
-  font-weight: 700;
-  color: #64748b;
-  background: #fff;
-}
-.tab-sidebar button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  padding: 11px 14px;
-  font-size: 11.5px;
-  font-weight: 700;
-  text-align: left;
-}
-.tab-sidebar button.selected {
-  background: #10223f;
-  color: #fff;
-  border-color: #10223f;
-}
-.tab-sidebar-icon {
-  flex-shrink: 0;
-  width: 18px;
-  font-size: var(--fs-xl);
-  text-align: center;
-}
-.tab-sidebar-label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-/* Same nav, same position, on every single tab -- no more switching between a vertical rail on
-   Dashboard and a full-width horizontal row everywhere else, which was the actual complaint (the
-   buttons visibly relocating depending which screen you were on). The width tradeoff that
-   motivated that switch is instead handled by making this ONE layout collapsible: collapsed
-   (default -- see the navCollapsed useState in VaultApp.tsx) it's a 52px icon-only rail so every
-   tab, including wide report/ledger tables, gets nearly the full page width by default; the
-   toggle button lets you expand back to labeled buttons when you want them, and that choice is
-   remembered (localStorage) and applies globally, not per-tab -- matching how QuickBooks/Zoho/
-   NetSuite/Notion/Slack all do this (one persistent rail, user-toggled, never content-driven). */
-.workspace-split--collapsed .tab-sidebar {
-  width: 52px;
-}
-.workspace-split--collapsed .tab-sidebar-label {
-  display: none;
-}
-.workspace-split--collapsed .tab-sidebar button {
-  justify-content: center;
-  padding: 11px 0;
-}
 .workspace-content {
   min-width: 0;
   flex: 1;
@@ -1747,50 +1666,12 @@ tfoot th {
   font-weight: 500;
   color: #64748b;
 }
-@media (max-width: 900px) {
-  /* Narrow screens: a tall vertical rail (collapsed OR expanded) eats too much of a phone/tablet's
-     limited width and height for little benefit, so both states drop to the same wrapping
-     horizontal row instead -- still one consistent layout regardless of collapse state or which
-     tab is active, just the narrow-viewport version of it. */
-  .workspace-split,
-  .workspace-split--collapsed {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .tab-sidebar,
-  .workspace-split--collapsed .tab-sidebar {
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    width: 100%;
-    position: static;
-    padding: 0;
-  }
-  /* `.tab-sidebar .tab-sidebar-toggle` (two classes) beats the unconditional `.tab-sidebar
-     button` base rule (one class + one type) on specificity -- the bare `.tab-sidebar-toggle`
-     alone loses that comparison since the toggle is itself a `<button>` inside `.tab-sidebar`
-     and so matches both selectors; without this the toggle stayed visible at narrow widths
-     despite this rule "winning" by being later in the file. */
-  .tab-sidebar .tab-sidebar-toggle {
-    display: none;
-  }
-  .tab-sidebar button,
-  .workspace-split--collapsed .tab-sidebar button {
-    flex: 1 1 auto;
-    justify-content: center;
-    padding: 10px 8px;
-  }
-  .workspace-split--collapsed .tab-sidebar-label {
-    display: inline;
-  }
-}
 /* Horizontal primary-section tab bar (Dashboard/Day Book/Import/Reports/Masters/Ledgers) under
-   the header, replacing the old always-present left `.tab-sidebar` rail -- that rail reserved a
+   the header, replacing an earlier always-present left sidebar rail -- that rail reserved a
    fixed column of page width on every single screen (including wide report/ledger tables) for a
    nav that's only ever touched once per section change, the "static and stale space" complaint.
    Matches the QuickBooks Online/Xero/Wave pattern: a small, stable set of top-level sections fits
-   fine as a horizontal row, and it's the same row shape `.tab-sidebar` already collapsed to below
-   900px (see that block above), just now the only layout instead of a width-based swap. */
+   fine as a horizontal row, on every screen size, not just a width-based swap. */
 .header-tab-bar {
   display: flex;
   flex-wrap: wrap;
@@ -2845,9 +2726,9 @@ tfoot th {
   display: inline-grid;
   grid-auto-flow: column;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   background: var(--dk-mark-bg);
   border: 1px solid #d9e3ef;
   flex-shrink: 0;
@@ -2855,7 +2736,7 @@ tfoot th {
 .app-mark em {
   font-style: normal;
   font-weight: 800;
-  font-size: 10px;
+  font-size: 13px;
 }
 .app-mark-d {
   color: #9a4c08;
@@ -6079,9 +5960,10 @@ button.group-heading:hover {
 }
 .dk-header small {
   font-size: var(--fs-sm);
-  letter-spacing: 0.16em;
-  color: #74839b;
-  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #5b6b85;
+  font-weight: 800;
+  font-style: italic;
 }
 .dk-header h1 {
   font-size: 31px;
@@ -9992,21 +9874,6 @@ body.dark-mode {
   color: #e2e8f0;
 }
 
-/* Collapsible sidebar nav */
-.dark-mode .tab-sidebar button {
-  background: #1a2233;
-  border-color: #2a3448;
-  color: #cbd5e1;
-}
-.dark-mode .tab-sidebar button.selected {
-  background: #3b4a6b;
-  border-color: #3b4a6b;
-  color: #fff;
-}
-.dark-mode .tab-sidebar-toggle {
-  background: #1a2233;
-  color: #94a3b8;
-}
 
 /* .data-panel -- the single most-reused card/table wrapper (every report renders its main
    content inside one), so this one rule covers most of what a user actually stares at. */

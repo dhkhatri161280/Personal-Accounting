@@ -1,8 +1,8 @@
 import type { Account, Ledger, PrepaidExpense, Tx } from "./vault-types";
-import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting";
-import { appendAuditEntry } from "./audit";
-import { pendingAmortizationMonths, remainingBalance } from "./prepaid-expense";
-import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity";
+import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting.ts";
+import { appendAuditEntry } from "./audit.ts";
+import { pendingAmortizationMonths, remainingBalance } from "./prepaid-expense.ts";
+import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity.ts";
 
 const CURRENT_ASSETS_GROUP_NAME = "Current Assets";
 const EXPENSE_GROUP_NAME = "Indirect Expenses";

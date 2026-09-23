@@ -1,6 +1,6 @@
 import type { Account, Ledger, Tx } from "./vault-types";
-import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting";
-import { appendAuditEntry } from "./audit";
+import { nextTransactionIds, nextVoucherNumber } from "./vault-accounting.ts";
+import { appendAuditEntry } from "./audit.ts";
 
 const OPENING_BALANCE_EQUITY_ACCOUNT_NAME = "Opening Balance Equity";
 const CAPITAL_GROUP_NAME = "Capital Account";
