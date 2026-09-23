@@ -30,6 +30,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { BuildStamp } from "@/components/BuildStamp";
+import { PWAInstallButtons } from "@/components/PWARegister";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
 
@@ -835,9 +836,16 @@ export function GrApp() {
 
   return (
     <div className={[privacyMode ? "privacy-mode" : "", "ui-refresh"].filter(Boolean).join(" ") || undefined}>
+      {tab === "dashboard" && <PWAInstallButtons />}
       <header>
         <div>
-          <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH. <BuildStamp /></small>
+          <div className="app-tagline-row">
+            <span className="app-mark" aria-hidden="true">
+              <em className="app-mark-d">D</em>
+              <em className="app-mark-k">K</em>
+            </span>
+            <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH. <BuildStamp /></small>
+          </div>
           <div className="book-heading">
             <h1>Dignesh Khatri</h1>
             <div className="book-switcher-wrap" ref={bookMenuRef}>

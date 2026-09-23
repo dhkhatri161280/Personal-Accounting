@@ -1,16 +1,29 @@
-﻿"use client";
+"use client";
 import { useEffect, useState } from "react";
 type InstallPrompt = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: string }>;
 };
-export function PWARegister() {
+
+// Service worker registration is a one-time, page-lifetime concern -- kept separate from the
+// install-button UI so it can stay mounted everywhere (every tab, every book) while the buttons
+// themselves only show on Dashboard (see PWAInstallButtons below).
+export function PWAServiceWorkerRegister() {
+  useEffect(() => {
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+  }, []);
+  return null;
+}
+
+// Install-prompt buttons -- rendered by VaultApp/GrApp only while tab === "dashboard" (they used
+// to be fixed-position and always visible, which meant they sat on top of report/ledger table
+// content on every other tab).
+export function PWAInstallButtons() {
   const [prompt, setPrompt] = useState<InstallPrompt | null>(null),
     [showIOS, setShowIOS] = useState(false),
     [showAndroid, setShowAndroid] = useState(false),
     [platform, setPlatform] = useState<"unknown" | "android" | "apple" | "desktop">("unknown");
   useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
     const nav = navigator as Navigator & { userAgentData?: { platform?: string } },
       ua = nav.userAgent || "",
       reportedPlatform = `${nav.platform || ""} ${nav.userAgentData?.platform || ""}`,

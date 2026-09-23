@@ -1,5 +1,5 @@
 ﻿"use client";
-import { PWARegister } from "@/components/PWARegister";
+import { PWAServiceWorkerRegister, PWAInstallButtons } from "@/components/PWARegister";
 
 export function Nav({ book = "us" }: { book?: "us" | "india" | "gr" }) {
   const india = book === "india";
@@ -27,7 +27,8 @@ export function Nav({ book = "us" }: { book?: "us" | "india" | "gr" }) {
           <span className="nav-short">GR</span>
         </a>
       </nav>
-      <PWARegister />
+      <PWAServiceWorkerRegister />
+      <PWAInstallButtons />
       <div className="source">
         <em />
         <span>
