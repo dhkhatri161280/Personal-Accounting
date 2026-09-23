@@ -315,7 +315,13 @@ function matchFromHistory(
   const pairCounts = new Map<string, number>();
   const pairPaymentVotes = new Map<string, number>();
 
-  for (const { tokens, debitId, creditId, isReceipt } of index) {
+  for (const { tokens, debitId, creditId, isReceipt, debitIsFinancial } of index) {
+    // Same exclusion as matchFromHistoryByAmount/cardDefaultExpense, and for the same reason: a
+    // merchant-token match against a Contra/transfer record (debit side is itself a bank/card
+    // account, e.g. a recurring "pay off the card" voucher) means this merchant has never
+    // actually been posted as a real expense/income -- trusting it here would relabel a genuine
+    // new purchase as a card payment instead of surfacing it for the user to categorize properly.
+    if (debitIsFinancial) continue;
     const tokenSet = new Set(tokens);
     if (!merchantTokens.some((t) => tokenSet.has(t))) continue;
 
