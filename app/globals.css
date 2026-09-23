@@ -786,9 +786,7 @@ nav i {
   font-size: var(--fs-sm);
 }
 .workspace {
-  max-width: 1430px;
   width: 100%;
-  margin: auto;
   padding: 36px 40px;
 }
 header {
@@ -2606,17 +2604,39 @@ tfoot th {
   }
 }
 
-.install-app {
+/* Fixed to the corner as a group (not per-button) so the Android and iOS buttons sit side by
+   side instead of stacking on top of each other -- both can be visible at once on "desktop"
+   platform detection. Only applies when .install-options has no `aside` ancestor (see `aside
+   .install-options` above): the older pages that still render Nav/aside keep their own
+   sidebar-column layout for this untouched. */
+.install-options {
   position: fixed;
   right: 18px;
   bottom: 18px;
   z-index: 80;
+  display: flex;
+  gap: 8px;
+}
+.install-app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   background: #2f6fed;
   color: #fff;
   border-color: #2f6fed;
   box-shadow: 0 8px 25px #10223f44;
-  padding: 12px 16px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.install-app img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  border-radius: 5px;
+  flex: 0 0 20px;
 }
 @media (max-width: 680px) {
   body {
@@ -2804,28 +2824,15 @@ tfoot th {
   white-space: nowrap;
 }
 
-/* Keep the install control inside the unused desktop sidebar area. */
-.install-app {
-  left: 18px;
-  right: auto;
-  top: 310px;
-  bottom: auto;
-  width: 199px;
-  box-shadow: 0 8px 22px #06112755;
-}
 @media (max-width: 680px) {
-  .install-app {
-    left: auto;
+  .install-options {
     right: 12px;
-    top: auto;
     bottom: 12px;
-    width: auto;
+  }
+  .install-app {
     padding: 8px 10px;
     font-size: var(--fs-2xs);
     opacity: 0.92;
-  }
-  body {
-    padding-bottom: 0;
   }
 }
 
@@ -3789,8 +3796,12 @@ aside .install-app span {
   overflow-x: auto;
 }
 
-/* Android and Apple installation controls share one compact sidebar slot. */
+/* Android and Apple installation controls share one compact sidebar slot. Explicit
+   position:static overrides the plain `.install-options` fixed-corner rule (see that rule's
+   comment) which would otherwise apply here too since this selector doesn't win on specificity
+   alone. */
 aside .install-options {
+  position: static;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -4441,9 +4452,6 @@ aside .install-options .install-app {
   display: none;
 }
 @media (min-width: 1101px) {
-  .shell {
-    grid-template-columns: 104px minmax(0, 1fr);
-  }
   aside {
     padding: 24px 12px;
     align-items: stretch;
