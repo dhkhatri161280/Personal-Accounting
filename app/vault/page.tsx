@@ -1,11 +1,11 @@
-import { Nav } from "@/components/Nav";
+import { PWARegister } from "@/components/PWARegister";
 import { VaultApp } from "@/components/VaultApp";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 export const dynamic = "force-dynamic";
 export default function Vault() {
   return (
     <main className="shell us-books">
-      <Nav />
+      <PWARegister />
       <section className="workspace">
         <AppErrorBoundary>
           <VaultApp />

@@ -30,7 +30,6 @@ import { apiFetch } from "@/lib/api-fetch";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { BuildStamp } from "@/components/BuildStamp";
-import { TabSidebar } from "@/components/TabSidebar";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
 
@@ -201,7 +200,17 @@ export function GrApp() {
   // The classic/refresh toggle has been retired -- refresh is now the only look, everywhere.
   // Kept as a plain constant rather than rewriting every `uiTheme === "refresh"` check below.
   const uiTheme = "refresh" as const;
-  const { privacyMode, togglePrivacy, darkMode, toggleDarkMode, navCollapsed, toggleNavCollapsed } = useUiPrefs();
+  const { privacyMode, togglePrivacy, darkMode, toggleDarkMode } = useUiPrefs();
+  const [bookMenuOpen, setBookMenuOpen] = useState(false);
+  const bookMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!bookMenuOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (bookMenuRef.current && !bookMenuRef.current.contains(e.target as Node)) setBookMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [bookMenuOpen]);
   const loadedRef = useRef(false);
   const [nvdaPrice, setNvdaPrice] = useState<number | null>(null);
   const [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
@@ -831,7 +840,36 @@ export function GrApp() {
           <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH. <BuildStamp /></small>
           <div className="book-heading">
             <h1>Dignesh Khatri</h1>
-            <span className="book-badge gr">US + IN (CONSOLIDATED) - INR</span>
+            <div className="book-switcher-wrap" ref={bookMenuRef}>
+              <button
+                type="button"
+                className="book-switcher-button gr"
+                onClick={() => setBookMenuOpen((o) => !o)}
+                aria-label="Switch books"
+              >
+                <span className="book-switcher-name">GR Consolidated</span>
+                <span className="book-switcher-currency">USD + INR</span>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {bookMenuOpen && (
+                <div className="book-switcher-menu">
+                  <a href="/vault">
+                    US Personal Books
+                    <em>USD</em>
+                  </a>
+                  <a href="/india">
+                    India Books
+                    <em>INR</em>
+                  </a>
+                  <a href="/gr" className="selected">
+                    GR Consolidated
+                    <em>USD + INR</em>
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
           <p>
             {gr.accounts.length} ledgers | {gr.transactions.length} vouchers (US + IN Consolidated)
@@ -882,37 +920,36 @@ export function GrApp() {
         </div>
       </header>
 
-      <div className={`workspace-split${navCollapsed ? " workspace-split--collapsed" : ""}`}>
-        <TabSidebar collapsed={navCollapsed} onToggleCollapsed={toggleNavCollapsed}>
-          <button className={tab === "dashboard" ? "selected" : ""} onClick={() => setTab("dashboard")} title="Dashboard">
-            <span className="tab-sidebar-icon" aria-hidden="true">⌂</span>
-            <span className="tab-sidebar-label">Dashboard</span>
-          </button>
-          <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
-            <span className="tab-sidebar-icon" aria-hidden="true">📖</span>
-            <span className="tab-sidebar-label">Day Book</span>
-          </button>
-          <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
-            <span className="tab-sidebar-icon" aria-hidden="true">📚</span>
-            <span className="tab-sidebar-label">Ledgers</span>
-          </button>
-          <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
-            <span className="tab-sidebar-icon" aria-hidden="true">📊</span>
-            <span className="tab-sidebar-label">Reports</span>
-          </button>
-          <button className={tab === "fxrates" ? "selected" : ""} onClick={() => setTab("fxrates")} title="FX Rates">
-            <span className="tab-sidebar-icon" aria-hidden="true">⇄</span>
-            <span className="tab-sidebar-label">FX Rates</span>
-          </button>
-          <button
-            className={`gr-edit-mode-btn ${editMode ? "selected" : ""}`}
-            onClick={() => setEditMode((v) => !v)}
-            title={editMode ? "Exit edit mode" : "Enter edit mode to override FX rates"}
-          >
-            <span className="tab-sidebar-icon" aria-hidden="true">✎</span>
-            <span className="tab-sidebar-label">{editMode ? "Edit: ON" : "Edit Mode"}</span>
-          </button>
-        </TabSidebar>
+      <div className="header-tab-bar">
+        <button className={tab === "dashboard" ? "selected" : ""} onClick={() => setTab("dashboard")} title="Dashboard">
+          <span className="header-tab-bar-icon" aria-hidden="true">⌂</span>
+          <span>Dashboard</span>
+        </button>
+        <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
+          <span className="header-tab-bar-icon" aria-hidden="true">📖</span>
+          <span>Day Book</span>
+        </button>
+        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
+          <span className="header-tab-bar-icon" aria-hidden="true">📚</span>
+          <span>Ledgers</span>
+        </button>
+        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
+          <span className="header-tab-bar-icon" aria-hidden="true">📊</span>
+          <span>Reports</span>
+        </button>
+        <button className={tab === "fxrates" ? "selected" : ""} onClick={() => setTab("fxrates")} title="FX Rates">
+          <span className="header-tab-bar-icon" aria-hidden="true">⇄</span>
+          <span>FX Rates</span>
+        </button>
+        <button
+          className={`gr-edit-mode-btn ${editMode ? "selected" : ""}`}
+          onClick={() => setEditMode((v) => !v)}
+          title={editMode ? "Exit edit mode" : "Enter edit mode to override FX rates"}
+        >
+          <span className="header-tab-bar-icon" aria-hidden="true">✎</span>
+          <span>{editMode ? "Edit: ON" : "Edit Mode"}</span>
+        </button>
+      </div>
         <div className="workspace-content">
       {TAB_LABELS[tab] && <h2 className="workspace-page-title">{TAB_LABELS[tab]}</h2>}
 
@@ -2040,7 +2077,6 @@ export function GrApp() {
         </div>
       )}
         </div>
-      </div>
     </div>
   );
 }

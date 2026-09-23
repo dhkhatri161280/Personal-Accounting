@@ -683,7 +683,7 @@ body {
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 235px 1fr;
+  grid-template-columns: 1fr;
 }
 aside {
   position: sticky;
@@ -1181,9 +1181,6 @@ li b {
   margin-top: 21px;
 }
 @media (max-width: 980px) {
-  .shell {
-    grid-template-columns: 200px 1fr;
-  }
   .workspace {
     padding: 28px 22px;
   }
@@ -2919,6 +2916,11 @@ aside .install-app {
   background: #fff1dc;
   color: #9a4c08;
   border: 1px solid #f2c88d;
+}
+.book-switcher-button.gr {
+  background: #fbe9ee;
+  color: #8a2846;
+  border: 1px solid #d4c8fb;
 }
 .book-switcher-button .book-switcher-currency {
   opacity: 0.65;
