@@ -2,7 +2,7 @@
     "name":  "FinTech by DK",
     "short_name":  "FinTech DK",
     "description":  "Private end-to-end encrypted accounting by DK",
-    "start_url":  "/ledger?source=android-app",
+    "start_url":  "/vault?source=android-app",
     "scope":  "/",
     "display":  "standalone",
     "orientation":  "any",
