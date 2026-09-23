@@ -2715,7 +2715,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 onClick={() => setBookMenuOpen((o) => !o)}
                 aria-label="Switch books"
               >
-                <span className="book-switcher-name">{book === "india" ? "India Books" : "US Personal Books"}</span>
+                <span className="book-switcher-name">{book === "india" ? "India Books" : "US Books"}</span>
                 <span className="book-switcher-currency">{book === "india" ? "INR" : "USD"}</span>
                 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="m6 9 6 6 6-6" />
@@ -2724,7 +2724,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               {bookMenuOpen && (
                 <div className="book-switcher-menu">
                   <a href="/vault" className={book === "us" ? "selected" : ""}>
-                    US Personal Books
+                    US Books
                     <em>USD</em>
                   </a>
                   <a href="/india" className={book === "india" ? "selected" : ""}>
@@ -2732,7 +2732,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     <em>INR</em>
                   </a>
                   <a href="/gr">
-                    GR Consolidated
+                    GR Books
                     <em>USD + INR</em>
                   </a>
                 </div>

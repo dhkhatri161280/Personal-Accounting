@@ -855,7 +855,7 @@ export function GrApp() {
                 onClick={() => setBookMenuOpen((o) => !o)}
                 aria-label="Switch books"
               >
-                <span className="book-switcher-name">GR Consolidated</span>
+                <span className="book-switcher-name">GR Books</span>
                 <span className="book-switcher-currency">USD + INR</span>
                 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="m6 9 6 6 6-6" />
@@ -864,7 +864,7 @@ export function GrApp() {
               {bookMenuOpen && (
                 <div className="book-switcher-menu">
                   <a href="/vault">
-                    US Personal Books
+                    US Books
                     <em>USD</em>
                   </a>
                   <a href="/india">
@@ -872,7 +872,7 @@ export function GrApp() {
                     <em>INR</em>
                   </a>
                   <a href="/gr" className="selected">
-                    GR Consolidated
+                    GR Books
                     <em>USD + INR</em>
                   </a>
                 </div>
