@@ -8471,6 +8471,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-vest-table th:nth-child(8), .equity-vest-table td:nth-child(8) { width: 88px; }
 .equity-vest-table th:nth-child(9), .equity-vest-table td:nth-child(9) { width: 82px; }
 .equity-vest-table th:nth-child(10), .equity-vest-table td:nth-child(10) { width: 48px; }
+/* Same missing-width issue as .equity-espp-table's Gain column (see that comment) -- Gain here
+   is the 11th column and had no hint either, so it absorbed the readOnly action column's freed
+   width once that started disappearing for GR. */
+.equity-vest-table th:nth-child(11), .equity-vest-table td:nth-child(11) { width: 90px; }
 .equity-empty-cell { color: #94a3b8; font-style: italic; text-align: center; padding: 0.5rem; }
 .equity-unvested-row td { color: #94a3b8; font-style: italic; }
 .equity-del-btn { font-size: var(--fs-sm); padding: 1px 5px; color: #dc2626; border-color: #fca5a5; border-radius: 3px; background: #fff5f5; cursor: pointer; }

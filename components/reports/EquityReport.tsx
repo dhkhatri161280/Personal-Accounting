@@ -1854,7 +1854,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                     <th className="right">Sale Value</th>
                     <th className="right">Mkt Value</th>
                     <th className="right">Gain</th>
-                    <th />
+                    {!readOnly && <th />}
                   </tr>
                 </thead>
                 <tbody>
@@ -1944,17 +1944,17 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                           <td className="right"><span className="equity-neutral">—</span></td>
                           <td className="right equity-neutral">{cur > 0 ? fmt(v.shares * cur) : "—"}</td>
                           <td className={`right ${v.shares * (cur - g.grantPrice) >= 0 ? "equity-gain-pos" : "equity-gain-neg"} equity-neutral`}>{cur > 0 ? fmt(v.shares * (cur - g.grantPrice)) : "—"}</td>
-                          <td>
-                            {isDue && !readOnly && (
-                              <button className="equity-record-vest-btn" title="Record vest price" onClick={() => {
-                                setRecordVestFor({ grantId: g.id, vestId: v.id });
-                                setRecordVestForm({ vestPrice: "", taxShares: "", sharesHeld: "" });
-                              }}>Record</button>
-                            )}
-                            {!readOnly && (
+                          {!readOnly && (
+                            <td>
+                              {isDue && (
+                                <button className="equity-record-vest-btn" title="Record vest price" onClick={() => {
+                                  setRecordVestFor({ grantId: g.id, vestId: v.id });
+                                  setRecordVestForm({ vestPrice: "", taxShares: "", sharesHeld: "" });
+                                }}>Record</button>
+                              )}
                               <button className="equity-del-btn" onClick={() => deleteVest(g.id, v.id)}>✕</button>
-                            )}
-                          </td>
+                            </td>
+                          )}
                         </tr>
                       );
                     }
@@ -1985,14 +1985,16 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         <td className="right">{userSaleVal > 0 ? fmt(userSaleVal) : <span className="equity-neutral">—</span>}</td>
                         <td className="right">{v.sharesHeld > 0 ? fmt(mktVal) : <span className="equity-neutral">—</span>}</td>
                         <td className={`right ${vestGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(vestGain)}</td>
-                        <td>
-                          {!readOnly && (<><button className="equity-edit-btn" title="Mark sold / update" onClick={() => {
-                            setEditVest({ grantId: g.id, vestId: v.id });
-                            setEditVestForm({ sharesHeld: String(v.sharesHeld), taxShares: String(tax), salePrice: v.salePrice ? String(v.salePrice) : "" });
-                          }}>✎</button>
-                          {" "}
-                          <button className="equity-del-btn" onClick={() => deleteVest(g.id, v.id)}>✕</button></>)}
-                        </td>
+                        {!readOnly && (
+                          <td>
+                            <button className="equity-edit-btn" title="Mark sold / update" onClick={() => {
+                              setEditVest({ grantId: g.id, vestId: v.id });
+                              setEditVestForm({ sharesHeld: String(v.sharesHeld), taxShares: String(tax), salePrice: v.salePrice ? String(v.salePrice) : "" });
+                            }}>✎</button>
+                            {" "}
+                            <button className="equity-del-btn" onClick={() => deleteVest(g.id, v.id)}>✕</button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -2011,7 +2013,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       <td className={`right ${g.unvestedShares * (cur - g.grantPrice) >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>
                         {fmt(g.unvestedShares * (cur - g.grantPrice))}
                       </td>
-                      <td />
+                      {!readOnly && <td />}
                     </tr>
                   )}
                 </tbody>
@@ -2495,7 +2497,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               <th className="right equity-amt">{fmt(esppRows.reduce((s, e) => s + e.saleValue, 0))}</th>
               <th className="right equity-amt">{fmt(esppCurrent)}</th>
               <th className={`right ${esppRows.reduce((s, e) => s + e.gain, 0) >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(esppRows.reduce((s, e) => s + e.gain, 0))}</th>
-              <th />
+              {!readOnly && <th />}
             </tr>
           </tfoot>
         </table>
