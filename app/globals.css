@@ -8500,6 +8500,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-espp-table th:nth-child(7), .equity-espp-table td:nth-child(7) { width: 90px; }
 .equity-espp-table th:nth-child(8), .equity-espp-table td:nth-child(8) { width: 90px; }
 .equity-espp-table th:nth-child(9), .equity-espp-table td:nth-child(9) { width: 52px; }
+/* Gain (10th column) had no width hint, unlike every neighbor -- harmless while the action
+   column (11th) still existed to also share leftover table width, but once that column started
+   disappearing for readOnly (GR), Gain became the only unconstrained column left and absorbed
+   all of it, stretching far wider than its content needs (confirmed live, flagged by the user). */
+.equity-espp-table th:nth-child(10), .equity-espp-table td:nth-child(10) { width: 100px; }
 .equity-cycle-row { background: var(--surface2, #f1f5f9); cursor: pointer; font-weight: 600; }
 .equity-cycle-row:hover { background: var(--surface3, #e2e8f0); }
 .equity-cycle-row td { padding: 6px 6px; }
