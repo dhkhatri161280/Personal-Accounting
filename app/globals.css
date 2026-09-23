@@ -8426,9 +8426,13 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .equity-empty { color: #94a3b8; font-size: var(--fs-md); font-style: italic; margin: 0.5rem 0 1rem; }
 
 .equity-grant-header { display: flex; align-items: center; gap: 0.5rem; padding: 0 0.75rem 0.35rem; font-size: var(--fs-sm); font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
-.equity-col-head { width: 112px; min-width: 112px; text-align: right; }
+/* 112px fit USD-scale amounts but overflowed and visually overlapped the next column for GR's
+   INR crore-scale totals (e.g. "₹19,42,07,509.47" -- confirmed live, flagged by the user on the
+   RSU Total row). Widened for every book rather than scoping to .shell.gr-books, since a wider
+   right-aligned column costs nothing on the smaller USD/India per-grant numbers. */
+.equity-col-head { width: 150px; min-width: 150px; text-align: right; }
 .equity-col-head--gain { color: #16a34a !important; }
-.equity-col-val { width: 112px; min-width: 112px; text-align: right; display: inline-block; }
+.equity-col-val { width: 150px; min-width: 150px; text-align: right; display: inline-block; }
 .equity-gain-pos { color: #16a34a; font-weight: 600; }
 .equity-gain-neg { color: #dc2626; font-weight: 600; }
 .equity-sold-badge { color: #dc2626; font-weight: 600; }
