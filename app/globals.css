@@ -1789,6 +1789,55 @@ tfoot th {
     display: inline;
   }
 }
+/* Horizontal primary-section tab bar (Dashboard/Day Book/Import/Reports/Masters/Ledgers) under
+   the header, replacing the old always-present left `.tab-sidebar` rail -- that rail reserved a
+   fixed column of page width on every single screen (including wide report/ledger tables) for a
+   nav that's only ever touched once per section change, the "static and stale space" complaint.
+   Matches the QuickBooks Online/Xero/Wave pattern: a small, stable set of top-level sections fits
+   fine as a horizontal row, and it's the same row shape `.tab-sidebar` already collapsed to below
+   900px (see that block above), just now the only layout instead of a width-based swap. */
+.header-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e3e9f2;
+}
+.header-tab-bar button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #dfe5ee;
+  border-radius: 9px;
+}
+.header-tab-bar button.selected {
+  background: #10223f;
+  color: #fff;
+  border-color: #10223f;
+}
+.header-tab-bar-icon {
+  flex-shrink: 0;
+  font-size: var(--fs-lg);
+}
+@media (max-width: 680px) {
+  .header-tab-bar {
+    gap: 4px;
+    margin: 2px 0 14px;
+  }
+  .header-tab-bar button {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 8px 6px;
+    font-size: 11px;
+  }
+}
+
 .period-bar {
   display: flex;
   align-items: center;
@@ -2841,6 +2890,83 @@ aside .install-app {
     padding: 5px 8px;
     font-size: var(--fs-2xs);
   }
+}
+
+/* Book switcher -- replaces the static book-badge pill with a real dropdown (US Personal
+   Books / India Books / GR Consolidated), matching how QuickBooks/Xero/NetSuite surface the
+   active company/subsidiary as a clickable switcher rather than inert label text. */
+.book-switcher-wrap {
+  position: relative;
+}
+.book-switcher-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: var(--fs-xs);
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.book-switcher-button.us {
+  background: #e8f0ff;
+  color: #174f9b;
+  border: 1px solid #bfd3f7;
+}
+.book-switcher-button.india {
+  background: #fff1dc;
+  color: #9a4c08;
+  border: 1px solid #f2c88d;
+}
+.book-switcher-button .book-switcher-currency {
+  opacity: 0.65;
+  font-weight: 700;
+}
+.book-switcher-button svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.book-switcher-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: 220px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(16, 34, 63, 0.22);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.book-switcher-menu a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: #28405f;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  text-decoration: none;
+}
+.book-switcher-menu a:hover {
+  background: #eef5ff;
+}
+.book-switcher-menu a.selected {
+  background: #eef5ff;
+  color: #174f9b;
+}
+.book-switcher-menu a em {
+  font-style: normal;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: #7c8ba3;
 }
 
 .book-context-banner {

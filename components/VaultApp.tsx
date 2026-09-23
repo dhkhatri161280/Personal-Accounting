@@ -8,7 +8,6 @@ import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
 import { BuildStamp } from "@/components/BuildStamp";
-import { TabSidebar } from "@/components/TabSidebar";
 import { TransactionTable } from "@/components/TransactionTable";
 import { MastersPanel, type MasterGroup } from "@/components/MastersPanel";
 import type {
@@ -129,10 +128,9 @@ const VOUCHER_TYPE_ICONS: Record<string, string> = {
 };
 const voucherTypeIcon = (type: string) => VOUCHER_TYPE_ICONS[type.toLowerCase()] || "📄";
 
-// Page title shown at the top of every tab -- the nav rail is icon-only by default (see
-// TabSidebar), so without this there's no text anywhere saying which section is active. Every
-// other screen already has its own heading somewhere inside it (Equity Holdings, RSU Grants,
-// Trial Balance, ...); Dashboard/Day Book/Import/Ledgers never did.
+// Page title shown at the top of every tab. Every other screen already has its own heading
+// somewhere inside it (Equity Holdings, RSU Grants, Trial Balance, ...); Dashboard/Day Book/
+// Import/Ledgers never did.
 const TAB_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   daybook: "Day Book",
@@ -170,6 +168,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     newVoucherMenuRef = useRef<HTMLDivElement>(null),
     reportPickerRef = useRef<HTMLDivElement>(null),
     settingsMenuRef = useRef<HTMLDivElement>(null),
+    bookMenuRef = useRef<HTMLDivElement>(null),
     autoSyncTriggerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [password, setPassword] = useState(""),
     [data, setData] = useState<Ledger | null>(null),
@@ -183,6 +182,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // tuck occasional ones behind a single gear/settings menu. Sync/lock stays visible outside
     // this menu since locking the vault is the one action that should never be an extra click away.
     [settingsMenuOpen, setSettingsMenuOpen] = useState(false),
+    [bookMenuOpen, setBookMenuOpen] = useState(false),
     [biometricChecked, setBiometricChecked] = useState(false),
     [biometricPending, setBiometricPending] = useState(false),
     [showPasswordFallback, setShowPasswordFallback] = useState(false),
@@ -249,7 +249,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // book-value ledger row in that case rather than silently showing $0.
     [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null),
     [openReportGroup, setOpenReportGroup] = useState<string | null>(null);
-  const { privacyMode, togglePrivacy, darkMode, toggleDarkMode, navCollapsed, toggleNavCollapsed } = useUiPrefs();
+  const { privacyMode, togglePrivacy, darkMode, toggleDarkMode } = useUiPrefs();
   const { dashboardDetail, setDashboardDetail, toggleDashboardDetail: toggleDashboardDetailRaw } = useDashboardDetail<
     "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "loans" | "attention"
   >();
@@ -981,6 +981,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
   }, [settingsMenuOpen]);
+
+  useEffect(() => {
+    if (!bookMenuOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (bookMenuRef.current && !bookMenuRef.current.contains(e.target as Node)) setBookMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [bookMenuOpen]);
 
   useEffect(() => {
     if (!data) return;
@@ -2691,9 +2700,36 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           <small>FINTECH BY DK — YOUR BOOKS. EVERY ACCOUNT. ONE SOURCE OF TRUTH. <BuildStamp /></small>
           <div className="book-heading">
             <h1>Dignesh Khatri</h1>
-            <span className={`book-badge ${book}`}>
-              {book === "india" ? "INDIA BOOKS | INR" : "US BOOKS | USD"}
-            </span>
+            <div className="book-switcher-wrap" ref={bookMenuRef}>
+              <button
+                type="button"
+                className={`book-switcher-button ${book}`}
+                onClick={() => setBookMenuOpen((o) => !o)}
+                aria-label="Switch books"
+              >
+                <span className="book-switcher-name">{book === "india" ? "India Books" : "US Personal Books"}</span>
+                <span className="book-switcher-currency">{book === "india" ? "INR" : "USD"}</span>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {bookMenuOpen && (
+                <div className="book-switcher-menu">
+                  <a href="/vault" className={book === "us" ? "selected" : ""}>
+                    US Personal Books
+                    <em>USD</em>
+                  </a>
+                  <a href="/india" className={book === "india" ? "selected" : ""}>
+                    India Books
+                    <em>INR</em>
+                  </a>
+                  <a href="/gr">
+                    GR Consolidated
+                    <em>USD + INR</em>
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
           <p>
             {active.length} active ledgers | {calc.period.length} vouchers in selected period
@@ -3012,54 +3048,53 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
         </FloatingWindow>
       )}
-      <div className={`workspace-split${navCollapsed ? " workspace-split--collapsed" : ""}`}>
-        <TabSidebar collapsed={navCollapsed} onToggleCollapsed={toggleNavCollapsed}>
+      <div className="header-tab-bar">
+        <button
+          className={tab === "dashboard" ? "selected" : ""}
+          onClick={() => setTab("dashboard")}
+          title="Dashboard"
+        >
+          <span className="header-tab-bar-icon" aria-hidden="true">⌂</span>
+          <span>Dashboard</span>
+        </button>
+        <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
+          <span className="header-tab-bar-icon" aria-hidden="true">📖</span>
+          <span>Day Book</span>
+        </button>
+        {book !== "india" && (
           <button
-            className={tab === "dashboard" ? "selected" : ""}
-            onClick={() => setTab("dashboard")}
-            title="Dashboard"
-          >
-            <span className="tab-sidebar-icon" aria-hidden="true">⌂</span>
-            <span className="tab-sidebar-label">Dashboard</span>
-          </button>
-          <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
-            <span className="tab-sidebar-icon" aria-hidden="true">📖</span>
-            <span className="tab-sidebar-label">Day Book</span>
-          </button>
-          {book !== "india" && (
-            <button
-              className={tab === "bank-import" ? "selected" : ""}
-              onClick={() => {
-                setPlaidImportTab("transactions");
-                setTab("bank-import");
-              }}
-              title="Import"
-            >
-              <span className="tab-sidebar-icon" aria-hidden="true">⇩</span>
-              <span className="tab-sidebar-label">Import</span>
-            </button>
-          )}
-          <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
-            <span className="tab-sidebar-icon" aria-hidden="true">📊</span>
-            <span className="tab-sidebar-label">Reports</span>
-          </button>
-          <button
-            className={tab === "masters" ? "selected" : ""}
+            className={tab === "bank-import" ? "selected" : ""}
             onClick={() => {
-              setMastersSection("ledgers");
-              setTab("masters");
+              setPlaidImportTab("transactions");
+              setTab("bank-import");
             }}
-            title="Masters"
+            title="Import"
           >
-            <span className="tab-sidebar-icon" aria-hidden="true">🗄</span>
-            <span className="tab-sidebar-label">Masters</span>
+            <span className="header-tab-bar-icon" aria-hidden="true">⇩</span>
+            <span>Import</span>
           </button>
-          <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
-            <span className="tab-sidebar-icon" aria-hidden="true">📚</span>
-            <span className="tab-sidebar-label">Ledgers</span>
-          </button>
-          {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
-        </TabSidebar>
+        )}
+        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
+          <span className="header-tab-bar-icon" aria-hidden="true">📊</span>
+          <span>Reports</span>
+        </button>
+        <button
+          className={tab === "masters" ? "selected" : ""}
+          onClick={() => {
+            setMastersSection("ledgers");
+            setTab("masters");
+          }}
+          title="Masters"
+        >
+          <span className="header-tab-bar-icon" aria-hidden="true">🗄</span>
+          <span>Masters</span>
+        </button>
+        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
+          <span className="header-tab-bar-icon" aria-hidden="true">📚</span>
+          <span>Ledgers</span>
+        </button>
+        {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
+      </div>
         <div className="workspace-content">
       {TAB_LABELS[tab] && (
         <h2 className="workspace-page-title">
@@ -5342,7 +5377,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </FloatingWindow>
       )}
         </div>
-      </div>
     </div>
   );
 }
