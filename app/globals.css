@@ -5963,7 +5963,8 @@ button.group-heading:hover {
   font-size: var(--fs-sm);
   letter-spacing: 0.02em;
   color: #5b6b85;
-  font-weight: 700;
+  font-weight: 900;
+  font-style: italic;
 }
 .dk-header h1 {
   font-size: 31px;
