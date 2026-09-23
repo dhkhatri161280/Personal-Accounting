@@ -17,6 +17,14 @@ export type SpendLine = {
   // reversal against that same category -- e.g. a Receipt crediting an Expense ledger (money
   // reimbursed for something already spent) reduces net spend rather than being invisible.
   amount: number;
+  // GR-only: which book this line originated from, plus (for a US-sourced line) the original USD
+  // amount and FX rate applied -- mirrors the Day Book's own SRC badge + "$X @ rate" hint so GR's
+  // Spend Report shows the same conversion detail as every other GR report instead of only the
+  // converted INR figure. Left undefined by US/India's own SpendReport (single-currency, no
+  // conversion to show).
+  source?: "US" | "IN";
+  originalAmountUsd?: number;
+  appliedRate?: number;
 };
 
 function isoDaysAgo(days: number): string {
@@ -275,11 +283,13 @@ function SpendVoucherTable({
   color: string;
   hideAccountColumn?: boolean;
 }) {
+  const showSource = lines.some((l) => l.source);
   return (
     <table className="fx-ledger-table">
       <thead>
         <tr>
           <th>Date</th>
+          {showSource && <th>Src</th>}
           <th>Voucher</th>
           {!hideAccountColumn && <th>Account</th>}
           <th className="fx-narration">Narration</th>
@@ -290,6 +300,11 @@ function SpendVoucherTable({
         {lines.map((l) => (
           <tr key={l.key}>
             <td>{fmtDate(l.date)}</td>
+            {showSource && (
+              <td>
+                {l.source && <span className={`source-badge source-${l.source.toLowerCase()}`}>{l.source}</span>}
+              </td>
+            )}
             <td>
               {l.voucherType} {l.voucherNumber}
             </td>
@@ -299,13 +314,18 @@ function SpendVoucherTable({
             </td>
             <td className="right" style={l.amount < 0 ? { color: "#6b7280" } : undefined} title={l.amount < 0 ? "Refund / reversal — reduces the total" : undefined}>
               {fmt(l.amount)}
+              {l.source === "US" && l.originalAmountUsd != null && l.appliedRate != null && (
+                <small className="gr-usd-hint">
+                  ${l.originalAmountUsd.toFixed(2)} @ {l.appliedRate.toFixed(2)}
+                </small>
+              )}
             </td>
           </tr>
         ))}
       </tbody>
       <tfoot>
         <tr>
-          <td colSpan={hideAccountColumn ? 3 : 4}>Total</td>
+          <td colSpan={(hideAccountColumn ? 3 : 4) + (showSource ? 1 : 0)}>Total</td>
           <td className="right" style={{ color }}>
             {fmt(total)}
           </td>

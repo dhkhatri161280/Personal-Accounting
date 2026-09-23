@@ -1824,6 +1824,9 @@ export function GrApp() {
                       narration: t.narration,
                       accountName: e.accountName,
                       amount: isExpense ? -e.amountInr : e.amountInr,
+                      source: t.source,
+                      originalAmountUsd: t.source === "US" ? Math.abs(e.originalAmount) : undefined,
+                      appliedRate: t.source === "US" ? t.appliedRate : undefined,
                     };
                     (isExpense ? expense : income).push(line);
                   }
