@@ -82,3 +82,17 @@ test("matchRecurringTemplate skips a template already posted for the current per
   });
   assert.equal(matchRecurringTemplate("Bank of America", 15.99, "2026-09-15", [t]), null);
 });
+
+test("matchRecurringTemplate clamps an unreasonably wide tolerance to the expected amount -- an unrelated near-$0 transaction must never match a real recurring bill", () => {
+  // A loose institution-only rule with a huge tolerance (larger than the bill itself) would
+  // otherwise match almost anything from that institution, including a transaction with nothing
+  // to do with this recurring bill.
+  const t = template({ plaidMatch: { institutionPattern: "Bank of America", amountTolerance: 500 } });
+  // A $50 grocery charge, clearly not a $15.99 Netflix bill -- would incorrectly match without
+  // the clamp (|50 - 15.99| = 34.01 < 500), since the tolerance is now capped to the expected
+  // amount itself (min(500, 15.99) = 15.99, and 34.01 > 15.99).
+  assert.equal(matchRecurringTemplate("Bank of America", 50, "2026-09-15", [t]), null);
+  // A genuinely close amount still matches even with the clamp in effect.
+  const match = matchRecurringTemplate("Bank of America", 16.5, "2026-09-15", [t]);
+  assert.ok(match);
+});

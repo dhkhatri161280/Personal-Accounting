@@ -74,7 +74,14 @@ export function matchRecurringTemplate(
     // equals the credit side's total, but summing debits handles a multi-line split (e.g. a
     // payment split across two expense accounts) without assuming exactly two entries.
     const expected = template.entries.filter((e) => e.amount < 0).reduce((s, e) => s - e.amount, 0);
-    if (Math.abs(Math.abs(amount) - expected) > template.plaidMatch.amountTolerance) continue;
+    // Clamped to `expected` itself -- an unreasonably wide tolerance (however it got configured;
+    // this is the actual match-time enforcement, not just a UI-side guard) would otherwise match
+    // transactions near $0, which is never a legitimate "same bill, amount drifted a bit" case.
+    // This is the one auto-applied Plaid-match rule with no merchant-text check at all (a
+    // user-configured institution pattern + amount is trusted outright, like payroll), so an
+    // unbounded tolerance was the one way it could misfire.
+    const tolerance = Math.min(template.plaidMatch.amountTolerance, expected);
+    if (Math.abs(Math.abs(amount) - expected) > tolerance) continue;
     return { template, periodKey };
   }
   return null;

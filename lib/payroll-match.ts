@@ -275,6 +275,13 @@ export function estimateManualPeriod(yr: PayrollYear, t: Tx): ManualPayrollPerio
     const diff = Math.abs(g - targetGross);
     if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
   }
+  // No cutoff here meant the closest period on file always got used as the tax-ratio donor, no
+  // matter how far off its gross pay actually was (e.g. a $50 bonus-only period as the sole
+  // reference for a real $5,000 paycheck) -- a mismatched period's withholding RATIO doesn't
+  // transfer, so that produced a confidently-wrong-looking estimate instead of an honest "not
+  // enough to go on". Past this margin, treat it as no usable reference at all (falls through to
+  // the all-zero federal/ssn/medicare/etc. below) rather than scale by a meaningless ratio.
+  if (bestIdx >= 0 && targetGross > 0 && bestDiff > targetGross * 0.5) bestIdx = -1;
 
   let federalEst = 0, ssnEst = 0, medicareEst = 0, stateWHEst = 0, stateSDIEst = 0;
   if (bestIdx >= 0) {

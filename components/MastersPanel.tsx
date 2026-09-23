@@ -862,7 +862,14 @@ export function MastersPanel({
       creditAccountId = Number(form.get("creditAccountId")),
       amount = Math.abs(Number(form.get("amount") || 0)),
       institutionPattern = normalize(String(form.get("institutionPattern") || "")),
-      amountTolerance = Number(form.get("amountTolerance") || 5);
+      // Clamped to the expected amount itself -- a tolerance wider than that would match
+      // transactions near $0 (or even negative-vs-expected-sign mismatches), which is never a
+      // legitimate "same recurring bill, slightly different amount" case. This is the one auto
+      // Plaid-match rule with no merchant-text check at all (a user-configured institution
+      // pattern + amount is trusted outright, same as payroll), so an unreasonably loose
+      // tolerance is the one way it could misfire -- this bounds that without requiring the user
+      // to add a merchant pattern of their own.
+      amountTolerance = Math.min(Number(form.get("amountTolerance") || 5), amount);
     if (!label || !debitAccountId || !creditAccountId || !amount) return;
     const existing = (data.recurringTemplates || []).find((t) => t.id === recurringTemplateId);
     const template: RecurringTemplate = {
