@@ -6,7 +6,7 @@ import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { FloatingWindow } from "@/components/FloatingWindow";
 
-type SpendLine = {
+export type SpendLine = {
   key: string;
   date: string;
   voucherType: string;
@@ -34,6 +34,7 @@ function isoDaysAgo(days: number): string {
 export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => string }) {
   const [startDate, setStartDate] = useState(() => isoDaysAgo(6));
   const [endDate, setEndDate] = useState(todayLocalIso);
+  const [showInfo, setShowInfo] = useState(false);
 
   const expenseAccountIds = useMemo(
     () => new Set(data.accounts.filter((a) => a.category === "Expense").map((a) => a.id)),
@@ -104,14 +105,32 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
 
   return (
     <div className="data-panel">
-      <h3>Spend Report</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Postings to Expense and Income category ledgers over any date range you pick -- independent of the header's
-        Financial period selector, so you can check an arbitrary window (a trip, a week, a month-to-date) at
-        day-level precision. Transfers, contras, and journals are excluded either way. A refund or reimbursement
-        against either category (e.g. a Receipt crediting an Expense ledger) reduces the total instead of being
-        left out.
-      </p>
+      <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        Spend Report
+        <span
+          className="info-icon-wrap"
+          onMouseEnter={() => setShowInfo(true)}
+          onMouseLeave={() => setShowInfo(false)}
+        >
+          <button
+            type="button"
+            className="info-icon-btn"
+            aria-label="How the Spend Report works"
+            onClick={() => setShowInfo((v) => !v)}
+          >
+            ⓘ
+          </button>
+          {showInfo && (
+            <div className="info-icon-popover">
+              Postings to Expense and Income category ledgers over any date range you pick -- independent of the
+              header's Financial period selector, so you can check an arbitrary window (a trip, a week, a
+              month-to-date) at day-level precision. Transfers, contras, and journals are excluded either way. A
+              refund or reimbursement against either category (e.g. a Receipt crediting an Expense ledger) reduces
+              the total instead of being left out.
+            </div>
+          )}
+        </span>
+      </h3>
       <div className="report-line" style={{ marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
           From
@@ -171,7 +190,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   );
 }
 
-function SpendSection({
+export function SpendSection({
   title,
   lines,
   byCategory,

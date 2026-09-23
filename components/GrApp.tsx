@@ -19,6 +19,8 @@ import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/componen
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
 import { EquityReport } from "@/components/reports/EquityReport";
+import { GrSpendReport } from "@/components/reports/GrSpendReport";
+import type { SpendLine } from "@/components/reports/SpendReport";
 import { computeGrNetWorthTrend, computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
@@ -36,7 +38,7 @@ import { DashboardCard } from "@/components/DashboardCard";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
-type Report = "trial" | "income" | "balance" | "cashflow" | "cash" | "equity" | "networth";
+type Report = "trial" | "income" | "balance" | "cashflow" | "cash" | "equity" | "networth" | "spend";
 type DashKind = "cash" | "investments" | "fixedassets" | "capital" | "income" | "vouchers";
 
 const fmtInr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
@@ -1494,6 +1496,9 @@ export function GrApp() {
             <button className={report === "cash" ? "selected" : ""} onClick={() => setReport("cash")}>
               Cash and Bank
             </button>
+            <button className={report === "spend" ? "selected" : ""} onClick={() => setReport("spend")}>
+              Spend Report
+            </button>
             <button className={report === "networth" ? "selected" : ""} onClick={() => setReport("networth")}>
               Net Worth
             </button>
@@ -1791,6 +1796,44 @@ export function GrApp() {
               </div>
             );
           })()}
+
+          {/* Spend Report -- same US+India-consolidated-at-FX-rate principle as every other GR
+              report: classify each gr.transactions entry via grNature (the same helper bsAssets/
+              incomeAccounts/etc. above already use) and use gr's already-INR-converted amounts. */}
+          {report === "spend" && (
+            <GrSpendReport
+              fmt={fmt}
+              computeLines={(startDate, endDate) => {
+                const accountNature = new Map(
+                  gr.accounts.map((a) => [normKey(a.name), grNature(a.parent, groupNatures)])
+                );
+                const expense: SpendLine[] = [];
+                const income: SpendLine[] = [];
+                for (const t of gr.transactions) {
+                  if (t.cancelled || t.date < startDate || t.date > endDate) continue;
+                  for (const e of t.entries) {
+                    const nature = accountNature.get(normKey(e.accountName));
+                    const isExpense = nature === "Expense";
+                    const isIncome = nature === "Income";
+                    if (!isExpense && !isIncome) continue;
+                    const line: SpendLine = {
+                      key: `${t.guid}-${e.accountName}`,
+                      date: t.date,
+                      voucherType: t.type,
+                      voucherNumber: t.number,
+                      narration: t.narration,
+                      accountName: e.accountName,
+                      amount: isExpense ? -e.amountInr : e.amountInr,
+                    };
+                    (isExpense ? expense : income).push(line);
+                  }
+                }
+                expense.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount);
+                income.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount);
+                return { expenseLines: expense, incomeLines: income };
+              }}
+            />
+          )}
         </>
       )}
 
