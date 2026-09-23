@@ -257,23 +257,23 @@ function BankReconDetail({
     return false;
   });
   const [showMarked, setShowMarked] = useState(false);
+  // Diff already has this folded in (Plaid − Vault + Pending, same formula PlaidImport.tsx's
+  // Balances tab uses -- see reconciliationStatusForAccounts) -- rawGap backs out just the
+  // Plaid−Vault portion so this can show how pending charges bridge the two, instead of
+  // re-deriving a second, conflicting "does pending explain the diff" comparison.
   const pendingSum = row.pendingPlaid.reduce((s, t) => s + t.amount, 0);
+  const rawGap = row.diff - pendingSum;
   return (
     <div className="bank-recon-detail">
       {row.pendingPlaid.length > 0 && (
         <div className="bank-recon-detail-col" style={{ flexBasis: "100%" }}>
           <strong>Pending / uncleared at the bank ({row.pendingPlaid.length})</strong>
           <p style={{ fontSize: 12, opacity: 0.7, margin: "2px 0 8px" }}>
-            Not yet posted by Plaid, so not in the Plaid Balance above -- this is the #1 cause of a Diff with zero unmatched
-            transactions (a charge can already have a real vault voucher well before the bank clears it). Sums to{" "}
-            <strong className="br-detail-amt">{fmt(pendingSum)}</strong>
-            {Math.abs(pendingSum - row.diff) < 0.5 ? (
-              " -- accounts for the entire Diff."
-            ) : (
-              <>
-                , vs a Diff of <span className="br-detail-amt">{fmt(row.diff)}</span>.
-              </>
-            )}
+            Not yet posted by Plaid, so not in the Plaid Balance above -- a charge can already have a real vault voucher
+            well before the bank clears it. Already included in the Diff above: raw gap{" "}
+            <strong className="br-detail-amt">{fmt(rawGap)}</strong> + pending{" "}
+            <strong className="br-detail-amt">{fmt(pendingSum)}</strong> = Diff{" "}
+            <strong className="br-detail-amt">{fmt(row.diff)}</strong>.
           </p>
           {row.pendingPlaid
             .slice()

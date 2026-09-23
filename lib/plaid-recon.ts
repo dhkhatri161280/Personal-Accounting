@@ -179,7 +179,6 @@ export function reconciliationStatusForAccounts(
       pa.type === "depository" ? (pa.balances.available ?? pa.balances.current ?? 0) : (pa.balances.current ?? 0);
     const plaidBalance = paGroup.reduce((s, pa) => s + balanceOf(pa), 0);
     const vaultBalance = vaultBookBalance(account.id, paGroup[0].type, data);
-    const diff = plaidBalance - vaultBalance;
 
     const groupAcctIds = new Set(paGroup.map((pa) => pa.account_id));
     const acctPlaidTxs = plaidTransactions.filter((t) => groupAcctIds.has(t.account_id));
@@ -227,6 +226,16 @@ export function reconciliationStatusForAccounts(
           .filter((vt) => !exceptionKeys.has(vaultExceptionKey(vt.guid)));
 
     const pendingPlaid = acctPlaidTxs.filter((t) => t.pending);
+    // Same formula PlaidImport.tsx's own Balances tab already uses (Plaid − Vault + Uncleared) --
+    // pending charges the vault already has a voucher for but Plaid's balance hasn't caught up on
+    // yet used to only appear as a separate reference number here (see pendingSum in
+    // BankReconDetail below), never actually subtracted into the headline Diff. That meant the
+    // same account could show two different Diff numbers on the two screens for the exact same
+    // underlying data -- confirmed live (AMEX: +$96.28 here vs -$54.06 there). Folding it in here
+    // too makes both screens agree, and lets Diff actually reach ~$0 once pending items are the
+    // whole story, instead of requiring the user to mentally subtract the Pending line themselves.
+    const uncleared = pendingPlaid.reduce((s, t) => s + t.amount, 0);
+    const diff = plaidBalance - vaultBalance + uncleared;
 
     results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, pendingPlaid, noPlaidTransactionFeed });
   }

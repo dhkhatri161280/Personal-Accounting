@@ -9901,9 +9901,13 @@ details[open] > .tp-cat-label--collapsible::before { transform: rotate(90deg); }
   padding: 8px 4px 4px 26px;
   background: #f8fafe;
 }
+/* min-width used to be 220px, narrower than the fixed-width Dr/Cr/"Mark reconciled" block each
+   row needs (72+72+112px + gaps = ~272px) -- the date/narration text had no room left and wrapped
+   across several lines, with the button itself getting clipped (confirmed live, flagged by the
+   user). Widened so that block always has room without squeezing the narration text. */
 .bank-recon-detail-col {
-  flex: 1 1 260px;
-  min-width: 220px;
+  flex: 1 1 420px;
+  min-width: 420px;
   font-size: var(--fs-md);
 }
 .bank-recon-detail-col .report-line {
