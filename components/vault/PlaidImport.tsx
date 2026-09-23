@@ -222,6 +222,13 @@ type HistoryRecord = {
   creditId: number;
   isReceipt: boolean; // true = Tally "Receipt" (money IN); false = "Payment" (money OUT)
   amount: number; // absolute value of the debit/credit side -- feeds matchFromHistoryByAmount below
+  // True when the debit side is itself a bank/credit-card account (a Contra transfer -- e.g. a
+  // "pay off the Citi card" voucher), not a genuine expense category. matchFromHistoryByAmount
+  // excludes these: a coincidental dollar-amount match against an old card-payoff record was a
+  // real, confirmed bug -- a new $25 Comcast bill matched a prior $25 "Citi Credit Card Payment"
+  // voucher purely by amount, then enforceContraType relabeled it "Citi Credit Card Payment" and
+  // silently discarded the real merchant name entirely.
+  debitIsFinancial: boolean;
 };
 type HistoryIndex = HistoryRecord[];
 
@@ -282,12 +289,14 @@ function buildHistoryIndex(ledger: Ledger): HistoryIndex {
     if (!debitE || !creditE) continue;
     const tokens = tokenise(v.narration || "");
     if (tokens.length) {
+      const debitAcct = acctById.get(debitE.accountId);
       index.push({
         tokens,
         debitId: normalize(debitE.accountId),
         creditId: normalize(creditE.accountId),
         isReceipt: v.type === "Receipt",
         amount: Math.abs(debitE.amount),
+        debitIsFinancial: !!debitAcct && (isCcAcct(debitAcct) || isBankAcct(debitAcct)),
       });
     }
   }
@@ -375,8 +384,8 @@ function matchFromHistoryByAmount(tx: PlaidTxRaw, index: HistoryIndex): { debitI
   const amt = Math.abs(tx.amount);
   const txIsReceipt = tx.amount < 0;
   const counts = new Map<number, number>();
-  for (const { debitId, isReceipt, amount } of index) {
-    if (isReceipt !== txIsReceipt || Math.abs(amount - amt) > 1) continue;
+  for (const { debitId, isReceipt, amount, debitIsFinancial } of index) {
+    if (isReceipt !== txIsReceipt || Math.abs(amount - amt) > 1 || debitIsFinancial) continue;
     counts.set(debitId, (counts.get(debitId) || 0) + 1);
   }
   let bestId = 0;
@@ -388,10 +397,15 @@ function matchFromHistoryByAmount(tx: PlaidTxRaw, index: HistoryIndex): { debitI
 
 // For purchases with no strong merchant match, find the most common expense account
 // that has been paired with a specific card in payment history — card-based default.
+// Same debitIsFinancial exclusion as matchFromHistoryByAmount above, and for the same reason:
+// without it, a card/bank account whose ONLY history against this credit source is being paid
+// OFF by it (a Contra, not a real expense) wins as the "default expense" -- confirmed live to
+// misfire this exact way for a brand-new Comcast charge on an account that had otherwise only
+// ever been used to pay down a credit card.
 function cardDefaultExpense(cardAccId: number, index: HistoryIndex): number | null {
   const counts = new Map<number, number>();
-  for (const { debitId, creditId, isReceipt } of index) {
-    if (creditId !== cardAccId || isReceipt) continue;
+  for (const { debitId, creditId, isReceipt, debitIsFinancial } of index) {
+    if (creditId !== cardAccId || isReceipt || debitIsFinancial) continue;
     counts.set(debitId, (counts.get(debitId) || 0) + 1);
   }
   let bestId = 0, bestCount = 0;

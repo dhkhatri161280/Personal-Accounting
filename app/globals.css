@@ -2679,11 +2679,6 @@ tfoot th {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
-  .install-app {
-    left: 14px;
-    right: 14px;
-    width: calc(100% - 28px);
-  }
 }
 
 .sync-button {
