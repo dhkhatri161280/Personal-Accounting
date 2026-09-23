@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { fiscalYearOf } from "@/lib/vault-accounting";
+import { fiscalYearOf, accountNature } from "@/lib/vault-accounting";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
@@ -17,25 +17,6 @@ interface ReconRow {
 }
 
 const tol = 0.005;
-
-// Authoritative nature check — mirrors natureFor() in VaultApp.tsx exactly. The account's
-// own `category` field is set once at master-sync link time and can go stale; the group
-// name (`parent`) plus any user-configured MasterGroup override is the live source of truth
-// everywhere else in this app, so Recon must use the same logic or it'll disagree with the
-// app's own Balance Sheet / Trial Balance for any account whose category field drifted.
-function natureForRecon(a: { parent: string }, masterGroups: Map<string, { nature: string }>): string {
-  const group = (a.parent || "").toLowerCase(), configured = masterGroups.get(group);
-  if (group.includes("(asset)")) return "Asset";
-  if (configured) return configured.nature;
-  if (/^(direct incomes|indirect incomes|sales accounts)$/.test(group)) return "Income";
-  if (/^(direct expenses|indirect expenses|purchase accounts)$/.test(group)) return "Expense";
-  if (/^(capital account|reserves & surplus)$/.test(group)) return "Capital";
-  if (/^(current liabilities|loans \(liability\)|bank od a\/c|secured loans|unsecured loans|duties & taxes|provisions|sundry creditors)$/.test(group)) return "Liability";
-  if (group === "bank accounts") return "Bank";
-  if (group === "cash-in-hand") return "Cash";
-  if (group === "investments") return "Investment";
-  return "Asset";
-}
 
 // Income/Expense ledgers reset to zero at the start of each fiscal year in Tally (they
 // roll into Profit & Loss / Capital rather than carrying their own balance forward), so
@@ -55,7 +36,7 @@ const isProfitAndLossAccountName = (name: string): boolean => /profit\s*&\s*loss
 
 function computeAppBalances(data: Ledger, fyStart: string, fyEnd: string): Map<string, number> {
   const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g]));
-  const natureOf = (a: { parent: string }) => natureForRecon(a, masterGroups);
+  const natureOf = (a: { parent: string }) => accountNature(a, masterGroups);
   const accountById = new Map(data.accounts.map((a) => [a.id, a]));
   const sums = new Map<number, number>();
   let currentYearPL = 0;

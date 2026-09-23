@@ -1387,31 +1387,6 @@ function buildInvestmentWithdrawalRows(
 
 // ── Balance reconciliation helpers ────────────────────────────────────────────
 
-// Sum of vault entries with syncStatus==="bank-pending" for this account.
-// These are transactions posted via the Pending tab that haven't cleared the bank yet.
-// Used to compute Adj Diff = Plaid − Vault + VaultPendingNet; when zero, books are reconciled.
-function vaultPendingNet(accountId: number, plaidType: string, ledger: Ledger): number {
-  let sum = 0;
-  for (const v of ledger.transactions) {
-    if (v.deleted || v.cancelled || v.syncStatus !== "bank-pending") continue;
-    for (const e of v.entries) {
-      if (e.accountId === accountId) sum += e.amount;
-    }
-  }
-  return plaidType === "credit" ? sum : -sum;
-}
-
-function vaultUnclearedEntries(accountId: number, ledger: Ledger) {
-  return ledger.transactions
-    .filter((v) => !v.deleted && !v.cancelled && v.syncStatus === "bank-pending")
-    .flatMap((v) =>
-      v.entries
-        .filter((e) => e.accountId === accountId)
-        .map((e) => ({ date: v.date, narration: v.narration ?? "", type: v.type, amount: e.amount }))
-    )
-    .sort((a, b) => b.date.localeCompare(a.date));
-}
-
 // Display-only label suffix for the Balances tab so it's obvious at a glance whose card each
 // row is, without having to cross-reference the GL account column.
 const BOFA_CARD_OWNER_BY_NAME: Record<string, string> = {

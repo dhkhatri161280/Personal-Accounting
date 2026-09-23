@@ -2832,26 +2832,6 @@ tfoot th {
 }
 
 /* Structural placement: installer is a real sidebar child, never a content overlay. */
-aside .install-app {
-  position: static !important;
-  left: auto !important;
-  right: auto !important;
-  top: auto !important;
-  bottom: auto !important;
-  width: 100% !important;
-  margin: 90px 0 16px !important;
-  box-shadow: none !important;
-}
-@media (max-width: 680px) {
-  aside .install-app {
-    margin: 10px 0 !important;
-    width: 100% !important;
-    font-size: var(--fs-xs);
-    padding: 9px 10px;
-    opacity: 1;
-  }
-}
-
 /* App icon (the "D" saffron / "K" blue mark) ahead of the header tagline -- this used to live
    only inside the removed <aside> (see the old `.shell aside .brand > b` rules), so it had no
    home once that column was dropped. Same colors/gradient, now a small inline mark instead of a
@@ -3432,7 +3412,8 @@ aside .install-app span {
   z-index: 4;
   background: #fff;
   box-shadow: -8px 0 12px -12px #10223f99;
-  min-width: 190px;
+  /* min-width is set below, to 56px -- this used to be 190px for an older design with visible
+     inline action buttons/text; the current column holds only a compact icon trigger. */
 }
 .transaction-table thead th:last-child {
   z-index: 7;

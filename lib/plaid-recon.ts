@@ -112,6 +112,11 @@ export type ReconAccountStatus = {
   // the diff is explained instead of looking like a mystery gap -- confirmed live: a credit
   // card's entire diff summed to the exact cent against its own pending total.
   pendingPlaid: PlaidTxSummary[];
+  // The portion of pendingPlaid actually folded into `diff` (see the `uncleared` comment below) --
+  // NOT always equal to pendingPlaid.reduce((s,t)=>s+t.amount,0). Exposed so callers don't have to
+  // re-derive the same netting decision themselves (that duplication is exactly how the diff-formula
+  // drift bug happened the first time).
+  uncleared: number;
   // True when Plaid returned zero transactions at all for this account within the fetch window
   // (common for HSA/investment-type accounts, which often only expose a balance) -- "unmatched
   // vault entries" is meaningless noise in that case (there's nothing to have matched against),
@@ -234,10 +239,24 @@ export function reconciliationStatusForAccounts(
     // underlying data -- confirmed live (AMEX: +$96.28 here vs -$54.06 there). Folding it in here
     // too makes both screens agree, and lets Diff actually reach ~$0 once pending items are the
     // whole story, instead of requiring the user to mentally subtract the Pending line themselves.
-    const uncleared = pendingPlaid.reduce((s, t) => s + t.amount, 0);
+    //
+    // BUT: only for accounts whose balanceOf() used `current` (credit, or depository with no
+    // `available` figure). A depository account's `available` balance already EXCLUDES pending
+    // holds (that's the whole reason balanceOf() prefers it) -- confirmed live: BofA checking
+    // available=$8,346.19 vs current=$8,371.19, a $25.00 gap that exactly matched one pending
+    // Comcast charge. Adding that same $25 again here double-counted it, manufacturing a fake
+    // +$25 Diff on an account that was actually perfectly reconciled. PlaidImport.tsx's own
+    // Balances tab already gets this right (see its "Depository: uses `available` (excludes
+    // holds) -> no adjustment" comment) -- this mirrors that, per-transaction, since a shared GL
+    // account can combine Plaid accounts of different types.
+    const uncleared = pendingPlaid.reduce((s, t) => {
+      const pa = paGroup.find((p) => p.account_id === t.account_id);
+      const alreadyNettedByAvailable = pa?.type === "depository" && pa.balances.available != null;
+      return alreadyNettedByAvailable ? s : s + t.amount;
+    }, 0);
     const diff = plaidBalance - vaultBalance + uncleared;
 
-    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, pendingPlaid, noPlaidTransactionFeed });
+    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, pendingPlaid, uncleared, noPlaidTransactionFeed });
   }
   return results.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }

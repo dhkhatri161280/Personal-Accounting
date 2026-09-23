@@ -1,5 +1,6 @@
 import type { Account, Tx } from "./vault-types";
 import type { GrAccount, GrTx } from "./gr-consolidation";
+import { accountNature } from "./vault-accounting.ts";
 
 export interface NetWorthPoint {
   label: string;
@@ -19,26 +20,6 @@ function fyOf(date: string): number {
   return m >= 4 ? y : y - 1;
 }
 
-function classifyNature(parent: string, groups: Map<string, string>): string {
-  const group = (parent || "").toLowerCase();
-  const configured = groups.get(group);
-  if (group.includes("(asset)")) return "Asset";
-  if (configured) return configured;
-  if (/^(direct incomes|indirect incomes|sales accounts)$/.test(group)) return "Income";
-  if (/^(direct expenses|indirect expenses|purchase accounts)$/.test(group)) return "Expense";
-  if (/^(capital account|reserves & surplus)$/.test(group)) return "Capital";
-  if (
-    /^(current liabilities|loans \(liability\)|bank od a\/c|secured loans|unsecured loans|duties & taxes|provisions|sundry creditors)$/.test(
-      group
-    )
-  )
-    return "Liability";
-  if (group === "bank accounts") return "Bank";
-  if (group === "cash-in-hand") return "Cash";
-  if (group === "investments") return "Investment";
-  return "Asset";
-}
-
 /** Net worth over time for a Tally-style ledger (US/India books) -- one snapshot per fiscal
  * year-end present in the transaction history, using ALL transactions regardless of whatever
  * period the rest of the report is currently scoped to (net worth is a full-history view).
@@ -51,9 +32,9 @@ export function computeNetWorthTrend(
   transactions: Tx[],
   groups: { name: string; nature: string }[]
 ): NetWorthPoint[] {
-  const groupMap = new Map(groups.map((g) => [g.name.toLowerCase(), g.nature]));
+  const groupMap = new Map(groups.map((g) => [g.name.toLowerCase(), { nature: g.nature }]));
   const isProfitLoss = (name: string) => /profit\s*&\s*loss|income\s*&\s*expenditure/i.test(name);
-  const natureFor = (parent: string) => classifyNature(parent, groupMap);
+  const natureFor = (parent: string) => accountNature({ parent }, groupMap);
   const isAsset = (a: Account) =>
     !isProfitLoss(a.name) && ["Asset", "Bank", "Cash", "Investment"].includes(natureFor(a.parent || ""));
   const isRealLiability = (a: Account) => !isProfitLoss(a.name) && natureFor(a.parent || "") === "Liability";

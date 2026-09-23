@@ -35,6 +35,7 @@ import {
 } from "@/lib/vault-crypto";
 import {
   fiscalYearOf,
+  accountNature,
   recomputeVoucherNumbers,
   cleanText,
   isDebitNatureAccount,
@@ -1196,19 +1197,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (!data) return [];
     const tol = 0.005;
     const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g]));
-    const natureFor = (a: Account) => {
-      const group = (a.parent || "").toLowerCase(), configured = masterGroups.get(group);
-      if (group.includes("(asset)")) return "Asset";
-      if (configured) return configured.nature;
-      if (/^(direct incomes|indirect incomes|sales accounts)$/.test(group)) return "Income";
-      if (/^(direct expenses|indirect expenses|purchase accounts)$/.test(group)) return "Expense";
-      if (/^(capital account|reserves & surplus)$/.test(group)) return "Capital";
-      if (/^(current liabilities|loans \(liability\)|bank od a\/c|secured loans|unsecured loans|duties & taxes|provisions|sundry creditors)$/.test(group)) return "Liability";
-      if (group === "bank accounts") return "Bank";
-      if (group === "cash-in-hand") return "Cash";
-      if (group === "investments") return "Investment";
-      return "Asset";
-    };
+    const natureFor = (a: Account) => accountNature(a, masterGroups);
     const isNominalLedgerRow = (a: Account) =>
       year !== "all" && !/profit\s*&\s*loss|income\s*&\s*expenditure/i.test(a.name) && /^(Income|Expense)$/.test(natureFor(a));
     const rows = data.accounts.map((a) => {
@@ -1426,25 +1415,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     ).filter((x) => Math.abs(x.value) > tol);
 
   const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g])),
-    natureFor = (a: (typeof rows)[number]) => {
-      const group = (a.parent || "").toLowerCase(),
-        configured = masterGroups.get(group);
-      if (group.includes("(asset)")) return "Asset";
-      if (configured) return configured.nature;
-      if (/^(direct incomes|indirect incomes|sales accounts)$/.test(group)) return "Income";
-      if (/^(direct expenses|indirect expenses|purchase accounts)$/.test(group)) return "Expense";
-      if (/^(capital account|reserves & surplus)$/.test(group)) return "Capital";
-      if (
-        /^(current liabilities|loans \(liability\)|bank od a\/c|secured loans|unsecured loans|duties & taxes|provisions|sundry creditors)$/.test(
-          group
-        )
-      )
-        return "Liability";
-      if (group === "bank accounts") return "Bank";
-      if (group === "cash-in-hand") return "Cash";
-      if (group === "investments") return "Investment";
-      return "Asset";
-    };
+    natureFor = (a: (typeof rows)[number]) => accountNature(a, masterGroups);
 
   const isProfitLoss = (a: (typeof rows)[number]) =>
       /profit\s*&\s*loss|income\s*&\s*expenditure/i.test(a.name),

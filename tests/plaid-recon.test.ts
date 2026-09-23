@@ -213,3 +213,55 @@ test("reconciliationStatusForAccounts: a 'Mark as reconciled' exception permanen
   assert.equal(withExceptions[0].unmatchedVault.length, 0);
   assert.equal(withExceptions[0].unmatchedPlaid.length, 0);
 });
+
+test("reconciliationStatusForAccounts: a depository account's `available` balance already excludes pending holds -- adding the pending amount again would double-count it (regression, confirmed live: BofA checking available=$8,346.19 vs current=$8,371.19, a $25 gap matching one pending Comcast charge exactly)", () => {
+  const ledger = baseLedger({
+    transactions: [
+      // Vault balance already agrees exactly with Plaid's `available` -- raw gap $0. The pending
+      // Comcast charge has NOT been posted to the vault yet.
+      {
+        id: 1, guid: "v1", date: "2026-08-01", number: "1", type: "Receipt", narration: "opening", historical: false,
+        entries: [{ accountId: 1, accountName: "Bank Of America", amount: -8346.19 }, { accountId: 2, accountName: "Groceries", amount: 8346.19 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Adv Plus Banking", institution_name: "Bank of America", balances: { current: 8371.19, available: 8346.19 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-09-23", name: "Comcast", amount: 25, account_id: "a1", pending: true },
+  ];
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-23");
+  assert.equal(status.uncleared, 0);
+  assert.equal(status.diff, 0);
+  // Still surfaced for visibility even though it's not folded into Diff.
+  assert.equal(status.pendingPlaid.length, 1);
+});
+
+test("reconciliationStatusForAccounts: a depository account with no `available` figure (falls back to `current`, which does NOT exclude pending) still folds pending into Diff", () => {
+  const ledger = baseLedger();
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Adv Plus Banking", institution_name: "Bank of America", balances: { current: 8371.19 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-09-23", name: "Comcast", amount: 25, account_id: "a1", pending: true },
+  ];
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-23");
+  assert.equal(status.uncleared, 25);
+  // Vault balance is 0 (no vouchers posted); current=8371.19 not yet reduced by anything, so raw
+  // gap is 8371.19 -- pending folds in on top, same as the credit-card case below.
+  assert.equal(status.diff, 8371.19 + 25);
+});
+
+test("reconciliationStatusForAccounts: a credit card's pending charge (current balance does NOT reflect it yet) still folds into Diff -- preserves the original, already-proven formula", () => {
+  const ledger = baseLedger();
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "c1", type: "credit", subtype: "credit card", name: "Unlimited Cash Rewards Visa Signature", institution_name: "Bank of America", balances: { current: 0 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-09-23", name: "Amazon", amount: 40, account_id: "c1", pending: true },
+  ];
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-23");
+  assert.equal(status.uncleared, 40);
+  assert.equal(status.diff, 40);
+});

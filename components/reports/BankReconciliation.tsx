@@ -257,23 +257,38 @@ function BankReconDetail({
     return false;
   });
   const [showMarked, setShowMarked] = useState(false);
-  // Diff already has this folded in (Plaid − Vault + Pending, same formula PlaidImport.tsx's
-  // Balances tab uses -- see reconciliationStatusForAccounts) -- rawGap backs out just the
-  // Plaid−Vault portion so this can show how pending charges bridge the two, instead of
-  // re-deriving a second, conflicting "does pending explain the diff" comparison.
+  // Diff already has row.uncleared folded in (Plaid − Vault + Uncleared, same formula
+  // PlaidImport.tsx's Balances tab uses -- see reconciliationStatusForAccounts) -- rawGap backs
+  // that back out. NOTE: row.uncleared is not always the full pendingSum below -- a depository
+  // account's Plaid Balance already uses `available`, which excludes pending holds, so those
+  // items are shown for visibility but deliberately NOT added to Diff (adding them would
+  // double-count the same hold Plaid already backed out).
   const pendingSum = row.pendingPlaid.reduce((s, t) => s + t.amount, 0);
-  const rawGap = row.diff - pendingSum;
+  const rawGap = row.diff - row.uncleared;
+  const unclearedFullyFolded = Math.abs(row.uncleared - pendingSum) < 0.005;
   return (
     <div className="bank-recon-detail">
       {row.pendingPlaid.length > 0 && (
         <div className="bank-recon-detail-col" style={{ flexBasis: "100%" }}>
           <strong>Pending / uncleared at the bank ({row.pendingPlaid.length})</strong>
           <p style={{ fontSize: 12, opacity: 0.7, margin: "2px 0 8px" }}>
-            Not yet posted by Plaid, so not in the Plaid Balance above -- a charge can already have a real vault voucher
-            well before the bank clears it. Already included in the Diff above: raw gap{" "}
-            <strong className="br-detail-amt">{fmt(rawGap)}</strong> + pending{" "}
-            <strong className="br-detail-amt">{fmt(pendingSum)}</strong> = Diff{" "}
-            <strong className="br-detail-amt">{fmt(row.diff)}</strong>.
+            {unclearedFullyFolded ? (
+              <>
+                Not yet posted by Plaid, so not in the Plaid Balance above -- a charge can already have a real vault voucher
+                well before the bank clears it. Already included in the Diff above: raw gap{" "}
+                <strong className="br-detail-amt">{fmt(rawGap)}</strong> + pending{" "}
+                <strong className="br-detail-amt">{fmt(row.uncleared)}</strong> = Diff{" "}
+                <strong className="br-detail-amt">{fmt(row.diff)}</strong>.
+              </>
+            ) : (
+              <>
+                Shown for visibility only -- the Plaid Balance above already reflects this (it uses the bank's
+                "available" balance, which excludes pending holds like these), so adding it again here would
+                double-count it. Not included in the Diff above: gross pending{" "}
+                <strong className="br-detail-amt">{fmt(pendingSum)}</strong>, Diff{" "}
+                <strong className="br-detail-amt">{fmt(row.diff)}</strong> is the raw gap only.
+              </>
+            )}
           </p>
           {row.pendingPlaid
             .slice()

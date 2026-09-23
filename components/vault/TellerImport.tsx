@@ -4,6 +4,7 @@ import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { apiFetch } from "@/lib/api-fetch";
+import { isCcAcct, isBankAcct } from "@/lib/plaid-classify";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -194,6 +195,14 @@ function matchFromHistory(
     const debitE = v.entries.find((e) => e.amount < 0);
     const creditE = v.entries.find((e) => e.amount > 0);
     if (debitE && creditE) {
+      // Skip any historical voucher whose debit side is itself a bank/credit-card account (a
+      // Contra/card-payoff transfer) -- a coincidental keyword hit against an old "Citi Credit
+      // Card Payment" voucher would otherwise win and mislabel a genuine new expense as a card
+      // payment, discarding its real merchant name. Same fix already applied to PlaidImport.tsx's
+      // matchFromHistory/matchFromHistoryByAmount/cardDefaultExpense after a confirmed live bug
+      // (a $25 Comcast charge relabeled "Citi Credit Card Payment").
+      const debitAcct = ledger.accounts.find((a) => a.id === debitE.accountId);
+      if (debitAcct && (isCcAcct(debitAcct) || isBankAcct(debitAcct))) continue;
       const key = `${debitE.accountId}:${creditE.accountId}`;
       scores.set(key, (scores.get(key) || 0) + score);
     }
@@ -329,14 +338,19 @@ function buildDraft(
 
 function alreadyImported(tx: TellerTxRaw, ledger: Ledger): boolean {
   const amt = Math.abs(tx.amount);
-  return ledger.transactions.some(
-    (v) =>
-      !v.deleted &&
-      v.date === tx.date &&
-      Math.abs(
-        v.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0) - amt
-      ) < 0.05
-  );
+  return ledger.transactions.some((v) => {
+    if (v.deleted || v.date !== tx.date) return false;
+    const debitTotal = v.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0);
+    if (Math.abs(debitTotal - amt) >= 0.05) return false;
+    // Require at least one leg to actually touch a bank/credit-card account -- matching on
+    // same-date + same-total alone (no direction/account guard) let an unrelated same-day,
+    // same-total voucher (e.g. two different household purchases, or a refund sharing a charge's
+    // magnitude) get silently marked "already imported" and dropped from the import queue.
+    return v.entries.some((e) => {
+      const acc = ledger.accounts.find((a) => a.id === e.accountId);
+      return !!acc && (isCcAcct(acc) || isBankAcct(acc));
+    });
+  });
 }
 
 // ── Teller Connect Button ─────────────────────────────────────────────────────
