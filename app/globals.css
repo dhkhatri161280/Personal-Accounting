@@ -5960,9 +5960,9 @@ button.group-heading:hover {
 }
 .dk-header small {
   font-family: var(--font-mono), monospace;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   letter-spacing: 0.02em;
-  color: #5b6b85;
+  color: #3a4a63;
   font-weight: 900;
   font-style: italic;
 }
