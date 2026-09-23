@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { decryptVault } from "@/lib/vault-crypto";
-import type { Ledger, Vault, EquityData } from "@/lib/vault-types";
+import type { Ledger, Vault, EquityData, PayrollData } from "@/lib/vault-types";
 import {
   consolidateLedger,
   neededRateMonths,
@@ -217,6 +217,7 @@ export function GrApp() {
   const [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null);
   const [nvdaHistory, setNvdaHistory] = useState<PricePoint[]>([]);
   const [equityData, setEquityData] = useState<EquityData | null>(null);
+  const [usPayroll, setUsPayroll] = useState<PayrollData | undefined>(undefined);
   const [liveRetirementBalanceUsd, setLiveRetirementBalanceUsd] = useState<number | null>(null);
 
 
@@ -358,6 +359,7 @@ export function GrApp() {
       const usTrend = computeNetWorthTrend(usData.accounts, usData.transactions, usData.groups ?? []);
       setFxRevaluation(computeFxRevaluation(usTrend, rates));
       if (usData.equity) setEquityData(usData.equity);
+      setUsPayroll(usData.payroll);
       setEditRates(
         Object.fromEntries(Object.entries(rates).map(([k, v]) => [k, String(v)]))
       );
@@ -1717,6 +1719,7 @@ export function GrApp() {
             <EquityReport
               grants={equityData?.grants ?? []}
               esppPurchases={equityData?.esppPurchases ?? []}
+              payroll={usPayroll}
               onSave={async () => {}}
               fmt={(n) => {
                 const inr = n * latestFxRate;

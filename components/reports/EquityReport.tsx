@@ -2315,7 +2315,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
               <th className="right">Sale Value</th>
               <th className="right">Market Value</th>
               <th className="right">Gain</th>
-              <th />
+              {!readOnly && <th />}
             </tr>
           </thead>
           <tbody>
@@ -2345,7 +2345,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 <td className="right equity-amt">{fmt(cycle.totalSaleValue)}</td>
                 <td className="right equity-amt">{fmt(cycle.totalCurrent)}</td>
                 <td className={`right ${cycle.totalGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(cycle.totalGain)}</td>
-                <td />
+                {!readOnly && <td />}
               </tr>,
               ...(expanded.has(`espp-${cycle.key}`)
                 ? cycle.rows.map((e) => {
@@ -2399,19 +2399,21 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                         <td className="right equity-amt">{eSold > 0 ? fmt(e.saleValue) : <span className="equity-neutral">—</span>}</td>
                         <td className="right equity-amt">{fmt(e.marketValue)}</td>
                         <td className={`right ${e.gain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(e.gain)}</td>
-                        <td>
-                          {!readOnly && (<><button className="equity-edit-btn" title="Mark sold" onClick={(ev) => {
-                            ev.stopPropagation();
-                            setEditEsppId(e.id);
-                            setEditEsppForm({
-                              sharesHeld: String(e.sharesHeld),
-                              salePrice: (e as { salePrice?: number }).salePrice ? String((e as { salePrice?: number }).salePrice) : "",
-                              marketPriceAtPurchase: String(e.marketPriceAtPurchase),
-                            });
-                          }}>✎</button>
-                          {" "}
-                          <button className="equity-del-btn" onClick={(ev) => { ev.stopPropagation(); deleteEspp(e.id); }}>✕</button></>)}
-                        </td>
+                        {!readOnly && (
+                          <td>
+                            <button className="equity-edit-btn" title="Mark sold" onClick={(ev) => {
+                              ev.stopPropagation();
+                              setEditEsppId(e.id);
+                              setEditEsppForm({
+                                sharesHeld: String(e.sharesHeld),
+                                salePrice: (e as { salePrice?: number }).salePrice ? String((e as { salePrice?: number }).salePrice) : "",
+                                marketPriceAtPurchase: String(e.marketPriceAtPurchase),
+                              });
+                            }}>✎</button>
+                            {" "}
+                            <button className="equity-del-btn" onClick={(ev) => { ev.stopPropagation(); deleteEspp(e.id); }}>✕</button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })
@@ -2437,7 +2439,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                 <td className="right">—</td>
                 <td className="right equity-amt">{cur > 0 ? `~${fmt(pendingEsppMarketValue)}` : "—"}</td>
                 <td className={`right ${cur > 0 ? (pendingEsppGain >= 0 ? "equity-gain-pos" : "equity-gain-neg") : ""}`}>{cur > 0 ? `~${fmt(pendingEsppGain)}` : "—"}</td>
-                <td />
+                {!readOnly && <td />}
               </tr>,
               ...(expanded.has("espp-pending")
                 ? pendingEsppRows.map((c) => (
@@ -2457,26 +2459,28 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
                       <td className={`right ${cur > 0 ? ((c.estimatedShares * cur - c.projectedContribution) >= 0 ? "equity-gain-pos" : "equity-gain-neg") : ""}`}>
                         {cur > 0 ? `~${fmt(c.estimatedShares * cur - c.projectedContribution)}` : "—"}
                       </td>
-                      <td>
-                        {c.isReal && !readOnly && (
-                          <>
-                            {c.dueForConfirm && (
-                              <button
-                                className="equity-record-vest-btn"
-                                onClick={(ev) => {
-                                  ev.stopPropagation();
-                                  setConfirmEsppId(c.sourceId);
-                                  setConfirmEsppForm(BLANK_CONFIRM_ESPP);
-                                }}
-                              >
-                                Confirm
-                              </button>
-                            )}
-                            {" "}
-                            <button className="equity-del-btn" onClick={(ev) => { ev.stopPropagation(); deleteEspp(c.sourceId); }}>✕</button>
-                          </>
-                        )}
-                      </td>
+                      {!readOnly && (
+                        <td>
+                          {c.isReal && (
+                            <>
+                              {c.dueForConfirm && (
+                                <button
+                                  className="equity-record-vest-btn"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setConfirmEsppId(c.sourceId);
+                                    setConfirmEsppForm(BLANK_CONFIRM_ESPP);
+                                  }}
+                                >
+                                  Confirm
+                                </button>
+                              )}
+                              {" "}
+                              <button className="equity-del-btn" onClick={(ev) => { ev.stopPropagation(); deleteEspp(c.sourceId); }}>✕</button>
+                            </>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))
                 : []),
