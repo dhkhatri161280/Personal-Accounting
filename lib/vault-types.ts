@@ -199,11 +199,12 @@ export type PayrollMatch = {
 export type PayrollYear = {
   year: string;         // e.g. "2026"
   sheetName: string;    // source sheet name, e.g. "Yearly 2026"
-  // Which employer paid this year -- read from the source workbook's own "Summary" sheet
-  // (Year/Employer header rows), when present. A job change mid-calendar-year still gets one
-  // label per year (whichever employer the Summary sheet itself assigns that year to), matching
-  // how "Yearly <YYYY>" sheets already fold a transition year's periods into a single sheet.
-  employer?: string;
+  // Every employer that paid during this calendar year -- read from the source workbook's own
+  // "Summary" sheet (Year/Employer header rows), when present. A job change mid-year means a
+  // "Yearly <YYYY>" sheet can genuinely fold TWO employers' periods together (e.g. ["TechM",
+  // "Accrete"] for 2017) -- an array, not a single string, so a transition year is never
+  // misrepresented as belonging to only whichever employer happened to be listed first.
+  employers?: string[];
   periodLabels: string[]; // e.g. ["Jan 01 Jan 15", "Jan 16 Jan 31", ...]
   rows: PayrollRow[];
   matches?: PayrollMatch[];

@@ -107,14 +107,24 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
   return { year, sheetName, periodLabels, rows };
 }
 
-// Reads the workbook's own "Summary" sheet, when present, to find which employer paid each
+// Reads the workbook's own "Summary" sheet, when present, to find which employer(s) paid each
 // year -- located by content (a "Year" header row immediately followed by an "Employer" row),
 // not fixed cell coordinates, same defensive approach as parseSheet's "Particulars" search.
-// Only the EXPLICITLY year-labeled columns are used; a column with no year label of its own
-// (a transition employer's partial-year stub, folded into the adjacent labeled year's "Yearly
-// <YYYY>" sheet already) is deliberately skipped rather than guessed at.
-function parseEmployerMap(wb: any, XLSX: any): Map<string, string> {
-  const map = new Map<string, string>();
+//
+// A job change mid-calendar-year gets its OWN column in this table with no Year value of its
+// own (a transition employer's partial-year stub) -- e.g. real columns read
+// [2017:TechM, blank:Accrete, 2018:Accrete, 2019:Accrete, blank:Katerra, 2020:Katerra, ...].
+// The blank Year cells are forward-filled from the last explicit year seen (so the "Accrete"
+// stub after 2017 IS 2017, matching how "Yearly 2017" already folds both employers' periods
+// into one sheet) -- and BOTH employers for that year are kept, not just the first, or a real
+// job change would silently disappear from whichever year it happened in.
+//
+// The scan stops the moment it hits a non-empty, non-year Year-row value once collection has
+// started (e.g. a literal "FY" label) -- the real file reuses these same columns for a second,
+// unrelated Gross/Net-by-year table further right, and forward-filling into THAT would
+// misattribute dollar figures as employer names.
+function parseEmployerMap(wb: any, XLSX: any): Map<string, string[]> {
+  const map = new Map<string, string[]>();
   const summarySheetName = wb.SheetNames.find((n: string) => n.trim().toLowerCase() === "summary");
   if (!summarySheetName) return map;
   const grid: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[summarySheetName], { header: 1, raw: true, defval: null });
@@ -131,14 +141,24 @@ function parseEmployerMap(wb: any, XLSX: any): Map<string, string> {
 
   const yearRow = grid[yearRowIdx] ?? [];
   const employerRow = grid[yearRowIdx + 1] ?? [];
+  let started = false;
+  let lastYear: string | null = null;
   for (let c = 0; c < yearRow.length; c++) {
     const yearVal = norm(yearRow[c]);
+    const isYear = (typeof yearVal === "number" || typeof yearVal === "string") && /^\d{4}$/.test(String(yearVal).trim());
+    if (isYear) {
+      started = true;
+      lastYear = String(yearVal).trim();
+    } else if (yearVal !== null && yearVal !== undefined && yearVal !== "") {
+      if (started) break; // left the Year/Employer table (e.g. hit "FY")
+      continue; // still in the leading "Year"/"%"/"Total" label columns
+    }
+    if (!started || !lastYear) continue;
     const employerVal = norm(employerRow[c]);
-    if (typeof yearVal !== "number" && typeof yearVal !== "string") continue;
-    const yearStr = String(yearVal).trim();
-    if (!/^\d{4}$/.test(yearStr)) continue;
     if (typeof employerVal !== "string" || !employerVal.trim()) continue;
-    map.set(yearStr, employerVal.trim());
+    const list = map.get(lastYear) ?? [];
+    if (!list.includes(employerVal.trim())) list.push(employerVal.trim());
+    map.set(lastYear, list);
   }
   return map;
 }
@@ -164,7 +184,7 @@ export async function parsePayrollXlsx(file: File): Promise<PayrollData> {
     const m = sheetName.match(/^Yearly\s+(\d{4})$/) ?? sheetName.match(/^(\d{4})\s+RCS$/i);
     if (!m) continue;
     const y = parseSheet(wb.Sheets[sheetName], sheetName, m[1], XLSX);
-    if (y) years.push(employerMap.has(y.year) ? { ...y, employer: employerMap.get(y.year) } : y);
+    if (y) years.push(employerMap.has(y.year) ? { ...y, employers: employerMap.get(y.year) } : y);
     else unparsedSheets.push(sheetName);
   }
 

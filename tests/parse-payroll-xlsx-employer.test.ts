@@ -17,10 +17,9 @@ function yearlySheetRows(salary: number) {
   ];
 }
 
-function buildWorkbook(summaryRows: unknown[][]) {
+function buildWorkbook(summaryRows: unknown[][], years = ["Yearly 2017", "Yearly 2018"]) {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(yearlySheetRows(100000)), "Yearly 2017");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(yearlySheetRows(110000)), "Yearly 2018");
+  for (const name of years) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(yearlySheetRows(100000)), name);
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), "Summary");
   const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
   return new File([buf], "Total Salary Details.xlsx");
@@ -37,33 +36,52 @@ test("parsePayrollXlsx: tags each year with its employer from the Summary sheet'
   const data = await parsePayrollXlsx(file);
   const y2017 = data.years.find((y) => y.year === "2017");
   const y2018 = data.years.find((y) => y.year === "2018");
-  assert.equal(y2017?.employer, "TechM");
-  assert.equal(y2018?.employer, "Accrete");
+  assert.deepEqual(y2017?.employers, ["TechM"]);
+  assert.deepEqual(y2018?.employers, ["Accrete"]);
 });
 
-test("parsePayrollXlsx: a year column with no explicit label in the Summary sheet is left unlabeled, not guessed", async () => {
+test("parsePayrollXlsx: a transition year (job change mid-year) collects BOTH employers, not just the first", async () => {
+  // Mirrors the real file exactly: 2017 is explicitly labeled TechM, then an unlabeled stub
+  // column (no Year value of its own) is labeled Accrete -- that stub belongs to 2017 too
+  // (forward-filled), and "Yearly 2017" already folds both employers' periods into one sheet.
   const file = buildWorkbook([
     [null, null],
     [null, "Summary Statement"],
     [null, null],
-    // Only 2017 is explicitly labeled; the 2018 column intentionally has no Year value (a
-    // transition-employer stub in the real file) and must NOT inherit "TechM" by proximity.
     [null, "Year", "%", "Total", 2017, null],
     [null, "Employer", null, null, "TechM", "Accrete"],
   ]);
   const data = await parsePayrollXlsx(file);
   const y2017 = data.years.find((y) => y.year === "2017");
-  const y2018 = data.years.find((y) => y.year === "2018");
-  assert.equal(y2017?.employer, "TechM");
-  assert.equal(y2018?.employer, undefined);
+  assert.deepEqual(y2017?.employers, ["TechM", "Accrete"]);
 });
 
-test("parsePayrollXlsx: no Summary sheet at all leaves every year's employer undefined, not an error", async () => {
+test("parsePayrollXlsx: stops at the workbook's second Gross/Net-by-year table instead of misreading it as more employers", async () => {
+  // The real file reuses the same row for a second, unrelated table further right (a literal
+  // "FY" label followed by more year numbers and dollar figures, not employer names). Once
+  // collection has started, hitting a non-empty non-year cell must stop the scan, not keep
+  // forward-filling into it.
+  const file = buildWorkbook(
+    [
+      [null, null],
+      [null, "Summary Statement"],
+      [null, null],
+      [null, "Year", "%", "Total", 2017, null, "FY", 2017],
+      [null, "Employer", null, null, "TechM", "Accrete", null, "Gross"],
+    ],
+    ["Yearly 2017"]
+  );
+  const data = await parsePayrollXlsx(file);
+  const y2017 = data.years.find((y) => y.year === "2017");
+  assert.deepEqual(y2017?.employers, ["TechM", "Accrete"]);
+});
+
+test("parsePayrollXlsx: no Summary sheet at all leaves every year's employers undefined, not an error", async () => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(yearlySheetRows(100000)), "Yearly 2017");
   const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
   const file = new File([buf], "Total Salary Details.xlsx");
   const data = await parsePayrollXlsx(file);
   assert.equal(data.years.length, 1);
-  assert.equal(data.years[0].employer, undefined);
+  assert.equal(data.years[0].employers, undefined);
 });

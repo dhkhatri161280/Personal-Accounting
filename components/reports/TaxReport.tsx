@@ -1584,12 +1584,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         })()}
 
         {(() => {
-          const employers = Array.from(new Set(years.map((y) => y.employer).filter((e): e is string => !!e))).sort();
-          const visibleYears = employerFilter === "All" ? years : years.filter((y) => y.employer === employerFilter);
+          // A transition year genuinely has TWO+ employers (e.g. 2017: TechM through Aug, then
+          // Accrete) -- filtering by either one must still surface that year, and the chip must
+          // show/hover both, not just whichever happened to be listed first.
+          const employers = Array.from(new Set(years.flatMap((y) => y.employers ?? []))).sort();
+          const visibleYears = employerFilter === "All" ? years : years.filter((y) => y.employers?.includes(employerFilter));
           return (
-            <>
+            <div className="equity-grant-filter">
               {employers.length > 0 && (
-                <div className="equity-grant-filter">
+                <>
                   <span className="equity-grant-filter-label">Employer:</span>
                   <select
                     value={employerFilter}
@@ -1597,7 +1600,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                       setEmployerFilter(e.target.value);
                       // Jump to the first visible year under the new filter so the chip row and
                       // the figures below it never disagree about which year is showing.
-                      const next = e.target.value === "All" ? years : years.filter((y) => y.employer === e.target.value);
+                      const next = e.target.value === "All" ? years : years.filter((y) => y.employers?.includes(e.target.value));
                       if (next.length && !next.some((y) => y.year === activeYearLabel)) {
                         setSelectedYear(next[0].year);
                         setViewPeriod(null);
@@ -1611,30 +1614,29 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                       </option>
                     ))}
                   </select>
-                </div>
+                </>
               )}
-              <div className="equity-grant-filter">
-                <span className="equity-grant-filter-label">Year:</span>
-                {visibleYears.map((y) => (
-                  <button
-                    key={y.year}
-                    className={`equity-grant-filter-chip${yr.year === y.year ? " equity-grant-filter-chip--active" : ""}`}
-                    onClick={() => { setSelectedYear(y.year); setViewPeriod(null); }}
-                    title={y.employer}
-                  >
-                    {y.year}
-                    {y.employer && <span style={{ opacity: 0.65, fontWeight: 400 }}> — {y.employer}</span>}
-                  </button>
-                ))}
-              </div>
-            </>
+              <span className="equity-grant-filter-label">Year:</span>
+              {visibleYears.map((y) => (
+                <button
+                  key={y.year}
+                  className={`equity-grant-filter-chip${yr.year === y.year ? " equity-grant-filter-chip--active" : ""}`}
+                  onClick={() => { setSelectedYear(y.year); setViewPeriod(null); }}
+                  title={y.employers?.join(" + ")}
+                >
+                  {y.year}
+                </button>
+              ))}
+            </div>
           );
         })()}
 
         {allYearsSummary.length > 1 && (() => {
-          const employerByYear = new Map(years.map((y) => [y.year, y.employer]));
+          const employersByYear = new Map(years.map((y) => [y.year, y.employers]));
           const filteredSummary =
-            employerFilter === "All" ? allYearsSummary : allYearsSummary.filter((r) => employerByYear.get(r.year) === employerFilter);
+            employerFilter === "All"
+              ? allYearsSummary
+              : allYearsSummary.filter((r) => employersByYear.get(r.year)?.includes(employerFilter));
           return (
           <details style={{ margin: "0 0 0.75rem" }}>
             <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
@@ -1665,7 +1667,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                           {r.year}
                         </button>
                       </td>
-                      <td>{employerByYear.get(r.year) || "—"}</td>
+                      <td>{employersByYear.get(r.year)?.join(" + ") || "—"}</td>
                       <td className="right equity-amt">{fmt(r.gross)}</td>
                       <td className="right equity-amt">{fmt(r.totalTax)}</td>
                       <td className="right equity-amt">{fmt(r.net)}</td>
