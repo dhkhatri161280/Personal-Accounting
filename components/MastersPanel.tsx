@@ -1653,9 +1653,15 @@ export function MastersPanel({
                   style={{ display: "none" }}
                   disabled={uploadingDocument}
                   onChange={(e) => {
-                    const files = e.target.files;
+                    // Copy into a real array BEFORE clearing e.target.value below -- e.target.files
+                    // is a LIVE FileList tied to the input's own selection state, and resetting
+                    // value="" empties that same live list too (confirmed live: silently 0 files,
+                    // no error, no request -- the upload never even started). The old single-file
+                    // version read e.target.files?.[0] (a File, immune to this) instead of holding
+                    // the FileList itself, which is why only the multi-file version broke.
+                    const files = Array.from(e.target.files ?? []);
                     e.target.value = "";
-                    if (files && files.length) uploadDocuments(files);
+                    if (files.length) uploadDocuments(files);
                   }}
                 />
               </label>
