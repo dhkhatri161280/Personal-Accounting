@@ -8827,6 +8827,34 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   text-overflow: ellipsis;
 }
 
+/* Same density treatment as .equity-report above, applied to the Cash and Bank Closing Balances
+   breakdown (Bank Account/Credit Card/HSA/Trading/Cash in Hand/Total -- 6 cards) so all of them
+   sit on one row instead of wrapping. */
+.ui-refresh .cash-bank-report .equity-summary-row {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+  gap: 8px !important;
+}
+.ui-refresh .cash-bank-report .equity-summary-card {
+  padding: 6px 8px !important;
+  gap: 6px !important;
+}
+.ui-refresh .cash-bank-report .stat-icon {
+  width: 24px !important;
+  height: 24px !important;
+}
+.ui-refresh .cash-bank-report .stat-icon svg {
+  width: 12px !important;
+  height: 12px !important;
+}
+.ui-refresh .cash-bank-report .equity-summary-card span {
+  font-size: var(--fs-2xs) !important;
+}
+.ui-refresh .cash-bank-report .equity-summary-card strong {
+  font-size: var(--fs-sm) !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Same density treatment as .equity-report above, applied to Tax/India Tax's own summary
    rows (up to 9 cards, vs Equity's fixed 7) -- these cards' "sub" text is real, distinct
    information (e.g. "click for details", effective rate, withholding breakdown), not a

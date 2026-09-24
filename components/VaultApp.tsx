@@ -4258,14 +4258,25 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}{" "}
           {report === "cash" && (() => {
             const cashBankRows = active.filter((a) => isCashBank(a) && Math.abs(a.closing) > tol);
+            // This book's Chart of Accounts files every reconciled account -- checking, savings,
+            // credit cards, the HSA, and Charles Schwab's cash sweep -- under one "Bank Accounts"
+            // master group (confirmed live: none of them have their own dedicated group), so the
+            // sub-category breakdown below has to go by name pattern instead of .parent, same
+            // heuristic bankAccountOrderRank already uses to order this same row.
+            const isCreditCard = (a: Account) => /credit card/i.test(a.name);
+            const isHsa = (a: Account) => /\bhsa\b/i.test(a.name);
+            const isTrading = (a: Account) => /charles schwab/i.test(a.name);
             const bankTotal = cashBankRows
-              .filter((a) => /bank accounts/i.test(a.parent || ""))
+              .filter((a) => /bank accounts/i.test(a.parent || "") && !isCreditCard(a) && !isHsa(a) && !isTrading(a))
               .reduce((s, a) => s - a.closing, 0);
+            const creditCardTotal = cashBankRows.filter(isCreditCard).reduce((s, a) => s - a.closing, 0);
+            const hsaTotal = cashBankRows.filter(isHsa).reduce((s, a) => s - a.closing, 0);
+            const tradingTotal = cashBankRows.filter(isTrading).reduce((s, a) => s - a.closing, 0);
             const cashTotal = cashBankRows
               .filter((a) => /cash-in-hand/i.test(a.parent || ""))
               .reduce((s, a) => s - a.closing, 0);
             return (
-              <div className="data-panel">
+              <div className="data-panel cash-bank-report">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                   <h3 style={{ margin: 0 }}>Cash and Bank Closing Balances</h3>
                   <ExportButton
@@ -4281,8 +4292,35 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     <div className="equity-summary-card">
                       <StatIcon kind="bank" color="#1e40af" />
                       <div className="equity-summary-card-body">
-                        <span>Bank Accounts</span>
+                        <span>Bank Account</span>
                         <strong className="equity-amt">{fmt(bankTotal)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      <StatIcon kind="receipt" color="#c2410c" />
+                      <div className="equity-summary-card-body">
+                        <span>Credit Card</span>
+                        <strong className="equity-amt">{fmt(creditCardTotal)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      <StatIcon kind="shield" color="#0f766e" />
+                      <div className="equity-summary-card-body">
+                        <span>HSA</span>
+                        <strong className="equity-amt">{fmt(hsaTotal)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="equity-summary-col">
+                    <div className="equity-summary-card">
+                      <StatIcon kind="stock" color="#4338ca" />
+                      <div className="equity-summary-card-body">
+                        <span>Trading</span>
+                        <strong className="equity-amt">{fmt(tradingTotal)}</strong>
                       </div>
                     </div>
                   </div>
