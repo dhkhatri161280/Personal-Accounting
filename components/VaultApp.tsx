@@ -2183,11 +2183,25 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // Unlike Monthly/Quarterly, a Yearly columnar view is actually MOST useful spanning "All
   // periods" -- that's the whole point of a year-over-year comparison (e.g. "how has my Vehicle
   // Maintenance ledger trended across every year I have data for"), not just one FY split into
-  // pieces. So Yearly reuses fundSummaryStart/End's already-existing full-history range instead
-  // of being blocked by columnarViewAvailable the way Monthly/Quarterly correctly are.
+  // pieces. So Yearly doesn't get blocked by columnarViewAvailable the way Monthly/Quarterly
+  // correctly are.
   const columnarGranularityActive = reportView !== "single" && (columnarViewAvailable || reportView === "yearly");
-  const yearlyColumnarStart = year === "all" ? fundSummaryStart : columnarStart;
-  const yearlyColumnarEnd = year === "all" ? fundSummaryEnd : columnarEnd;
+  // NOT fundSummaryStart/End's "0000-00-00"/"9999-99-99" sentinels -- those are safe ONLY for
+  // simple string >=/<= comparisons (Fund Summary's own use), not as real date-arithmetic input.
+  // Confirmed live: feeding "0000-00-00" into periodBoundariesForRange's month-by-month walk
+  // parses year 0/month 0 and iterates forward from there, producing garbage columns ("FY-1-0",
+  // "FY0-1", "FY1-2" ...) instead of the ledger's real fiscal years. This walks the real
+  // transaction dates to find the actual earliest one to start from.
+  const earliestTxDate = useMemo(() => {
+    let earliest = "";
+    for (const t of data.transactions) {
+      if (t.deleted) continue;
+      if (!earliest || t.date < earliest) earliest = t.date;
+    }
+    return earliest || todayStr;
+  }, [data.transactions, todayStr]);
+  const yearlyColumnarStart = year === "all" ? earliestTxDate : columnarStart;
+  const yearlyColumnarEnd = year === "all" ? todayStr : columnarEnd;
 
   // Budget vs Actual is inherently a 12-month (Apr-Mar) FY structure -- "all periods", a custom
   // range, or a single month don't map onto that, so this stays null (report shows a message)
