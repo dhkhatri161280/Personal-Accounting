@@ -967,33 +967,49 @@ export function MastersPanel({
 
   // Uploads to R2 first (book-scoped `documents` folder, not a voucher's txGuid -- see
   // app/api/attachments/route.ts), then saves just the small VaultDocument metadata into the
-  // vault, same split as voucher Attachments.
-  async function uploadDocument(file: File) {
+  // vault, same split as voucher Attachments. Accepts a whole file selection at once (e.g. all
+  // 13 pay stub/grant PDFs in one picker) so a batch doesn't need one round-trip per file.
+  // The typed Label only makes sense for a SINGLE file -- with several selected at once, each
+  // document is labeled from its own filename instead (Category/Date still apply to all of them,
+  // since a whole batch is usually the same kind of document from the same source).
+  async function uploadDocuments(files: FileList | File[]) {
+    const list = Array.from(files);
+    if (!list.length) return;
     setUploadingDocument(true);
     setDocumentUploadError("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("book", book);
-      form.append("folder", "documents");
-      const r = await apiFetch("/api/attachments", { method: "POST", body: form });
-      if (!r.ok) {
-        setDocumentUploadError(`Upload failed (${r.status}).`);
-        return;
+      const newDocs: VaultDocument[] = [];
+      const errors: string[] = [];
+      for (const file of list) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("book", book);
+        form.append("folder", "documents");
+        const r = await apiFetch("/api/attachments", { method: "POST", body: form });
+        if (!r.ok) {
+          errors.push(`${file.name} (${r.status})`);
+          continue;
+        }
+        const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
+        newDocs.push({
+          id: crypto.randomUUID(),
+          category: docCategory,
+          label: list.length === 1 ? docLabel.trim() || meta.filename : meta.filename.replace(/\.[^.]+$/, ""),
+          date: docDate || undefined,
+          ...meta,
+        });
       }
-      const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
-      const doc: VaultDocument = {
-        id: crypto.randomUUID(),
-        category: docCategory,
-        label: docLabel.trim() || meta.filename,
-        date: docDate || undefined,
-        ...meta,
-      };
-      onSave({ ...data, documents: [...documentsList, doc] }, `Document "${doc.label}" added.`);
-      setShowAddDocument(false);
-      setDocLabel("");
-      setDocDate("");
-      setDocCategory("Pay Stub");
+      if (errors.length) setDocumentUploadError(`Upload failed for: ${errors.join(", ")}.`);
+      if (newDocs.length) {
+        onSave(
+          { ...data, documents: [...documentsList, ...newDocs] },
+          newDocs.length === 1 ? `Document "${newDocs[0].label}" added.` : `${newDocs.length} documents added.`
+        );
+        setShowAddDocument(false);
+        setDocLabel("");
+        setDocDate("");
+        setDocCategory("Pay Stub");
+      }
     } finally {
       setUploadingDocument(false);
     }
@@ -1622,22 +1638,33 @@ export function MastersPanel({
                 <option value="Offer Letter">Offer Letter</option>
                 <option value="Other">Other</option>
               </select>
-              <input placeholder="Label (e.g. FY26 Focal Grant)" value={docLabel} onChange={(e) => setDocLabel(e.target.value)} style={{ width: 220 }} />
+              <input
+                placeholder="Label (e.g. FY26 Focal Grant) -- only used for a single file"
+                value={docLabel}
+                onChange={(e) => setDocLabel(e.target.value)}
+                style={{ width: 260 }}
+              />
               <input type="date" title="Date this document is about (optional)" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
               <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
-                {uploadingDocument ? "Uploading…" : "Choose file…"}
+                {uploadingDocument ? "Uploading…" : "Choose file(s)…"}
                 <input
                   type="file"
+                  multiple
                   style={{ display: "none" }}
                   disabled={uploadingDocument}
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
+                    const files = e.target.files;
                     e.target.value = "";
-                    if (file) uploadDocument(file);
+                    if (files && files.length) uploadDocuments(files);
                   }}
                 />
               </label>
             </div>
+          )}
+          {showAddDocument && (
+            <p className="field-hint" style={{ margin: "0 0 10px" }}>
+              Selecting several files at once uploads them all under the same Category/Date, each labeled from its own filename.
+            </p>
           )}
           {documentUploadError && <p className="equity-pdf-error">{documentUploadError}</p>}
           {documentsList.length === 0 ? (
