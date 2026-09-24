@@ -8892,34 +8892,40 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    wraps normally (span/em are not nowrap) so it does not fight the one-row width goal.
    Floor was originally 82px with every size forced down to --fs-2xs (8px) across the board --
    at real dollar amounts ("$649,364.51") that read as illegible, cramped text, not just dense.
-   Raised the floor enough that the actual number (strong) can run a full readable size without
-   wrapping or truncating even at up to 9 cards in one row; the label/sub-text stay smaller
-   since they're secondary to the number itself. white-space: nowrap keeps the number on one
-   line so the wider floor is what does the overflow-prevention work, not text-overflow
-   ellipsis -- that stays only as a last-resort safety net, not the primary mechanism. Kept as
-   one row of cards, per the user's own request, rather than switching to a different layout. */
+   A first attempt raised the floor to 150px with the number at --fs-lg (13px), which looked
+   right in an isolated test page but pushed the LAST of 9 cards onto its own new row in the
+   real app -- confirmed live the real .data-panel grid width here is ~995px, not the ~1900px
+   a bare test page without the app's own chrome (workspace/data-panel padding) suggests. At 9
+   cards and 995px, even a 108px floor was still 25px short of fitting all 9 on one row, and
+   108px with --fs-md (12px) fit but truncated an 11-character dollar figure by a single pixel.
+   Landed on 102px + --fs-base (11px) with the icon shrunk to 14px (vs the block above's 22px)
+   to give the number more of that limited width back -- confirmed live at both ends of the
+   real width range (995px, and 1314px from a wider report panel): all 9 cards stay on one row
+   with every number fully visible, none truncated. */
 .ui-refresh .tax-report .equity-summary-row {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
-  gap: 8px !important;
-}
-.ui-refresh .tax-report .equity-summary-card {
-  padding: 8px 10px !important;
+  grid-template-columns: repeat(auto-fit, minmax(102px, 1fr)) !important;
   gap: 6px !important;
 }
+.ui-refresh .tax-report .equity-summary-card {
+  padding: 5px 5px !important;
+  gap: 4px !important;
+}
 .ui-refresh .tax-report .stat-icon {
-  width: 22px !important;
-  height: 22px !important;
+  width: 14px !important;
+  height: 14px !important;
 }
 .ui-refresh .tax-report .stat-icon svg {
-  width: 11px !important;
-  height: 11px !important;
+  width: 7px !important;
+  height: 7px !important;
 }
 .ui-refresh .tax-report .equity-summary-card span {
-  font-size: var(--fs-sm) !important;
+  font-size: var(--fs-2xs) !important;
 }
+/* No font-size here (deliberately) -- AutoFitAmount (components/AutoFitAmount.tsx) sets its own
+   inline font-size per card, shrinking from --fs-base (11px) down as far as needed so even a
+   genuinely large number (a 7-figure AGI, say) fits without truncating; an !important font-size
+   rule here would fight that at the same importance/specificity as its own inline style. */
 .ui-refresh .tax-report .equity-summary-card strong {
-  font-size: var(--fs-lg) !important;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }

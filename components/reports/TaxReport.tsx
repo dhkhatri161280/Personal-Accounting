@@ -24,6 +24,7 @@ import { compute401kByYear } from "@/lib/payroll-401k";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { AutoFitAmount } from "@/components/AutoFitAmount";
 
 interface TaxReportProps {
   payroll: PayrollData | undefined;
@@ -1761,7 +1762,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 <StatIcon kind={c.icon} color={c.color} />
                 <div className="equity-summary-card-body">
                   <span>{c.label}</span>
-                  <strong className="equity-amt">{fmt(c.value)}</strong>
+                  <AutoFitAmount className="equity-amt" text={fmt(c.value)} />
                   <em>{c.sub}</em>
                 </div>
               </div>
@@ -2333,7 +2334,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
-                <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
+                <AutoFitAmount className="equity-amt" text={fmt(c.value)} style={c.amountColor ? { color: c.amountColor } : undefined} />
                 <em>{c.sub}</em>
               </div>
             </div>
@@ -2428,7 +2429,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
               <StatIcon kind={c.icon} color={c.color} />
               <div className="equity-summary-card-body">
                 <span>{c.label}</span>
-                <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
+                <AutoFitAmount className="equity-amt" text={fmt(c.value)} style={c.amountColor ? { color: c.amountColor } : undefined} />
                 <em>{c.sub}</em>
               </div>
             </div>
@@ -2469,7 +2470,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   <StatIcon kind={c.icon} color={c.color} />
                   <div className="equity-summary-card-body">
                     <span>{c.label}</span>
-                    <strong className="equity-amt" style={c.amountColor ? { color: c.amountColor } : undefined}>{fmt(c.value)}</strong>
+                    <AutoFitAmount className="equity-amt" text={fmt(c.value)} style={c.amountColor ? { color: c.amountColor } : undefined} />
                     <em>{c.sub} — click for details →</em>
                   </div>
                 </div>
