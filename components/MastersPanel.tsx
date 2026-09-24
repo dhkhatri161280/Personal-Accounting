@@ -441,6 +441,7 @@ export function MastersPanel({
   onSave,
   initialSection,
   onTagAsset,
+  privacyMode: privacyModeProp,
 }: {
   data: MasterLedger;
   // Needed only for the Documents section's R2 upload/view/delete calls (book-scoped key
@@ -457,6 +458,15 @@ export function MastersPanel({
   // those (possibly closed-period) vouchers from the closed-period check, the same way
   // FixedAssetRegister's "Tag all vouchers" action does. See bulkTagAsset in VaultApp.tsx.
   onTagAsset?: (asset: FixedAsset, tag: string) => Promise<void> | void;
+  // Optional -- when the caller already holds privacyMode (VaultApp does, for its header toggle
+  // and root .privacy-mode CSS class), pass it here instead of letting this component fall back
+  // to its own useUiPrefs() call below. Each useUiPrefs() call keeps fully independent state
+  // (see hooks/useUiPrefs.ts), synced from localStorage only at mount -- toggling Privacy from
+  // the header while already on Masters > Documents wouldn't otherwise be seen here until the
+  // next remount (MastersPanel is only forced to remount when `mastersSection` itself changes,
+  // via VaultApp's `key={mastersSection}`, not when privacyMode changes). Falls back to the
+  // local hook so a standalone render (e.g. a QA route) still works without this prop.
+  privacyMode?: boolean;
 }) {
   const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings">(initialSection ?? "ledgers"),
     [accountId, setAccountId] = useState<number | null>(null),
@@ -490,6 +500,7 @@ export function MastersPanel({
     // VaultDocument in lib/vault-types.ts. File bytes go straight to R2; only this small form
     // state and the resulting metadata ever touch this component's state/the vault blob.
     [showAddDocument, setShowAddDocument] = useState(false),
+    [documentSearch, setDocumentSearch] = useState(""),
     [docCategory, setDocCategory] = useState<VaultDocument["category"]>("Pay Stub"),
     [docLabel, setDocLabel] = useState(""),
     [docDate, setDocDate] = useState(""),
@@ -499,7 +510,17 @@ export function MastersPanel({
     [editingDocumentLabel, setEditingDocumentLabel] = useState(""),
     [editingDocumentCategory, setEditingDocumentCategory] = useState<VaultDocument["category"]>("Pay Stub"),
     [editingDocumentDate, setEditingDocumentDate] = useState("");
-  const { privacyMode } = useUiPrefs();
+  const { privacyMode: privacyModeLocal } = useUiPrefs();
+  const privacyMode = privacyModeProp ?? privacyModeLocal;
+
+  // Documents holds real PII (pay stubs, offer letters, grant agreements) -- unlike every other
+  // Masters tab, blurring dollar figures isn't enough to protect it, so it's fully inaccessible
+  // in Privacy mode: the tab button below is hidden, and if a stale deep link (command palette,
+  // "View Documents" from a report) lands here while privacy is already on, bounce back to
+  // Ledger Accounts rather than briefly rendering the file list.
+  useEffect(() => {
+    if (privacyMode && section === "documents") setSection("ledgers");
+  }, [privacyMode, section]);
 
   // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
   // than kept inside PeriodControlPanel so the picker can render in this same tab row instead of
@@ -966,6 +987,12 @@ export function MastersPanel({
     );
   };
   const documentsList = data.documents ?? [];
+  const documentSearchQuery = documentSearch.trim().toLowerCase();
+  const filteredDocumentsList = documentSearchQuery
+    ? documentsList.filter((d) =>
+        [d.label, d.category, d.filename].some((field) => field.toLowerCase().includes(documentSearchQuery))
+      )
+    : documentsList;
 
   // Uploads to R2 first (book-scoped `documents` folder, not a voucher's txGuid -- see
   // app/api/attachments/route.ts), then saves just the small VaultDocument metadata into the
@@ -1106,12 +1133,14 @@ export function MastersPanel({
         >
           Fixed Assets
         </button>
-        <button
-          className={section === "documents" ? "selected" : ""}
-          onClick={() => setSection("documents")}
-        >
-          Documents
-        </button>
+        {!privacyMode && (
+          <button
+            className={section === "documents" ? "selected" : ""}
+            onClick={() => setSection("documents")}
+          >
+            Documents
+          </button>
+        )}
         <button
           className={section === "settings" ? "selected" : ""}
           onClick={() => setSection("settings")}
@@ -1652,9 +1681,15 @@ export function MastersPanel({
           )}
         </>
       )}
-      {section === "documents" && (
+      {section === "documents" && !privacyMode && (
         <>
           <div className="master-toolbar">
+            <input
+              value={documentSearch}
+              onChange={(e) => setDocumentSearch(e.target.value)}
+              placeholder="Search documents (label, category, filename)"
+              style={{ width: 280 }}
+            />
             <button type="button" className="tr-refresh-btn" onClick={() => setShowAddDocument((v) => !v)}>
               {showAddDocument ? "Cancel" : "+ Add Document"}
             </button>
@@ -1707,6 +1742,8 @@ export function MastersPanel({
           {documentUploadError && <p className="equity-pdf-error">{documentUploadError}</p>}
           {documentsList.length === 0 ? (
             <p style={{ opacity: 0.7 }}>No documents yet. Add a pay stub, grant agreement, or offer letter above.</p>
+          ) : filteredDocumentsList.length === 0 ? (
+            <p style={{ opacity: 0.7 }}>No documents match &quot;{documentSearch}&quot;.</p>
           ) : (
             <table>
               <thead>
@@ -1719,7 +1756,7 @@ export function MastersPanel({
                 </tr>
               </thead>
               <tbody>
-                {documentsList
+                {filteredDocumentsList
                   .slice()
                   .sort((a, b) => (b.date || b.uploadedAt).localeCompare(a.date || a.uploadedAt))
                   .map((d) =>

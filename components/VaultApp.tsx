@@ -2044,7 +2044,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "masters-groups", label: "Account Groups", group: "Masters", keywords: ["groups"], go: () => { setMastersSection("groups"); setTab("masters"); } },
     { id: "masters-periods", label: "Periods", group: "Masters", keywords: ["close period", "open period", "fiscal year"], go: () => { setMastersSection("periods"); setTab("masters"); } },
     { id: "masters-fixedassets", label: "Fixed Assets", group: "Masters", keywords: ["fixed asset", "asset tag", "asset class", "useful life", "salvage"], go: () => { setMastersSection("fixedassets"); setTab("masters"); } },
-    { id: "masters-documents", label: "Documents", group: "Masters", keywords: ["paystub", "pay stub", "grant", "rsu", "offer letter", "w2", "payroll"], go: () => { setMastersSection("documents"); setTab("masters"); } },
+    // Hidden from the palette in Privacy mode -- Documents holds real PII (pay stubs, offer
+    // letters), not just dollar figures Privacy mode already blurs elsewhere.
+    ...(!privacyMode
+      ? [{ id: "masters-documents", label: "Documents", group: "Masters", keywords: ["paystub", "pay stub", "grant", "rsu", "offer letter", "w2", "payroll"], go: () => { setMastersSection("documents"); setTab("masters"); } }]
+      : []),
     { id: "masters-settings", label: "Company Settings", group: "Masters", keywords: ["settings", "company", "currency", "voucher types"], go: () => { setMastersSection("settings"); setTab("masters"); } },
   ];
   const searchResults = (() => {
@@ -3704,6 +3708,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             book={book}
             initialSection={mastersSection}
             onTagAsset={bulkTagAsset}
+            privacyMode={privacyMode}
             onSave={(next, message) => {
               const nextLedger = next as Ledger;
               // Auto-post the fiscal-year-close voucher (P&L A/c to Capital) the moment the
@@ -4518,7 +4523,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onSave={async (grants, esppPurchases) => {
                 await save({ ...data, equity: { grants, esppPurchases } }, "reports");
               }}
-              onViewDocuments={() => { setMastersSection("documents"); setTab("masters"); }}
+              onViewDocuments={privacyMode ? undefined : () => { setMastersSection("documents"); setTab("masters"); }}
               fmt={fmt}
             />
           )}
@@ -4562,7 +4567,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 );
               }}
               onViewVoucher={editVoucher}
-              onViewDocuments={() => { setMastersSection("documents"); setTab("masters"); }}
+              onViewDocuments={privacyMode ? undefined : () => { setMastersSection("documents"); setTab("masters"); }}
               book={book}
               fmt={fmt}
               livePrice={nvdaPrice}
