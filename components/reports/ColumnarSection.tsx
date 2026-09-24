@@ -185,7 +185,13 @@ export function ColumnarSection({
   const totalsByPeriod = (items: ColumnarRow[]) => periods.map((p) => items.reduce((s, r) => s + (r.values[p.key] || 0), 0));
   const grandByPeriod = totalsByPeriod(rows);
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
-  const fullRangeStart = periods[0]?.start, fullRangeEnd = periods[periods.length - 1]?.end;
+  // Order-agnostic on purpose: for Yearly, `periods` arrives newest-first (see
+  // ColumnarIncomeExpenditure/ColumnarBalanceSheet/ColumnarCashFlow's displayPeriods), so
+  // periods[0]/periods[last] would give a start AFTER the end -- an inverted, always-empty
+  // range for the Total column's drilldown. Min/max over every period's own start/end works
+  // regardless of display order.
+  const fullRangeStart = periods.reduce((min, p) => (!min || p.start < min ? p.start : min), "");
+  const fullRangeEnd = periods.reduce((max, p) => (!max || p.end > max ? p.end : max), "");
 
   const Cell = ({ v, accountIds, label, period }: { v: number; accountIds: number[]; label: string; period?: PeriodBoundary }) =>
     onDrilldown ? (
