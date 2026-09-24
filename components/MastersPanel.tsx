@@ -21,6 +21,7 @@ import {
   suggestNextAssetTag,
 } from "@/lib/fixed-assets";
 import { getOrCreateAssetAccount, findLegacyCostMismatches, repairLegacyAssetCosts, tagExistingAsset } from "@/lib/fixed-assets-ledger";
+import { accountNature, isProfitAndLossAccountName } from "@/lib/vault-accounting";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 
@@ -65,7 +66,12 @@ export type MasterLedger = {
   voucherTypes?: string[];
   fiscalYearStartMonth?: number;
   closedPeriods?: string[];
-  transactions?: Array<{ date: string; deleted?: boolean; entries: Array<{ accountId: number }> }>;
+  transactions?: Array<{
+    date: string;
+    deleted?: boolean;
+    cancelled?: boolean;
+    entries: Array<{ accountId: number; amount: number }>;
+  }>;
   recurringTemplates?: RecurringTemplate[];
   auditLog?: AuditEntry[];
   fixedAssets?: FixedAsset[];
@@ -470,7 +476,8 @@ export function MastersPanel({
     [deletingAssetId, setDeletingAssetId] = useState<string | null>(null),
     [taggingAssetId, setTaggingAssetId] = useState<string | null>(null),
     [taggingValue, setTaggingValue] = useState(""),
-    [tagging, setTagging] = useState(false);
+    [tagging, setTagging] = useState(false),
+    [showBalanceInfo, setShowBalanceInfo] = useState(false);
   const { privacyMode } = useUiPrefs();
 
   // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
@@ -515,6 +522,42 @@ export function MastersPanel({
   const accounts = data.accounts
     .filter((a) => !search || `${a.name} ${a.parent}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  // Current/Closing column: Balance Sheet ledgers (Asset/Liability/Capital/Bank/Cash/Investment,
+  // and "Profit & Loss A/c" itself) show the real life-to-date closing balance (opening + every
+  // posted entry to date) -- they carry forward, so anything less than the full history would be
+  // wrong. Income/Expense ledgers are nominal accounts that reset to zero at the start of each
+  // fiscal year in Tally-style books (they roll into Profit & Loss / Capital, not their own
+  // balance) -- showing their life-to-date total would double-count prior years' activity, so
+  // only the CURRENT fiscal year's movement counts, with no opening balance carried in. Same
+  // nature classification and nominal-ledger rule already used for VaultApp's own Balance Sheet
+  // (isNominalLedgerRow) and ReconReport, applied here so Masters agrees with those reports.
+  const masterGroups = useMemo(
+    () => new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g])),
+    [data.groups]
+  );
+  const currentFyStart = useMemo(() => {
+    const currentFY = fys[0];
+    if (currentFY == null) return null;
+    return `${currentFY}-${String(fiscalYearStartMonth).padStart(2, "0")}-01`;
+  }, [fys, fiscalYearStartMonth]);
+  const closingBalances = useMemo(() => {
+    const today = todayLocalIso();
+    const map = new Map<number, number>(); // raw signed value: negative = Dr, positive = Cr (same convention as openingBalance)
+    for (const a of data.accounts) {
+      const nature = accountNature(a, masterGroups);
+      const isNominal = !isProfitAndLossAccountName(a.name) && (nature === "Income" || nature === "Expense");
+      let raw = isNominal ? 0 : a.openingBalance || 0;
+      for (const t of data.transactions || []) {
+        if (t.deleted || t.cancelled) continue;
+        if (t.date > today) continue;
+        if (isNominal && currentFyStart && t.date < currentFyStart) continue;
+        for (const e of t.entries) if (e.accountId === a.id) raw += e.amount;
+      }
+      map.set(a.id, raw);
+    }
+    return map;
+  }, [data.accounts, data.transactions, masterGroups, currentFyStart]);
   const saveAccount = (values: AccountFormValues) => {
     const name = normalize(values.name),
       parent = values.parent,
@@ -964,18 +1007,48 @@ export function MastersPanel({
                 <th>Group</th>
                 <th>Currency</th>
                 <th>Opening</th>
+                <th>
+                  Current / Closing
+                  <span
+                    className="info-icon-wrap"
+                    onMouseEnter={() => setShowBalanceInfo(true)}
+                    onMouseLeave={() => setShowBalanceInfo(false)}
+                  >
+                    <button
+                      type="button"
+                      className="info-icon-btn"
+                      aria-label="How this balance is computed"
+                      onClick={() => setShowBalanceInfo((v) => !v)}
+                    >
+                      ⓘ
+                    </button>
+                    {showBalanceInfo && (
+                      <div className="info-icon-popover">
+                        Balance Sheet ledgers (assets, liabilities, capital, bank, cash, investments) show the real
+                        closing balance -- opening plus every posted entry to date. Income and Expense ledgers reset
+                        to zero each fiscal year in Tally-style books, so theirs shows only the current fiscal
+                        year's movement, not life-to-date, matching the Balance Sheet's own rule.
+                      </div>
+                    )}
+                  </span>
+                </th>
                 <th>Status</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              {accounts.map((a) => (
+              {accounts.map((a) => {
+                const bal = closingBalances.get(a.id) ?? 0;
+                return (
                 <tr key={a.id} className={a.masterDeletePending ? "master-deleting" : ""}>
                   <td>{a.name}</td>
                   <td>{a.parent}</td>
                   <td>{a.currency}</td>
                   <td className="right">
                     {Math.abs(a.openingBalance).toFixed(2)} {a.openingBalance <= 0 ? "Dr" : "Cr"}
+                  </td>
+                  <td className="right">
+                    {Math.abs(bal).toFixed(2)} {bal <= 0 ? "Dr" : "Cr"}
                   </td>
                   <td>
                     {a.masterSyncStatus === "pending" ? (
@@ -1002,7 +1075,8 @@ export function MastersPanel({
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </>
