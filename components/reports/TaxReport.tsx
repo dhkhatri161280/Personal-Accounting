@@ -1,6 +1,9 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, ManualVestTax, RsuGrant, RsuVest, EsppPurchase, Account } from "@/lib/vault-types";
+import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, ManualVestTax, RsuGrant, RsuVest, EsppPurchase, Account, VaultDocument } from "@/lib/vault-types";
+import { apiFetch } from "@/lib/api-fetch";
+import { trimPdfToFit } from "@/lib/trim-pdf";
+import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
 import { findPayrollVoucher, findAllPayrollVouchers, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear, matchPayrollPeriod, inferPeriodLabel } from "@/lib/payroll-match";
 import type { ParsedPaystub } from "@/lib/parse-paystub-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
@@ -27,12 +30,16 @@ interface TaxReportProps {
   transactions: Tx[];
   equity: EquityData | undefined;
   accounts: Account[];
-  onSave: (payroll: PayrollData) => Promise<boolean | void>;
+  // newDocument is set when "Upload Paystub PDF" is being confirmed -- the PDF itself is
+  // archived into Masters > Documents (see archivePaystubDocument below) in the SAME save as
+  // the extracted numbers, not a separate trip.
+  onSave: (payroll: PayrollData, newDocument?: VaultDocument) => Promise<boolean | void>;
   onViewVoucher: (tx: Tx) => void; // only used for the explicit "Edit in Daybook" action inside the voucher popup
-  // Jumps to Masters > Documents -- where archived pay stub PDFs actually live (see
-  // lib/vault-types.ts's VaultDocument). "Upload Paystub PDF" above only extracts numbers from
-  // one, it doesn't keep the file.
+  // Jumps to Masters > Documents, where archived pay stub PDFs live.
   onViewDocuments?: () => void;
+  // Needed only to key the archived PDF's R2 path the same way Masters > Documents does (see
+  // app/api/attachments/route.ts) -- every other use of this report works off `payroll` alone.
+  book: "us" | "india";
   fmt: (n: number) => string;
   readOnly?: boolean;
   livePrice?: number | null;
@@ -519,7 +526,7 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, onViewDocuments, fmt, readOnly, livePrice }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, onViewDocuments, book, fmt, readOnly, livePrice }: TaxReportProps) {
   const { privacyMode } = useUiPrefs();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -560,6 +567,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   const [paystubReview, setPaystubReview] = useState<{
     target: PaystubTarget;
     parsed: ParsedPaystub;
+    // The raw uploaded file, kept alongside the parsed numbers so savePaystubReview can archive
+    // it into Masters > Documents when the user confirms -- one upload does both jobs instead of
+    // needing a second, separate trip through Documents for the same PDF.
+    file: File;
     tieOut: { voucher: Tx; voucherNet: number } | null;
     // Set when this period/vest already has real (non-estimated) saved numbers from an earlier
     // paystub -- NVIDIA issues one separate "Pay Statement" PDF (or, for a vest, one PAGE within
@@ -821,7 +832,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         priorSaved = existingManual && !existingManual.estimated ? existingManual : null;
       }
       setPaystubMode(priorSaved ? "add" : "replace");
-      setPaystubReview({ target, parsed, tieOut, priorSaved });
+      setPaystubReview({ target, parsed, file, tieOut, priorSaved });
     } catch (err: any) {
       setPaystubError("Failed to parse paystub PDF: " + (err?.message ?? "Unknown error"));
     } finally {
@@ -829,11 +840,49 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     }
   }
 
+  // Uploads the raw paystub PDF into R2 the same way Masters > Documents does (see
+  // MastersPanel.tsx's uploadDocuments) and returns the resulting VaultDocument to fold into the
+  // same save as the extracted numbers below. Auto-trims an oversized PDF first, same as
+  // Documents; returns null (with a soft warning, not a blocking error) if archiving fails for
+  // any reason -- the numeric save this exists alongside is the important part and must not be
+  // blocked by a secondary archival problem.
+  async function archivePaystubDocument(file: File, label: string, date: string): Promise<VaultDocument | null> {
+    let toUpload = file;
+    if (file.size > DOCUMENT_MAX_SIZE_BYTES) {
+      const trimmed = file.type === "application/pdf" || /\.pdf$/i.test(file.name) ? await trimPdfToFit(file, DOCUMENT_MAX_SIZE_BYTES) : null;
+      if (!trimmed) {
+        setPaystubError(`Numbers saved, but the PDF itself was too large to archive (${(file.size / 1024 / 1024).toFixed(1)}MB, limit ~${DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB).`);
+        return null;
+      }
+      toUpload = trimmed.file;
+    }
+    try {
+      const form = new FormData();
+      form.append("file", toUpload);
+      form.append("book", book);
+      form.append("folder", "documents");
+      const r = await apiFetch("/api/attachments", { method: "POST", body: form });
+      if (!r.ok) {
+        setPaystubError(`Numbers saved, but archiving the PDF to Documents failed (${r.status}).`);
+        return null;
+      }
+      const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
+      return { id: crypto.randomUUID(), category: "Pay Stub", label, date, ...meta };
+    } catch {
+      setPaystubError("Numbers saved, but archiving the PDF to Documents failed.");
+      return null;
+    }
+  }
+
   async function savePaystubReview() {
     if (!paystubReview) return;
     setSavingPaystub(true);
+    setPaystubError("");
     try {
-      const { target, parsed, priorSaved } = paystubReview;
+      const { target, parsed, file, priorSaved } = paystubReview;
+      const archiveLabel = target.kind === "vest" ? `RSU Vest Pay Stub — ${target.date}` : `Pay Stub — ${target.label}`;
+      const archiveDate = target.kind === "vest" ? target.date : parsed.periodEnd;
+      const newDocument = await archivePaystubDocument(file, archiveLabel, archiveDate);
       // "Add" sums this paystub's numbers onto whatever was already saved for this exact
       // period/vest -- NVIDIA issues one Pay Statement PDF (or, for a vest, one PAGE within one
       // PDF, already summed by parsePaystubPdf) per RSU lot vesting the same day, so uploading a
@@ -857,7 +906,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           const existing = (y.manualVestTax ?? []).filter((v) => v.date !== target.date);
           return { ...y, manualVestTax: [...existing, entry] };
         });
-        await onSave({ ...payroll!, years: updatedYears });
+        await onSave({ ...payroll!, years: updatedYears }, newDocument ?? undefined);
         setPaystubReview(null);
         return;
       }
@@ -888,7 +937,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
         const newPeriod: ManualPayrollPeriod = { id: crypto.randomUUID(), label: target.label, periodIndex: target.periodIndex, ...fields };
         return { ...y, manualPeriods: [...existing, newPeriod] };
       });
-      await onSave({ ...payroll!, years: updatedYears });
+      await onSave({ ...payroll!, years: updatedYears }, newDocument ?? undefined);
       setPaystubReview(null);
     } finally {
       setSavingPaystub(false);

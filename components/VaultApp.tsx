@@ -4554,11 +4554,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               transactions={data.transactions}
               equity={data.equity}
               accounts={data.accounts}
-              onSave={async (payroll) => {
-                return await save({ ...data, payroll }, "reports");
+              onSave={async (payroll, newDocument) => {
+                return await save(
+                  { ...data, payroll, documents: newDocument ? [...(data.documents ?? []), newDocument] : data.documents },
+                  "reports"
+                );
               }}
               onViewVoucher={editVoucher}
               onViewDocuments={() => { setMastersSection("documents"); setTab("masters"); }}
+              book={book}
               fmt={fmt}
               livePrice={nvdaPrice}
             />

@@ -1,11 +1,12 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { requireAccessToken, requireAccessTokenFromHeaderOrQuery } from "@/lib/api-auth";
+import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
-const MAX_SIZE = 20 * 1024 * 1024; // 20MB -- comfortably covers a receipt photo or statement PDF
+const MAX_SIZE = DOCUMENT_MAX_SIZE_BYTES;
 
 // Uploads one file to R2, keyed by book+voucher so US/India never collide and every attachment
 // stays scoped to the voucher it was attached from. Returns just the metadata the client stores

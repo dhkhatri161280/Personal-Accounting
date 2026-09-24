@@ -7,6 +7,7 @@ import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-sc
 import type { RecurringTemplate, AuditEntry, FixedAsset, Ledger, VaultDocument } from "@/lib/vault-types";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
+import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import {
@@ -79,12 +80,6 @@ export type MasterLedger = {
   fixedAssets?: FixedAsset[];
   documents?: VaultDocument[];
 };
-
-// Mirrors app/api/attachments/route.ts's own MAX_SIZE -- checked client-side too so an
-// obviously-oversized file gets a clear, immediate message instead of a round-trip that either
-// comes back as our own 400 or (for large enough files) a bare, unexplained 413 from in front of
-// the app entirely. Keep these two numbers in sync if either one changes.
-const DOCUMENT_MAX_SIZE_BYTES = 20 * 1024 * 1024;
 
 const standard: MasterGroup[] = [
   { name: "Bank Accounts", nature: "Bank" },
