@@ -194,7 +194,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [trashSubTab, setTrashSubTab] = useState<"deleted" | "duplicate">("deleted"),
     // Which Masters sub-tab to land on next time it mounts -- lets the Dashboard's period-open
     // badge jump straight to Periods instead of always defaulting to Ledgers.
-    [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings">("ledgers"),
+    [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings">("ledgers"),
     [searchOpen, setSearchOpen] = useState(false),
     [searchQuery, setSearchQuery] = useState(""),
     // Deep-link targets for report components with their own internal sub-tabs, set by the
@@ -2044,6 +2044,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "masters-groups", label: "Account Groups", group: "Masters", keywords: ["groups"], go: () => { setMastersSection("groups"); setTab("masters"); } },
     { id: "masters-periods", label: "Periods", group: "Masters", keywords: ["close period", "open period", "fiscal year"], go: () => { setMastersSection("periods"); setTab("masters"); } },
     { id: "masters-fixedassets", label: "Fixed Assets", group: "Masters", keywords: ["fixed asset", "asset tag", "asset class", "useful life", "salvage"], go: () => { setMastersSection("fixedassets"); setTab("masters"); } },
+    { id: "masters-documents", label: "Documents", group: "Masters", keywords: ["paystub", "pay stub", "grant", "rsu", "offer letter", "w2", "payroll"], go: () => { setMastersSection("documents"); setTab("masters"); } },
     { id: "masters-settings", label: "Company Settings", group: "Masters", keywords: ["settings", "company", "currency", "voucher types"], go: () => { setMastersSection("settings"); setTab("masters"); } },
   ];
   const searchResults = (() => {
@@ -3700,6 +3701,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           <MastersPanel
             key={mastersSection}
             data={data}
+            book={book}
             initialSection={mastersSection}
             onTagAsset={bulkTagAsset}
             onSave={(next, message) => {
@@ -4516,6 +4518,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onSave={async (grants, esppPurchases) => {
                 await save({ ...data, equity: { grants, esppPurchases } }, "reports");
               }}
+              onViewDocuments={() => { setMastersSection("documents"); setTab("masters"); }}
               fmt={fmt}
             />
           )}
@@ -4555,6 +4558,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 return await save({ ...data, payroll }, "reports");
               }}
               onViewVoucher={editVoucher}
+              onViewDocuments={() => { setMastersSection("documents"); setTab("masters"); }}
               fmt={fmt}
               livePrice={nvdaPrice}
             />

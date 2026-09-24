@@ -23,14 +23,21 @@ export async function POST(request: Request) {
   const file = form.get("file");
   const book = String(form.get("book") || "");
   const txGuid = String(form.get("txGuid") || "");
-  if (!(file instanceof File) || !book || !txGuid) {
+  // "documents" = a personal document library upload (pay stub, grant agreement, ...), not tied
+  // to any voucher -- see lib/vault-types.ts's VaultDocument. Everything else keeps the original
+  // txGuid-required voucher-attachment behavior.
+  const folder = String(form.get("folder") || "");
+  if (!(file instanceof File) || !book || (!txGuid && folder !== "documents")) {
     return new Response("Missing file, book, or txGuid", { status: 400 });
   }
   if (file.size > MAX_SIZE) {
     return new Response(`File too large (max ${MAX_SIZE / 1024 / 1024}MB)`, { status: 400 });
   }
 
-  const key = `${book}/${txGuid}/${crypto.randomUUID()}-${file.name}`;
+  const key =
+    folder === "documents"
+      ? `${book}/documents/${crypto.randomUUID()}-${file.name}`
+      : `${book}/${txGuid}/${crypto.randomUUID()}-${file.name}`;
   try {
     await bindings.ATTACHMENTS.put(key, file.stream(), {
       httpMetadata: { contentType: file.type || "application/octet-stream" },

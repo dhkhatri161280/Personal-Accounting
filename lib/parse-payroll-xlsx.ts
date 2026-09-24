@@ -107,10 +107,47 @@ function parseSheet(ws: any, sheetName: string, year: string, XLSX: any): Payrol
   return { year, sheetName, periodLabels, rows };
 }
 
+// Reads the workbook's own "Summary" sheet, when present, to find which employer paid each
+// year -- located by content (a "Year" header row immediately followed by an "Employer" row),
+// not fixed cell coordinates, same defensive approach as parseSheet's "Particulars" search.
+// Only the EXPLICITLY year-labeled columns are used; a column with no year label of its own
+// (a transition employer's partial-year stub, folded into the adjacent labeled year's "Yearly
+// <YYYY>" sheet already) is deliberately skipped rather than guessed at.
+function parseEmployerMap(wb: any, XLSX: any): Map<string, string> {
+  const map = new Map<string, string>();
+  const summarySheetName = wb.SheetNames.find((n: string) => n.trim().toLowerCase() === "summary");
+  if (!summarySheetName) return map;
+  const grid: unknown[][] = XLSX.utils.sheet_to_json(wb.Sheets[summarySheetName], { header: 1, raw: true, defval: null });
+
+  let yearRowIdx = -1;
+  for (let r = 0; r < grid.length - 1; r++) {
+    const row = grid[r] ?? [];
+    if (row.some((v) => norm(v) === "Year") && (grid[r + 1] ?? []).some((v) => norm(v) === "Employer")) {
+      yearRowIdx = r;
+      break;
+    }
+  }
+  if (yearRowIdx === -1) return map;
+
+  const yearRow = grid[yearRowIdx] ?? [];
+  const employerRow = grid[yearRowIdx + 1] ?? [];
+  for (let c = 0; c < yearRow.length; c++) {
+    const yearVal = norm(yearRow[c]);
+    const employerVal = norm(employerRow[c]);
+    if (typeof yearVal !== "number" && typeof yearVal !== "string") continue;
+    const yearStr = String(yearVal).trim();
+    if (!/^\d{4}$/.test(yearStr)) continue;
+    if (typeof employerVal !== "string" || !employerVal.trim()) continue;
+    map.set(yearStr, employerVal.trim());
+  }
+  return map;
+}
+
 export async function parsePayrollXlsx(file: File): Promise<PayrollData> {
   const XLSX = await import("xlsx");
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array" });
+  const employerMap = parseEmployerMap(wb, XLSX);
 
   const years: PayrollYear[] = [];
   // A sheet whose NAME matches the expected year pattern but whose CONTENT parseSheet couldn't
@@ -127,7 +164,7 @@ export async function parsePayrollXlsx(file: File): Promise<PayrollData> {
     const m = sheetName.match(/^Yearly\s+(\d{4})$/) ?? sheetName.match(/^(\d{4})\s+RCS$/i);
     if (!m) continue;
     const y = parseSheet(wb.Sheets[sheetName], sheetName, m[1], XLSX);
-    if (y) years.push(y);
+    if (y) years.push(employerMap.has(y.year) ? { ...y, employer: employerMap.get(y.year) } : y);
     else unparsedSheets.push(sheetName);
   }
 

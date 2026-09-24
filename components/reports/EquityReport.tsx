@@ -67,6 +67,9 @@ interface EquityReportProps {
   esppPurchases: EsppPurchase[];
   payroll?: PayrollData;
   onSave: (grants: RsuGrant[], espp: EsppPurchase[]) => Promise<void>;
+  // Jumps to Masters > Documents -- where the actual grant agreement/award PDFs live (see
+  // lib/vault-types.ts's VaultDocument). This report only tracks the numeric vest schedule.
+  onViewDocuments?: () => void;
   fmt: (n: number) => string;
   readOnly?: boolean;
 }
@@ -78,7 +81,7 @@ const SUMMARY_ICON: Record<"vested" | "tax" | "sold" | "espp", { icon: IconKind;
   espp: { icon: "tag", color: "#d97706" },
 };
 
-export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, readOnly }: EquityReportProps) {
+export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDocuments, fmt, readOnly }: EquityReportProps) {
   const [price, setPrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
   const [priceErr, setPriceErr] = useState("");
@@ -724,6 +727,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, fmt, read
             <button className="equity-refresh" onClick={exportEquityExcel} disabled={exportingExcel}>
               {exportingExcel ? "Exporting…" : "⬇ Export to Excel"}
             </button>
+            {onViewDocuments && (
+              <button className="equity-refresh" onClick={onViewDocuments} title="Grant agreements, award notices, and offer letter">
+                📄 Documents
+              </button>
+            )}
           </div>
         </div>
         <div className="equity-summary-row">

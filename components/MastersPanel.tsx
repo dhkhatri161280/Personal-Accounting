@@ -4,7 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, AuditEntry, FixedAsset, Ledger } from "@/lib/vault-types";
+import type { RecurringTemplate, AuditEntry, FixedAsset, Ledger, VaultDocument } from "@/lib/vault-types";
+import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import {
@@ -75,6 +76,7 @@ export type MasterLedger = {
   recurringTemplates?: RecurringTemplate[];
   auditLog?: AuditEntry[];
   fixedAssets?: FixedAsset[];
+  documents?: VaultDocument[];
 };
 
 const standard: MasterGroup[] = [
@@ -433,24 +435,28 @@ function AccountForm({
 
 export function MastersPanel({
   data,
+  book,
   onSave,
   initialSection,
   onTagAsset,
 }: {
   data: MasterLedger;
+  // Needed only for the Documents section's R2 upload/view/delete calls (book-scoped key
+  // prefix, same as voucher attachments) -- every other section works off `data` alone.
+  book: "us" | "india";
   onSave: (next: MasterLedger, message: string) => void;
   // Lets a caller deep-link straight into a sub-tab (e.g. the Dashboard's period-open badge
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
-  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings";
+  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings";
   // Applies a Fixed Asset # to every voucher already posted on an untagged asset's own ledger --
   // routed through a dedicated prop (not the generic onSave above) because it needs to exempt
   // those (possibly closed-period) vouchers from the closed-period check, the same way
   // FixedAssetRegister's "Tag all vouchers" action does. See bulkTagAsset in VaultApp.tsx.
   onTagAsset?: (asset: FixedAsset, tag: string) => Promise<void> | void;
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "settings">(initialSection ?? "ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings">(initialSection ?? "ledgers"),
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
     [recurringTemplateId, setRecurringTemplateId] = useState<string | null>(null),
@@ -477,7 +483,20 @@ export function MastersPanel({
     [taggingAssetId, setTaggingAssetId] = useState<string | null>(null),
     [taggingValue, setTaggingValue] = useState(""),
     [tagging, setTagging] = useState(false),
-    [showBalanceInfo, setShowBalanceInfo] = useState(false);
+    [showBalanceInfo, setShowBalanceInfo] = useState(false),
+    // Documents master data (pay stubs, RSU grant agreements, offer letters, ...) -- see
+    // VaultDocument in lib/vault-types.ts. File bytes go straight to R2; only this small form
+    // state and the resulting metadata ever touch this component's state/the vault blob.
+    [showAddDocument, setShowAddDocument] = useState(false),
+    [docCategory, setDocCategory] = useState<VaultDocument["category"]>("Pay Stub"),
+    [docLabel, setDocLabel] = useState(""),
+    [docDate, setDocDate] = useState(""),
+    [uploadingDocument, setUploadingDocument] = useState(false),
+    [documentUploadError, setDocumentUploadError] = useState(""),
+    [editingDocumentId, setEditingDocumentId] = useState<string | null>(null),
+    [editingDocumentLabel, setEditingDocumentLabel] = useState(""),
+    [editingDocumentCategory, setEditingDocumentCategory] = useState<VaultDocument["category"]>("Pay Stub"),
+    [editingDocumentDate, setEditingDocumentDate] = useState("");
   const { privacyMode } = useUiPrefs();
 
   // Fiscal years present in the book (for the Periods tab's FY picker) -- lifted up here rather
@@ -944,6 +963,66 @@ export function MastersPanel({
       `Recurring template ${t.label} deleted.`
     );
   };
+  const documentsList = data.documents ?? [];
+
+  // Uploads to R2 first (book-scoped `documents` folder, not a voucher's txGuid -- see
+  // app/api/attachments/route.ts), then saves just the small VaultDocument metadata into the
+  // vault, same split as voucher Attachments.
+  async function uploadDocument(file: File) {
+    setUploadingDocument(true);
+    setDocumentUploadError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("book", book);
+      form.append("folder", "documents");
+      const r = await apiFetch("/api/attachments", { method: "POST", body: form });
+      if (!r.ok) {
+        setDocumentUploadError(`Upload failed (${r.status}).`);
+        return;
+      }
+      const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
+      const doc: VaultDocument = {
+        id: crypto.randomUUID(),
+        category: docCategory,
+        label: docLabel.trim() || meta.filename,
+        date: docDate || undefined,
+        ...meta,
+      };
+      onSave({ ...data, documents: [...documentsList, doc] }, `Document "${doc.label}" added.`);
+      setShowAddDocument(false);
+      setDocLabel("");
+      setDocDate("");
+      setDocCategory("Pay Stub");
+    } finally {
+      setUploadingDocument(false);
+    }
+  }
+
+  async function deleteDocument(doc: VaultDocument) {
+    if (!confirm(`Delete "${doc.label}"? This removes the file permanently.`)) return;
+    try {
+      await apiFetch(`/api/attachments?key=${encodeURIComponent(doc.key)}`, { method: "DELETE" });
+    } catch {
+      // Fall through and remove the reference anyway -- an orphaned R2 object is harmless.
+    }
+    onSave({ ...data, documents: documentsList.filter((d) => d.id !== doc.id) }, `Document "${doc.label}" deleted.`);
+  }
+
+  function saveDocumentEdits(doc: VaultDocument) {
+    const next: VaultDocument = {
+      ...doc,
+      label: editingDocumentLabel.trim() || doc.label,
+      category: editingDocumentCategory,
+      date: editingDocumentDate || undefined,
+    };
+    onSave(
+      { ...data, documents: documentsList.map((d) => (d.id === doc.id ? next : d)) },
+      `Document "${next.label}" updated.`
+    );
+    setEditingDocumentId(null);
+  }
+
   const account = data.accounts.find((a) => a.id === accountId),
     group = groups.find((g) => g.name === groupName),
     recurringTemplate = (data.recurringTemplates || []).find((t) => t.id === recurringTemplateId),
@@ -980,6 +1059,12 @@ export function MastersPanel({
           onClick={() => setSection("fixedassets")}
         >
           Fixed Assets
+        </button>
+        <button
+          className={section === "documents" ? "selected" : ""}
+          onClick={() => setSection("documents")}
+        >
+          Documents
         </button>
         <button
           className={section === "settings" ? "selected" : ""}
@@ -1516,6 +1601,123 @@ export function MastersPanel({
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+      {section === "documents" && (
+        <>
+          <div className="master-toolbar">
+            <button type="button" className="tr-refresh-btn" onClick={() => setShowAddDocument((v) => !v)}>
+              {showAddDocument ? "Cancel" : "+ Add Document"}
+            </button>
+          </div>
+          {showAddDocument && (
+            <div className="report-line" style={{ flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              <select value={docCategory} onChange={(e) => setDocCategory(e.target.value as VaultDocument["category"])}>
+                <option value="Pay Stub">Pay Stub</option>
+                <option value="Grant Agreement">Grant Agreement</option>
+                <option value="Grant Award">Grant Award</option>
+                <option value="Offer Letter">Offer Letter</option>
+                <option value="Other">Other</option>
+              </select>
+              <input placeholder="Label (e.g. FY26 Focal Grant)" value={docLabel} onChange={(e) => setDocLabel(e.target.value)} style={{ width: 220 }} />
+              <input type="date" title="Date this document is about (optional)" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
+              <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
+                {uploadingDocument ? "Uploading…" : "Choose file…"}
+                <input
+                  type="file"
+                  style={{ display: "none" }}
+                  disabled={uploadingDocument}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) uploadDocument(file);
+                  }}
+                />
+              </label>
+            </div>
+          )}
+          {documentUploadError && <p className="equity-pdf-error">{documentUploadError}</p>}
+          {documentsList.length === 0 ? (
+            <p style={{ opacity: 0.7 }}>No documents yet. Add a pay stub, grant agreement, or offer letter above.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Category</th>
+                  <th>Date</th>
+                  <th className="right">Size</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {documentsList
+                  .slice()
+                  .sort((a, b) => (b.date || b.uploadedAt).localeCompare(a.date || a.uploadedAt))
+                  .map((d) =>
+                    editingDocumentId === d.id ? (
+                      <tr key={d.id}>
+                        <td>
+                          <input autoFocus value={editingDocumentLabel} onChange={(e) => setEditingDocumentLabel(e.target.value)} style={{ width: 180 }} />
+                        </td>
+                        <td>
+                          <select value={editingDocumentCategory} onChange={(e) => setEditingDocumentCategory(e.target.value as VaultDocument["category"])}>
+                            <option value="Pay Stub">Pay Stub</option>
+                            <option value="Grant Agreement">Grant Agreement</option>
+                            <option value="Grant Award">Grant Award</option>
+                            <option value="Offer Letter">Offer Letter</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input type="date" value={editingDocumentDate} onChange={(e) => setEditingDocumentDate(e.target.value)} />
+                        </td>
+                        <td className="right">{(d.size / 1024).toFixed(0)} KB</td>
+                        <td>
+                          <button className="master-edit" onClick={() => saveDocumentEdits(d)}>
+                            Save
+                          </button>
+                          <button className="master-delete" onClick={() => setEditingDocumentId(null)}>
+                            Cancel
+                          </button>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={d.id}>
+                        <td>
+                          <a
+                            href={`/api/attachments?key=${encodeURIComponent(d.key)}&token=${encodeURIComponent(getAccessToken() || "")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {d.label}
+                          </a>
+                        </td>
+                        <td>{d.category}</td>
+                        <td>{d.date ? fmtDate(d.date) : "—"}</td>
+                        <td className="right">{(d.size / 1024).toFixed(0)} KB</td>
+                        <td>
+                          <button
+                            className="master-edit"
+                            onClick={() => {
+                              setEditingDocumentId(d.id);
+                              setEditingDocumentLabel(d.label);
+                              setEditingDocumentCategory(d.category);
+                              setEditingDocumentDate(d.date || "");
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button className="master-delete" onClick={() => deleteDocument(d)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  )}
               </tbody>
             </table>
           )}

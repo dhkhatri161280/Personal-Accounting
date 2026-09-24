@@ -199,6 +199,11 @@ export type PayrollMatch = {
 export type PayrollYear = {
   year: string;         // e.g. "2026"
   sheetName: string;    // source sheet name, e.g. "Yearly 2026"
+  // Which employer paid this year -- read from the source workbook's own "Summary" sheet
+  // (Year/Employer header rows), when present. A job change mid-calendar-year still gets one
+  // label per year (whichever employer the Summary sheet itself assigns that year to), matching
+  // how "Yearly <YYYY>" sheets already fold a transition year's periods into a single sheet.
+  employer?: string;
   periodLabels: string[]; // e.g. ["Jan 01 Jan 15", "Jan 16 Jan 31", ...]
   rows: PayrollRow[];
   matches?: PayrollMatch[];
@@ -528,6 +533,27 @@ export type Ledger = {
   // side effect of PlaidImport's own on-demand fetch (see components/vault/PlaidImport.tsx);
   // nothing here ever triggers a new Plaid API call on its own.
   plaidConnectionIssues?: { itemId: string; institutionName: string; errorMessage?: string; detectedAt: string }[];
+  // A personal document library (pay stubs, RSU/stock grant agreements, offer letters, ...) --
+  // stored purely for later reference, no ledger posting or reconciliation tied to any entry.
+  // Same "metadata in the vault, bytes in R2" split as Tx.attachments above; see VaultDocument.
+  documents?: VaultDocument[];
+};
+
+// One archived personal document (pay stub, RSU grant agreement/award notice, offer letter, ...).
+// File bytes live in R2 under `${book}/documents/...` (see app/api/attachments/route.ts) -- only
+// this small metadata record lives in the encrypted vault blob, same split as Attachment/Tx.
+export type VaultDocument = {
+  id: string;
+  category: "Pay Stub" | "Grant Agreement" | "Grant Award" | "Offer Letter" | "Other";
+  label: string;
+  // Optional date the document is "about" (a pay period, a grant date) -- distinct from
+  // uploadedAt below, which is just when the file was archived here.
+  date?: string;
+  key: string;
+  filename: string;
+  size: number;
+  contentType: string;
+  uploadedAt: string;
 };
 
 export type BankReconException = {

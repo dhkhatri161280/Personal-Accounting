@@ -29,6 +29,10 @@ interface TaxReportProps {
   accounts: Account[];
   onSave: (payroll: PayrollData) => Promise<boolean | void>;
   onViewVoucher: (tx: Tx) => void; // only used for the explicit "Edit in Daybook" action inside the voucher popup
+  // Jumps to Masters > Documents -- where archived pay stub PDFs actually live (see
+  // lib/vault-types.ts's VaultDocument). "Upload Paystub PDF" above only extracts numbers from
+  // one, it doesn't keep the file.
+  onViewDocuments?: () => void;
   fmt: (n: number) => string;
   readOnly?: boolean;
   livePrice?: number | null;
@@ -515,12 +519,16 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, fmt, readOnly, livePrice }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, onViewDocuments, fmt, readOnly, livePrice }: TaxReportProps) {
   const { privacyMode } = useUiPrefs();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
+  // Narrows the Year chip row below to one employer's years -- see PayrollYear.employer
+  // (lib/vault-types.ts), populated from the imported workbook's own "Summary" sheet.
+  // "All" shows every year regardless of employer, same as before this filter existed.
+  const [employerFilter, setEmployerFilter] = useState<string>("All");
   // Clicking a pay period (Excel-imported, manual/voucher-derived, or an RSU vest event) opens
   // a popup with a donut + full detail, rather than expanding an inline row.
   const [viewPeriod, setViewPeriod] = useState<
@@ -1429,6 +1437,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 </button>
               </>
             )}
+            {onViewDocuments && (
+              <button className="equity-refresh" onClick={onViewDocuments} title="Archived pay stub PDFs">
+                📄 Documents
+              </button>
+            )}
             <ExportButton
               onExport={async () => {
                 const header = ["Period", "Gross", "Federal", "SSN", "Medicare", "State W/H", "State SDI", "Total Tax", "Net"];
@@ -1570,29 +1583,69 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
           );
         })()}
 
-        <div className="equity-grant-filter">
-          <span className="equity-grant-filter-label">Year:</span>
-          {years.map((y) => (
-            <button
-              key={y.year}
-              className={`equity-grant-filter-chip${yr.year === y.year ? " equity-grant-filter-chip--active" : ""}`}
-              onClick={() => { setSelectedYear(y.year); setViewPeriod(null); }}
-            >
-              {y.year}
-            </button>
-          ))}
-        </div>
+        {(() => {
+          const employers = Array.from(new Set(years.map((y) => y.employer).filter((e): e is string => !!e))).sort();
+          const visibleYears = employerFilter === "All" ? years : years.filter((y) => y.employer === employerFilter);
+          return (
+            <>
+              {employers.length > 0 && (
+                <div className="equity-grant-filter">
+                  <span className="equity-grant-filter-label">Employer:</span>
+                  <select
+                    value={employerFilter}
+                    onChange={(e) => {
+                      setEmployerFilter(e.target.value);
+                      // Jump to the first visible year under the new filter so the chip row and
+                      // the figures below it never disagree about which year is showing.
+                      const next = e.target.value === "All" ? years : years.filter((y) => y.employer === e.target.value);
+                      if (next.length && !next.some((y) => y.year === activeYearLabel)) {
+                        setSelectedYear(next[0].year);
+                        setViewPeriod(null);
+                      }
+                    }}
+                  >
+                    <option value="All">All employers</option>
+                    {employers.map((e) => (
+                      <option key={e} value={e}>
+                        {e}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="equity-grant-filter">
+                <span className="equity-grant-filter-label">Year:</span>
+                {visibleYears.map((y) => (
+                  <button
+                    key={y.year}
+                    className={`equity-grant-filter-chip${yr.year === y.year ? " equity-grant-filter-chip--active" : ""}`}
+                    onClick={() => { setSelectedYear(y.year); setViewPeriod(null); }}
+                    title={y.employer}
+                  >
+                    {y.year}
+                    {y.employer && <span style={{ opacity: 0.65, fontWeight: 400 }}> — {y.employer}</span>}
+                  </button>
+                ))}
+              </div>
+            </>
+          );
+        })()}
 
-        {allYearsSummary.length > 1 && (
+        {allYearsSummary.length > 1 && (() => {
+          const employerByYear = new Map(years.map((y) => [y.year, y.employer]));
+          const filteredSummary =
+            employerFilter === "All" ? allYearsSummary : allYearsSummary.filter((r) => employerByYear.get(r.year) === employerFilter);
+          return (
           <details style={{ margin: "0 0 0.75rem" }}>
             <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
-              All Years — Salary &amp; Tax Summary ({allYearsSummary.length} years, click to expand)
+              All Years — Salary &amp; Tax Summary ({filteredSummary.length} years, click to expand)
             </summary>
             <div className="columnar-report-scroll" style={{ marginTop: "0.5rem" }}>
               <table className="equity-table equity-drilldown-table">
                 <thead>
                   <tr>
                     <th>Year</th>
+                    <th>Employer</th>
                     <th className="right">Gross</th>
                     <th className="right">Total Tax</th>
                     <th className="right">Net</th>
@@ -1605,13 +1658,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                   </tr>
                 </thead>
                 <tbody>
-                  {allYearsSummary.map((r) => (
+                  {filteredSummary.map((r) => (
                     <tr key={r.year}>
                       <td>
                         <button type="button" style={linkBtnStyle} onClick={() => { setSelectedYear(r.year); setViewPeriod(null); }}>
                           {r.year}
                         </button>
                       </td>
+                      <td>{employerByYear.get(r.year) || "—"}</td>
                       <td className="right equity-amt">{fmt(r.gross)}</td>
                       <td className="right equity-amt">{fmt(r.totalTax)}</td>
                       <td className="right equity-amt">{fmt(r.net)}</td>
@@ -1627,21 +1681,23 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
                 <tfoot>
                   <tr>
                     <td>Total</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.gross, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.totalTax, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.net, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.afterTax, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.k401Self, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.k401Employer, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.espp, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.rsuVested, 0))}</td>
-                    <td className="right equity-amt">{fmt(allYearsSummary.reduce((s, r) => s + r.effective, 0))}</td>
+                    <td></td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.gross, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.totalTax, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.net, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.afterTax, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.k401Self, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.k401Employer, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.espp, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.rsuVested, 0))}</td>
+                    <td className="right equity-amt">{fmt(filteredSummary.reduce((s, r) => s + r.effective, 0))}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
           </details>
-        )}
+          );
+        })()}
 
         <div className="equity-summary-row">
           {summaryCards.map((c) => (
