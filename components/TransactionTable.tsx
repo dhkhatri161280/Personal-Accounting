@@ -4,8 +4,9 @@ import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport";
 import { ThemeProvider } from "@mui/material/styles";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
-import { DataGrid, GridPagination, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
+import { DataGrid, GridPagination, useGridApiRef, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
+import { useGridColumnWidths } from "@/hooks/useGridColumnWidths";
 import { fiscalYearOf } from "@/lib/vault-accounting";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
@@ -300,6 +301,7 @@ export function TransactionTable({
 }) {
   const isNarrow = useIsNarrowViewport();
   const useCards = !!mobileCards && isNarrow;
+  const gridApiRef = useGridApiRef();
   const isClosed = (t: VoucherRow) => !!closedPeriods?.includes(t.date.slice(0, 7));
   const [colWidths, setColWidths] = useState<Record<PlainColKey, number>>(DEFAULT_PLAIN_WIDTHS);
   const resizeCol = (key: PlainColKey, deltaX: number) =>
@@ -633,6 +635,7 @@ export function TransactionTable({
         ),
     },
   ];
+  const gridColumnWidths = useGridColumnWidths(gridApiRef, columns.map((c) => c.field));
 
   const sortModel: GridSortModel = [{ field: sort.key, sort: sort.direction }];
 
@@ -910,6 +913,7 @@ export function TransactionTable({
       ) : (
       <ThemeProvider theme={appMuiTheme}>
         <DataGrid
+          apiRef={gridApiRef}
           rows={displayRows}
           columns={columns}
           density="compact"
@@ -941,13 +945,45 @@ export function TransactionTable({
             // what silently disabled page navigation in the first place -- <GridPagination />
             // restores the real Prev/Next/page-size controls the default footer would have had,
             // alongside the totals summary this app actually wants shown too.
-            footer: () => (
-              <div className="ledger-grid-totals">
-                <strong>Displayed voucher total</strong>
-                <span>{formatAmount(filteredTotal)}</span>
-                <GridPagination />
-              </div>
-            ),
+            //
+            // Lines up under the grid's own columns instead of a flat "Displayed voucher total
+            // $X" label row (same fix already applied to the Ledgers tab's own DataGrid footer,
+            // and the exact behavior the plain-<table> fallback above already had via a real
+            // <tfoot> -- this just brings the DataGrid path in line with it). Widths come from
+            // gridColumnWidths (the DataGrid's own real computedWidth per column, read via
+            // apiRef -- see hooks/useGridColumnWidths.ts) rather than reconstructed from each
+            // column's flex/minWidth: confirmed live that a plain CSS flexbox using the same
+            // flex-grow ratios does NOT reproduce DataGrid's own column-width algorithm (off by
+            // ~175px on a flex column in one case), so this is the only way to actually match.
+            // The total lands under whichever money column comes first (Amount, or Dr Amount
+            // when the ledger-filtered Dr/Cr split is active) -- Cr Amount and Balance stay
+            // blank, same simplification the plain-table colSpan={6} version above already makes.
+            footer: () => {
+              let totalPlaced = false;
+              return (
+                <div className="ledger-grid-totals">
+                  {columns.map((col, i) => {
+                    const isMoneyField = col.field === "amount" || col.field === "debitAmount" || col.field === "creditAmount";
+                    const showTotal = isMoneyField && !totalPlaced;
+                    if (showTotal) totalPlaced = true;
+                    const width = gridColumnWidths[col.field];
+                    const cellStyle: React.CSSProperties =
+                      width != null ? { flex: `0 0 ${width}px` } : { flex: "0 0 100px" };
+                    return (
+                      <span
+                        key={col.field}
+                        className={`ledger-grid-totals-cell${isMoneyField ? " ledger-grid-totals-cell--num" : ""}`}
+                        style={i === 0 ? { ...cellStyle, whiteSpace: "nowrap", overflow: "visible" } : cellStyle}
+                      >
+                        {i === 0 && <strong>Displayed voucher total</strong>}
+                        {showTotal && <b className="ledger-grid-totals-amt">{formatAmount(filteredTotal)}</b>}
+                      </span>
+                    );
+                  })}
+                  <GridPagination />
+                </div>
+              );
+            },
           }}
           autoHeight
         />

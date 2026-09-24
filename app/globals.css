@@ -1257,6 +1257,13 @@ a.action {
 .ledger-grid-totals-cell {
   padding: 0 10px;
   box-sizing: border-box;
+  /* Flex items default to min-width:auto, which lets a cell grow past its own flex-basis to fit
+     its text content -- confirmed live: the "Displayed voucher total" label cell (TransactionTable
+     footer) silently expanded from its intended 100px to ~148px and threw every column after it
+     out of alignment. white-space:nowrap + overflow:visible (set inline, only on whichever cell
+     holds label text) still lets that text visually spill into the empty cells to its right without
+     the cell's own box (and everything after it) drifting. */
+  min-width: 0;
 }
 .ledger-grid-totals-cell--num {
   text-align: right;

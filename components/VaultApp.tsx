@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { ThemeProvider } from "@mui/material/styles";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import { DataGrid, useGridApiRef, type GridColDef } from "@mui/x-data-grid";
 import { appMuiTheme } from "@/lib/mui-theme";
 import { useVoucherForm, autoBalance } from "@/hooks/useVoucherForm";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
+import { useGridColumnWidths } from "@/hooks/useGridColumnWidths";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
 import { BuildStamp } from "@/components/BuildStamp";
@@ -252,6 +253,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null),
     [openReportGroup, setOpenReportGroup] = useState<string | null>(null);
   const { privacyMode, togglePrivacy, darkMode, toggleDarkMode } = useUiPrefs();
+  // Ledgers tab's own DataGrid Total-row alignment -- must live at the top level (Rules of
+  // Hooks), even though the grid itself only renders when tab === "ledgers", since apiRef needs
+  // to exist before the conditional JSX that passes it to <DataGrid apiRef=...>. Field list is a
+  // fixed constant (unlike TransactionTable.tsx's conditional amount/balance columns) since this
+  // grid's 6 columns never change shape.
+  const ledgerGridApiRef = useGridApiRef();
+  const ledgerGridColumnWidths = useGridColumnWidths(ledgerGridApiRef, ["name", "group", "opening", "debit", "credit", "closing"]);
   const { dashboardDetail, setDashboardDetail, toggleDashboardDetail: toggleDashboardDetailRaw } = useDashboardDetail<
     "cash" | "investments" | "fixedAssets" | "capital" | "salary" | "active" | "loans" | "attention"
   >();
@@ -3606,6 +3614,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             return (
               <ThemeProvider theme={appMuiTheme}>
                 <DataGrid
+                  apiRef={ledgerGridApiRef}
                   rows={gridRows}
                   columns={columns}
                   density="compact"
@@ -3613,34 +3622,37 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   hideFooterSelectedRowCount
                   initialState={{ sorting: { sortModel: [{ field: "name", sort: "asc" }] } }}
                   slots={{
-                    footer: () => (
-                      // Lines up under each column instead of a flat "Opening $X Dr $Y ..." label
-                      // row -- same flex/minWidth ratios as the columns array above (Ledger 1.4/160,
-                      // Group 1/140, Opening/Dr/Cr/Closing 1/110 each), so under default (non-manually-
-                      // resized) column widths each total sits directly beneath its own header. Can't
-                      // track a live column drag-resize (that needs the grid's own column-width state,
-                      // which the Community DataGrid used here doesn't expose a totals-row slot for --
-                      // row pinning/aggregation footers are an X Pro-only feature) -- close enough for
-                      // the default/common case, which is what this flags.
+                    footer: () => {
+                      // Lines up under each column using the grid's own real computedWidth per
+                      // column (see hooks/useGridColumnWidths.ts) instead of a flat "Opening $X
+                      // Dr $Y ..." label row or a hand-reconstructed flex-ratio guess -- confirmed
+                      // live that a plain CSS flexbox using the same flex-grow ratios as the
+                      // columns array does NOT reproduce DataGrid's own column-width algorithm
+                      // (off by ~175px on a flex column in TransactionTable.tsx's equivalent
+                      // footer before this same fix was applied there). This also tracks a live
+                      // column drag-resize automatically, which a static guess never could.
+                      const w = (field: string, fallback: number) => ledgerGridColumnWidths[field] ?? fallback;
+                      return (
                       <div className="ledger-grid-totals">
-                        <span className="ledger-grid-totals-cell" style={{ flex: 1.4, minWidth: 160 }}>
+                        <span className="ledger-grid-totals-cell" style={{ flex: `0 0 ${w("name", 160)}px`, whiteSpace: "nowrap", overflow: "visible" }}>
                           <strong>Total</strong>
                         </span>
-                        <span className="ledger-grid-totals-cell" style={{ flex: 1, minWidth: 140 }} />
-                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                        <span className="ledger-grid-totals-cell" style={{ flex: `0 0 ${w("group", 140)}px` }} />
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: `0 0 ${w("opening", 110)}px` }}>
                           <b className="ledger-grid-totals-amt">{money(ledgerTotals.opening)}</b>
                         </span>
-                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: `0 0 ${w("debit", 110)}px` }}>
                           <b className="ledger-grid-totals-amt">{ledgerTotals.debit ? fmt(ledgerTotals.debit) : "-"}</b>
                         </span>
-                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: `0 0 ${w("credit", 110)}px` }}>
                           <b className="ledger-grid-totals-amt">{ledgerTotals.credit ? fmt(ledgerTotals.credit) : "-"}</b>
                         </span>
-                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: `0 0 ${w("closing", 110)}px` }}>
                           <b className="ledger-grid-totals-amt">{money(ledgerTotals.closing)}</b>
                         </span>
                       </div>
-                    ),
+                      );
+                    },
                   }}
                   autoHeight
                 />
