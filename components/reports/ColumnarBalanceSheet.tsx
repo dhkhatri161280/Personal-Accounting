@@ -93,6 +93,11 @@ export function ColumnarBalanceSheet({
   const liabilityTotals = periods.map((p) => displayLiabilityRows.reduce((s, r) => s + (r.values[p.key] || 0), 0));
   const diffByPeriod = assetTotals.map((v, i) => v - liabilityTotals[i]);
   const lastDiff = diffByPeriod[diffByPeriod.length - 1] || 0;
+  // Display only, same reasoning as ColumnarIncomeExpenditure: Yearly reads current-year-first,
+  // Monthly/Quarterly stay chronological. `lastDiff`/the Closing column above are unaffected --
+  // they're read from the ascending arrays before this reversal happens.
+  const displayPeriods = granularity === "yearly" ? periods.slice().reverse() : periods;
+  const displayDiffByPeriod = granularity === "yearly" ? diffByPeriod.slice().reverse() : diffByPeriod;
   const [sAsset, sLiab, sNet] = useSyncedScroll(3);
   const netRowLabel = "Balance check (Assets − Liabilities & Equity)";
   // One shared width pair, computed across Assets + Liabilities + the Balance Check row together,
@@ -117,7 +122,7 @@ export function ColumnarBalanceSheet({
       <ColumnarSection
         title="Assets"
         rows={displayAssetRows}
-        periods={periods}
+        periods={displayPeriods}
         fmt={fmt}
         color={MONEY_IN}
         totalLabel={totalLabel}
@@ -133,7 +138,7 @@ export function ColumnarBalanceSheet({
       <ColumnarSection
         title="Liabilities & Equity"
         rows={displayLiabilityRows}
-        periods={periods}
+        periods={displayPeriods}
         fmt={fmt}
         color={MONEY_OUT}
         totalLabel={totalLabel}
@@ -148,9 +153,9 @@ export function ColumnarBalanceSheet({
       />
       <ColumnarNetRow
         label={netRowLabel}
-        values={diffByPeriod}
+        values={displayDiffByPeriod}
         total={lastDiff}
-        periods={periods}
+        periods={displayPeriods}
         fmt={fmt}
         colorOf={(v) => (Math.abs(v) < 0.01 ? "#16a34a" : "#dc2626")}
         scrollRef={sNet.ref}

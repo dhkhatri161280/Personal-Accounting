@@ -42,6 +42,14 @@ export function ColumnarIncomeExpenditure({
   const expenseTotals = periods.map((p) => expenseRows.reduce((s, r) => s + (r.values[p.key] || 0), 0));
   const surplusByPeriod = incomeTotals.map((v, i) => v - expenseTotals[i]);
   const surplusTotal = surplusByPeriod.reduce((s, v) => s + v, 0);
+  // Display only: a Yearly year-over-year comparison reads naturally with the current year
+  // first and older years trailing off to the right (most-recent-first), unlike Monthly/
+  // Quarterly which stay in chronological reading order. The Total column (always rendered
+  // last by ColumnarSection/ColumnarNetRow, from each row's own precomputed .total) is
+  // unaffected either way. Every calc above stays on the ascending `periods` array -- only the
+  // two arrays actually handed to the render below are reversed.
+  const displayPeriods = granularity === "yearly" ? periods.slice().reverse() : periods;
+  const displaySurplusByPeriod = granularity === "yearly" ? surplusByPeriod.slice().reverse() : surplusByPeriod;
   const [sIncome, sExpense, sNet] = useSyncedScroll(3);
   const netRowLabel = "Surplus / (Deficit)";
   const { labelWidth, valueWidth } = useMemo(
@@ -60,13 +68,13 @@ export function ColumnarIncomeExpenditure({
 
   return (
     <div className="columnar-report">
-      <ColumnarSection title="Income" rows={incomeRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIncome.ref} onScroll={sIncome.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
-      <ColumnarSection title="Expense" rows={expenseRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sExpense.ref} onScroll={sExpense.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
+      <ColumnarSection title="Income" rows={incomeRows} periods={displayPeriods} fmt={fmt} color={MONEY_IN} scrollRef={sIncome.ref} onScroll={sIncome.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
+      <ColumnarSection title="Expense" rows={expenseRows} periods={displayPeriods} fmt={fmt} color={MONEY_OUT} scrollRef={sExpense.ref} onScroll={sExpense.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
       <ColumnarNetRow
         label={netRowLabel}
-        values={surplusByPeriod}
+        values={displaySurplusByPeriod}
         total={surplusTotal}
-        periods={periods}
+        periods={displayPeriods}
         fmt={fmt}
         colorOf={(v) => (v >= 0 ? MONEY_IN : MONEY_OUT)}
         scrollRef={sNet.ref}

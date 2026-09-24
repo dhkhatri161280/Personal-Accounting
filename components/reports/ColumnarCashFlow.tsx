@@ -45,6 +45,12 @@ export function ColumnarCashFlow({
   const netTotal = netByPeriod.reduce((s, v) => s + v, 0);
   const closingValues = periods.map((p) => closingByPeriod[p.key] || 0);
   const lastClosing = closingValues[closingValues.length - 1] || 0;
+  // Display only, same reasoning as ColumnarIncomeExpenditure: Yearly reads current-year-first,
+  // Monthly/Quarterly stay chronological. `lastClosing`/the Total columns above are unaffected --
+  // they're read from the ascending arrays before this reversal happens.
+  const displayPeriods = granularity === "yearly" ? periods.slice().reverse() : periods;
+  const displayNetByPeriod = granularity === "yearly" ? netByPeriod.slice().reverse() : netByPeriod;
+  const displayClosingValues = granularity === "yearly" ? closingValues.slice().reverse() : closingValues;
   const [sIn, sOut, sNet, sClosing] = useSyncedScroll(4);
   const netRowLabel = "Net increase / (decrease) in cash";
   const closingRowLabel = "Closing cash and bank balance";
@@ -67,13 +73,13 @@ export function ColumnarCashFlow({
 
   return (
     <div className="columnar-report">
-      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={periods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
-      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={periods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
+      <ColumnarSection title="Cash Inflows" rows={inflowRows} periods={displayPeriods} fmt={fmt} color={MONEY_IN} scrollRef={sIn.ref} onScroll={sIn.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
+      <ColumnarSection title="Cash Outflows" rows={outflowRows} periods={displayPeriods} fmt={fmt} color={MONEY_OUT} scrollRef={sOut.ref} onScroll={sOut.onScroll} onDrilldown={onDrilldown} labelWidth={labelWidth} valueWidth={valueWidth} expandSignal={expandSignal} collapseSignal={collapseSignal} />
       <ColumnarNetRow
         label={netRowLabel}
-        values={netByPeriod}
+        values={displayNetByPeriod}
         total={netTotal}
-        periods={periods}
+        periods={displayPeriods}
         fmt={fmt}
         colorOf={(v) => (v >= 0 ? MONEY_IN : MONEY_OUT)}
         scrollRef={sNet.ref}
@@ -83,9 +89,9 @@ export function ColumnarCashFlow({
       />
       <ColumnarNetRow
         label={closingRowLabel}
-        values={closingValues}
+        values={displayClosingValues}
         total={lastClosing}
-        periods={periods}
+        periods={displayPeriods}
         fmt={fmt}
         colorOf={() => "#1e40af"}
         scrollRef={sClosing.ref}
