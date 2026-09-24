@@ -79,6 +79,12 @@ export type MasterLedger = {
   documents?: VaultDocument[];
 };
 
+// Mirrors app/api/attachments/route.ts's own MAX_SIZE -- checked client-side too so an
+// obviously-oversized file gets a clear, immediate message instead of a round-trip that either
+// comes back as our own 400 or (for large enough files) a bare, unexplained 413 from in front of
+// the app entirely. Keep these two numbers in sync if either one changes.
+const DOCUMENT_MAX_SIZE_BYTES = 20 * 1024 * 1024;
+
 const standard: MasterGroup[] = [
   { name: "Bank Accounts", nature: "Bank" },
   { name: "Cash-in-hand", nature: "Cash" },
@@ -980,14 +986,28 @@ export function MastersPanel({
     try {
       const newDocs: VaultDocument[] = [];
       const errors: string[] = [];
+      // Reject anything obviously over the server's own MAX_SIZE (app/api/attachments/route.ts)
+      // BEFORE spending a round-trip on it -- a large scanned PDF (a multi-page grant/offer
+      // letter, say) can also get rejected even lower down, by Cloudflare's own edge, before our
+      // handler ever runs; that comes back as a bare 413 with no body to explain it. Either way,
+      // the actionable advice is the same, so both cases share one clear message instead of a
+      // cryptic status code -- this is the "large PDF" problem the trimmed FY26 Focal Grant
+      // worked around manually; this makes any FUTURE oversized file self-explanatory instead.
+      const tooLarge = (size: number) => size > DOCUMENT_MAX_SIZE_BYTES;
+      const oversizedMsg = (file: File) =>
+        `${file.name} is too large (${(file.size / 1024 / 1024).toFixed(1)}MB, limit ~${DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB) -- try compressing it or trimming it to fewer pages, then upload again.`;
       for (const file of list) {
+        if (tooLarge(file.size)) {
+          errors.push(oversizedMsg(file));
+          continue;
+        }
         const form = new FormData();
         form.append("file", file);
         form.append("book", book);
         form.append("folder", "documents");
         const r = await apiFetch("/api/attachments", { method: "POST", body: form });
         if (!r.ok) {
-          errors.push(`${file.name} (${r.status})`);
+          errors.push(r.status === 413 ? oversizedMsg(file) : `${file.name} (${r.status})`);
           continue;
         }
         const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
@@ -999,7 +1019,7 @@ export function MastersPanel({
           ...meta,
         });
       }
-      if (errors.length) setDocumentUploadError(`Upload failed for: ${errors.join(", ")}.`);
+      if (errors.length) setDocumentUploadError(errors.join(" "));
       if (newDocs.length) {
         onSave(
           { ...data, documents: [...documentsList, ...newDocs] },
@@ -1670,6 +1690,8 @@ export function MastersPanel({
           {showAddDocument && (
             <p className="field-hint" style={{ margin: "0 0 10px" }}>
               Selecting several files at once uploads them all under the same Category/Date, each labeled from its own filename.
+              Each file must be under {DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB -- a large scanned PDF may need compressing or
+              trimming to fewer pages first.
             </p>
           )}
           {documentUploadError && <p className="equity-pdf-error">{documentUploadError}</p>}
