@@ -58,7 +58,7 @@ export function ColumnarBalanceSheet({
   data: Ledger;
   start: string;
   end: string;
-  granularity: "monthly" | "quarterly";
+  granularity: "monthly" | "quarterly" | "yearly";
   fmt: (n: number) => string;
   // Controlled by the caller (rendered alongside the Single Period/Monthly/Quarterly toggle, on
   // the same row, rather than as a second toggle row owned by this component) -- see

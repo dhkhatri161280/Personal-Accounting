@@ -22,7 +22,7 @@ export function ColumnarCashFlow({
   data: Ledger;
   start: string;
   end: string;
-  granularity: "monthly" | "quarterly";
+  granularity: "monthly" | "quarterly" | "yearly";
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], inflowRows: ColumnarRow[], outflowRows: ColumnarRow[]) => void;
   onDrilldown?: (req: DrilldownRequest) => void;

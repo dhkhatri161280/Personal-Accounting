@@ -21,7 +21,7 @@ export function ColumnarIncomeExpenditure({
   data: Ledger;
   start: string;
   end: string;
-  granularity: "monthly" | "quarterly";
+  granularity: "monthly" | "quarterly" | "yearly";
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], incomeRows: ColumnarRow[], expenseRows: ColumnarRow[]) => void;
   onDrilldown?: (req: DrilldownRequest) => void;

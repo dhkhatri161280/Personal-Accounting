@@ -207,7 +207,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [tradingTab, setTradingTab] = useState<"open" | "closed" | "watchlist">("open"),
     [taxViewMode, setTaxViewMode] = useState<"yearly" | "all">("yearly"),
     [report, setReport] = useState("trial"),
-    [reportView, setReportView] = useState<"single" | "monthly" | "quarterly">("single"),
+    [reportView, setReportView] = useState<"single" | "monthly" | "quarterly" | "yearly">("single"),
     [bsViewMode, setBsViewMode] = useState<"ending" | "incremental">("ending"),
     [columnarData, setColumnarData] = useState<{ periods: PeriodBoundary[]; incomeRows: ColumnarRow[]; expenseRows: ColumnarRow[] } | null>(null),
     [exportingIncomeExpenditure, setExportingIncomeExpenditure] = useState(false),
@@ -2179,7 +2179,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const fundSummaryEnd =
     year === "all" ? "9999-99-99" : year === "custom" ? `${customEnd}-31` : year.length === 7 ? `${year}-31` : `${Number(year) + 1}-03-31`;
   const columnarRangeLabel =
-    year === "custom" ? `${customStart} to ${customEnd}` : year.length === 7 ? year : `FY ${year}`;
+    year === "all" ? "All periods" : year === "custom" ? `${customStart} to ${customEnd}` : year.length === 7 ? year : `FY ${year}`;
+  // Unlike Monthly/Quarterly, a Yearly columnar view is actually MOST useful spanning "All
+  // periods" -- that's the whole point of a year-over-year comparison (e.g. "how has my Vehicle
+  // Maintenance ledger trended across every year I have data for"), not just one FY split into
+  // pieces. So Yearly reuses fundSummaryStart/End's already-existing full-history range instead
+  // of being blocked by columnarViewAvailable the way Monthly/Quarterly correctly are.
+  const columnarGranularityActive = reportView !== "single" && (columnarViewAvailable || reportView === "yearly");
+  const yearlyColumnarStart = year === "all" ? fundSummaryStart : columnarStart;
+  const yearlyColumnarEnd = year === "all" ? fundSummaryEnd : columnarEnd;
 
   // Budget vs Actual is inherently a 12-month (Apr-Mar) FY structure -- "all periods", a custom
   // range, or a single month don't map onto that, so this stays null (report shows a message)
@@ -2239,7 +2247,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           surplusRow,
         ]);
         ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
-        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
+        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "yearly" ? "Yearly" : reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
       }
       XLSX.writeFile(wb, `Income & Expenditure${year !== "all" ? ` — ${columnarRangeLabel}` : ""}.xlsx`);
     } finally {
@@ -2299,7 +2307,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         ];
         const ws = XLSX.utils.aoa_to_sheet([header, ...sheetRows("Assets", aRows), ...sheetRows("Liabilities & Equity", lRows), balanceCheckRow]);
         ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
-        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
+        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "yearly" ? "Yearly" : reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
       }
       XLSX.writeFile(wb, `Balance Sheet${year !== "all" ? ` — ${columnarRangeLabel}` : ""}.xlsx`);
     } finally {
@@ -2352,7 +2360,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         ];
         const ws = XLSX.utils.aoa_to_sheet([header, ...sheetRows("Inflows", inflowRows), ...sheetRows("Outflows", outflowRows), netRow]);
         ws["!cols"] = header.map((h) => ({ wch: Math.max(14, h.length) }));
-        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
+        XLSX.utils.book_append_sheet(wb, ws, `${columnarRangeLabel} ${reportView === "yearly" ? "Yearly" : reportView === "quarterly" ? "Quarterly" : "Monthly"}`.slice(0, 31));
       }
       XLSX.writeFile(wb, `Cash Flow${year !== "all" ? ` — ${columnarRangeLabel}` : ""}.xlsx`);
     } finally {
@@ -2455,6 +2463,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onClick={() => setReportView("quarterly")}
           >
             Quarterly
+          </button>
+          <button
+            type="button"
+            className={reportView === "yearly" ? "selected" : ""}
+            onClick={() => setReportView("yearly")}
+            title={"One column per fiscal year -- works with a specific period selected or \"All periods\", for a year-over-year comparison of any ledger"}
+          >
+            Yearly
           </button>
         </span>
         {extra}
@@ -4124,7 +4140,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "income" && (
             <>
               <ReportViewToggle title="Income & Expenditure" exporting={exportingIncomeExpenditure} onExport={exportIncomeExpenditure} />
-              {(reportView === "single" || !columnarViewAvailable) && (
+              {!columnarGranularityActive && (
               <div className="equity-summary-row" style={{ marginBottom: "0.75rem" }}>
                 <div className="equity-summary-col" style={{ flex: "1 1 160px" }}>
                   <div className="equity-summary-card">
@@ -4176,7 +4192,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 })()}
               </div>
               )}
-              {reportView === "single" || !columnarViewAvailable ? (
+              {!columnarGranularityActive ? (
                 <GroupedReport
                   title1="Expenditure"
                   rows1={periodExpenseRows}
@@ -4190,8 +4206,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               ) : (
                 <ColumnarIncomeExpenditure
                   data={data}
-                  start={columnarStart}
-                  end={columnarEnd}
+                  start={yearlyColumnarStart}
+                  end={yearlyColumnarEnd}
                   granularity={reportView}
                   fmt={fmt}
                   onComputed={(periods, incomeRows, expenseRows) => setColumnarData({ periods, incomeRows, expenseRows })}
@@ -4209,7 +4225,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 exporting={exportingBalanceSheet}
                 onExport={exportBalanceSheet}
                 extra={
-                  (reportView === "monthly" || reportView === "quarterly") && columnarViewAvailable ? (
+                  columnarGranularityActive ? (
                     <span className="report-view-toggle" role="group" aria-label="Balance Sheet view">
                       <button
                         type="button"
@@ -4231,7 +4247,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   ) : undefined
                 }
               />
-              {reportView === "single" || !columnarViewAvailable ? (
+              {!columnarGranularityActive ? (
                 <BalanceSheetReport
                   assets={assetRows}
                   liabilities={liabilityRows}
@@ -4247,8 +4263,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               ) : (
                 <ColumnarBalanceSheet
                   data={data}
-                  start={columnarStart}
-                  end={columnarEnd}
+                  start={yearlyColumnarStart}
+                  end={yearlyColumnarEnd}
                   granularity={reportView}
                   fmt={fmt}
                   viewMode={bsViewMode}
@@ -4263,11 +4279,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "cashflow" && (
             <>
               <ReportViewToggle title="Cash Flow" exporting={exportingCashFlow} onExport={exportCashFlow} />
-              {reportView !== "single" && columnarViewAvailable && (
+              {columnarGranularityActive && (
                 <ColumnarCashFlow
                   data={data}
-                  start={columnarStart}
-                  end={columnarEnd}
+                  start={yearlyColumnarStart}
+                  end={yearlyColumnarEnd}
                   granularity={reportView}
                   fmt={fmt}
                   onComputed={(periods, inflowRows, outflowRows) => setColumnarCFData({ periods, inflowRows, outflowRows })}
@@ -4276,7 +4292,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   collapseSignal={reportExpandAll.collapseSignal}
                 />
               )}
-              {(reportView === "single" || !columnarViewAvailable) && (
+              {!columnarGranularityActive && (
               <CashFlowReport
                 periodLabel={periodLabel}
                 cashOpening={cashOpening}
@@ -4404,7 +4420,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 }}
                 onDrilldown={setColumnarDrilldown}
                 onComputed={(periods, incomeRows, expenseRows) => setBudgetData({ periods, incomeRows, expenseRows })}
-                reportView={reportView}
+                // Budget vs Actual is inherently one fiscal year broken into 12 months (see
+                // budgetFy above) -- a year-over-year Yearly view doesn't map onto that the way
+                // it does for Income & Expenditure/Balance Sheet/Cash Flow, so it falls back to
+                // Monthly here specifically rather than widening this component's own prop type.
+                reportView={reportView === "yearly" ? "monthly" : reportView}
                 expandSignal={reportExpandAll.expandSignal}
                 collapseSignal={reportExpandAll.collapseSignal}
               />

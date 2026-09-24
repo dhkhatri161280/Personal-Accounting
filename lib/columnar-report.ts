@@ -35,18 +35,32 @@ function monthsBetween(start: string, end: string): MonthBoundary[] {
   return months;
 }
 
-// Generates one period per calendar month (or one per fiscal quarter) covering the given
-// [start, end] range -- follows whatever "Financial period" is selected in VaultApp (a fiscal
-// year, a custom month range, or a single month), not just a hardcoded FY. Quarters are still
-// grouped on the app's fixed April-start fiscal-quarter boundaries (Apr–Jun, Jul–Sep, Oct–Dec,
-// Jan–Mar) even for a custom range, so a range that starts/ends mid-quarter yields a shorter
-// "partial quarter" column at that edge rather than misaligned grouping.
-export function periodBoundariesForRange(start: string, end: string, granularity: "monthly" | "quarterly"): PeriodBoundary[] {
+// Generates one period per calendar month (or one per fiscal quarter, or one per fiscal year)
+// covering the given [start, end] range -- follows whatever "Financial period" is selected in
+// VaultApp (a fiscal year, a custom month range, or a single month), not just a hardcoded FY.
+// Quarters and years are both still grouped on the app's fixed April-start fiscal boundaries
+// even for a custom range, so a range that starts/ends mid-quarter/mid-year yields a shorter
+// "partial" column at that edge rather than misaligned grouping.
+export function periodBoundariesForRange(start: string, end: string, granularity: "monthly" | "quarterly" | "yearly"): PeriodBoundary[] {
   const months = monthsBetween(start, end);
   if (granularity === "monthly") return months.map(({ y, m, ...rest }) => rest);
 
-  const quarterOf = (m: number) => Math.floor(((m - 4 + 12) % 12) / 3); // 0..3, Apr-start
   const fyOf = (y: number, m: number) => (m >= 4 ? y : y - 1);
+
+  if (granularity === "yearly") {
+    const groups = new Map<string, MonthBoundary[]>();
+    for (const mo of months) {
+      const key = String(fyOf(mo.y, mo.m));
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(mo);
+    }
+    return [...groups.entries()].map(([key, ms]) => {
+      const first = ms[0], last = ms[ms.length - 1];
+      const fy = Number(key);
+      return { key, label: `FY${String(fy).slice(-2)}-${String(fy + 1).slice(-2)}`, start: first.start, end: last.end };
+    });
+  }
+
+  const quarterOf = (m: number) => Math.floor(((m - 4 + 12) % 12) / 3); // 0..3, Apr-start
   const groups = new Map<string, MonthBoundary[]>();
   for (const mo of months) {
     const key = `${fyOf(mo.y, mo.m)}-Q${quarterOf(mo.m) + 1}`;
