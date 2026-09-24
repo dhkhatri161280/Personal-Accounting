@@ -1240,20 +1240,26 @@ a.action {
   font-size: var(--fs-xl);
   margin: 0 0 16px;
 }
+/* Lines up under the grid's own Ledger/Group/Opening/Dr/Cr/Closing columns instead of a flat
+   "Opening $X Dr $Y ..." label row -- each .ledger-grid-totals-cell uses the exact same flex
+   ratio/minWidth as its matching column definition in the columns array above it, so at the
+   default (non-manually-resized) column widths every total sits directly beneath its header. */
 .ledger-grid-totals {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
   align-items: center;
-  padding: 10px 14px;
+  padding: 10px 0;
   font-size: var(--fs-md);
   color: #34445e;
 }
 .ledger-grid-totals strong {
   color: #0f1b2d;
 }
-.ledger-grid-totals .MuiTablePagination-root {
-  margin-left: auto;
+.ledger-grid-totals-cell {
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+.ledger-grid-totals-cell--num {
+  text-align: right;
 }
 .ledger-subtotal-row {
   background: #eef3fb;

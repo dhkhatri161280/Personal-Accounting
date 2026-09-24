@@ -3614,12 +3614,31 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   initialState={{ sorting: { sortModel: [{ field: "name", sort: "asc" }] } }}
                   slots={{
                     footer: () => (
+                      // Lines up under each column instead of a flat "Opening $X Dr $Y ..." label
+                      // row -- same flex/minWidth ratios as the columns array above (Ledger 1.4/160,
+                      // Group 1/140, Opening/Dr/Cr/Closing 1/110 each), so under default (non-manually-
+                      // resized) column widths each total sits directly beneath its own header. Can't
+                      // track a live column drag-resize (that needs the grid's own column-width state,
+                      // which the Community DataGrid used here doesn't expose a totals-row slot for --
+                      // row pinning/aggregation footers are an X Pro-only feature) -- close enough for
+                      // the default/common case, which is what this flags.
                       <div className="ledger-grid-totals">
-                        <strong>Total</strong>
-                        <span>Opening <b className="ledger-grid-totals-amt">{money(ledgerTotals.opening)}</b></span>
-                        <span>Dr <b className="ledger-grid-totals-amt">{ledgerTotals.debit ? fmt(ledgerTotals.debit) : "-"}</b></span>
-                        <span>Cr <b className="ledger-grid-totals-amt">{ledgerTotals.credit ? fmt(ledgerTotals.credit) : "-"}</b></span>
-                        <span>Closing <b className="ledger-grid-totals-amt">{money(ledgerTotals.closing)}</b></span>
+                        <span className="ledger-grid-totals-cell" style={{ flex: 1.4, minWidth: 160 }}>
+                          <strong>Total</strong>
+                        </span>
+                        <span className="ledger-grid-totals-cell" style={{ flex: 1, minWidth: 140 }} />
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                          <b className="ledger-grid-totals-amt">{money(ledgerTotals.opening)}</b>
+                        </span>
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                          <b className="ledger-grid-totals-amt">{ledgerTotals.debit ? fmt(ledgerTotals.debit) : "-"}</b>
+                        </span>
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                          <b className="ledger-grid-totals-amt">{ledgerTotals.credit ? fmt(ledgerTotals.credit) : "-"}</b>
+                        </span>
+                        <span className="ledger-grid-totals-cell ledger-grid-totals-cell--num" style={{ flex: 1, minWidth: 110 }}>
+                          <b className="ledger-grid-totals-amt">{money(ledgerTotals.closing)}</b>
+                        </span>
                       </div>
                     ),
                   }}
