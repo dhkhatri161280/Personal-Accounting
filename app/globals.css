@@ -5959,6 +5959,18 @@ button.group-heading:hover {
   margin-bottom: 18px;
 }
 .dk-header small {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: #74839b;
+  font-weight: 900;
+}
+/* The real app header (VaultApp.tsx/GrApp.tsx) has no .dk-header ancestor -- that class belongs
+   to the unrelated GenericHome.tsx onboarding page (reverted above to its original styling,
+   untouched by the tagline restyle below). The actual header markup is
+   <header><div><div className="app-tagline-row"><small>...</small></div></div></header>, with no
+   class on <header> or its first child div -- .app-tagline-row is the one reliable class in that
+   chain, confirmed present in both VaultApp.tsx and GrApp.tsx. */
+.app-tagline-row small {
   font-family: var(--font-mono), monospace;
   font-size: var(--fs-xl);
   letter-spacing: 0.02em;
