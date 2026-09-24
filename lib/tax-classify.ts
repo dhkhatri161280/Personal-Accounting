@@ -1,4 +1,4 @@
-import type { EsppPurchase, RsuGrant } from "./vault-types";
+import type { EsppPurchase, RsuGrant, Trade } from "./vault-types";
 
 export interface CapitalGainEvent {
   id: string;
@@ -61,6 +61,45 @@ export function classifyEsppSales(purchases: EsppPurchase[], year: string, holdi
       id: p.id,
       label: `${p.ticker} ESPP purchased ${p.purchaseDate}`,
       shares: soldShares,
+      costBasis,
+      proceeds,
+      gain: proceeds - costBasis,
+      term: heldDays > holdingDays ? "long" : "short",
+    });
+  }
+  return events;
+}
+
+/** Closed positions from the Trading report (buy/sell of non-employer stock, e.g. MSTR/TSLA/etc
+ * through a brokerage) -- a real, taxable source of capital gain/loss that this app previously
+ * tracked for P&L display but never fed into the Tax report's AGI at all. Confirmed live: a
+ * high earner's vault AGI was understating the real filed return's AGI by thousands of dollars,
+ * and Trading's realized gains were the missing piece (RSU/ESPP sales were already counted via
+ * classifyRsuSales/classifyEsppSales above -- this is the other capital-gain source, employer
+ * stock traded through a regular brokerage account rather than vested/purchased equity comp).
+ *
+ * excludeSymbols: the employer's own ticker(s) must be passed in here if a Trading-report entry
+ * for that symbol could exist (e.g. synced from a Schwab CSV that also holds the employer
+ * stock) -- otherwise the same sale gets counted twice, once through Equity's RSU/ESPP
+ * classification and once here. TradingReport.tsx already excludes the employer symbol from its
+ * own OWN reconciliation view for the same reason (see its SCHWAB_SYNC_EXCLUDE). */
+export function classifyTradingSales(
+  trades: Trade[],
+  year: string,
+  holdingDays: number,
+  excludeSymbols: ReadonlySet<string> = new Set()
+): CapitalGainEvent[] {
+  const events: CapitalGainEvent[] = [];
+  for (const t of trades) {
+    if (!t.saleDate || !t.saleDate.startsWith(year)) continue;
+    if (excludeSymbols.has(t.symbol)) continue;
+    const costBasis = t.units * t.costPerSh;
+    const proceeds = t.units * t.marketOrSalePrice;
+    const heldDays = daysBetween(t.buyDate, new Date(t.saleDate));
+    events.push({
+      id: t.id,
+      label: `${t.symbol} sold ${t.saleDate}`,
+      shares: t.units,
       costBasis,
       proceeds,
       gain: proceeds - costBasis,

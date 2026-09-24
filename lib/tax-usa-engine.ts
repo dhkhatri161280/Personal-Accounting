@@ -1,4 +1,4 @@
-import { resolveUsTaxRules, type UsBracket, type UsFilingStatus, type UsTaxRules } from "./tax-usa-rules";
+import { resolveUsTaxRules, type UsBracket, type UsFilingStatus, type UsTaxRules } from "./tax-usa-rules.ts";
 
 /** Progressive bracket math — ported from the reference implementation. */
 export function applyBrackets(income: number, brackets: UsBracket[]): number {

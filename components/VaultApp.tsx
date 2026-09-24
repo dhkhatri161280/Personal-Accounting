@@ -4554,6 +4554,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               transactions={data.transactions}
               equity={data.equity}
               accounts={data.accounts}
+              trades={data.trades}
               onSave={async (payroll, newDocument) => {
                 return await save(
                   { ...data, payroll, documents: newDocument ? [...(data.documents ?? []), newDocument] : data.documents },

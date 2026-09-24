@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, ManualVestTax, RsuGrant, RsuVest, EsppPurchase, Account, VaultDocument } from "@/lib/vault-types";
+import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, ManualVestTax, RsuGrant, RsuVest, EsppPurchase, Account, VaultDocument, Trade } from "@/lib/vault-types";
 import { apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -11,11 +11,12 @@ import { DonutChart, type DonutSegment } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
-import { classifyRsuSales, classifyEsppSales, summarizeCapitalGains } from "@/lib/tax-classify";
+import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains } from "@/lib/tax-classify";
 import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
 import { matchDeductionLedgers, deductionTotal, findHsaContributions } from "@/lib/tax-deductions";
 import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-engine";
+import { resolveCaTaxRules } from "@/lib/tax-ca-rules";
 import { estimateNjStateTax, computeNjPropertyTaxDeduction } from "@/lib/tax-nj-engine";
 import { estimateAzStateTax, computeAzItemizedDeduction } from "@/lib/tax-az-engine";
 import { resolveStateResidency } from "@/lib/tax-state-residency";
@@ -31,6 +32,9 @@ interface TaxReportProps {
   transactions: Tx[];
   equity: EquityData | undefined;
   accounts: Account[];
+  // Closed brokerage-trade positions (Reports > Trading) -- realized gain/loss on non-employer
+  // stock, a real taxable capital gain source alongside RSU/ESPP sales.
+  trades: Trade[] | undefined;
   // newDocument is set when "Upload Paystub PDF" is being confirmed -- the PDF itself is
   // archived into Masters > Documents (see archivePaystubDocument below) in the SAME save as
   // the extracted numbers, not a separate trip.
@@ -141,6 +145,17 @@ export type YearSalaryTaxSummary = {
   espp: number;
   rsuVested: number;
 };
+
+// The employer's own ticker(s) (RSU grants + ESPP purchases), so a Trading-report entry for that
+// same symbol -- e.g. synced in from a Schwab CSV that also holds the employer stock -- is
+// excluded from classifyTradingSales and doesn't get double-counted alongside the Equity-report
+// RSU/ESPP sale classification, which already covers it.
+function employerTickerSet(equity: EquityData | undefined): Set<string> {
+  const tickers = new Set<string>();
+  for (const g of equity?.grants ?? []) tickers.add(g.ticker);
+  for (const e of equity?.esppPurchases ?? []) tickers.add(e.ticker);
+  return tickers;
+}
 
 // Same aggregation formulas the single-year view below uses (override-aware: a manual period
 // correction replaces that period's Excel-imported value, a voucher-derived period adds on top,
@@ -294,6 +309,7 @@ function computeYearTaxEstimate(
   transactions: Tx[],
   accounts: Account[],
   equity: EquityData | undefined,
+  trades: Trade[] | undefined,
   filingStatus: UsFilingStatus,
   hsaCoverage: HsaCoverage
 ): YearFederalStateTaxEstimate {
@@ -301,7 +317,12 @@ function computeYearTaxEstimate(
   const year = agg.yr.year;
   const taxableWages = Math.max(0, agg.totalGross - agg.totalK401);
   const taxEstimateYear = listUsTaxYears().includes(year) ? year : listUsTaxYears()[0]!;
-  const gainEvents = [...classifyRsuSales(equity?.grants ?? [], year, 365), ...classifyEsppSales(equity?.esppPurchases ?? [], year, 365)];
+  const employerTickers = employerTickerSet(equity);
+  const gainEvents = [
+    ...classifyRsuSales(equity?.grants ?? [], year, 365),
+    ...classifyEsppSales(equity?.esppPurchases ?? [], year, 365),
+    ...classifyTradingSales(trades ?? [], year, 365, employerTickers),
+  ];
   const gainTotals = summarizeCapitalGains(gainEvents);
   const deductionMatches = matchDeductionLedgers(accounts, transactions, year);
   const hsaContributionTotal = findHsaContributions(transactions, year).reduce((s, h) => s + h.amount, 0);
@@ -344,7 +365,7 @@ function computeYearTaxEstimate(
       ? computeNjPropertyTaxDeduction(stateItemizedInputs.propertyTax)
       : stateResidency.code === "AZ"
         ? computeAzItemizedDeduction(stateAgi, stateItemizedInputs)
-        : computeCaItemizedDeduction(stateAgi, stateItemizedInputs);
+        : computeCaItemizedDeduction(stateAgi, stateItemizedInputs, resolveCaTaxRules(taxEstimateYear, filingStatus).itemizedDeductionPhaseoutThreshold);
   const stateTaxEstimate =
     stateResidency.code === "NJ"
       ? estimateNjStateTax({ taxYear: taxEstimateYear, filingStatus, agi: stateAgi, propertyTax: stateItemizedInputs.propertyTax, stateWithheld: agg.totalStateWH })
@@ -527,7 +548,7 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, accounts, onSave, onViewVoucher, onViewDocuments, book, fmt, readOnly, livePrice }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, accounts, trades, onSave, onViewVoucher, onViewDocuments, book, fmt, readOnly, livePrice }: TaxReportProps) {
   const { privacyMode } = useUiPrefs();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -1089,7 +1110,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // rendered near "Estimated Tax Liability" below. Uses the currently-selected filing status/HSA
   // coverage for every year (same single, global assumption the year-at-a-time view uses).
   const allYearsTaxEstimate = years
-    .map((y) => computeYearTaxEstimate(y, transactions, accounts, equity, filingStatus, hsaCoverage))
+    .map((y) => computeYearTaxEstimate(y, transactions, accounts, equity, trades, filingStatus, hsaCoverage))
     .sort((a, b) => b.year.localeCompare(a.year));
 
   const allManualPeriods = yr.manualPeriods ?? [];
@@ -1308,9 +1329,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
   // still open to act on, not one already filed and processed.
   const taxYearFilingDeadline = `${Number(taxEstimateYear) + 1}-04-15`;
   const taxYearIsOpenForPlanning = todayIso <= taxYearFilingDeadline;
+  const employerTickers = employerTickerSet(equity);
   const gainEvents = [
     ...classifyRsuSales(equity?.grants ?? [], yr.year, 365),
     ...classifyEsppSales(equity?.esppPurchases ?? [], yr.year, 365),
+    ...classifyTradingSales(trades ?? [], yr.year, 365, employerTickers),
   ];
   const gainTotals = summarizeCapitalGains(gainEvents);
 
@@ -1369,7 +1392,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
       ? computeNjPropertyTaxDeduction(stateItemizedInputs.propertyTax)
       : stateResidency.code === "AZ"
         ? computeAzItemizedDeduction(stateAgi, stateItemizedInputs)
-        : computeCaItemizedDeduction(stateAgi, stateItemizedInputs);
+        : computeCaItemizedDeduction(stateAgi, stateItemizedInputs, resolveCaTaxRules(taxEstimateYear, filingStatus).itemizedDeductionPhaseoutThreshold);
   const stateTaxEstimate =
     stateResidency.code === "NJ"
       ? estimateNjStateTax({
