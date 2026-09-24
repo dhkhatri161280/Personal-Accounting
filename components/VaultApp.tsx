@@ -4275,15 +4275,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             const isCreditCard = (a: Account) => /credit card/i.test(a.name);
             const isHsa = (a: Account) => /\bhsa\b/i.test(a.name);
             const isTrading = (a: Account) => /charles schwab/i.test(a.name);
-            const bankTotal = cashBankRows
-              .filter((a) => /bank accounts/i.test(a.parent || "") && !isCreditCard(a) && !isHsa(a) && !isTrading(a))
-              .reduce((s, a) => s - a.closing, 0);
-            const creditCardTotal = cashBankRows.filter(isCreditCard).reduce((s, a) => s - a.closing, 0);
-            const hsaTotal = cashBankRows.filter(isHsa).reduce((s, a) => s - a.closing, 0);
-            const tradingTotal = cashBankRows.filter(isTrading).reduce((s, a) => s - a.closing, 0);
             const cashTotal = cashBankRows
               .filter((a) => /cash-in-hand/i.test(a.parent || ""))
               .reduce((s, a) => s - a.closing, 0);
+            // Bank Account absorbs Cash in Hand -- physical cash-in-hand is immaterial for this
+            // book (confirmed live: $0.00) and not worth its own card; folded in here rather than
+            // dropped so the row still sums to the same Total Cash and Bank figure.
+            const bankTotal =
+              cashBankRows
+                .filter((a) => /bank accounts/i.test(a.parent || "") && !isCreditCard(a) && !isHsa(a) && !isTrading(a))
+                .reduce((s, a) => s - a.closing, 0) + cashTotal;
+            const creditCardTotal = cashBankRows.filter(isCreditCard).reduce((s, a) => s - a.closing, 0);
+            const hsaTotal = cashBankRows.filter(isHsa).reduce((s, a) => s - a.closing, 0);
+            const tradingTotal = cashBankRows.filter(isTrading).reduce((s, a) => s - a.closing, 0);
             return (
               <div className="data-panel cash-bank-report">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
@@ -4330,15 +4334,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                       <div className="equity-summary-card-body">
                         <span>Trading</span>
                         <strong className="equity-amt">{fmt(tradingTotal)}</strong>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="equity-summary-col">
-                    <div className="equity-summary-card">
-                      <StatIcon kind="cash" color="#16a34a" />
-                      <div className="equity-summary-card-body">
-                        <span>Cash in Hand</span>
-                        <strong className="equity-amt">{fmt(cashTotal)}</strong>
                       </div>
                     </div>
                   </div>

@@ -8843,29 +8843,31 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 
 /* Same density treatment as .equity-report above, applied to the Cash and Bank Closing Balances
-   breakdown (Bank Account/Credit Card/HSA/Trading/Cash in Hand/Total -- 6 cards) so all of them
-   sit on one row instead of wrapping. */
+   breakdown (Bank Account/Credit Card/HSA/Trading/Total -- 5 cards, Cash in Hand folded into Bank
+   Account) so all of them sit on one row instead of wrapping. Sized a notch larger than the
+   .equity-report treatment above (5 cards here vs. 7 there) -- the extra room per card is spent
+   on more readable label/amount text, not just whitespace. */
 .ui-refresh .cash-bank-report .equity-summary-row {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
   gap: 8px !important;
 }
 .ui-refresh .cash-bank-report .equity-summary-card {
-  padding: 6px 8px !important;
-  gap: 6px !important;
+  padding: 8px 10px !important;
+  gap: 8px !important;
 }
 .ui-refresh .cash-bank-report .stat-icon {
-  width: 24px !important;
-  height: 24px !important;
+  width: 26px !important;
+  height: 26px !important;
 }
 .ui-refresh .cash-bank-report .stat-icon svg {
-  width: 12px !important;
-  height: 12px !important;
+  width: 13px !important;
+  height: 13px !important;
 }
 .ui-refresh .cash-bank-report .equity-summary-card span {
-  font-size: var(--fs-2xs) !important;
+  font-size: var(--fs-sm) !important;
 }
 .ui-refresh .cash-bank-report .equity-summary-card strong {
-  font-size: var(--fs-sm) !important;
+  font-size: var(--fs-lg) !important;
   overflow: hidden;
   text-overflow: ellipsis;
 }
