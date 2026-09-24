@@ -661,6 +661,44 @@ export function TaxReport({ payroll, transactions, equity, accounts, onSave, onV
     })();
   }, [payroll, activeYearLabel, readOnly, onSave]);
 
+  // One-time repair for a voucher-derived manual period whose label now matches a real
+  // Excel-imported period but was never LINKED to it (periodIndex left undefined). Confirmed
+  // live: this produces both a visibly duplicated Pay Periods row (the Excel row AND the
+  // unlinked correction, both showing the same period) AND, more seriously, DOUBLE-COUNTS every
+  // total this feeds -- manualGross/manualFederal/etc. sum every periodIndex-undefined entry
+  // unconditionally and add it ON TOP of overriddenGrossTotal()'s own Excel-row sum, which has
+  // no way to know this "voucher" period is actually the SAME real pay period (see the comment
+  // on voucherPeriods/overrideByIndex above). Likely cause: the paystub was uploaded and saved
+  // before this label existed in the Excel import (a later re-import added or renamed that
+  // period), so matchPayrollPeriod had nothing to match against at save time. Re-links by
+  // setting periodIndex to the now-matching Excel row -- converting it into a proper override,
+  // which both collapses the duplicate row and removes the double-count, without touching any
+  // of its actual saved numbers. Runs every time a new match appears (not just once ever), so
+  // it keeps self-healing if the same situation recurs after a future re-import.
+  const relinkAttemptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!payroll || readOnly) return;
+    const yr = payroll.years.find((y) => y.year === activeYearLabel);
+    if (!yr || relinkAttemptedRef.current.has(yr.year)) return;
+    const manualPeriods = yr.manualPeriods ?? [];
+    const claimedIndexes = new Set(manualPeriods.filter((m) => m.periodIndex !== undefined).map((m) => m.periodIndex));
+    let changed = false;
+    const relinked = manualPeriods.map((m) => {
+      if (m.periodIndex !== undefined) return m;
+      const idx = yr.periodLabels.indexOf(m.label);
+      if (idx === -1 || claimedIndexes.has(idx)) return m;
+      claimedIndexes.add(idx);
+      changed = true;
+      return { ...m, periodIndex: idx };
+    });
+    if (!changed) { relinkAttemptedRef.current.add(yr.year); return; }
+    const updatedYears = payroll.years.map((y) => (y.year !== yr.year ? y : { ...y, manualPeriods: relinked }));
+    (async () => {
+      const ok = await onSave({ ...payroll, years: updatedYears });
+      if (ok !== false) relinkAttemptedRef.current.add(yr.year);
+    })();
+  }, [payroll, activeYearLabel, readOnly, onSave]);
+
   // Once a salary voucher is posted for a period the Excel doesn't cover, auto-create a
   // (marked "estimated") Tax tab line for it right away — no need to wait for a re-import.
   useEffect(() => {
