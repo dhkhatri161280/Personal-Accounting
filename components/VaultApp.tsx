@@ -1245,6 +1245,24 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // mismatch, which is what produced the blank white screen after deploy.
   const [showPeriodInfo, setShowPeriodInfo] = useState(false);
 
+  // NOT fundSummaryStart/End's "0000-00-00"/"9999-99-99" sentinels -- those are safe ONLY for
+  // simple string >=/<= comparisons (Fund Summary's own use), not as real date-arithmetic input.
+  // Confirmed live: feeding "0000-00-00" into periodBoundariesForRange's month-by-month walk
+  // parses year 0/month 0 and iterates forward from there, producing garbage columns ("FY-1-0",
+  // "FY0-1", "FY1-2" ...) instead of the ledger's real fiscal years. This walks the real
+  // transaction dates to find the actual earliest one to start from, for the Yearly columnar
+  // report's "All periods" case. Declared before the `if (!data)` early return below, like
+  // every other hook in this component must be (see comment above).
+  const earliestTxDate = useMemo(() => {
+    if (!data) return "";
+    let earliest = "";
+    for (const t of data.transactions) {
+      if (t.deleted) continue;
+      if (!earliest || t.date < earliest) earliest = t.date;
+    }
+    return earliest || todayLocalIso();
+  }, [data]);
+
   // Top 8 ledgers by entry count over the last 180 days -- quick-pick chips in the New Voucher
   // form so a repeat vendor/category doesn't need typing/searching the full ledger list every
   // time. Recomputed only when `data` itself changes (a save), not per keystroke.
@@ -2186,22 +2204,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // pieces. So Yearly doesn't get blocked by columnarViewAvailable the way Monthly/Quarterly
   // correctly are.
   const columnarGranularityActive = reportView !== "single" && (columnarViewAvailable || reportView === "yearly");
-  // NOT fundSummaryStart/End's "0000-00-00"/"9999-99-99" sentinels -- those are safe ONLY for
-  // simple string >=/<= comparisons (Fund Summary's own use), not as real date-arithmetic input.
-  // Confirmed live: feeding "0000-00-00" into periodBoundariesForRange's month-by-month walk
-  // parses year 0/month 0 and iterates forward from there, producing garbage columns ("FY-1-0",
-  // "FY0-1", "FY1-2" ...) instead of the ledger's real fiscal years. This walks the real
-  // transaction dates to find the actual earliest one to start from.
-  const earliestTxDate = useMemo(() => {
-    let earliest = "";
-    for (const t of data.transactions) {
-      if (t.deleted) continue;
-      if (!earliest || t.date < earliest) earliest = t.date;
-    }
-    return earliest || todayStr;
-  }, [data.transactions, todayStr]);
   const yearlyColumnarStart = year === "all" ? earliestTxDate : columnarStart;
-  const yearlyColumnarEnd = year === "all" ? todayStr : columnarEnd;
+  const yearlyColumnarEnd = year === "all" ? todayLocalIso() : columnarEnd;
 
   // Budget vs Actual is inherently a 12-month (Apr-Mar) FY structure -- "all periods", a custom
   // range, or a single month don't map onto that, so this stays null (report shows a message)
