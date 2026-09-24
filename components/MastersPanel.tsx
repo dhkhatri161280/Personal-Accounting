@@ -6,6 +6,7 @@ import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
 import type { RecurringTemplate, AuditEntry, FixedAsset, Ledger, VaultDocument } from "@/lib/vault-types";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
+import { trimPdfToFit } from "@/lib/trim-pdf";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import {
@@ -986,20 +987,34 @@ export function MastersPanel({
     try {
       const newDocs: VaultDocument[] = [];
       const errors: string[] = [];
+      const notes: string[] = [];
       // Reject anything obviously over the server's own MAX_SIZE (app/api/attachments/route.ts)
       // BEFORE spending a round-trip on it -- a large scanned PDF (a multi-page grant/offer
       // letter, say) can also get rejected even lower down, by Cloudflare's own edge, before our
       // handler ever runs; that comes back as a bare 413 with no body to explain it. Either way,
       // the actionable advice is the same, so both cases share one clear message instead of a
-      // cryptic status code -- this is the "large PDF" problem the trimmed FY26 Focal Grant
-      // worked around manually; this makes any FUTURE oversized file self-explanatory instead.
+      // cryptic status code.
       const tooLarge = (size: number) => size > DOCUMENT_MAX_SIZE_BYTES;
       const oversizedMsg = (file: File) =>
         `${file.name} is too large (${(file.size / 1024 / 1024).toFixed(1)}MB, limit ~${DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB) -- try compressing it or trimming it to fewer pages, then upload again.`;
-      for (const file of list) {
+      for (let file of list) {
         if (tooLarge(file.size)) {
-          errors.push(oversizedMsg(file));
-          continue;
+          // A large PDF (a multi-year stock plan doc with a scanned prospectus appendix, say)
+          // almost always has the part that actually matters in its first few pages -- trim it
+          // to fit automatically, client-side, instead of making the user do this by hand
+          // outside the app every time (see lib/trim-pdf.ts). Only attempted for real PDFs; any
+          // other oversized file type, or a PDF that still doesn't fit even at 1 page, falls
+          // back to the same clear manual-fix message as before.
+          const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+          const trimmed = isPdf ? await trimPdfToFit(file, DOCUMENT_MAX_SIZE_BYTES) : null;
+          if (!trimmed) {
+            errors.push(oversizedMsg(file));
+            continue;
+          }
+          notes.push(
+            `${file.name} was automatically trimmed from ${trimmed.originalPages} to ${trimmed.keptPages} page(s) to fit the ${DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB limit.`
+          );
+          file = trimmed.file;
         }
         const form = new FormData();
         form.append("file", file);
@@ -1019,12 +1034,12 @@ export function MastersPanel({
           ...meta,
         });
       }
-      if (errors.length) setDocumentUploadError(errors.join(" "));
+      // Trim notes surface even when nothing ended up saved (e.g. the trim succeeded but the
+      // upload itself then failed for an unrelated reason) -- never silently dropped.
+      if (errors.length || (notes.length && !newDocs.length)) setDocumentUploadError([...errors, ...(newDocs.length ? [] : notes)].join(" "));
       if (newDocs.length) {
-        onSave(
-          { ...data, documents: [...documentsList, ...newDocs] },
-          newDocs.length === 1 ? `Document "${newDocs[0].label}" added.` : `${newDocs.length} documents added.`
-        );
+        const addedMsg = newDocs.length === 1 ? `Document "${newDocs[0].label}" added.` : `${newDocs.length} documents added.`;
+        onSave({ ...data, documents: [...documentsList, ...newDocs] }, [addedMsg, ...notes].join(" "));
         setShowAddDocument(false);
         setDocLabel("");
         setDocDate("");
@@ -1690,8 +1705,8 @@ export function MastersPanel({
           {showAddDocument && (
             <p className="field-hint" style={{ margin: "0 0 10px" }}>
               Selecting several files at once uploads them all under the same Category/Date, each labeled from its own filename.
-              Each file must be under {DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB -- a large scanned PDF may need compressing or
-              trimming to fewer pages first.
+              Each file must be under {DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB -- an oversized PDF is automatically trimmed to
+              its first few pages to fit; other oversized files need manual compressing first.
             </p>
           )}
           {documentUploadError && <p className="equity-pdf-error">{documentUploadError}</p>}
