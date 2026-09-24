@@ -1455,6 +1455,21 @@ td strong {
   text-overflow: ellipsis;
   align-self: center;
 }
+/* Floating toast variant (see VaultApp.tsx) -- taken out of the header-actions-row flex layout
+   entirely so it can never again split the icon row across two lines. Fixed to the viewport, not
+   the header, so it stays visible even if the header itself scrolls out of view. Own max-width
+   (not the 260px above, sized for a cramped inline pill) since it now has the whole viewport
+   corner to itself -- no reason to truncate a real message like the auto-fixed-duplicate-voucher
+   note, which runs longer than "Encrypted save complete" alone. */
+.vault-status-toast {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 1300;
+  max-width: 420px;
+  white-space: normal;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+}
 .vault-status--info {
   background: #eef3fb;
   color: #2c5282;

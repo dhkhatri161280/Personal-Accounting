@@ -2844,11 +2844,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </span>
         </div>
         <div className="header-actions">
-          {status && !isBlockingStatus && (
-            <span className={`vault-status vault-status-text${status.startsWith("Auto-fixed") ? " vault-status--info" : ""}`}>
-              {status}
-            </span>
-          )}
           <div className="header-settings-wrap" ref={settingsMenuRef}>
             <button
               type="button"
@@ -3004,6 +2999,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </div>
         </div>
       </header>
+      {status && !isBlockingStatus && (
+        // Floating toast, deliberately taken OUT of the header-actions-row flex layout -- as an
+        // inline flex sibling of the icon buttons, this message competed for width with them and
+        // could split the icon row across two uneven lines (confirmed live: the gear button
+        // landing alone on one line, sync on the next) whenever the message's own text pushed the
+        // row past its wrap threshold. Same failure mode already documented/fixed once for
+        // .header-actions-row itself (see the width:auto override nearby in globals.css) -- a
+        // fixed-position toast can never again participate in that flex-wrap math, at any
+        // viewport width, and gets its own full-width line to show the whole message instead of
+        // being squeezed into the icon row's leftover space.
+        <div className={`vault-status-toast vault-status vault-status-text${status.startsWith("Auto-fixed") ? " vault-status--info" : ""}`}>
+          {status}
+        </div>
+      )}
       {isBlockingStatus && (
         <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
           <p className="vault-alert-message">{status}</p>
