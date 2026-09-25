@@ -9057,6 +9057,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .dashboard-stats button .dashboard-card-highlights span {
   font-size: var(--fs-xs) !important;
+  /* 76px, not the base rule's 58px -- confirmed live on the real deployed dashboard: a genuine
+     ledger name like "Nissan Rogue" (12 chars) still clipped to "NISSAN ROGUI" at 58px even
+     after the text-align fix below, because that fix's own padding-left ate further into an
+     already-too-narrow column. Widened instead of guessing again. */
+  grid-template-columns: 76px 1fr !important;
 }
 .ui-refresh .dashboard-card-highlights em {
   font-size: clamp(10px, 0.8vw, 12px) !important;
@@ -9065,12 +9070,12 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   height: 19px !important;
   font-size: 8px !important;
   /* text-align left, not the base rule's center -- confirmed live: a centered nowrap+ellipsis
-     label that overflows its 58px column clips silently from BOTH sides with no "..." shown at
-     all ("BOFA CHECKING" rendered as "OFA CHECKIN"), a genuine (pre-existing, just more visible
-     now that real ledger names commonly exceed 58px at this bigger hero-card scale) CSS quirk --
-     ellipsis only reliably shows for left-aligned nowrap overflow. */
+     label that overflows its column clips silently from BOTH sides with no "..." shown at all
+     ("BOFA CHECKING" rendered as "OFA CHECKIN"), a genuine (pre-existing, just more visible
+     now that real ledger names commonly exceed the old 58px at this bigger hero-card scale) CSS
+     quirk -- ellipsis only reliably shows for left-aligned nowrap overflow. */
   text-align: left !important;
-  padding-left: 6px !important;
+  padding-left: 4px !important;
 }
 /* Below the existing 900px breakpoint where .dashboard-stats itself drops to 2 columns (see the
    base rule above), each card is narrower but the highlights column's own width doesn't shrink
