@@ -82,6 +82,7 @@ import { equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWo
 import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
+import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -3357,7 +3358,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <StatIcon kind="stock" color="#dc2626" />
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
-                <strong>{fmt(equityMktValue)}</strong>
+                <AutoFitAmount text={fmt(equityMktValue)} maxFontSize={30} minFontSize={14} />
                 <small className="equity-price-note">{equityTotalShares.toLocaleString()} sh (held + scheduled)</small>
                 <small className="equity-price-note">{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</small>
               </div>

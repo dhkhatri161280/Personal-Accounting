@@ -9016,6 +9016,72 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .dashboard-inline-detail { border-radius: var(--ref-radius); box-shadow: var(--ref-shadow); }
 
+/* Dashboard hero-card refresh — the "grid layout/highlight badges untouched" follow-up flagged
+   in the comment above. This is the app's landing screen, so it gets noticeably more breathing
+   room and bigger headline numbers than the dense equity-summary-card KPI strip pattern above
+   (which is deliberately compact for a strip of many cards in a report); same flat-elevation
+   card shell, same uppercase-label/bold-value vocabulary, just scaled up for a hero panel.
+   DOM structure (icon, then a stacked label/value/subtitle column, then side highlight chips)
+   is unchanged -- this is a CSS-only pass so it applies uniformly wherever dashboard-balance-card
+   is used (VaultApp's DashboardCard-driven cards, VaultApp's manual Equity card, and GrApp's
+   equivalents of both), with no risk of the three render sites drifting out of sync. */
+.ui-refresh .dashboard-stats { gap: 18px !important; }
+.ui-refresh .dashboard-stats button { padding: 22px !important; }
+.ui-refresh .dashboard-balance-card .stat-icon { width: 42px !important; height: 42px !important; }
+.ui-refresh .dashboard-balance-card .stat-icon svg { width: 21px !important; height: 21px !important; }
+.ui-refresh .dashboard-stats button span {
+  font-size: var(--fs-sm) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.03em !important;
+  text-transform: uppercase;
+  color: #64748b !important;
+}
+.ui-refresh .dashboard-stats button strong {
+  /* No font-size here (deliberately) -- AutoFitAmount (components/AutoFitAmount.tsx) sets its
+     own inline font-size per card via !important, shrinking from maxFontSize (30px, passed at
+     each call site) down as far as needed so even a 7-figure balance fits this card's own width
+     without clipping; a font-size rule here would fight that inline style the same way it did
+     for Tax's summary cards (see AutoFitAmount.tsx's own comment). */
+  font-weight: 800 !important;
+  margin: 8px 0 4px !important;
+  color: #0f172a !important;
+}
+.ui-refresh .dashboard-stats button small {
+  font-size: var(--fs-sm) !important;
+  color: var(--ref-blue) !important;
+  font-weight: 600;
+}
+.ui-refresh .dashboard-card-highlights {
+  gap: 8px !important;
+  padding-left: 16px !important;
+}
+.ui-refresh .dashboard-stats button .dashboard-card-highlights span {
+  font-size: var(--fs-xs) !important;
+}
+.ui-refresh .dashboard-card-highlights em {
+  font-size: clamp(10px, 0.8vw, 12px) !important;
+}
+.ui-refresh .dashboard-card-highlights b {
+  height: 19px !important;
+  font-size: 8px !important;
+  /* text-align left, not the base rule's center -- confirmed live: a centered nowrap+ellipsis
+     label that overflows its 58px column clips silently from BOTH sides with no "..." shown at
+     all ("BOFA CHECKING" rendered as "OFA CHECKIN"), a genuine (pre-existing, just more visible
+     now that real ledger names commonly exceed 58px at this bigger hero-card scale) CSS quirk --
+     ellipsis only reliably shows for left-aligned nowrap overflow. */
+  text-align: left !important;
+  padding-left: 6px !important;
+}
+/* Below the existing 900px breakpoint where .dashboard-stats itself drops to 2 columns (see the
+   base rule above), each card is narrower but the highlights column's own width doesn't shrink
+   with it (min(48%, 172px), same as the 3-column layout) -- confirmed live: at 820px viewport
+   width the value column drops to ~107px, not enough room for a 7-figure balance even at
+   AutoFitAmount's minFontSize floor (clipped by 9px). Give the value column more of the card at
+   this breakpoint by shrinking the highlights side instead. */
+@media (max-width: 900px) {
+  .ui-refresh .dashboard-card-highlights { width: min(38%, 140px) !important; min-width: 110px !important; }
+}
+
 /* Income & Expenditure / grouped report sections — same dense collapsible-line structure
    kept as-is, just a readability bump (the classic 9-10px sizing was tuned for density over
    legibility) and rounded corners consistent with the rest of the refreshed panels. */

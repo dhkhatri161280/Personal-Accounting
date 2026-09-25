@@ -24,6 +24,7 @@ import type { SpendLine } from "@/components/reports/SpendReport";
 import { computeGrNetWorthTrend, computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
+import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -1234,9 +1235,10 @@ export function GrApp() {
               className="dashboard-balance-card"
               onClick={() => { setTab("reports"); setReport("equity"); }}
             >
+              <StatIcon kind="stock" color="#dc2626" />
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
-                <strong>{equityData ? fmt(equityTotalInr) : "—"}</strong>
+                <AutoFitAmount text={equityData ? fmt(equityTotalInr) : "—"} maxFontSize={30} minFontSize={14} />
                 <small className="equity-price-note">
                   {nvdaPrice && latestFxRate
                     ? `$${nvdaPrice.toFixed(2)} × ₹${latestFxRate.toFixed(2)} = ₹${(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
