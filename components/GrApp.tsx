@@ -980,6 +980,7 @@ export function GrApp() {
             subtitle="All bank & cash accounts"
             open={dashboardDetail === "cash"}
             onClick={() => toggleDashboardDetail("cash")}
+            hero
             highlights={bankCashAccounts
               .slice()
               .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
@@ -1020,7 +1021,7 @@ export function GrApp() {
             slotClassName="investment-slot"
             cardClassName="investment-card"
             icon="trending-up"
-            iconColor="#16a34a"
+            iconColor="#64748b"
             label="Investments (INR)"
             value={fmt(dashInvestmentsTotal)}
             subtitle="Investment ledgers"
@@ -1071,7 +1072,7 @@ export function GrApp() {
             slotClassName="active-slot"
             cardClassName="fixed-assets-card"
             icon="bank"
-            iconColor="#0891b2"
+            iconColor="#64748b"
             label="Fixed Assets (INR)"
             value={fmt(dashFixedAssetsTotal)}
             subtitle="Fixed asset ledgers"
@@ -1123,12 +1124,13 @@ export function GrApp() {
             slotClassName="capital-slot"
             cardClassName="capital-card"
             icon="scale"
-            iconColor="#7c3aed"
+            iconColor="#1e40af"
             label="Capital (INR)"
             value={fmt(dashCapitalTotal)}
             subtitle="Capital & reserves"
             open={dashboardDetail === "capital"}
             onClick={() => toggleDashboardDetail("capital")}
+            hero
             highlights={
               <>
                 {capitalAccounts
@@ -1174,7 +1176,7 @@ export function GrApp() {
             slotClassName="salary-slot"
             cardClassName="salary-card"
             icon="wallet"
-            iconColor="#d97706"
+            iconColor="#64748b"
             label="Period Income (INR)"
             value={fmt(periodIncome)}
             subtitle={periodLabel}
@@ -1235,7 +1237,7 @@ export function GrApp() {
               className="dashboard-balance-card"
               onClick={() => { setTab("reports"); setReport("equity"); }}
             >
-              <StatIcon kind="stock" color="#dc2626" />
+              <StatIcon kind="stock" color="#64748b" />
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
                 <AutoFitAmount text={equityData ? fmt(equityTotalInr) : "—"} maxFontSize={30} minFontSize={14} />

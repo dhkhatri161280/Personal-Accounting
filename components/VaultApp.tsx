@@ -3181,6 +3181,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             subtitle="View account breakdown"
             open={dashboardDetail === "cash"}
             onClick={() => toggleDashboardDetail("cash")}
+            hero
             highlights={cashHighlights.map((x) => (
               <span key={x.label}>
                 <b>{x.label}</b>
@@ -3194,7 +3195,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             slotClassName="investment-slot"
             cardClassName="investment-card"
             icon="trending-up"
-            iconColor="#16a34a"
+            iconColor="#64748b"
             label="Investments closing"
             value={fmt(investments)}
             subtitle="View investment ledgers"
@@ -3213,12 +3214,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             slotClassName="capital-slot"
             cardClassName="capital-card"
             icon="scale"
-            iconColor="#7c3aed"
+            iconColor="#1e40af"
             label="Capital closing"
             value={fmt(dashboardCapitalTotal)}
             subtitle="Includes current result"
             open={dashboardDetail === "capital"}
             onClick={() => toggleDashboardDetail("capital")}
+            hero
             highlights={capitalHighlights.map((x) => (
               <span key={x.label}>
                 <b>{x.label}</b>
@@ -3232,7 +3234,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             slotClassName="salary-slot"
             cardClassName="salary-card"
             icon="wallet"
-            iconColor="#d97706"
+            iconColor="#64748b"
             label={book === "india" ? "Total income" : "Salary income"}
             value={fmt(book === "india" ? totalIncome : salaryIncome)}
             subtitle={periodLabel}
@@ -3251,7 +3253,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             slotClassName="active-slot"
             cardClassName="dashboard-card-active fixed-assets-card"
             icon="bank"
-            iconColor="#0891b2"
+            iconColor="#64748b"
             label="Fixed assets closing"
             value={fmt(
               rows
@@ -3330,7 +3332,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               slotClassName="loans-slot"
               cardClassName="loans-card"
               icon="receipt"
-              iconColor="#0891b2"
+              iconColor="#64748b"
               label="Loans (Asset) closing"
               value={fmt(loansAdvances)}
               subtitle="View loan & advance ledgers"
@@ -3355,7 +3357,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               className="dashboard-balance-card"
               onClick={() => { setReport("equity"); setTab("reports"); }}
             >
-              <StatIcon kind="stock" color="#dc2626" />
+              <StatIcon kind="stock" color="#64748b" />
               <div className="dashboard-card-main">
                 <span>Equity (NVDA)</span>
                 <AutoFitAmount text={fmt(equityMktValue)} maxFontSize={30} minFontSize={14} />

@@ -9087,6 +9087,37 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   .ui-refresh .dashboard-card-highlights { width: min(38%, 140px) !important; min-width: 110px !important; }
 }
 
+/* Dashboard color/hierarchy pass -- comparing against Rillet's Launchpad surfaced two real
+   gaps beyond raw size: every card used a different icon color essentially by grid position
+   (blue/green/purple/amber/teal/red) with no meaning behind the choice, and all 5-6 cards
+   competed at equal visual weight so nothing read as "the number that matters." Cash and
+   Capital are marked hero={true} in both VaultApp and GrApp's DashboardCard calls, and get a
+   taller value ceiling (36px vs 24px, see DashboardCard.tsx) plus the one tinted accent border
+   below; every other card (including the manual Equity card in both apps, which stays a plain
+   secondary card) had its icon color changed to the same neutral slate (#64748b) at its own
+   call site instead of fighting the per-card colors here with !important. GrApp's own highlight
+   chips (.gr-dash-pill) and the equity daily-G/L / scheduled chips in both apps are untouched
+   below -- those colors are already meaningful (which book a balance came from, positive/
+   negative daily G/L), not decorative, so they're excluded and kept exactly as-is. */
+.ui-refresh .dashboard-card-hero {
+  background: #f8fafc !important;
+  border-color: #bfdbfe !important;
+}
+.ui-refresh .dashboard-card-hero.dashboard-card-open {
+  background: #eef4ff !important;
+  border-color: #93c5fd !important;
+}
+/* The plain (non-.gr-dash-pill, non-equity-daily-chip) highlight-chip labels -- Cash/
+   Investments/Fixed Assets/Equity's AMEX/BOFA/401K/HOME/RSU-style pills -- cycled through
+   blue/amber/red/teal purely by column position (span:nth-child), not by any meaning in the
+   data itself; that arbitrary rainbow is exactly the "color as decoration" pattern Rillet
+   avoids. One neutral tint for all of them now; the dollar figure next to each stays legible
+   without needing four different pill colors to tell them apart. */
+.ui-refresh .dashboard-card-highlights > span:not(.gr-dash-pill):not([class*="equity-daily-chip"]):not(.equity-sch-chip) > b {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+}
+
 /* Income & Expenditure / grouped report sections — same dense collapsible-line structure
    kept as-is, just a readability bump (the classic 9-10px sizing was tuned for density over
    legibility) and rounded corners consistent with the rest of the refreshed panels. */
