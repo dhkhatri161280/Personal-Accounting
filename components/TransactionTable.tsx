@@ -387,6 +387,9 @@ export function TransactionTable({
       next.has(guid) ? next.delete(guid) : next.add(guid);
       return next;
     });
+  // A 2-leg voucher's Debit/Credit Ledger columns (or the card's "A → B" line) already show
+  // everything the expand would repeat -- only a genuine split (3+ entries) reveals anything new.
+  const canExpand = (row: { voucher: VoucherRow }) => row.voucher.entries.length > 2;
   const changeSubtotal = (next: SubtotalPeriod) => {
     setSubtotalPeriod(next);
     setExpandedPeriods(new Set());
@@ -798,10 +801,11 @@ export function TransactionTable({
               <div
                 key={t.id}
                 className="voucher-card"
-                role="button"
-                tabIndex={0}
-                onClick={() => toggleVoucherExpand(t.id)}
-                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleVoucherExpand(t.id)}
+                role={canExpand(t) ? "button" : undefined}
+                tabIndex={canExpand(t) ? 0 : undefined}
+                style={canExpand(t) ? undefined : { cursor: "default" }}
+                onClick={canExpand(t) ? () => toggleVoucherExpand(t.id) : undefined}
+                onKeyDown={canExpand(t) ? (e) => (e.key === "Enter" || e.key === " ") && toggleVoucherExpand(t.id) : undefined}
               >
                 <div className="voucher-card-top">
                   <span className={`pill ${t.voucher.cancelled ? "cancelled" : ""}`}>
@@ -809,7 +813,9 @@ export function TransactionTable({
                     {t.voucher.cancelled ? " - Cancelled" : ""}
                   </span>
                   <span className="voucher-card-date">{t.voucher.date.split("-").reverse().join("-")}</span>
-                  <span className="row-expand-toggle" aria-hidden="true">{expandedVouchers.has(t.id) ? "▾" : "▸"}</span>
+                  {canExpand(t) && (
+                    <span className="row-expand-toggle" aria-hidden="true">{expandedVouchers.has(t.id) ? "▾" : "▸"}</span>
+                  )}
                   <span onClick={(e) => e.stopPropagation()}>
                     <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
                   </span>
@@ -825,7 +831,7 @@ export function TransactionTable({
                 {balanceMap && t.balance !== null && (
                   <div className="voucher-card-balance">Balance: <b>{formatAmount(t.balance)}</b></div>
                 )}
-                {expandedVouchers.has(t.id) && (
+                {canExpand(t) && expandedVouchers.has(t.id) && (
                   <div onClick={(e) => e.stopPropagation()}>
                     <VoucherDetailEntries voucher={t.voucher} formatAmount={formatAmount} />
                   </div>
@@ -942,11 +948,18 @@ export function TransactionTable({
                     <tr
                       key={t.id}
                       className={expandedVouchers.has(t.id) ? "voucher-row-expanded" : ""}
-                      onClick={() => toggleVoucherExpand(t.id)}
-                      style={{ cursor: "pointer" }}
+                      // A plain 2-leg voucher's Debit/Credit Ledger columns already show the exact
+                      // same information the expand row would repeat -- only a split voucher (3+
+                      // entries) actually reveals anything new (per-leg amounts, which the joined
+                      // "A / B / C" ledger columns can't show). Caught live: the toggle was showing
+                      // -- and doing nothing useful -- on every row before this canExpand gate.
+                      onClick={canExpand(t) ? () => toggleVoucherExpand(t.id) : undefined}
+                      style={canExpand(t) ? { cursor: "pointer" } : undefined}
                     >
-                      <td className="expand-toggle-cell">
-                        <span className="row-expand-toggle" aria-hidden="true">{expandedVouchers.has(t.id) ? "▾" : "▸"}</span>
+                      <td className={canExpand(t) ? "expand-toggle-cell" : ""}>
+                        {canExpand(t) && (
+                          <span className="row-expand-toggle" aria-hidden="true">{expandedVouchers.has(t.id) ? "▾" : "▸"}</span>
+                        )}
                       </td>
                       <td>{t.voucher.date.split("-").reverse().join("-")}</td>
                       <td>
@@ -969,7 +982,7 @@ export function TransactionTable({
                         <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
                       </td>
                     </tr>
-                    {expandedVouchers.has(t.id) && (
+                    {canExpand(t) && expandedVouchers.has(t.id) && (
                       <tr key={`${t.id}-detail`} className="voucher-detail-row">
                         <td></td>
                         <td colSpan={(balanceMap ? 8 : 7)}>
