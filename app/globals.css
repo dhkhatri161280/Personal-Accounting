@@ -9229,7 +9229,6 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   overflow-wrap: normal;
 }
 .ui-refresh .tr-broker-chip { border-radius: 999px !important; box-shadow: var(--ref-shadow); }
-.ui-refresh .wl-card { border-radius: var(--ref-radius) !important; box-shadow: var(--ref-shadow); }
 .ui-refresh .tr-insight { border-radius: var(--ref-radius) !important; }
 /* Open/Closed Positions table -- only the KPI strip above it (tr-summary-card, tr-broker-chip,
    tr-insight) had been refreshed; the actual table was still 100% classic (12.5px/10.5px).
@@ -9256,6 +9255,34 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   font-size: var(--fs-lg) !important;
 }
 .ui-refresh .tr-symbol { font-size: var(--fs-sm) !important; padding: 2px 8px !important; }
+
+/* Watchlist -- unlike the tables above, .wl-grid is already a flexible auto-fill card grid
+   (minmax(300px, 1fr)), not a fixed-width layout, so there's no truncation risk here the way
+   there was for the Day Book/Columnar/Equity vest tables; most of .wl-card's own type was
+   already rem-based and reasonably sized (0.9rem/1rem padding, 15px symbol). This is a lighter
+   polish pass: consistent flat-elevation card treatment matching the rest of the app, and
+   simplifying the one arbitrary color use -- .wl-horizon-badge colors short/long/cyclical
+   blue/purple/amber purely as a category label (not gain/loss), the same "color as decoration"
+   pattern already fixed once for the Dashboard's per-position rainbow. Every buy/sell/gain/loss
+   color elsewhere in this block (.wl-alert-chip, .wl-window-badge, .wl-price-flag, .wl-month,
+   .wl-card--in-buy/--in-sell) is genuinely semantic and stays exactly as-is -- including
+   .wl-card's own left-border accent stripe, which is a subtle enough use of the same
+   short/long/cyclical categorization that it doesn't have the same "decorative noise" problem
+   a whole filled badge background does. */
+.ui-refresh .wl-card {
+  border-radius: var(--ref-radius) !important;
+  border-color: var(--ref-border) !important;
+  box-shadow: var(--ref-shadow);
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.ui-refresh .wl-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
+.ui-refresh .wl-filter-pill { border-radius: var(--ref-radius) !important; }
+.ui-refresh .wl-alert { border-radius: var(--ref-radius) !important; }
+.ui-refresh .wl-ai-bar { border-radius: var(--ref-radius) !important; }
+.ui-refresh .wl-horizon-badge {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+}
 
 /* Ledgers / Trial Balance / Daybook — shared filter bar and sortable column headers used
    across several table screens. Readability bump only (8px labels/sort text was tuned for
