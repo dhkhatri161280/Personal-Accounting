@@ -9353,6 +9353,40 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .spend-category-chip-text b { font-size: var(--fs-md) !important; }
 .ui-refresh .spend-category-chip-text em { font-size: var(--fs-base) !important; }
 
+/* Plaid import row status flags -- confirmed live: all six sit inside .plaid-je-meta, a plain
+   flex-column stack (each badge is its own line under the narration input), not a fixed grid
+   column, so bumping size just makes that one line slightly taller -- no overflow risk. Each
+   color is a genuinely different status (auto-matched, household expense, recurring bill,
+   AI-suggested, needs manual account, already in vault), so none of these get neutralized the
+   way the Dashboard's/Watchlist's arbitrary category colors did -- this is real per-status
+   information, not decoration. .plaid-pending-badge-sm (a 3-letter "PND"/"MNL" abbreviation
+   inline in narration text) and .attention-bell-badge (a small fixed-size notification-count
+   dot) are left alone -- both are intentionally tiny by their own convention, not a legibility
+   gap the way the others were. */
+.ui-refresh .plaid-confidence-badge,
+.ui-refresh .plaid-household-badge,
+.ui-refresh .plaid-recurring-badge,
+.ui-refresh .plaid-ai-badge,
+.ui-refresh .plaid-unmatched-badge,
+.ui-refresh .plaid-exists-badge {
+  font-size: var(--fs-base) !important;
+  padding: 3px 10px !important;
+}
+
+/* Equity vest table's "Due" flag -- confirmed live: it sits in the vest-date column, which has
+   only a min-width (88px), not a fixed width, so it can grow to fit -- no overflow risk. */
+.ui-refresh .equity-due-badge {
+  font-size: var(--fs-sm) !important;
+  padding: 2px 7px !important;
+}
+
+/* Anomaly view's "Recent entry" flag -- sits in a <summary> header row (flex-like flow, not a
+   fixed table column), so safe to bump directly. */
+.ui-refresh .anomaly-recent-badge {
+  font-size: var(--fs-base) !important;
+  padding: 3px 10px !important;
+}
+
 /* Masters — tabs, toolbar, status pills, and the shared modal form (reused for ledger edit,
    group edit, settings, and the inline-ledger-modal in New Voucher). No card-row or
    wide-table risk here (the account/group tables are plain, not card grids); this is a
