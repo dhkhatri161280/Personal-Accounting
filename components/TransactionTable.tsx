@@ -200,6 +200,23 @@ function periodLabel(dateIso: string, period: SubtotalPeriod): string {
   return `FY ${fy} (Apr ${fy} - Mar ${fy + 1})`;
 }
 
+// The inline expand's own content -- every entry line for one voucher (account + Dr/Cr amount),
+// same data TallyPrime's Alt+F5 Detailed Daybook shows beneath each voucher header. Shared between
+// the plain-table row and the mobile card, so both stay in sync automatically.
+function VoucherDetailEntries({ voucher, formatAmount }: { voucher: VoucherRow; formatAmount: (n: number) => string }) {
+  return (
+    <div className="voucher-detail-entries">
+      {voucher.entries.map((e, i) => (
+        <div className="voucher-detail-line" key={i}>
+          <span className={`voucher-detail-side ${e.amount < 0 ? "dr" : "cr"}`}>{e.amount < 0 ? "Dr" : "Cr"}</span>
+          <span className="voucher-detail-account">{text(e.accountName)}</span>
+          <span className="voucher-detail-amount">{formatAmount(Math.abs(e.amount))}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Rendered inside a DataGrid cell (overflow: hidden), so the popover must be a portal-based
 // MUI Menu rather than the app's usual <details>/<summary> dropdown -- that pattern relies on
 // overflowing its container, which a grid cell clips.
@@ -358,6 +375,18 @@ export function TransactionTable({
   // header row is clicked. Keyed by periodKey, so switching between e.g. Monthly and Quarterly
   // starts every group fresh rather than carrying over stale keys from a different bucketing.
   const [expandedPeriods, setExpandedPeriods] = useState<Set<string>>(new Set());
+  // Per-voucher inline expand (Day Book only, `virtualized`/`mobileCards` paths) -- shows every
+  // entry line (account + Dr/Cr amount) directly under the row, Tally Alt+F5 "Detailed Daybook"
+  // style, instead of requiring a click into the separate voucher view/edit screen just to see a
+  // split voucher's full breakdown. Independent of expandedPeriods (period-group collapse) --
+  // both can be open at once.
+  const [expandedVouchers, setExpandedVouchers] = useState<Set<string>>(new Set());
+  const toggleVoucherExpand = (guid: string) =>
+    setExpandedVouchers((prev) => {
+      const next = new Set(prev);
+      next.has(guid) ? next.delete(guid) : next.add(guid);
+      return next;
+    });
   const changeSubtotal = (next: SubtotalPeriod) => {
     setSubtotalPeriod(next);
     setExpandedPeriods(new Set());
@@ -466,6 +495,7 @@ export function TransactionTable({
   const plainFixedWidth =
     PLAIN_COLUMN_KEYS.filter((k) => k !== "narration").reduce((s, k) => s + colWidths[k], 0) +
     (balanceMap ? BALANCE_COL_WIDTH : 0) +
+    28 + // expand-toggle column
     50;
   const effectiveNarrationWidth = Math.max(colWidths.narration, containerWidth - plainFixedWidth);
   const plainTableWidth = plainFixedWidth + effectiveNarrationWidth;
@@ -723,7 +753,7 @@ export function TransactionTable({
           className="table-filters grid-aligned-filters"
           style={{
             gridTemplateColumns: virtualized
-              ? PLAIN_COLUMN_KEYS.map((k) => (k === "narration" ? `${effectiveNarrationWidth}px` : `${colWidths[k]}px`)).join(" ")
+              ? ["28px", ...PLAIN_COLUMN_KEYS.map((k) => (k === "narration" ? `${effectiveNarrationWidth}px` : `${colWidths[k]}px`))].join(" ")
               : FILTER_GRID_TEMPLATE,
             // This row sits OUTSIDE the table's own scroll wrapper (no vertical scrollbar of its
             // own), so left to its natural block width it fills the full, un-narrowed parent --
@@ -734,6 +764,7 @@ export function TransactionTable({
             ...(virtualized ? { width: plainTableWidth } : {}),
           }}
         >
+          <span aria-hidden="true" />
           {filterField("date", "Date", "date")}
           {filterField("type", "Type", "voucher type")}
           {filterField("number", "#", "voucher number")}
@@ -764,25 +795,40 @@ export function TransactionTable({
                 <b>{formatAmount(t.amount)}</b>
               </button>
             ) : (
-              <div key={t.id} className="voucher-card">
+              <div
+                key={t.id}
+                className="voucher-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleVoucherExpand(t.id)}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleVoucherExpand(t.id)}
+              >
                 <div className="voucher-card-top">
                   <span className={`pill ${t.voucher.cancelled ? "cancelled" : ""}`}>
                     {t.voucher.type}
                     {t.voucher.cancelled ? " - Cancelled" : ""}
                   </span>
                   <span className="voucher-card-date">{t.voucher.date.split("-").reverse().join("-")}</span>
-                  <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
+                  <span className="row-expand-toggle" aria-hidden="true">{expandedVouchers.has(t.id) ? "▾" : "▸"}</span>
+                  <span onClick={(e) => e.stopPropagation()}>
+                    <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
+                  </span>
                 </div>
                 <p className="voucher-card-ledgers" title={`${t.debit} → ${t.credit}`}>{t.debit} → {t.credit}</p>
                 {t.narration !== "-" && <p className="voucher-card-narration">{t.narration}</p>}
                 <div className="voucher-card-bottom">
-                  <button className="voucher-reference" onClick={() => onView(t.voucher)}>
+                  <button className="voucher-reference" onClick={(e) => { e.stopPropagation(); onView(t.voucher); }}>
                     #{t.voucher.number || "-"}
                   </button>
                   <b>{formatAmount(t.amount)}</b>
                 </div>
                 {balanceMap && t.balance !== null && (
                   <div className="voucher-card-balance">Balance: <b>{formatAmount(t.balance)}</b></div>
+                )}
+                {expandedVouchers.has(t.id) && (
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <VoucherDetailEntries voucher={t.voucher} formatAmount={formatAmount} />
+                  </div>
                 )}
               </div>
             )
@@ -821,6 +867,8 @@ export function TransactionTable({
                 is a starting point, not a fixed layout -- drag a column border (like Excel) to
                 adjust it, since no single static width fits every account name for every user. */}
             <colgroup>
+              {/* Per-voucher inline expand toggle -- narrow, fixed, not user-resizable. */}
+              <col style={{ width: "28px" }} />
               {PLAIN_COLUMN_KEYS.map((k) => (
                 <col key={k} style={{ width: `${k === "narration" ? effectiveNarrationWidth : colWidths[k]}px` }} />
               ))}
@@ -831,6 +879,7 @@ export function TransactionTable({
             </colgroup>
             <thead>
               <tr>
+                <th></th>
                 <th onClick={() => toggleSort("date")}>
                   Date{sortArrow("date")}
                   <ColResizeHandle onResize={(dx) => resizeCol("date", dx)} />
@@ -882,35 +931,54 @@ export function TransactionTable({
                     }}
                     style={{ cursor: "pointer" }}
                   >
-                    <td colSpan={5}>{t.narration}</td>
+                    <td colSpan={6}>{t.narration}</td>
                     <td></td>
                     <td className="right">{formatAmount(t.amount)}</td>
                     {balanceMap && <td className="right">{t.balance === null ? "" : formatAmount(t.balance)}</td>}
                     <td></td>
                   </tr>
                 ) : (
-                  <tr key={t.id}>
-                    <td>{t.voucher.date.split("-").reverse().join("-")}</td>
-                    <td>
-                      <span className={`pill ${t.voucher.cancelled ? "cancelled" : ""}`}>
-                        {t.voucher.type}
-                        {t.voucher.cancelled ? " - Cancelled" : ""}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="voucher-reference" onClick={() => onView(t.voucher)}>
-                        {t.voucher.number || "-"}
-                      </button>
-                    </td>
-                    <td title={t.debit}>{t.debit}</td>
-                    <td title={t.credit}>{t.credit}</td>
-                    <td>{t.narration}</td>
-                    <td className="right">{formatAmount(t.amount)}</td>
-                    {balanceMap && <td className="right">{t.balance === null ? "" : formatAmount(t.balance)}</td>}
-                    <td>
-                      <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
-                    </td>
-                  </tr>
+                  <>
+                    <tr
+                      key={t.id}
+                      className={expandedVouchers.has(t.id) ? "voucher-row-expanded" : ""}
+                      onClick={() => toggleVoucherExpand(t.id)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <td className="expand-toggle-cell">
+                        <span className="row-expand-toggle" aria-hidden="true">{expandedVouchers.has(t.id) ? "▾" : "▸"}</span>
+                      </td>
+                      <td>{t.voucher.date.split("-").reverse().join("-")}</td>
+                      <td>
+                        <span className={`pill ${t.voucher.cancelled ? "cancelled" : ""}`}>
+                          {t.voucher.type}
+                          {t.voucher.cancelled ? " - Cancelled" : ""}
+                        </span>
+                      </td>
+                      <td>
+                        <button className="voucher-reference" onClick={(e) => { e.stopPropagation(); onView(t.voucher); }}>
+                          {t.voucher.number || "-"}
+                        </button>
+                      </td>
+                      <td title={t.debit}>{t.debit}</td>
+                      <td title={t.credit}>{t.credit}</td>
+                      <td>{t.narration}</td>
+                      <td className="right">{formatAmount(t.amount)}</td>
+                      {balanceMap && <td className="right">{t.balance === null ? "" : formatAmount(t.balance)}</td>}
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <ActionMenuCell t={t.voucher} closed={isClosed(t.voucher)} onEdit={onEdit} onCopy={onCopy} onDelete={onDelete} />
+                      </td>
+                    </tr>
+                    {expandedVouchers.has(t.id) && (
+                      <tr key={`${t.id}-detail`} className="voucher-detail-row">
+                        <td></td>
+                        <td colSpan={(balanceMap ? 8 : 7)}>
+                          <VoucherDetailEntries voucher={t.voucher} formatAmount={formatAmount} />
+                        </td>
+                        <td></td>
+                      </tr>
+                    )}
+                  </>
                 )
               )}
             </tbody>

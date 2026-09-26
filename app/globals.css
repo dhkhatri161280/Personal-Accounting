@@ -3041,6 +3041,71 @@ tfoot th {
   font-size: var(--fs-md);
   padding-top: 8px;
 }
+/* Per-voucher inline expand (Day Book) -- Tally Alt+F5 "Detailed Daybook" style: click a row to
+   reveal its full entry lines directly beneath it, no navigating to the separate view/edit screen. */
+.expand-toggle-cell {
+  text-align: center !important;
+  cursor: pointer;
+}
+.row-expand-toggle {
+  display: inline-block;
+  color: #94a3b8;
+  font-size: 11px;
+  width: 14px;
+}
+.voucher-row-expanded .row-expand-toggle {
+  color: #2f6fed;
+}
+.voucher-detail-row {
+  background: #f8faff;
+  cursor: default;
+}
+.voucher-detail-row td {
+  white-space: normal !important;
+  padding: 4px 10px 10px !important;
+}
+.voucher-detail-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 4px 20px;
+  border-left: 2px solid #dce7fb;
+}
+.voucher-detail-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--fs-sm);
+}
+.voucher-detail-side {
+  width: 20px;
+  flex: none;
+  font-weight: 600;
+  font-size: 11px;
+}
+.voucher-detail-side.dr {
+  color: #b91c1c;
+}
+.voucher-detail-side.cr {
+  color: #15803d;
+}
+.voucher-detail-account {
+  flex: 1;
+  color: #1f2937;
+}
+.voucher-detail-amount {
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+.dark-mode .voucher-detail-row {
+  background: rgba(47, 111, 237, 0.06);
+}
+.dark-mode .voucher-detail-entries {
+  border-left-color: rgba(47, 111, 237, 0.35);
+}
+.dark-mode .voucher-detail-account {
+  color: #e2e8f0;
+}
 /* Compact Tally-style single-ledger table (LoansAdvancesFxRegister) -- deliberately few, narrow
    columns (Date/Voucher/Narration/Debit/Credit/Balance) instead of one column per figure, so an
    FX-translated register fits the page width without horizontal scroll; each amount cell carries
@@ -3109,6 +3174,11 @@ tfoot th {
   border-radius: 12px;
   padding: 10px 12px;
   background: #fff;
+  cursor: pointer;
+}
+.voucher-card .voucher-detail-entries {
+  margin-top: 8px;
+  padding-left: 12px;
 }
 .voucher-card-top {
   display: flex;
