@@ -14,10 +14,21 @@ import { measureTextWidth } from "@/lib/text-measure";
 // 900 weight matches the heaviest actual render weight (.shell table tfoot th forces
 // font-weight: 900 !important on "Total X"/net-row labels and totals) -- measuring at the
 // heaviest weight in use guarantees we never UNDER-measure a label/value that's actually bold.
-const LABEL_FONT = "900 11px var(--font-sans), Arial, sans-serif";
-const VALUE_FONT = "900 11px var(--font-sans), Arial, sans-serif";
+// 13px (--fs-lg), not the classic table's own 11px (--fs-base) -- confirmed live: the generic
+// `.ui-refresh .data-panel table td { font-size: var(--fs-lg) !important; }` rule already bumps
+// this table's actual rendered text to 13px whenever the refresh theme is on (it's inside a
+// .data-panel), but this measurement was still sizing columns for the smaller classic font --
+// silently too-narrow columns any time .ui-refresh is active, a real pre-existing gap, not
+// something newly introduced. Using the bigger size is safe for classic mode too (columns just
+// end up with a little extra, never-wrong headroom there instead of being exactly minimal).
+const LABEL_FONT = "900 13px var(--font-sans), Arial, sans-serif";
+const VALUE_FONT = "900 13px var(--font-sans), Arial, sans-serif";
 const LEAF_INDENT = 26; // matches .columnar-ledger-name's own padding-left
-const CELL_PADDING = 24; // matches td/th's 10px horizontal padding on both sides + a little room
+// 32, not 24 -- same refresh-vs-classic gap as the font size above: the generic ui-refresh rule
+// bumps horizontal cell padding from the classic table's 10px+10px to 14px+14px (28px total),
+// so the old 24px buffer (sized for the classic 10px+10px + a little room) under-measured by
+// more than the padding actually grew under refresh. 32 covers the real 28px plus a small margin.
+const CELL_PADDING = 32;
 const MIN_LABEL_WIDTH = 220;
 const MIN_VALUE_WIDTH = 90;
 

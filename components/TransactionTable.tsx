@@ -70,9 +70,14 @@ const DEFAULT_PLAIN_WIDTHS: Record<PlainColKey, number> = {
   // horizontal scrolling even on a maximized 1366px-class laptop screen once the sidebar and
   // page padding were subtracted. Every column stays independently drag-resizable regardless.
   type: 78,
-  number: 55,
-  debit: 145,
-  credit: 145,
+  // number/debit/credit bumped from 55/145/145 -- confirmed live under the .ui-refresh theme
+  // (13px text, 14px/11px cell padding vs classic's 12px/10px+7px): a 4-digit voucher number
+  // clipped, and real account names ("Office Supplies Expense", "Accumulated Depreciation")
+  // overflowed a 145px column by up to 40px. These are safe for classic mode too (that theme's
+  // smaller font/padding just gets a little extra headroom, never a regression there).
+  number: 72,
+  debit: 200,
+  credit: 200,
   narration: 300,
   amount: 130,
 };
@@ -813,7 +818,9 @@ export function TransactionTable({
                 <col key={k} style={{ width: `${k === "narration" ? effectiveNarrationWidth : colWidths[k]}px` }} />
               ))}
               {balanceMap && <col style={{ width: `${BALANCE_COL_WIDTH}px` }} />}
-              <col style={{ width: "50px" }} />
+              {/* 66px, not 50 -- confirmed live: the action menu button's own width didn't fit a
+                 50px column once .ui-refresh's bigger cell padding was applied. */}
+              <col style={{ width: "66px" }} />
             </colgroup>
             <thead>
               <tr>
