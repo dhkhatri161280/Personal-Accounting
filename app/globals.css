@@ -9311,6 +9311,48 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   border-radius: var(--ref-radius) !important;
 }
 
+/* New Voucher's quick-ledger shortcuts -- used on essentially every voucher entered, the same
+   "very high traffic, zero refresh coverage" gap .pill had. Safe to bump straight away: the
+   parent (.voucher-quick-ledgers) is flex-wrap, not a fixed grid/table, so a bigger chip just
+   wraps to the next line instead of overflowing a fixed column -- none of the risk the table
+   fixes needed. Accent color on hover (matching --ref-blue) instead of flat gray, consistent
+   with how other refreshed chips/buttons signal interactivity. */
+.ui-refresh .voucher-quick-ledger-chip {
+  font-size: var(--fs-md) !important;
+  padding: 5px 12px !important;
+}
+.ui-refresh .voucher-quick-ledger-chip:hover {
+  background: #eff6ff !important;
+  border-color: var(--ref-blue) !important;
+  color: var(--ref-blue) !important;
+}
+
+/* Periods -- each period row is a flex chip (checkbox + open/closed button), not a fixed-width
+   table cell, so the same low-overflow-risk case as the voucher chips above. Card-shell radius/
+   border/shadow to match the rest of the refreshed surfaces; label/status text sized up from
+   11.5px/9.5px to the standard --fs-md/--fs-xs scale. Open/closed status colors (green/red)
+   are semantic and untouched. */
+.ui-refresh .period-chip {
+  border-radius: var(--ref-radius) !important;
+  border-color: var(--ref-border) !important;
+  box-shadow: var(--ref-shadow);
+}
+.ui-refresh .period-chip-btn { font-size: var(--fs-md) !important; }
+.ui-refresh .period-chip-status { font-size: var(--fs-xs) !important; }
+
+/* Spend Report category cards -- .spend-category-grid is auto-fill/minmax, each card is
+   width:100% of its own grid cell, so (like the voucher/period chips above) there's no fixed-
+   pixel column to overflow. The category-name truncation (spend-category-chip-text b) is an
+   existing, deliberate ellipsis for a long name, not something this pass needs to touch --
+   only bumping the base readable size and adding the standard card shadow/radius. */
+.ui-refresh .spend-category-chip {
+  border-radius: var(--ref-radius) !important;
+  box-shadow: var(--ref-shadow);
+}
+.ui-refresh .spend-category-chip:hover { box-shadow: var(--ref-shadow-hover); }
+.ui-refresh .spend-category-chip-text b { font-size: var(--fs-md) !important; }
+.ui-refresh .spend-category-chip-text em { font-size: var(--fs-base) !important; }
+
 /* Masters — tabs, toolbar, status pills, and the shared modal form (reused for ledger edit,
    group edit, settings, and the inline-ledger-modal in New Voucher). No card-row or
    wide-table risk here (the account/group tables are plain, not card grids); this is a
