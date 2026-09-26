@@ -9296,6 +9296,20 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .table-filters label { font-size: var(--fs-xs) !important; }
 .ui-refresh .table-filters input { border-radius: 7px !important; font-size: 12.5px; }
 .ui-refresh .sortable > button { font-size: var(--fs-xs) !important; letter-spacing: 0.05em; }
+/* .pill -- the voucher-type badge ("Payment"/"Receipt"/"Journal"/"Contra") shown on every single
+   Day Book row, the highest-traffic chip in the app, and confirmed to have zero .ui-refresh
+   coverage: it sets its own font-size (var(--fs-2xs), 8px) directly, which beats the generic
+   `.data-panel table td` cascade regardless of the row's own bumped size, so it was stuck tiny
+   even after the rest of the row got bigger. Already a single flat color for every voucher type
+   (no arbitrary per-type rainbow to fix here, unlike some other chips this pass) -- only
+   .pill.cancelled's red is semantic and untouched. This DID overflow the Day Book's Type column
+   (widened once already, see TransactionTable.tsx DEFAULT_PLAIN_WIDTHS) by 14-19px, confirmed
+   live -- widened that column again (78px -> 100px) to fit. */
+.ui-refresh .pill {
+  font-size: var(--fs-sm) !important;
+  padding: 3px 9px !important;
+  border-radius: var(--ref-radius) !important;
+}
 
 /* Masters — tabs, toolbar, status pills, and the shared modal form (reused for ledger edit,
    group edit, settings, and the inline-ledger-modal in New Voucher). No card-row or

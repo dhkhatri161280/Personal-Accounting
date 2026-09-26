@@ -69,7 +69,14 @@ const DEFAULT_PLAIN_WIDTHS: Record<PlainColKey, number> = {
   // all confirmed live) -- the previous defaults' minimum total table width (~1,157px) forced
   // horizontal scrolling even on a maximized 1366px-class laptop screen once the sidebar and
   // page padding were subtracted. Every column stays independently drag-resizable regardless.
-  type: 78,
+  // Bumped again from 78 once .pill (the badge rendered inside this column) got its own
+  // .ui-refresh sizing (var(--fs-sm) + bigger padding, previously stuck at 8px regardless of
+  // theme) -- confirmed live, "Payment"/"Receipt" etc overflowed the 78px column by 14-19px.
+  // 100px comfortably fits every normal voucher type; the rarer "Journal - Cancelled" combined
+  // label (72px over) still ellipsis-truncates at this width -- an accepted, graceful edge case
+  // (the pill's own strikethrough plus the full voucher detail on click still signal the
+  // cancelled status), not worth widening this column ~2x for.
+  type: 100,
   // number/debit/credit bumped from 55/145/145 -- confirmed live under the .ui-refresh theme
   // (13px text, 14px/11px cell padding vs classic's 12px/10px+7px): a 4-digit voucher number
   // clipped, and real account names ("Office Supplies Expense", "Accumulated Depreciation")
