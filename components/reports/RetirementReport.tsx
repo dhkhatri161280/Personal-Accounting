@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { StatIcon } from "@/components/Icon";
+import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { apiFetch } from "@/lib/api-fetch";
 import { compute401kLifetimeTotals } from "@/lib/payroll-401k";
 import { exportWorkbook } from "@/lib/export-excel";
@@ -278,7 +279,7 @@ export function RetirementReport({
                   <StatIcon kind="bank" color="#0891b2" />
                   <div className="dashboard-card-main">
                     <span>{inst} — {SUBTYPE_LABEL[a.subtype] || a.subtype}</span>
-                    <strong>{fmt(a.balances?.current ?? 0)}</strong>
+                    <AutoFitAmount text={fmt(a.balances?.current ?? 0)} maxFontSize={24} minFontSize={12} />
                     <small>{a.name}{a.pricingAsOf ? ` · priced as of ${a.pricingAsOf}` : ""}</small>
                   </div>
                 </button>
@@ -289,7 +290,7 @@ export function RetirementReport({
                 <StatIcon kind="bank" color="#0891b2" />
                 <div className="dashboard-card-main">
                   <span>{r.label}</span>
-                  <strong>{fmt(r.amount)}</strong>
+                  <AutoFitAmount text={fmt(r.amount)} maxFontSize={24} minFontSize={12} />
                   <small>Not tracked via Plaid</small>
                 </div>
               </button>
@@ -298,7 +299,7 @@ export function RetirementReport({
               <StatIcon kind="scale" color="#7c3aed" />
               <div className="dashboard-card-main">
                 <span>Total retirement</span>
-                <strong>{fmt(totalBalance)}</strong>
+                <AutoFitAmount text={fmt(totalBalance)} maxFontSize={24} minFontSize={12} />
                 <small>
                   Across {accounts.length} account{accounts.length !== 1 ? "s" : ""}
                   {otherInvestments.length > 0 ? ` + ${otherInvestments.length} other` : ""}
