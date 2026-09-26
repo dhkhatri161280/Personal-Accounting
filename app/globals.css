@@ -9254,6 +9254,31 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .master-actions button { border-radius: 8px !important; font-size: 11.5px; }
 .ui-refresh .master-status { font-size: 10.5px; padding: 5px 10px !important; }
+/* Masters' own account/group/fixed-asset/documents tables were left genuinely untouched by
+   the "straightforward token pass" above (tabs/toolbar/modal/form/actions/status only) --
+   confirmed live, this is a high-traffic screen (used constantly for master data entry) that
+   never got the same header/row treatment every other .data-panel table already has. Mirrors
+   that exact established rule set 1:1 (same padding/font-size/hover values) rather than
+   introducing new numbers, since .masters-panel isn't wrapped in .data-panel itself. */
+.ui-refresh .masters-panel table {
+  border-radius: var(--ref-radius);
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-spacing: 0;
+  box-shadow: var(--ref-shadow);
+}
+.ui-refresh .masters-panel table th {
+  background: #f8fafc;
+  font-weight: 700 !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b !important;
+  padding: 12px 14px !important;
+}
+.ui-refresh .masters-panel table td { padding: 11px 14px !important; font-size: var(--fs-lg); }
+.ui-refresh .masters-panel table tbody tr:hover { background: #f8fafc; }
+.ui-refresh .masters-panel table tfoot th { background: #eff6ff; padding: 12px 14px !important; }
 
 /* Daybook — the transaction table already gets header/row styling for free from the generic
    `.data-panel table` rule. Left `.table-scroll`/`.transaction-table` sizing untouched since

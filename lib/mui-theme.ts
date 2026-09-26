@@ -33,6 +33,9 @@ export const appMuiTheme = createTheme({
         cell: {
           borderColor: "#dfe5ee",
         },
+        row: {
+          "&:hover": { backgroundColor: "#f8fafc" },
+        },
         footerContainer: {
           borderColor: "#dfe5ee",
         },
