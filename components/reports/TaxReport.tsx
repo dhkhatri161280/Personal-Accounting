@@ -11,7 +11,7 @@ import { DonutChart, type DonutSegment } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
-import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains } from "@/lib/tax-classify";
+import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains, sumInterestDividendIncome } from "@/lib/tax-classify";
 import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
 import { matchDeductionLedgers, deductionTotal, findHsaContributions } from "@/lib/tax-deductions";
@@ -327,9 +327,15 @@ function computeYearTaxEstimate(
   const deductionMatches = matchDeductionLedgers(accounts, transactions, year);
   const hsaContributionTotal = findHsaContributions(transactions, year).reduce((s, h) => s + h.amount, 0);
   const hsaDeduction = computeHsaDeduction(taxEstimateYear, hsaCoverage, hsaContributionTotal);
+  const interestDividendIncome = sumInterestDividendIncome(transactions, accounts, year);
   const preliminaryAgi = Math.max(
     0,
-    taxableWages + gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction - hsaDeduction
+    taxableWages +
+      interestDividendIncome +
+      gainTotals.shortTermGainTaxable +
+      gainTotals.longTermGainTaxable -
+      gainTotals.ordinaryLossDeduction -
+      hsaDeduction
   );
   const federalItemized = computeItemizedDeduction(taxEstimateYear, preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
@@ -345,6 +351,7 @@ function computeYearTaxEstimate(
     federalWithheld: agg.totalFederal,
     medicareWages: agg.totalGross,
     medicareWithheld: agg.totalMedicare,
+    interestDividendIncome,
     shortTermGainTaxable: gainTotals.shortTermGainTaxable,
     longTermGainTaxable: gainTotals.longTermGainTaxable,
     capitalLossDeduction: gainTotals.ordinaryLossDeduction,
@@ -1349,9 +1356,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   const hsaContributionTotal = hsaContributions.reduce((s, h) => s + h.amount, 0);
   const hsaDeduction = computeHsaDeduction(taxEstimateYear, hsaCoverage, hsaContributionTotal);
 
+  const interestDividendIncome = sumInterestDividendIncome(transactions, accounts, yr.year);
   const preliminaryAgi = Math.max(
     0,
-    taxableWages + gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction - hsaDeduction
+    taxableWages +
+      interestDividendIncome +
+      gainTotals.shortTermGainTaxable +
+      gainTotals.longTermGainTaxable -
+      gainTotals.ordinaryLossDeduction -
+      hsaDeduction
   );
   const federalItemized = computeItemizedDeduction(taxEstimateYear, preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
@@ -1369,6 +1382,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
     // federal-income-tax wages above -- use gross pay, not taxableWages.
     medicareWages: totalGross,
     medicareWithheld: totalMedicare,
+    interestDividendIncome,
     shortTermGainTaxable: gainTotals.shortTermGainTaxable,
     longTermGainTaxable: gainTotals.longTermGainTaxable,
     capitalLossDeduction: gainTotals.ordinaryLossDeduction,
@@ -2301,6 +2315,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 { label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other)", value: totalGross },
                 { label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1)", value: -totalK401 },
                 { label: "= Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages, bold: true },
+                { label: "+ Taxable Interest & Dividends", value: interestDividendIncome },
                 { label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable },
                 { label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction },
                 {

@@ -38,6 +38,12 @@ export interface TaxEstimateInput {
    * Additional Medicare Tax the employer already withheld above the threshold, same as Form
    * 8959 Part V. Used to credit Additional Medicare Tax already withheld; omit for 0. */
   medicareWithheld?: number;
+  /** Taxable interest (Schedule B Part I) + ordinary dividends (Schedule B Part II) — taxed as
+   * ordinary income, same bracket as wages, and counted in NIIT's investment-income base
+   * (Form 8960 line 1-2) alongside capital gains. Optional/omit for 0 -- see
+   * lib/tax-classify.ts's sumInterestDividendIncome for how a caller derives this from ledger
+   * data (an account name or voucher narration matching /dividend|interest/i). */
+  interestDividendIncome?: number;
   /** Short-term capital gain that survived Schedule D-style netting (>= 0) — taxed as
    * ordinary income. */
   shortTermGainTaxable: number;
@@ -90,8 +96,9 @@ export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult
   const longTermGain = Math.max(0, input.longTermGainTaxable);
   const capitalLossDeduction = Math.max(0, input.capitalLossDeduction ?? 0);
   const aboveLineDeduction = Math.max(0, input.aboveLineDeduction ?? 0);
+  const interestDividendIncome = Math.max(0, input.interestDividendIncome ?? 0);
 
-  const ordinaryIncome = Math.max(0, input.wages + shortTermGain - capitalLossDeduction - aboveLineDeduction);
+  const ordinaryIncome = Math.max(0, input.wages + interestDividendIncome + shortTermGain - capitalLossDeduction - aboveLineDeduction);
   const agi = ordinaryIncome + longTermGain;
   const itemized = Math.max(0, input.itemizedDeduction ?? 0);
   const usedItemized = itemized > rules.standardDeduction;
@@ -116,11 +123,10 @@ export function estimateUsFederalTax(input: TaxEstimateInput): TaxEstimateResult
   const regularMedicareWithheld = medicareWages * REGULAR_MEDICARE_RATE;
   const additionalMedicareWithheld = round2(Math.max(0, medicareWithheld - regularMedicareWithheld));
 
-  // Form 8960 line 5a treats ALL realized capital gains (short- and long-term alike) as
-  // investment income, unlike the federal bracket split above which taxes short-term gains
-  // as ordinary income. Interest/dividends aren't tracked by this app, so this understates
-  // net investment income for anyone with meaningful interest/dividend income.
-  const netInvestmentIncome = Math.max(0, shortTermGain + longTermGain);
+  // Form 8960 line 1-2 (interest, dividends) + line 5a (net gain, short- and long-term alike,
+  // unlike the federal bracket split above which taxes short-term gains as ordinary income)
+  // are all investment income for NIIT purposes.
+  const netInvestmentIncome = Math.max(0, interestDividendIncome + shortTermGain + longTermGain);
   const niit = round2(Math.min(netInvestmentIncome, Math.max(0, agi - NIIT_THRESHOLD[input.filingStatus])) * NIIT_RATE);
 
   const estimatedTax = round2(ordinaryTax + ltcgTax + additionalMedicareTax + niit);

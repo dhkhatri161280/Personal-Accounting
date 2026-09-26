@@ -1,4 +1,5 @@
-import type { EsppPurchase, RsuGrant, Trade } from "./vault-types";
+import type { Account, EsppPurchase, RsuGrant, Trade, Tx } from "./vault-types.ts";
+import { round2 } from "./tax-usa-engine.ts";
 
 export interface CapitalGainEvent {
   id: string;
@@ -167,4 +168,33 @@ function daysBetween(isoDate: string, asOf: Date): number {
   const start = new Date(isoDate).getTime();
   const end = asOf.getTime();
   return Math.max(0, Math.round((end - start) / (1000 * 60 * 60 * 24)));
+}
+
+const PASSIVE_INCOME_RE = /dividend|interest/i;
+
+/** Taxable interest + ordinary dividends recognized in a given calendar year, for the Federal
+ * AGI calculation (lib/tax-usa-engine.ts's estimateUsFederalTax -- previously this income was
+ * entirely absent from AGI; confirmed live against a real filed return, this was the exact
+ * remaining gap after Trading gains were wired in). Same detection convention already
+ * established and shipped for cash-flow forecasting (lib/cash-flow-forecast.ts's
+ * projectPassiveIncome): a credit to an Income-category account whose OWN name matches
+ * /dividend|interest/i (the common dedicated-ledger convention, e.g. "Interest Income"), OR
+ * whose voucher narration does (covers a posting to a generic "Other Income" account with a
+ * descriptive narration instead -- see components/vault/SchwabImport.tsx's confirmIncome,
+ * which posts exactly that way when no dedicated ticker-matched income account exists). */
+export function sumInterestDividendIncome(transactions: Tx[], accounts: Account[], year: string): number {
+  const incomeAccounts = new Map(accounts.filter((a) => a.category === "Income").map((a) => [a.id, a]));
+  let total = 0;
+  for (const t of transactions) {
+    if (t.deleted || t.cancelled || !t.date.startsWith(year)) continue;
+    const narrationMatches = PASSIVE_INCOME_RE.test(t.narration || "");
+    for (const e of t.entries) {
+      if (e.amount <= 0) continue; // positive = credit = income recognized, for an Income-category account
+      const acct = incomeAccounts.get(e.accountId);
+      if (!acct) continue;
+      if (!narrationMatches && !PASSIVE_INCOME_RE.test(acct.name)) continue;
+      total += e.amount;
+    }
+  }
+  return round2(total);
 }
