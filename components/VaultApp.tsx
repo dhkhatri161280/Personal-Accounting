@@ -83,6 +83,7 @@ import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
 import { AutoFitAmount } from "@/components/AutoFitAmount";
+import { computeDashboardTrend } from "@/lib/dashboard-trend";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -1740,6 +1741,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       { label: "RE", value: dashboardCapitalResult },
     ];
 
+  // Dashboard hero-card "vs last month" trend (Cash and Capital only) -- the actual balance math
+  // (including the fiscal-year-close double-count guard) lives in lib/dashboard-trend.ts, unit
+  // tested directly, since a wrong number here would be actively misleading on a personal
+  // finance dashboard, not just a cosmetic bug.
+  const capitalIds = new Set(capitalRows.map((a) => a.id));
+  const { cashTrend, capitalTrend } = computeDashboardTrend({
+    data, year, todayIso: todayStr, cashIds, capitalIds, nominalIds, cashBank, dashboardCapitalTotal,
+  });
+  const trendFor = (delta: number | undefined): { positive: boolean; text: string } | undefined =>
+    delta === undefined
+      ? undefined
+      : { positive: delta >= 0, text: `${delta >= 0 ? "+" : "-"}${fmt(Math.abs(delta))} vs last month` };
+
   const salaryDetail = rows
       .filter((a) => /salary/i.test(a.name))
       .map((a) => ({ ...a, closing: a.credit - a.debit }))
@@ -3182,6 +3196,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             open={dashboardDetail === "cash"}
             onClick={() => toggleDashboardDetail("cash")}
             hero
+            trend={trendFor(cashTrend)}
             highlights={cashHighlights.map((x) => (
               <span key={x.label}>
                 <b>{x.label}</b>
@@ -3221,6 +3236,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             open={dashboardDetail === "capital"}
             onClick={() => toggleDashboardDetail("capital")}
             hero
+            trend={trendFor(capitalTrend)}
             highlights={capitalHighlights.map((x) => (
               <span key={x.label}>
                 <b>{x.label}</b>

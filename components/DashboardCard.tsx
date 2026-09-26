@@ -20,6 +20,7 @@ export function DashboardCard({
   highlights,
   children,
   hero,
+  trend,
 }: {
   slotClassName: string;
   cardClassName: string;
@@ -39,7 +40,18 @@ export function DashboardCard({
   // the size/treatment differs; hero cards still use the same DOM shape and click/expand
   // behavior as every other card.
   hero?: boolean;
+  // A "+$2,340 vs last month" / "-$560 vs last month" line under the headline value -- a static
+  // balance alone doesn't tell you anything moved, which was the actual gap vs. Rillet's
+  // Launchpad ("watches for anomalies, flags exceptions") beyond size/color. The caller computes
+  // and formats the delta (see lib/dashboard-trend.ts) since only it knows how to correctly
+  // value "as of an earlier date" for its own data shape; this component just renders it.
+  trend?: { positive: boolean; text: string };
 }) {
+  // An empty array (a caller's `.map()` over zero highlight rows, e.g. a hero card with no
+  // sub-accounts yet) is truthy in JS, so a plain `highlights &&` check would still render an
+  // empty, bordered .dashboard-card-highlights column -- a stray vertical divider line with
+  // nothing next to it. Treat a zero-length array the same as "no highlights" instead.
+  const hasHighlights = Array.isArray(highlights) ? highlights.length > 0 : !!highlights;
   return (
     <div className={`dashboard-card-slot ${slotClassName}`}>
       <button
@@ -63,9 +75,14 @@ export function DashboardCard({
           ) : (
             <strong>{value}</strong>
           )}
+          {trend && (
+            <em className={`dashboard-card-trend ${trend.positive ? "dashboard-card-trend--pos" : "dashboard-card-trend--neg"}`}>
+              {trend.text}
+            </em>
+          )}
           {subtitle && <small>{subtitle}</small>}
         </div>
-        {highlights && <div className="dashboard-card-highlights">{highlights}</div>}
+        {hasHighlights && <div className="dashboard-card-highlights">{highlights}</div>}
       </button>
       {children}
     </div>

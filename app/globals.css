@@ -9002,6 +9002,38 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   transition: box-shadow 0.15s, transform 0.15s;
 }
 .ui-refresh .dashboard-balance-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
+/* A universal "this card is clickable" chevron -- every dashboard-balance-card, whether it
+   expands an inline detail panel (most cards) or navigates to a full report (the manual Equity
+   card), responds to a click, but only the VaultApp cards whose subtitle happened to start with
+   the word "View" carried any visual hint of that; GrApp's subtitles ("All bank & cash
+   accounts", "Investment ledgers", ...) and VaultApp's own Capital/Salary cards never did, even
+   though clicking them does exactly the same thing. One chevron instead of editing subtitle
+   text at 11 different call sites across two apps -- applies uniformly and can't drift out of
+   sync between VaultApp and GrApp.
+   A real flex item (the button is already `display:flex`), not position:absolute -- the
+   highlights column stretches the button's full height (align-items:stretch on the row), so an
+   absolutely-positioned corner icon would render UNDER/behind the highlights chips instead of
+   beside them. As the flex row's last item it naturally lands after highlights with its own
+   gap, never overlapping. Rotates 90deg when a card is expanded open, matching the disclosure-
+   triangle convention; stays static on the manual Equity card, which navigates away instead of
+   expanding in place. */
+.ui-refresh .dashboard-balance-card::after {
+  content: "\203A";
+  /* flex-start, not center -- confirmed live: at the single-column breakpoint a 3-row
+     highlights column is taller than the label+value+subtitle column next to it, and
+     align-self:center centers the chevron against that TALLER sibling's full height, landing
+     it beside the MIDDLE highlight chip instead of reading as a card-level affordance.
+     flex-start keeps it pinned near the top regardless of how tall either column ends up. */
+  align-self: flex-start;
+  margin-top: 3px;
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: #cbd5e1;
+  transition: color 0.15s, transform 0.15s;
+}
+.ui-refresh .dashboard-balance-card:hover::after { color: #94a3b8; transform: translateX(2px); }
+.ui-refresh .dashboard-balance-card.dashboard-card-open::after { transform: rotate(90deg); color: #64748b; }
 .ui-refresh .dashboard-balance-card.dashboard-card-open {
   background: #eef4ff !important;
   border-color: #93c5fd !important;
@@ -9051,6 +9083,15 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   color: var(--ref-blue) !important;
   font-weight: 600;
 }
+.dashboard-card-trend {
+  display: block;
+  font-style: normal;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  margin: 2px 0 4px;
+}
+.dashboard-card-trend--pos { color: #16a34a; }
+.dashboard-card-trend--neg { color: #dc2626; }
 .ui-refresh .dashboard-card-highlights {
   gap: 8px !important;
   padding-left: 16px !important;
