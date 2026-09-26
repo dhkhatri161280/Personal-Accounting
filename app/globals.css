@@ -3090,10 +3090,22 @@ tfoot th {
   color: #15803d;
 }
 .voucher-detail-account {
-  flex: 1;
+  flex: none;
   color: #1f2937;
+  white-space: nowrap;
+}
+/* Dotted leader (menu-style "item .... price") filling the gap between the account name and its
+   own amount -- the cell this renders in spans every column from Debit Ledger through Amount, so
+   on a wide screen that gap can be 1000px+ with nothing to guide the eye across. */
+.voucher-detail-leader {
+  flex: 1;
+  min-width: 24px;
+  margin: 0 8px;
+  border-bottom: 1px dotted #cbd5e1;
+  transform: translateY(-4px);
 }
 .voucher-detail-amount {
+  flex: none;
   color: #475569;
   font-variant-numeric: tabular-nums;
 }
@@ -3105,6 +3117,9 @@ tfoot th {
 }
 .dark-mode .voucher-detail-account {
   color: #e2e8f0;
+}
+.dark-mode .voucher-detail-leader {
+  border-bottom-color: rgba(226, 232, 240, 0.25);
 }
 /* Compact Tally-style single-ledger table (LoansAdvancesFxRegister) -- deliberately few, narrow
    columns (Date/Voucher/Narration/Debit/Credit/Balance) instead of one column per figure, so an

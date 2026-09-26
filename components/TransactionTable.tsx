@@ -210,6 +210,12 @@ function VoucherDetailEntries({ voucher, formatAmount }: { voucher: VoucherRow; 
         <div className="voucher-detail-line" key={i}>
           <span className={`voucher-detail-side ${e.amount < 0 ? "dr" : "cr"}`}>{e.amount < 0 ? "Dr" : "Cr"}</span>
           <span className="voucher-detail-account">{text(e.accountName)}</span>
+          {/* Menu-style dotted leader -- the account name and its amount can sit 1000px+ apart on
+              a wide Day Book table (this cell spans every column from Debit Ledger through
+              Amount), so a bare gap left the eye with nothing to track across. Confirmed live
+              this reads far better than a bottom border alone would (a border reads as
+              separating rows, not connecting a name to its own amount on the same line). */}
+          <span className="voucher-detail-leader" aria-hidden="true" />
           <span className="voucher-detail-amount">{formatAmount(Math.abs(e.amount))}</span>
         </div>
       ))}
