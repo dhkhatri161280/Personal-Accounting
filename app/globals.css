@@ -8971,6 +8971,20 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .data-panel .equity-drilldown-table th { padding: 7px 8px !important; white-space: nowrap; }
 .ui-refresh .data-panel .equity-drilldown-table td { padding: 6px 8px !important; }
 .equity-drilldown-table .sortable > button { padding: 0; white-space: nowrap; }
+/* Same fixed-column-width problem as .equity-drilldown-table above, just never given the same
+   fix: .equity-vest-table and .equity-espp-table are 10-11 column tables with several columns
+   as narrow as 46-52px (see their own nth-child width rules), sized for classic mode's 4px/8px
+   cell padding -- but both sit inside .data-panel.equity-report, so the generic ui-refresh rule
+   (11px 14px padding, 13px font) already applies to them today, unintentionally, with no
+   matching width increase. Confirmed live: real vest/ESPP rows overflow several of the narrow
+   columns. Rather than individually widen 10-11 columns (would push these already-wide tables
+   into horizontal scroll), tighten padding back down close to the classic value -- the same
+   choice already made for .equity-drilldown-table, and for the same reason (a dense many-column
+   table reads better tight than stretched). Font stays at the bumped 13px; only padding shrinks. */
+.ui-refresh .data-panel .equity-vest-table th,
+.ui-refresh .data-panel .equity-espp-table th { padding: 6px 8px !important; }
+.ui-refresh .data-panel .equity-vest-table td,
+.ui-refresh .data-panel .equity-espp-table td { padding: 5px 8px !important; }
 .equity-col-filter-head { white-space: nowrap; }
 .equity-col-sort-btn { white-space: nowrap; }
 .ui-refresh .data-panel table th {
@@ -9217,6 +9231,31 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .ui-refresh .tr-broker-chip { border-radius: 999px !important; box-shadow: var(--ref-shadow); }
 .ui-refresh .wl-card { border-radius: var(--ref-radius) !important; box-shadow: var(--ref-shadow); }
 .ui-refresh .tr-insight { border-radius: var(--ref-radius) !important; }
+/* Open/Closed Positions table -- only the KPI strip above it (tr-summary-card, tr-broker-chip,
+   tr-insight) had been refreshed; the actual table was still 100% classic (12.5px/10.5px).
+   Safe to bump straight to the standard target size here: confirmed live, .tr-table has no
+   table-layout:fixed and no per-column px widths (cells are plain white-space:nowrap), so
+   columns grow to fit bigger text/padding automatically instead of the fixed-width overflow
+   this app has hit repeatedly elsewhere (Day Book, Columnar reports, equity vest/ESPP tables). */
+.ui-refresh .tr-table-wrap {
+  border-radius: var(--ref-radius);
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  box-shadow: var(--ref-shadow);
+}
+.ui-refresh .tr-table th {
+  font-size: 11px !important;
+  padding: 12px 14px !important;
+}
+.ui-refresh .tr-table td {
+  font-size: var(--fs-lg) !important;
+  padding: 11px 14px !important;
+}
+.ui-refresh .tr-table tfoot th {
+  padding: 12px 14px !important;
+  font-size: var(--fs-lg) !important;
+}
+.ui-refresh .tr-symbol { font-size: var(--fs-sm) !important; padding: 2px 8px !important; }
 
 /* Ledgers / Trial Balance / Daybook — shared filter bar and sortable column headers used
    across several table screens. Readability bump only (8px labels/sort text was tuned for
