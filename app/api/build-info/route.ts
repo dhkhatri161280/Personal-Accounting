@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
+import { parseVersionTimestamp } from "@/lib/build-info";
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export async function GET() {
   const meta = bindings.CF_VERSION_METADATA;
   if (!meta) return Response.json({ id: null, timestamp: null }, { headers: { "Cache-Control": "no-store" } });
   return Response.json(
-    { id: meta.id.slice(0, 8), timestamp: new Date(Number(meta.timestamp)).toISOString() },
+    { id: meta.id.slice(0, 8), timestamp: parseVersionTimestamp(meta.timestamp) },
     { headers: { "Cache-Control": "public, max-age=300" } }
   );
 }

@@ -2,6 +2,23 @@ import { env } from "cloudflare:workers";
 import type { AppBindings } from "@/lib/cloudflare-env";
 import { plaidBase, plaidCreds, type PlaidClientKey } from "@/lib/plaid-client";
 import { requireAccessToken } from "@/lib/api-auth";
+import { mapWithConcurrency } from "@/lib/concurrency";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+
+// Cap on connections syncing in parallel -- each connection can itself fire several concurrent
+// fetches to Plaid, and running every connection fully in parallel was enough simultaneous
+// in-flight requests to trip Cloudflare Workers' own concurrent-subrequest ceiling, which force-
+// cancels the OLDEST still-open response to avoid deadlock (confirmed live via `wrangler tail`,
+// fired twice on a real 5-connection sync). Combined with always consuming every fetch's response
+// body below (the other real trigger for that same warning), this keeps peak in-flight requests
+// well under the ceiling regardless of how many banks get connected later.
+const CONNECTION_SYNC_CONCURRENCY = 2;
+// Every Plaid call below goes through fetchWithTimeout with this bound -- previously no
+// individual fetch had a timeout of its own, so one slow/hanging institution rode along until
+// the whole route's own execution limit kicked in, and while stuck open it also counted against
+// the concurrent-subrequest ceiling above, making it more likely to trigger the deadlock guard
+// that cancels OTHER, healthy connections' requests too.
+const PLAID_FETCH_TIMEOUT_MS = 10_000;
 
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
@@ -79,20 +96,24 @@ export async function GET(request: Request) {
   // this check was introduced).
   const unknownFlagConns = activeConnections.filter((c) => c.hasInvestmentAccount === undefined);
   if (unknownFlagConns.length > 0) {
-    const results = await Promise.all(
-      unknownFlagConns.map(async (conn) => {
-        const { clientId, secret } = plaidCreds(bindings, conn.client);
-        const has = await fetch(`${plaidBase(bindings)}/accounts/balance/get`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client_id: clientId, secret, access_token: conn.access_token }),
+    const results = await mapWithConcurrency(unknownFlagConns, CONNECTION_SYNC_CONCURRENCY, async (conn) => {
+      const { clientId, secret } = plaidCreds(bindings, conn.client);
+      const has = await fetchWithTimeout(`${plaidBase(bindings)}/accounts/balance/get`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: clientId, secret, access_token: conn.access_token }),
+      }, PLAID_FETCH_TIMEOUT_MS)
+        // Always consume the body -- Plaid's own fetch response, read or not, is exactly the
+        // kind of "in-flight, unread" request Cloudflare's deadlock guard force-cancels once
+        // too many pile up (see CONNECTION_SYNC_CONCURRENCY comment above).
+        .then(async (r) => {
+          if (!r.ok) { await r.text().catch(() => {}); return null; }
+          return r.json();
         })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d: any) => (d?.accounts || []).some((a: any) => a.type === "investment"))
-          .catch(() => false);
-        return { item_id: conn.item_id, has };
-      })
-    );
+        .then((d: any) => (d?.accounts || []).some((a: any) => a.type === "investment"))
+        .catch(() => false);
+      return { item_id: conn.item_id, has };
+    });
     const byId = new Map(results.map((r) => [r.item_id, r.has]));
     connections = connections.map((c) => (byId.has(c.item_id) ? { ...c, hasInvestmentAccount: byId.get(c.item_id) } : c));
     activeConnections.forEach((c) => {
@@ -106,8 +127,7 @@ export async function GET(request: Request) {
     }
   }
 
-  await Promise.all(
-    activeConnections.map(async (conn) => {
+  await mapWithConcurrency(activeConnections, CONNECTION_SYNC_CONCURRENCY, async (conn) => {
       // Each connection remembers which Plaid project (client_id/secret) created it -- see
       // app/api/plaid/link-token/route.ts. Using the wrong pair for an access_token fails
       // outright, so this must be resolved per-connection, not globally.
@@ -128,7 +148,11 @@ export async function GET(request: Request) {
           const hasInvestmentAccount = conn.hasInvestmentAccount === true;
 
           await Promise.all([
-            fetch(`${plaidBase(bindings)}/transactions/refresh`, {
+            // .then(r => r.text()) always drains the body -- previously this only had a .catch,
+            // so a *successful* refresh left its response body completely unread, which is
+            // exactly the "fetch() several times without reading the bodies" condition
+            // Cloudflare's deadlock guard force-cancels the oldest of once too many pile up.
+            fetchWithTimeout(`${plaidBase(bindings)}/transactions/refresh`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -136,9 +160,9 @@ export async function GET(request: Request) {
                 secret: PLAID_SECRET,
                 access_token: conn.access_token,
               }),
-            }).catch(() => {}),
+            }, PLAID_FETCH_TIMEOUT_MS).then((r) => r.text()).catch(() => {}),
             hasInvestmentAccount
-              ? fetch(`${plaidBase(bindings)}/investments/refresh`, {
+              ? fetchWithTimeout(`${plaidBase(bindings)}/investments/refresh`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -146,9 +170,13 @@ export async function GET(request: Request) {
                     secret: PLAID_SECRET,
                     access_token: conn.access_token,
                   }),
-                })
+                }, PLAID_FETCH_TIMEOUT_MS)
+                  // The body must be read unconditionally -- it was only being read (via
+                  // r.text()) inside the `if (debug)` branch before, so every non-debug request
+                  // (i.e. every real request) left this response's body unread too.
                   .then(async (r) => {
-                    if (debug) debugRefresh.push({ institution: conn.institution_name, item_id: conn.item_id, status: r.status, body: await r.text() });
+                    const body = await r.text();
+                    if (debug) debugRefresh.push({ institution: conn.institution_name, item_id: conn.item_id, status: r.status, body });
                   })
                   .catch((e) => {
                     if (debug) debugRefresh.push({ institution: conn.institution_name, item_id: conn.item_id, error: String(e) });
@@ -173,24 +201,37 @@ export async function GET(request: Request) {
         const holdingsBalanceByAccount = new Map<string, number | null>();
         if (conn.hasInvestmentAccount === true) {
           try {
-            const holdingsResp = await fetch(`${plaidBase(bindings)}/investments/holdings/get`, {
+            const holdingsRes = await fetchWithTimeout(`${plaidBase(bindings)}/investments/holdings/get`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ client_id: PLAID_CLIENT_ID, secret: PLAID_SECRET, access_token: conn.access_token }),
-            }).then((r) => (r.ok ? r.json() : null)) as {
-              holdings?: { account_id: string; institution_price_as_of?: string | null }[];
-              accounts?: { account_id: string; balances?: { current: number | null } }[];
-            } | null;
-            for (const h of holdingsResp?.holdings || []) {
-              if (!h.institution_price_as_of) continue;
-              const existing = pricingAsOfByAccount.get(h.account_id);
-              if (!existing || h.institution_price_as_of > existing) pricingAsOfByAccount.set(h.account_id, h.institution_price_as_of);
+            }, PLAID_FETCH_TIMEOUT_MS);
+            // Always consume the body (goal: no unread response left in-flight), and surface a
+            // failure here as a visible, user-facing warning instead of only logging it under
+            // ?debug=1 -- previously this was silently swallowed, so a canceled/failed holdings
+            // fetch (the exact failure mode the deadlock guard causes) looked like a totally
+            // clean sync with no indication the pricing/balance data underneath was stale.
+            const holdingsText = await holdingsRes.text();
+            if (holdingsRes.ok) {
+              const holdingsResp = JSON.parse(holdingsText) as {
+                holdings?: { account_id: string; institution_price_as_of?: string | null }[];
+                accounts?: { account_id: string; balances?: { current: number | null } }[];
+              };
+              for (const h of holdingsResp.holdings || []) {
+                if (!h.institution_price_as_of) continue;
+                const existing = pricingAsOfByAccount.get(h.account_id);
+                if (!existing || h.institution_price_as_of > existing) pricingAsOfByAccount.set(h.account_id, h.institution_price_as_of);
+              }
+              for (const a of holdingsResp.accounts || []) {
+                if (a.balances?.current != null) holdingsBalanceByAccount.set(a.account_id, a.balances.current);
+              }
+              if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, holdings: holdingsResp });
+            } else {
+              errors.push(`${conn.institution_name}: holdings/pricing data may be incomplete (holdings fetch failed)`);
+              if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, holdingsError: holdingsText });
             }
-            for (const a of holdingsResp?.accounts || []) {
-              if (a.balances?.current != null) holdingsBalanceByAccount.set(a.account_id, a.balances.current);
-            }
-            if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, holdings: holdingsResp });
           } catch (e) {
+            errors.push(`${conn.institution_name}: holdings/pricing data may be incomplete (holdings fetch failed)`);
             if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, error: String(e) });
           }
 
@@ -202,7 +243,7 @@ export async function GET(request: Request) {
           // no match in this list at all (see the Balances tab in PlaidImport.tsx). A plain read,
           // same as holdings/get above -- safe on every fetch, not just debug.
           try {
-            const txResp = (await fetch(`${plaidBase(bindings)}/investments/transactions/get`, {
+            const txRes = await fetchWithTimeout(`${plaidBase(bindings)}/investments/transactions/get`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -212,11 +253,21 @@ export async function GET(request: Request) {
                 start_date: startDate,
                 end_date: endDate,
               }),
-            }).then((r) => (r.ok ? r.json() : null))) as { investment_transactions?: unknown[] } | null;
-            for (const t of txResp?.investment_transactions || [])
-              allInvestmentTransactions.push({ ...(t as object), institution_name: conn.institution_name });
-            if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, investmentsTransactionsGet: txResp });
+            }, PLAID_FETCH_TIMEOUT_MS);
+            // Same pattern as holdings/get above: always consume the body, and surface a failure
+            // as a visible warning instead of only under ?debug=1.
+            const txText = await txRes.text();
+            if (txRes.ok) {
+              const txResp = JSON.parse(txText) as { investment_transactions?: unknown[] };
+              for (const t of txResp.investment_transactions || [])
+                allInvestmentTransactions.push({ ...(t as object), institution_name: conn.institution_name });
+              if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, investmentsTransactionsGet: txResp });
+            } else {
+              errors.push(`${conn.institution_name}: investment transactions may be incomplete (investments/transactions fetch failed)`);
+              if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, investmentsTransactionsGetError: txText });
+            }
           } catch (e) {
+            errors.push(`${conn.institution_name}: investment transactions may be incomplete (investments/transactions fetch failed)`);
             if (debug) debugHoldings.push({ institution: conn.institution_name, item_id: conn.item_id, investmentsTransactionsGetError: String(e) });
           }
         }
@@ -225,7 +276,7 @@ export async function GET(request: Request) {
         // transactions/get returns cached balances (can be 1-2 days stale).
         // accounts/balance/get makes a live call to the bank for current balances.
         const [txData, balData] = await Promise.all([
-          fetch(`${plaidBase(bindings)}/transactions/get`, {
+          fetchWithTimeout(`${plaidBase(bindings)}/transactions/get`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -236,8 +287,8 @@ export async function GET(request: Request) {
               end_date: endDate,
               options: { count: 500, include_personal_finance_category: true },
             }),
-          }).then((r) => r.json() as Promise<{ transactions?: unknown[]; accounts?: unknown[]; error_message?: string; error_code?: string }>),
-          fetch(`${plaidBase(bindings)}/accounts/balance/get`, {
+          }, PLAID_FETCH_TIMEOUT_MS).then((r) => r.json() as Promise<{ transactions?: unknown[]; accounts?: unknown[]; error_message?: string; error_code?: string }>),
+          fetchWithTimeout(`${plaidBase(bindings)}/accounts/balance/get`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -245,8 +296,12 @@ export async function GET(request: Request) {
               secret: PLAID_SECRET,
               access_token: conn.access_token,
             }),
-          })
-            .then((r) => (r.ok ? (r.json() as Promise<{ accounts?: unknown[] }>) : null))
+          }, PLAID_FETCH_TIMEOUT_MS)
+            .then(async (r) => {
+              if (r.ok) return r.json() as Promise<{ accounts?: unknown[] }>;
+              await r.text().catch(() => {}); // drain the body -- already has an intentional fallback below
+              return null;
+            })
             .catch(() => null),
         ]);
 
@@ -279,8 +334,7 @@ export async function GET(request: Request) {
       } catch (e: any) {
         errors.push(`${conn.institution_name}: ${e.message}`);
       }
-    })
-  );
+    });
 
   // Sort newest first
   (allTransactions as any[]).sort(
