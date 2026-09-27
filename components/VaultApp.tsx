@@ -82,7 +82,6 @@ import { equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWo
 import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
-import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { computeDashboardTrend } from "@/lib/dashboard-trend";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
@@ -3366,42 +3365,47 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <DashboardInline kind="loans" />
             </DashboardCard>
           )}
-          {book !== "india" && <div className="dashboard-card-slot equity-slot">
-            <button
-              className="dashboard-balance-card"
+          {book !== "india" && (
+            <DashboardCard
+              slotClassName="equity-slot"
+              cardClassName="equity-card"
+              icon="stock"
+              iconColor="#64748b"
+              label="Equity (NVDA)"
+              value={fmt(equityMktValue)}
+              // Two real data lines (share count, live price), not a static caption like every
+              // other card's subtitle -- one <small> (DashboardCard's own wrapper) with a <br/>
+              // between two inner spans instead of two separate <small> tags, so this doesn't
+              // nest <small> inside <small>. equity-price-note stays on the inner spans so
+              // privacy-mode blurring (.privacy-mode .equity-price-note) still applies per line.
+              subtitle={
+                <>
+                  <span className="equity-price-note">{equityTotalShares.toLocaleString()} sh (held + scheduled)</span>
+                  <br />
+                  <span className="equity-price-note">{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</span>
+                </>
+              }
+              // No inline expand panel -- this card navigates straight to the Equity report
+              // (like every other Reports shortcut card), so it's never "open" in place.
+              open={false}
               onClick={() => { setReport("equity"); setTab("reports"); }}
-            >
-              <StatIcon kind="stock" color="#64748b" />
-              <div className="dashboard-card-main">
-                <span>Equity (NVDA)</span>
-                <AutoFitAmount text={fmt(equityMktValue)} maxFontSize={30} minFontSize={14} />
-                <small className="equity-price-note">{equityTotalShares.toLocaleString()} sh (held + scheduled)</small>
-                <small className="equity-price-note">{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</small>
-              </div>
-              <div className="dashboard-card-highlights">
-                <span>
-                  <b>RSU</b>
-                  <em>{fmt(equityRsuVestedValue)}</em>
-                </span>
-                <span>
-                  <b>ESPP</b>
-                  <em>{fmt(equityEsppMktValue)}</em>
-                </span>
-                {equityDailyGL !== null && (
-                  <span className={equityDailyGL > 0 ? "equity-daily-chip--pos" : equityDailyGL < 0 ? "equity-daily-chip--neg" : "equity-daily-chip--zero"}>
+              highlights={[
+                <span key="rsu"><b>RSU</b><em>{fmt(equityRsuVestedValue)}</em></span>,
+                <span key="espp"><b>ESPP</b><em>{fmt(equityEsppMktValue)}</em></span>,
+                equityDailyGL !== null && (
+                  <span key="today" className={equityDailyGL > 0 ? "equity-daily-chip--pos" : equityDailyGL < 0 ? "equity-daily-chip--neg" : "equity-daily-chip--zero"}>
                     <b>Today</b>
                     <em>{equityDailyGL >= 0 ? "+" : ""}{fmt(equityDailyGL)}</em>
                   </span>
-                )}
-                {equityScheduledShares > 0 && (
-                  <span className="equity-sch-chip">
-                    <b>Scheduled</b>
-                    <em>{fmt(equityScheduledValue)}</em>
-                  </span>
-                )}
-              </div>
-            </button>
-          </div>}
+                ),
+                // Plain style now (no more .equity-sch-chip indigo pill) -- matches RSU/ESPP and
+                // every other card's highlight chips; only Today keeps a dynamic gain/loss color.
+                equityScheduledShares > 0 && (
+                  <span key="scheduled"><b>Scheduled</b><em>{fmt(equityScheduledValue)}</em></span>
+                ),
+              ].filter(Boolean)}
+            />
+          )}
         </section>
       )}
       {tab === "bank-import" && data && (
