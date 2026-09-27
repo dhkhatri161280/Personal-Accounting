@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { CHANGELOG } from "@/lib/changelog";
+import { buildCodename } from "@/lib/build-codename";
 
 // Small "which build is live" marker next to the header tagline, sourced from Cloudflare's own
 // version_metadata (see app/api/build-info) rather than a manually-typed string -- the previous
@@ -36,15 +37,21 @@ export function BuildStamp() {
 
   if (!info) return null;
   const date = new Date(info.timestamp).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  // A raw hex id ("Build b92588e2") is a real, traceable build fingerprint but a boring one to
+  // read at a glance -- codename is deterministically derived from that same id (same build
+  // always gets the same codename), so it's still a genuine per-deploy identifier, just memorable.
+  // The raw id stays in the tooltip for anyone who actually needs to match it to a Cloudflare
+  // version.
+  const codename = buildCodename(info.id);
   return (
     <span className="build-stamp-wrap" ref={ref}>
       <button
         type="button"
         className="build-stamp"
-        title={`Build ${info.id}, deployed ${date} — click for recent changes`}
+        title={`Build ${info.id} (${codename}), deployed ${date} — click for recent changes`}
         onClick={() => setOpen((o) => !o)}
       >
-        Build {info.id} · {date}
+        Build {codename} · {date}
       </button>
       {open && (
         <div className="build-stamp-popover">
