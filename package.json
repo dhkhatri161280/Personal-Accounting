@@ -7,9 +7,9 @@
   },
   "scripts": {
     "postinstall": "patch-package",
-    "dev": "vinext dev",
+    "dev": "node scripts/generate-changelog.mjs && vinext dev",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && vinext build",
+    "build": "node scripts/generate-changelog.mjs && tsc --noEmit && vinext build",
     "start": "vinext start",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

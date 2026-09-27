@@ -832,7 +832,7 @@ header > div:first-child > small,
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   padding: 10px 12px;
-  width: 320px;
+  width: 380px;
   max-width: 80vw;
   z-index: 40;
   text-transform: none;
@@ -845,6 +845,17 @@ header > div:first-child > small,
   color: #334155;
   margin-bottom: 6px;
 }
+/* Full git history runs into the hundreds of entries -- this filters the list below instead of
+   requiring a scroll through everything to find one change. */
+.build-stamp-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: var(--fs-sm);
+}
 .build-stamp-popover ul {
   list-style: none;
   margin: 0;
@@ -852,7 +863,7 @@ header > div:first-child > small,
   display: flex;
   flex-direction: column;
   gap: 5px;
-  max-height: 260px;
+  max-height: 360px;
   overflow-y: auto;
 }
 .build-stamp-popover li {

@@ -1,0 +1,2038 @@
+[
+  {
+    "date": "2026-09-27",
+    "summary": "Show system entry timestamp on the voucher view modal"
+  },
+  {
+    "date": "2026-09-27",
+    "summary": "Swap build codename words to Gujarati food/slang"
+  },
+  {
+    "date": "2026-09-27",
+    "summary": "Fix header toolbar icons wrapping at common laptop widths"
+  },
+  {
+    "date": "2026-09-27",
+    "summary": "Give the build stamp a memorable codename instead of a raw hex id"
+  },
+  {
+    "date": "2026-09-27",
+    "summary": "Fix build-info 500 and harden Plaid transaction sync"
+  },
+  {
+    "date": "2026-09-27",
+    "summary": "Bring Equity (NVDA) dashboard card in line with the shared card style"
+  },
+  {
+    "date": "2026-09-26",
+    "summary": "Remove redundant Day Book search box"
+  },
+  {
+    "date": "2026-09-26",
+    "summary": "Add dotted leader between account name and amount in Day Book expand"
+  },
+  {
+    "date": "2026-09-26",
+    "summary": "Only show Day Book's expand toggle on genuine split vouchers"
+  },
+  {
+    "date": "2026-09-26",
+    "summary": "Add per-voucher inline expand to Day Book"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Wire interest/dividend income into Federal AGI and NIIT"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Refresh remaining live chips: Plaid status badges, equity-due, anomaly flag"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Refresh voucher quick-ledger chips, period chips, spend category cards"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Refresh the Day Book's voucher-type pill, widen its column to fit"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Refresh Watchlist cards, simplify the horizon-badge decorative color"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Fix Equity vest/ESPP table overflow, extend refresh to Trading's table"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Fix balance clipping on Retirement's dashboard-style cards"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Widen Day Book columns that were truncating under the refresh theme"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Extend the roomier table treatment to Masters (item 2, phase 1)"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Add hero-card trend, a universal click affordance, and an empty-highlights fix"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Give the Dashboard a color/hierarchy pass, not just bigger cards"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Widen the dashboard highlight-chip label column so real asset names fit"
+  },
+  {
+    "date": "2026-09-25",
+    "summary": "Refresh the Dashboard cards with more breathing room, bigger headline numbers"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Hide Documents from Privacy mode and add document search"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Apply CA itemized deduction phase-out and wire Trading gains into tax AGI"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix duplicate Pay Period rows that were double-counting totals"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Auto-fit Tax tab card numbers so they never truncate"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Make the Tax tab's estimate cards readable, still one row"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Archive the paystub PDF into Documents when saving it in the Tax tab"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix the real cause of upload 413s, and auto-trim oversized PDFs"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Give oversized document uploads a clear, actionable error message"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix document upload doing nothing (live FileList cleared before use)"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Allow selecting multiple files at once in Masters > Documents"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix employer mis-labeling for years with more than one employer"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Add a personal Documents library and employer filtering in Tax"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix Yearly Total-column drilldown showing an inverted, empty date range"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Show Yearly columnar report years newest-first, Total column last"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix Rules of Hooks violation that broke the whole app (React error #310)"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix garbage fiscal-year labels in Yearly columnar report for All periods"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Add Yearly granularity to the columnar reports for year-over-year comparison"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fix DataGrid Total-row alignment properly, using real column widths"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Align Ledgers tab's Total row under its actual columns"
+  },
+  {
+    "date": "2026-09-24",
+    "summary": "Fold Cash in Hand into Bank Account card, enlarge Cash and Bank card text"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Turn the header status message into a fixed toast, out of the icon row's flex layout"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Pin account_id in wrangler config to avoid cross-account deploy failures"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Split Cash and Bank Closing Balances into 6 sub-category cards"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Add Current/Closing balance column to Masters > Ledger Accounts"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Fix tagline restyle targeting the wrong CSS class entirely"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Bump header tagline to 14px so bold+italic is clearly visible"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Bump header tagline size and darken color for more presence"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Fix custom fonts (Geist, Geist Mono) never loading in production on Windows"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Bump header tagline to max weight bold + italic"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Restyle header tagline to bold monospace, replacing italic"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Remove dead nav CSS/component, add GL-posting wrapper tests, restyle header mark"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Guard against wide-tolerance/mismatched-reference misfires in two auto-match paths"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Fix Bank Reconciliation double-counting pending charges on depository accounts"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Fix Bank Reconciliation layout squeeze and align its Diff formula with the Import tab"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Close the third path where Plaid import could relabel a real bill as a card payment"
+  },
+  {
+    "date": "2026-09-23",
+    "summary": "Fix Plaid import mismatching a new bill against an old card-payoff pattern; fix mobile install-button overflow"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Point the installed PWA's start_url at /vault instead of the legacy /ledger"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Show SRC badge and original-currency hint on GR's Spend Report"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Move Spend Report caveat to an info icon; add Spend Report to GR Books"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Keep Spend Report header layout consistent regardless of data presence"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Fully fix Equity Report Gain column stretching in readOnly (GR) mode"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Fix ESPP table Gain column stretching to fill the removed action column's space"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Wire payroll into GR's Equity Report; drop the dead action column when read-only"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Widen Equity Report value columns to fit GR's INR crore-scale totals"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Add a \"This month\" quick-range button to Spend Report"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Simplify book switcher labels to US Books / India Books / GR Books"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Make the install prompt dashboard-only; restore the DK mark in the header"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Fix stale left-column gap and oversized PWA install prompt after removing the aside"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Remove the redundant book-switcher aside; bring GR into the header redesign"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Replace book badge with a switcher dropdown; drop left nav rail for a header tab bar"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Accurate voucher-resequence message; move Lock into settings menu"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Simplify settings-menu fingerprint icon for legibility at small size"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Fix settings gear button not shrinking at mobile breakpoints"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Fix HSA row confirmed-match persistence and stuck reconciled Difference"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Surface unmatched HSA debit-card spend and funding transfers as import proposals"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Widen the Spend Report drill-down popup"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Add click-to-drill-down on Spend Report category cards"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Compact Spend Report category cards into a squeezed grid layout"
+  },
+  {
+    "date": "2026-09-22",
+    "summary": "Add proportional fill bars to Spend Report category chips"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Consolidate header icons into a single settings menu"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Fix Schwab reauth false-positive; add changelog popover and vault backup download"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Add receipt attach-on-entry, real build stamp, and Plaid/Schwab connection alerts"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Replace static header tagline with a meaningful one"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Add keyboard-first flow, frequent-ledger chips, same-as-last, and narration suggestions to voucher entry"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Name the actual voucher in the closed-period block message"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Surface stuck/errored Tally sync in Needs Attention, show last-synced time on the lock"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Fix sync-status write floor hiding real status transitions for up to 5 min"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Fix same missing access-token header in apply-one-app-change.js and apply-one-tally-change.js"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Bring Tally master-sync runtime into repo, fix 401 on vault PUT"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Fix RSU Total row font-size mismatch in Equity report"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Add staleness reminder for the Social Security estimate"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Reorder Retirement report sections per user preference"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Auto-recognize internal Equity Award Center -> Trust share transfers"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Fix blank page when the initial session check hangs"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Merge access-code and vault-password biometric into one ceremony"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Fix Spend Report refund handling; declutter biometric UI"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Add Spend Report and biometric unlock for the access code"
+  },
+  {
+    "date": "2026-09-21",
+    "summary": "Add server-side auth to every API route with real financial data"
+  },
+  {
+    "date": "2026-09-20",
+    "summary": "Stale-data audit fixes, mark-to-market toggle, and report code-splitting"
+  },
+  {
+    "date": "2026-09-20",
+    "summary": "Add USD sub-total to Debit/Credit Total row in Loans FX register"
+  },
+  {
+    "date": "2026-09-20",
+    "summary": "Add ledger picker, compact layout, and period scoping to Loans FX register"
+  },
+  {
+    "date": "2026-09-20",
+    "summary": "Add Loans & Advances USD translation register (India book)"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Add Total rows to report tables missing a meaningful sum"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Widen .fw-panel--wide modal from 780px to 820px"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix VestTable data cells still wrapping to 2 lines"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix RSU Vesting table header wrapping to 2 lines"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Add a Total row to the RSU Vesting table"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Add Tax Sh / Net Sh columns to the RSU Vesting table"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Full-app audit: fix 5 stale-data/drift bugs of the same class as the vest fix"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix vest data missing from year totals (Gross/Tax/AGI), not just display"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix Gross Salary modal total mismatch; surface full-year tax projection"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Break Wages down to Gross Salary minus 401(k) in the AGI modal"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Add click-for-details breakdowns to Federal/State tax estimate cards"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Keep RSU vest row label on one line in Pay Periods table"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Sum multi-page vesting paystubs and route them to the RSU vest row"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix real cause of paystub date parsing: header box/letterhead Y collision"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Harden paystub date parsing and make the failure self-diagnosing"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Support multiple same-day paystub PDFs and fix stock-only-run warnings"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix confusing permanent row highlighting and diagnose paystub PDF failures"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Apply the Equity card-density fix to Tax and India Tax reports"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Shrink Equity Holdings cards further to actually fit one row"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Equity Holdings cards: drop redundant subtitle, shrink font a bit"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Revert Equity/Tax card-row squeeze back to original wrapping layout"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Equity/Tax card amounts: scale font to the card's real width"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Equity/Tax card rows: fill real width evenly, never scroll/wrap/overflow"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Rebuild Equity/Tax card rows: content-sized cards, no wrap ever"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix dollar amounts overflowing card borders in Equity/Tax stat rows"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fix Tax/India Tax summary card rows wrapping (dead CSS override)"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Fit all 7 Equity Holdings summary cards on one row"
+  },
+  {
+    "date": "2026-09-19",
+    "summary": "Categorize Fidelity HSA transfers as Contra, not an expense"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Add an All Years federal/state tax estimate table"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Add an All Years salary/tax summary table to Tax & Paystub Details"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Fix the real cause of the toolbar overflow: unscoped 280px input min-width"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Make .master-toolbar wrap instead of overflowing off-screen"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Separate \"Post as of\" from \"Post through\" for consolidated depreciation runs"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Fix the real live tagging path: discoverTaggedAssetGroups netted Dr/Cr into cost"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Fix \"+ Add Fixed Asset\" not tagging real history when a tag is typed in the same form"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Fix retroactive asset tagging computing cost from the wrong balance"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Add a page title to every tab"
+  },
+  {
+    "date": "2026-09-18",
+    "summary": "Add Social Security estimate to the Retirement screen"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Add subtotal-by-column grouping to the RSU Vested/Tax/Sold drill-down"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Tighten equity drill-down table padding so headers stop wrapping"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Make every column in the equity drill-down tables sortable"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Reorder RSU Vested Holdings columns to pair each price with its share count"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Add Award $/sh and Vest $/sh columns to the RSU Vested Holdings drill-down"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Fix real cause of drill-down filter popover clipping: global table overflow rule"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Fix column-filter popover getting clipped when the drill-down table shrinks"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Make equity drill-down date filters Excel-style multi-select checklists"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Add Grant/Tax/Held Shares columns and Excel-style column filters to equity drill-downs"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Add date filter to equity drill-down tables"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Fill in projected values for ESPP pending-cycle rows"
+  },
+  {
+    "date": "2026-09-17",
+    "summary": "Add Scheduled Value column to RSU Grants table"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Fix voucher Dr/Cr totals not actually landing on the same line"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Align voucher Dr/Cr totals under their own From/To columns"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Fix UTC-vs-local-day timezone bug; redesign voucher tally to be quiet when correct"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Show Dr/Cr tally on every voucher view; flag unbalanced vouchers proactively"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Fix unbalanced payroll voucher bug; add non-bypassable balance guardrail"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Trim Day Book's default column widths to avoid horizontal scroll on laptops"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Full app privacy-mode leak audit: fix 33 unguarded financial figures"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Fix Day Book action column getting clipped by the vertical scrollbar"
+  },
+  {
+    "date": "2026-09-15",
+    "summary": "Fix ESPP handling in paystub PDF parsing and the Plaid salary voucher composer"
+  },
+  {
+    "date": "2026-09-14",
+    "summary": "Fix privacy-mode leak in Day Book mobile card layout"
+  },
+  {
+    "date": "2026-09-14",
+    "summary": "Fix Day Book date-column truncation and mobile card Dr/Cr visibility"
+  },
+  {
+    "date": "2026-09-14",
+    "summary": "De-duplicate VaultApp/GrApp shared UI, add mobile card layout, fix voucher privacy leak"
+  },
+  {
+    "date": "2026-09-14",
+    "summary": "Balance confirmation letter PDF/email, privacy-mode fixes, design system, dark mode"
+  },
+  {
+    "date": "2026-09-13",
+    "summary": "Collapsible sidebar nav parity for GrApp, floating header icons, multi-passkey biometric support"
+  },
+  {
+    "date": "2026-09-13",
+    "summary": "Redesign ERP navigation: left sidebar nav, unified dashboard cards, Cash Flow Forecast report"
+  },
+  {
+    "date": "2026-09-11",
+    "summary": "Add Expand All/Collapse All to grouped reports, inline in the existing toolbar row"
+  },
+  {
+    "date": "2026-09-11",
+    "summary": "Fix columnar Balance Sheet FY-close double-counting; add Excel-style auto-fit column widths"
+  },
+  {
+    "date": "2026-09-11",
+    "summary": "Consolidate report toggles onto one row, drop redundant per-report period picker, fix columnar table width alignment"
+  },
+  {
+    "date": "2026-09-11",
+    "summary": "Add Fixed Asset In Service Date, Balance Sheet Incremental view; fix double-counted FY-close surplus"
+  },
+  {
+    "date": "2026-09-11",
+    "summary": "Only show Fixed Asset \"Tag remaining\" when an untagged sibling voucher still exists"
+  },
+  {
+    "date": "2026-09-11",
+    "summary": "Fix Income & Expenditure sign masking, Plaid recon precision, Day Book column sync; add voucher reversal, Fund Summary Home netting"
+  },
+  {
+    "date": "2026-09-09",
+    "summary": "Fund Summary: Summary/Detail layout, drill-down, family consolidation; mortgage principal JE automation"
+  },
+  {
+    "date": "2026-09-09",
+    "summary": "Biometric unlock stabilization, Day Book real scrolling, Fund Summary report"
+  },
+  {
+    "date": "2026-09-09",
+    "summary": "Biometric unlock reliability, Day Book real scrolling, HOA amount-match fix"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset class prefixes, depreciation rounding fix + preview, Plaid Contra match window"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset tagging: merge-aware bulk tag, Masters tag action, class-default useful life, serialized sort"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset sub-ledger tagging: Masters/Register split, drill-down, bulk-tag legacy assets"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset tagging: consistent naming, useful-life inheritance, tag-scoped drill-down, safe delete"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset sub-ledger tagging: entry-level tags, class-prefixed numbering, closed-period tag edits"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset Register: collapse toolbar text, add expand/collapse-all"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset Register: inline Group/Class editing, keyboard classification rule"
+  },
+  {
+    "date": "2026-09-08",
+    "summary": "Fixed Asset Register: SAP-style depreciation catch-up, asset classification, date fixes"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Fiscal-year close fix, prepaid register safety net, Balance Confirmation Letter, company profile settings"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Reconciliation accuracy fix, Excel-export toolbar space savings, Bank Recon collapse-by-default, auto-post prepaid amortization on unlock"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Add Excel export to all remaining reports"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Fix Quarterly/Yearly sub-total to use the app's fiscal year, not calendar"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Sub-total groups now collapse by default, expand on click"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Add period sub-totaling to ledger drill-down (Date/Monthly/Quarterly/Yearly)"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Shorten Debit/Credit amount column headers to Dr/Cr"
+  },
+  {
+    "date": "2026-09-07",
+    "summary": "Extend SAP-style Debit/Credit split to two more reports"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Bank Reconciliation: surface pending transactions that explain a Diff"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Bank Reconciliation: auto-expand accounts that need attention"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Fix Bank Reconciliation false \"unmatched\" at the 90-day window edge"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Bank Reconciliation: collapse \"Marked as reconciled\" list by default"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Loan Register schedule: catch extra principal-only payments too"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Loan Register schedule: ignore the loan's own liability account entirely"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Loan Register: pull real payment history from pre-loan-account vouchers too, use DD-MM-YYYY dates"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Loan Register: fill the whole schedule, start date to maturity"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Fix Loan Register rate display losing precision (2.875% -> 2.88%)"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Loan Register: single table, actual + future ARM rate resets"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Loan Register: real posted history + rate-aware projection + editable terms"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add full amortization schedule to Loan Register"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Fix Reports nav dropdown menus not appearing (overflow clipping)"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Cash Flow Forecast and group the Reports nav into dropdowns"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Fix Financial Ratios double-counting the mortgage in Total Debt"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Period-Close Checklist, Financial Ratios, and FX Revaluation report"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Clarify that depreciation/amortization figures are already live, no posting needed"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Loan/Debt Register with amortized principal/interest payments"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Show blocking save errors as a centered pop-up instead of a top banner"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Prepaid Expense Amortization"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Fix Fixed Asset Register silently breaking the Balance Sheet check"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Show blocking save errors as a full-width banner instead of a truncated pill"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Fixed Asset Register with straight-line depreciation"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add \"Mark as reconciled\" exception system to Bank Reconciliation"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Bank Reconciliation: widen date tolerance, stop flagging HSA-type accounts"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Fix Bank Reconciliation's unmatched-transaction sign flip"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Bank Reconciliation: reuse the Balances tab's real account matcher"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Fix Bank Reconciliation multi-account bug, align its design, clarify Audit Log"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Flag R2 attachment storage in Needs Attention near the free tier limit"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Document Attachments, Audit Trail, and AI Categorization"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add multi-year Trends report"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Bank Reconciliation report (Plaid balance vs. vault, per account)"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Single Period / Monthly / Quarterly toggle to Budget vs Actual"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Recurring Transactions (Masters templates, Plaid auto-match, due-list posting)"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Excel export to Budget vs Actual report"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add Budget vs Actual report"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Change search icon from teal to purple -- teal blended with the attention bell's green"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Give the search icon its own color instead of reusing New Voucher's blue"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Remove fintech-by-dk-generic worker config"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Restore per-book theme color on DataGrid table headers"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Extend search palette to deep-link into nested sub-tabs"
+  },
+  {
+    "date": "2026-09-06",
+    "summary": "Add a search palette to jump to any report/tab by keyword"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Make the Dashboard period-open badge a deep link to Masters > Periods"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Fill wide-screen whitespace in Day Book / ledger tables"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Format account subtype acronyms correctly in the Balances tab"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Add ESPP purchase-price mismatch to the Needs Attention check"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Let existing ESPP purchases be corrected from the UI"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Correct ESPP discount formula: FMV-only, no lookback"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Auto-calculate ESPP purchase price, and fix a real cost-basis bug it exposed"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Fix filter row misalignment and clipped Action column in TransactionTable"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Extract voucher entry form logic out of VaultApp.tsx into useVoucherForm"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Pilot @tanstack/react-query on the sync-status poller"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Migrate voucher entry form's scalar fields to react-hook-form + zod"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Pilot react-hook-form + zod on the Masters ledger-account form"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Migrate Day Book / ledger-drilldown table to MUI X Data Grid"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Pilot MUI X Data Grid on the Ledgers tab"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Add local dev loop: unit tests + synthetic seed vault for VAULT KV"
+  },
+  {
+    "date": "2026-09-05",
+    "summary": "Auto-propose monthly mortgage principal/interest split from Plaid"
+  },
+  {
+    "date": "2026-09-04",
+    "summary": "Fix voucher Edit/Copy popup sequencing, uniform Contra payment narration, and Balances totals"
+  },
+  {
+    "date": "2026-09-04",
+    "summary": "Fix Plaid checking/card reconciliation gaps and add Schwab dividend reconciliation with review-before-post"
+  },
+  {
+    "date": "2026-09-04",
+    "summary": "Add Dashboard needs-attention widget, Reports FY Close tab, and correct 2026 federal tax brackets"
+  },
+  {
+    "date": "2026-09-04",
+    "summary": "Fix Plaid investment-match false-positive override scope and auto-create fiscal-year GL accounts/closing voucher"
+  },
+  {
+    "date": "2026-09-03",
+    "summary": "Add date-wise Scheduled breakdown popup to Equity report"
+  },
+  {
+    "date": "2026-09-02",
+    "summary": "Add pending ESPP purchase projections, HSA reconciliation overrides, and live 401K/ESPP net worth values for both books"
+  },
+  {
+    "date": "2026-09-02",
+    "summary": "Generalize columnar reports to any selected period, add voucher drill-down"
+  },
+  {
+    "date": "2026-09-01",
+    "summary": "Add columnar monthly/quarterly reports, 401k employer split, and Plaid reconciliation fixes"
+  },
+  {
+    "date": "2026-09-01",
+    "summary": "Prefer holdings-sourced balance for investment accounts, polish Periods/Dashboard UX"
+  },
+  {
+    "date": "2026-09-01",
+    "summary": "Add fiscal-year filter and multi-select bulk actions to Periods tab"
+  },
+  {
+    "date": "2026-09-01",
+    "summary": "Remove Type-pill closed-period label, remove auto HSA balance-adjustment feature"
+  },
+  {
+    "date": "2026-09-01",
+    "summary": "Add ERP-style period close and ledger balance display, fix duplicate voucher detection"
+  },
+  {
+    "date": "2026-09-01",
+    "summary": "Scope Plaid investment-account refresh to just Fidelity/Merrill, detect cross-feed duplicates"
+  },
+  {
+    "date": "2026-08-31",
+    "summary": "Fix Plaid investments access for Fidelity/Merrill, add second Plaid project support"
+  },
+  {
+    "date": "2026-08-31",
+    "summary": "Tax Report fixes and Income/Expenditure layout polish"
+  },
+  {
+    "date": "2026-08-31",
+    "summary": "Excel sync: fix Telephone stipend, Credit Card/HSA, and Travel row mappings"
+  },
+  {
+    "date": "2026-08-31",
+    "summary": "Move Duplicates from Import > Plaid into Reports > Trash"
+  },
+  {
+    "date": "2026-08-31",
+    "summary": "Add \"Hide in vault\" toggle to Plaid Pending tab, matching Transactions"
+  },
+  {
+    "date": "2026-08-31",
+    "summary": "Show date + time in Retirement tab's \"Last fetched\" label"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Add live Schwab Cash Balance line to Trading report"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Match Tally's voucher-type order within a date in the Day Book table"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Reorder Retirement tab: contributions comparison first, Fidelity before Merrill"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Cache Retirement tab balances so switching tabs doesn't re-fetch Plaid"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Reorder Balances tab: Fidelity HSA/401(k), then Merrill, after the cards"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Add HSA balance-to-ledger adjustment proposal in the Plaid Transactions tab"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Link Net Worth's synthetic rows to their real data source"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Value 401(k)/IRA at live market balance in Net Worth, add drill-down"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Fix Retirement tab card overlap and include IRA in the contribution comparison"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Add a Retirement sub-tab under Import, reconcile HSA in the Balances tab"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Add Plaid update-mode reconnect for broken bank logins"
+  },
+  {
+    "date": "2026-08-30",
+    "summary": "Split Import tab into Plaid / Schwab sub-tabs"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Route NVDA Schwab activity into Equity report instead of dismiss-only"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Move Schwab connect/sync into the Import tab, add live transaction-history sync"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Deepen the India open-card tint so it's visible against the page background"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Highlight the open dashboard card while its detail panel is expanded"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Prevent a voucher explicitly linked to one payroll period from being auto-claimed by another, and preserve manual period links across Excel re-imports"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix 2022 payroll sheet importing zero periods"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Tighten multi-voucher tie-out summing to same-day + reasonable-ratio only"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Support multiple vouchers per pay period (e.g. bonus paid same day)"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix voucher tie-out check flagging RCS periods with a refund"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Add Refund line to the Pay Period detail popup"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix voucher-to-period matching accepting a voucher dated mid-period"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Show employer name in the Pay Period detail popup"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Add paystub PDF upload to the Tax tab, reducing dependency on manual chat help"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix blank-but-labeled Excel period wrongly blocking the voucher estimate"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix clipped footnote text below the Pay Periods table"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Tolerate a missing space in period labels so one typo can't truncate a year"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix voucher-to-period matching stealing a voucher from an earlier period"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Flag when a linked payroll voucher's amount doesn't tie to expected Net"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix scattered/duplicate Pay Periods display in the Tax tab"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix Tax tab silently dropping auto-detected payroll periods on save conflict"
+  },
+  {
+    "date": "2026-08-29",
+    "summary": "Fix NVIDIA payroll auto-draft template in bank-feed import"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Reorder Cash and Bank Balances breakdown: Credit Cards, Checking, Savings, Schwab last"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add one-off tool to fix the 67/68/87/88 swapped-link bug"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add read-only find-by-guid tool for locating mislinked App records"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add read-only voucher diagnostic tool"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add link-only identity repair tool for bulk-linking matching vouchers"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Require explicit confirmation before any Tally-side deletion syncs"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Increase post-success sync delay from 5s to 10s"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add a 5s post-success delay to let Cloudflare KV propagate before the next dry-run"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add large-backlog warning to the sync status badge"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Revert auto-retry: it caused real duplicate postings in Tally"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add settling delay between sync retries to reduce Tally state races"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Make Sync-US-Book.ps1 resilient to a single flaky candidate failure"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Fix Day Book date sort missing a voucher-number tie-breaker"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Fix Schwab income vouchers backdating into closed periods"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add net cash flow line to Schwab CSV cost-basis vs GL comparison"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add blended-fill trade matching and bulk income posting to CSV reconcile"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Fix Schwab CSV reconcile: CSS-broker matching, full income visibility"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Add Schwab CSV reconcile tool to Trading report"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Fix critical/high/medium issues from full-app error-proofing audit"
+  },
+  {
+    "date": "2026-08-28",
+    "summary": "Fix tokenise() dropping ampersand-joined merchant names like PG&E"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Show card owner suffix on shared-GL Balances rows"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Fix Sync-US-Book.ps1 crashing when nothing is pending"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Hardcode per-card GL mapping for split BofA cards, remove reclassify tool"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Add per-card Reclassify tool and learned GL default for shared Plaid accounts"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Redesign shared-GL Balances reconciliation as proportional allocation"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Split Balances reconciliation per physical Plaid account, add per-GL Total row"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Squeeze Net Worth donut next to trend chart, add hover tooltips, reorder tabs"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Fix donut center-text overflow and rebalance Net Worth Assets/Liabilities layout"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Normalize monthly House Hold Exps accounts so history-matching votes together"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Trust a single unambiguous history match instead of requiring 3 repeats"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Stop history-matching on generic finance words, fixing false Contra suggestions"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Add Schwab position sync preview for Trading (CST broker only)"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Use real-time Schwab quotes for live pricing, falling back to Yahoo"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Add diagnostic Schwab transaction history route"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Add diagnostic Schwab quote/positions routes to verify real API shape"
+  },
+  {
+    "date": "2026-08-27",
+    "summary": "Add Schwab OAuth connect flow (Phase 1 of live market data + positions integration)"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Anchor AI watchlist buy/sell bands to real live prices instead of AI-guessed targets"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Add IRS Long/Short term column and Excel-style sortable headers to Trading"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Move Trading row actions into a popup, make the AI watchlist pick its own tickers"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Make Trading report editable, persisting trades to the vault instead of hardcoded seed data"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Show net (not gross) in the Balances Uncleared column to match the Difference formula"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Fix Tax Planning card titles leaking dollar amounts under Privacy Mode"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Bring Tax Planning under Privacy Mode"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Collapse Equity Timing into a summary dropdown in Tax Planning"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Match Tax Planning trigger style to its row, hide it once a year's filing deadline has passed"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Model remaining paychecks on last paystub, factor ESPP cycle, fix card stretch and add state savings"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Project full-year income into Tax Planning, soften equity-sale framing, fix typography"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Add Tax Planning suggestions engine and YTD Total popup for paystubs"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Tighten Day Book Voucher Type/# columns, shorten labels, revert unrequested button resize"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Fix Day Book header wrapping and Action column inconsistency"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Compute vest Net pay, extend money-in/out colors app-wide, fix Day Book column truncation"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Fix paystub donut math, and replace all detail popups with a centered resizable window"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Finish the .ui-refresh design rollout: stat cards everywhere, donut charts, voucher visuals"
+  },
+  {
+    "date": "2026-08-26",
+    "summary": "Add a scheduled-task script to auto-pull repo updates on the personal laptop"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Value Net Worth equity historically instead of at today's price for every year"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Include vested RSU/ESPP market value in Net Worth; fix trend chart label alignment"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Add a Net Worth report to the US, India, and GR books"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Estimate tax on equity capital gains in the India Tax report"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Clean up leftover debris from the July 2026 sync-status-color bugfight"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Add combined \"All Years\" sheet to the Payroll vs Ledger export"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Add \"Monthly Detail\" tab and \"Export All Years\" button to India Tax All Years view"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Account for payday timing in the Payroll vs Ledger reconciliation"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Add \"Show all vouchers\" toggle to the Day Book"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Shrink India Tax toolbar buttons and tighten labels"
+  },
+  {
+    "date": "2026-08-25",
+    "summary": "Add Excel export reconciling India Payroll tab against the real Salary ledger"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Add Income from Other Sources; split All Years into Payroll/Tax tables with field popups"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Add \"All Years\" rollup table alongside the per-year India tax view"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Make self-occupied home loan interest cap editable to match real filed returns"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Model Income from House Property (let-out vs self-occupied) in GTI reconciliation"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Pull real \"Interest on Housing Loan\" ledger figure into GTI reconciliation"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Add Section 24(b) home loan interest deduction to Gross Total Income reconciliation"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Recompute ITR Deductions/Total Income/tax estimate live instead of trusting stale storage"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Add 80C/80D deduction caps with year-aware 80C limit, keep payroll card uncapped"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Sync Ch VI-A Deductions with itemized 80C table, pre-fill PF, compute Total Income"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Add capital gains to GTI reconciliation, delete-month action, fully editable GTI popup"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Scope manual-month save to same employer, not the whole month"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Compute ITR Refund/Demand arithmetically, add India tax-slab estimate for Tax Payable"
+  },
+  {
+    "date": "2026-08-24",
+    "summary": "Fix duplicate rows when editing/copying a payslip month"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Make ITR section's Gross Total Income / Ch VI-A Deductions cards clickable"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Replace India ITR 80C/80D lump entry with itemized table, add Gross Total Income reconciliation"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Make 80C/80D card editable for investments made outside payroll"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add click-to-edit and copy-to-multiple-months for India payslip rows"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add Other Deductions column and reorder Prof. Tax before PF"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Unify IN Books Tax tab around a single Financial Year selector"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Fix duplicate rows on re-paste of the same employer+month"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Fix double-counting when real months supersede a reconstructed year"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add bulk-paste monthly entry for real ledger-derived India payslip months"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add bulk-paste entry for reconstructed India payslip years"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add manual payslip-month entry and reconstructed-year features to IN Books"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add year-correct multi-state tax residency (NJ 2016, AZ 2019-20, CA otherwise)"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Support prior-employer \"<year> RCS\" payroll sheet naming and OASDI label"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Replace ITR archive's AY pill buttons with a dropdown to fit one row"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Fix re-import completeness check silently keeping stale bad data"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Fix false-positive value extraction found via a real production bug"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Support full ITR Form + silently skip 26AS in the ITR importer"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Replace ITR bulk-CSV workaround with a real PDF importer"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add bulk CSV import for the India ITR archive"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Redesign ITR archive as year selector + summary cards; fix arrears parsing"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Fix invisible input fields on the India Tax tab"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Disable India payslip import buttons until password is entered"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Fix silent failure in India payslip import when vault save fails"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add India Tax tab: periodic TCS payslip import + annual ITR archive"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add period-by-period breakdown popup to every Tax tab header card"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Fix near-invisible table border in design-mode theme"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Collapse 401(k) Contributions by Year table behind a details/summary"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add 401(k) Contributions by Year table to Tax tab"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add icon avatars to Dashboard stat cards in design-mode theme"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Collapse Tax tab's disclaimer into an expandable details/summary"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Add Additional Medicare Tax, NIIT, and HSA deduction; fix HSA double-count"
+  },
+  {
+    "date": "2026-08-23",
+    "summary": "Route silent Excel sync launcher through the logging wrapper"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix Daily G/(L) card being taller than its siblings"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix inconsistent/missing date formatting across the app"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix off-by-one date display across vest/purchase/voucher date labels"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Squeeze Upcoming Vesting Dates into a compact inline pill"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Collapse Upcoming Vesting Dates list to just the next date by default"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Add \"Process Vesting Day\" batch entry for RSU vesting confirmation"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Show proper Debit/Credit columns in Tax tab's voucher popup"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Shorten Pay Periods table's Period column to just the end date"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix Tax Report classic theme crushing all cards on mobile"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Add README"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix capital losses being silently discarded instead of deducted"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix tax engine taxing gross pay instead of W-2 taxable wages"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Convert Stock Sales and Itemized Deductions to drill-down modals"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Add itemized deductions and California state tax estimate"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Add US federal tax estimate engine (Phase D)"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Extend refresh theme to Daybook, Ledgers, New Voucher, Masters"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Shrink summary card value font one size to stop wrapping on long amounts"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Extend refresh theme to Trading report (CSS only)"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Extend refresh theme to remaining Reports sub-tabs (CSS only)"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Extend refresh theme to Equity report; generalize card-row layout fix"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Shrink header action icon buttons further on mobile breakpoints"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix Tax tab summary card values actually clipping (occluded by next card)"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix Tax tab summary cards still wrapping to 2 rows in production"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix summary-card width for real app layout; icon-only Edit buttons"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix stray empty box in expanded row breakdown; move Edit button to the right"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Make every Tax tab row editable; fix 9-card layout to fit one row properly"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Tax tab cards: icon beside text (horizontal), not stacked above it"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix Tax tab card clipping under UI Refresh theme"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "UI Refresh theme: bump type scale/spacing to actually read as an upgrade"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Add opt-in \"UI Refresh\" theme toggle; icon-avatar cards on Tax/Equity/Trading"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Squeeze Tax tab summary cards onto one row"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Self-heal stale payroll data: no re-import needed for the Stocks-column fix"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Tax tab: quarterly RSU vesting as its own rows, matched to Equity vest dates"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Tax tab: per-period RSU vest drill-down, manual tracking without Excel import"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Rework Tax tab: in-place popups, real totals including Stock, editable voucher-derived periods"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Fix payroll Excel period-boundary bug; drill down to Equity grants from Tax tab"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Auto-link payroll pay periods to vouchers; reconcile RSU vesting in Tax tab"
+  },
+  {
+    "date": "2026-08-22",
+    "summary": "Add Tax report tab with Plaid payroll reconciliation; harden sync-status writes"
+  },
+  {
+    "date": "2026-08-21",
+    "summary": "Fix Excel sync silently reporting success on failure"
+  },
+  {
+    "date": "2026-08-21",
+    "summary": "Add event-driven sync trigger and fix silent KV write failures across all routes"
+  },
+  {
+    "date": "2026-08-21",
+    "summary": "Fix Reports Trash panel layout, color Today equity chip by gain/loss, skip redundant sync-status KV writes"
+  },
+  {
+    "date": "2026-08-21",
+    "summary": "Fix intermittent 500s on cached routes: Cache API responses have immutable headers"
+  },
+  {
+    "date": "2026-08-21",
+    "summary": "Balances reconciliation: unify pending-adjustment math into Uncleared, fix broken unexplained-gap display"
+  },
+  {
+    "date": "2026-08-21",
+    "summary": "Plaid import: fix Contra misclassification, pending-match persistence, manual account entry, duplicate-block override, deeper balance reconciliation"
+  },
+  {
+    "date": "2026-08-20",
+    "summary": "Add KV bot-traffic cache headers, fix build, repo hygiene"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Dashboard equity card: add Today daily G/(L) chip"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Equity report: add Daily G/(L) card, squeeze summary cards for 5-card fit"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Trading report: extend privacy mode to cover all number elements"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Trading report: compact tables to 9-10 columns for full-width fit"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Trading report: move tables above insights, add Daily G/(L) column"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Add Trading report tab with insights panel"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Equity report: blur all numbers in privacy mode"
+  },
+  {
+    "date": "2026-08-10",
+    "summary": "Equity report: split Tax Value from Sale Proceeds, exclude tax from Total Gain"
+  },
+  {
+    "date": "2026-08-09",
+    "summary": "Add NVDA equity module: RSU/ESPP report, dashboard card, GR Books INR view"
+  },
+  {
+    "date": "2026-08-07",
+    "summary": "Add Plaid bank import: connect banks, fetch transactions, GL auto-match, review queue"
+  },
+  {
+    "date": "2026-08-07",
+    "summary": "Add auto-balance JE: 2-line mirrors amount, multi-line last line computes balance"
+  },
+  {
+    "date": "2026-08-07",
+    "summary": "Add conflict auto-resolve and robust backlog handling to sync coordinator"
+  },
+  {
+    "date": "2026-08-02",
+    "summary": "fix: header icons overlapping text on mobile — correct padding-right for 4 buttons"
+  },
+  {
+    "date": "2026-08-02",
+    "summary": "feat: privacy mode — blur all financial amounts with eye toggle"
+  },
+  {
+    "date": "2026-08-01",
+    "summary": "fix: ledger filter focus loss and sync button icon visibility"
+  },
+  {
+    "date": "2026-07-31",
+    "summary": "feat: ledger dropdown sort, Sync Now button, sync-trigger API"
+  },
+  {
+    "date": "2026-07-19",
+    "summary": "Add GR Consolidated Books — third book tab combining US (USD) + India (INR)"
+  },
+  {
+    "date": "2026-07-19",
+    "summary": "Tally voucher renumbering sync + sort improvements"
+  },
+  {
+    "date": "2026-07-18",
+    "summary": "Fix sync status lock showing yellow when Tally and App are in sync"
+  },
+  {
+    "date": "2026-07-13",
+    "summary": "Balance Sheet: GAAP ordering, collapsible sections, P&L A/c"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Protect sync uploads from stale vault writes"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Present investment assets as positive balances"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Match dashboard salary to selected period"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add WebAuthn biometric vault unlock"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add installable synchronized Android PWA"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Hide zero balances and reconcile dashboard capital"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Use fiscal year result in balance sheet capital"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Restrict investment dashboard to Tally group"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add dashboard drilldowns capital and salary"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Auto-number vouchers by fiscal year and type"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Use encoding-safe sort indicators"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add posted voucher editing"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add editable voucher copy workflow"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add ledger filters and column sorting"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Use April to March fiscal years"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add custom month range reporting"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Transfer only current period result to capital"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Keep credit cards in Tally Bank Accounts group"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Use authoritative Tally groups for financial statements"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Enforce periodic nominal accounts with accounting tests"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Close period surplus to capital and add month periods"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Group Balance Sheet and correct liability classification"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Correct period accounting and add report drill-down"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Clean report encoding and hide zero-balance ledgers"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Release full ledger navigation and reporting periods"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add transaction workflow and Tally-style reports"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Route main app to working encrypted vault"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Add zero-knowledge encrypted Tally vault"
+  },
+  {
+    "date": "2026-07-10",
+    "summary": "Build personal ledger migration prototype"
+  }
+]

@@ -9,11 +9,13 @@ import { buildCodename } from "@/lib/build-codename";
 // drifted badly stale. Renders nothing until the fetch resolves, and stays silent on failure --
 // this is a minor footer detail, not worth a loading state or error message of its own.
 //
-// Clicking it opens a short "what changed recently" popover (see lib/changelog.ts) -- answerable
-// in-app instead of only via git log.
+// Clicking it opens the full "what changed" history (see lib/changelog.ts, generated from git
+// log at build time) -- answerable in-app instead of only via git log, with a text filter since
+// the full history runs into the hundreds of entries.
 export function BuildStamp() {
   const [info, setInfo] = useState<{ id: string; timestamp: string } | null>(null);
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
   const ref = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -55,9 +57,17 @@ export function BuildStamp() {
       </button>
       {open && (
         <div className="build-stamp-popover">
-          <strong>Recent changes</strong>
+          <strong>All changes ({CHANGELOG.length})</strong>
+          <input
+            type="text"
+            className="build-stamp-filter"
+            placeholder="Filter…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            autoFocus
+          />
           <ul>
-            {CHANGELOG.slice(0, 8).map((c, i) => (
+            {CHANGELOG.filter((c) => !filter || c.summary.toLowerCase().includes(filter.toLowerCase())).map((c, i) => (
               <li key={i}>
                 <span className="build-stamp-date">{c.date}</span> {c.summary}
               </li>

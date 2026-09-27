@@ -1,14 +1,10 @@
-// Short, manually-maintained list of what shipped recently -- surfaced by clicking the header's
-// BuildStamp, so "what changed" is answerable in-app instead of only via git log. Most recent
-// entry first; keep entries to one line each. Not meant to be exhaustive -- just enough to jog
-// memory about the last several real, user-facing changes.
-export const CHANGELOG: { date: string; summary: string }[] = [
-  { date: "2026-09-22", summary: "Fixed a Schwab re-auth alert that fired permanently due to a bad threshold" },
-  { date: "2026-09-22", summary: "Attach a receipt photo while composing a New Voucher, not just after saving" },
-  { date: "2026-09-22", summary: "Needs Attention now flags a broken Plaid connection or an expiring Schwab login" },
-  { date: "2026-09-22", summary: "Header now shows the real live build instead of a manually-typed version string" },
-  { date: "2026-09-22", summary: "New Voucher: keyboard-first entry, frequent-ledger chips, same-as-last, narration suggestions" },
-  { date: "2026-09-22", summary: "Closed-period save errors now name the actual voucher instead of a generic count" },
-  { date: "2026-09-21", summary: "Needs Attention flags a stuck or errored Tally sync; lock icon shows last-synced time" },
-  { date: "2026-09-21", summary: "Fixed the Tally master-sync 401 introduced by the access-code security rollout" },
-];
+// Full commit history, regenerated at build time by scripts/generate-changelog.mjs straight from
+// `git log` (every real commit, most recent first) -- surfaced by clicking the header's
+// BuildStamp, so "what changed" is answerable in-app instead of only via git log. Previously a
+// short, manually-maintained list; confirmed live that it silently went stale (sat unchanged for
+// 5 days while 10+ real user-facing changes shipped, with nothing to catch the drift). Deriving
+// it from git directly means it can never drift again -- every deploy bakes in the exact history
+// as of that build.
+import changelogData from "./changelog-data.json";
+
+export const CHANGELOG: { date: string; summary: string }[] = changelogData;
