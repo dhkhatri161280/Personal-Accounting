@@ -2612,9 +2612,6 @@ tfoot th {
   border-color: #10223f;
   padding: 12px;
 }
-.header-actions {
-  flex-wrap: wrap;
-}
 @media (max-width: 680px) {
   .biometric-primary {
     font-size: var(--fs-sm);
