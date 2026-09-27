@@ -2673,6 +2673,14 @@ tfoot th {
   padding: 12px !important;
   color: #273752 !important;
 }
+/* System entry timestamp (see selectedVoucher.createdAt above) -- deliberately quiet, a
+   secondary "when was this actually recorded" detail, not competing with the real Date/Voucher
+   type/Reference/Status grid above it. */
+.voucher-entered-at {
+  margin: -8px 0 14px;
+  font-size: var(--fs-2xs);
+  color: #94a3b8;
+}
 .voucher-attachments {
   background: #f8fafc;
   border: 1px solid #e5eaf1;

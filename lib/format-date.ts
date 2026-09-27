@@ -42,6 +42,34 @@ export function yesterdayLocalIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// A full ISO createdAt timestamp -> "Sep 26, 2026 · 3:42 PM PDT", hardcoded to Pacific time
+// regardless of the viewer's own device/browser timezone -- explicit choice (see the voucher
+// view's "Entered on" line) so the same voucher always shows the same wall-clock time no matter
+// which machine you check it from, rather than silently shifting like a plain toLocaleString()
+// would. Returns null for a missing/invalid timestamp (older vouchers predate this field, and
+// Tally-synced vouchers never set it) so the caller can hide the line entirely instead of
+// showing a blank or wrong date.
+export function formatPacificTimestamp(isoTimestamp: string | undefined | null): string | null {
+  if (!isoTimestamp) return null;
+  const d = new Date(isoTimestamp);
+  if (isNaN(d.getTime())) return null;
+  // toLocaleString renders "Sep 26, 2026, 3:42 PM PDT" -- two commas, not one. A plain
+  // .replace(",", " ·") (no /g/) hits the FIRST comma (after "Sep 26"), not the one before the
+  // time, producing the broken "Sep 26 · 2026, 3:42 PM PDT". Target the comma immediately before
+  // the HH:MM time specifically instead.
+  return d
+    .toLocaleString("en-US", {
+      timeZone: "America/Los_Angeles",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    })
+    .replace(/, (\d{1,2}:\d{2})/, " · $1");
+}
+
 // "5 min ago" / "3 hr ago" / "2 days ago" from a full ISO timestamp (not just a date) -- used for
 // the Tally sync lock's "last synced" label and the Needs Attention "sync hasn't reported in a
 // while" check, both of which care about minutes/hours, not just calendar days.

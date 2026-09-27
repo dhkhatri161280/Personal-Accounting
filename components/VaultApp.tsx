@@ -54,7 +54,7 @@ import {
   findVoucherByNarration,
   draftLinesFromTx,
 } from "@/lib/vault-accounting";
-import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel } from "@/lib/format-date";
+import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel, formatPacificTimestamp } from "@/lib/format-date";
 import { SyncNowButton, SyncStatusDot, SyncLockMenuRow } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
@@ -5347,6 +5347,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Status<strong>{selectedVoucher.cancelled ? "Cancelled" : "Posted"}</strong>
               </span>
             </section>
+            {/* System entry timestamp (when this voucher was actually saved to the vault), not
+                the business Date above (when the transaction happened) -- the two commonly
+                differ, e.g. a bill payment entered a few days after the fact. Hardcoded to
+                Pacific time (not the viewer's own browser timezone) so the same voucher always
+                shows the same wall-clock entry time no matter which machine it's checked from.
+                Hidden entirely when createdAt is missing (vouchers from before this field
+                existed, or synced in from Tally, which never sets it). */}
+            {formatPacificTimestamp(selectedVoucher.createdAt) && (
+              <p className="voucher-entered-at">Entered {formatPacificTimestamp(selectedVoucher.createdAt)}</p>
+            )}
             <h3>Narration</h3>
             <p className="voucher-narration">{cleanText(selectedVoucher.narration) || "-"}</p>
             <VoucherFlow entries={selectedVoucher.entries} fmt={fmt} />
