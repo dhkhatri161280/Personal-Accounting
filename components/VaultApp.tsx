@@ -222,7 +222,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [year, setYear] = useState("all"),
     [customStart, setCustomStart] = useState("2026-04"),
     [customEnd, setCustomEnd] = useState("2026-06"),
-    [query, setQuery] = useState(""),
     [showAllVouchers, setShowAllVouchers] = useState(false),
     [tableFilter, setTableFilter] = useState(""),
     [minAmount, setMinAmount] = useState(""),
@@ -1561,14 +1560,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const n = Number(num);
     return Number.isFinite(n) ? n : Infinity;
   };
+  // Free-text filtering now lives entirely in TransactionTable's own per-column filter row
+  // (Date/Type/#/Debit/Credit/Narration/Amount) -- that row is a strict superset of what this
+  // top-level query search offered (a single OR-across-every-field substring match), since typing
+  // the same term into Narration or Debit/Credit Ledger finds the same vouchers, plus it can
+  // combine multiple columns (Type + Debit Ledger at once) which the old single search box never
+  // could. Removed after the user flagged the two search UIs as redundant.
   const filteredAll = calc.period
-    .filter(
-      (t) =>
-        !query ||
-        `${t.date} ${t.number} ${t.type} ${t.narration} ${t.entries.map((e) => e.accountName).join(" ")}`
-          .toLowerCase()
-          .includes(query.toLowerCase())
-    )
     .slice()
     .sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -3553,18 +3551,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       })()}
       {tab === "daybook" && (
         <div className="data-panel">
-          <input
-            className="search-box"
-            placeholder="Search all voucher content"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
           {dayBookCapped && (
             <div style={{ padding: "6px 12px", background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", fontSize: "0.8rem", color: "#713f12", marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span>
                 {showAllVouchers
                   ? `Showing all ${filteredAll.length} vouchers — large lists can render slowly.`
-                  : `Showing ${DAY_BOOK_CAP} of ${filteredAll.length} vouchers — use the search box, or show all.`}
+                  : `Showing ${DAY_BOOK_CAP} of ${filteredAll.length} vouchers — use the column filters below, or show all.`}
               </span>
               <button onClick={() => setShowAllVouchers((v) => !v)} style={{ padding: "3px 10px", fontSize: "0.75rem", margin: 0 }}>
                 {showAllVouchers ? "Show recent only" : `Show all ${filteredAll.length}`}
@@ -3578,7 +3570,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onEdit={(t) => editVoucher(t as Tx)}
             onCopy={(t) => copyVoucher(t as Tx)}
             onDelete={(t) => deleteVoucher(t as Tx)}
-            onClearSearch={() => setQuery("")}
             closedPeriods={data.closedPeriods}
             virtualized
             mobileCards
