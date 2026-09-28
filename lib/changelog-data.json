@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Fix VaultApp Equity subtitle clipping too, same fix as GR's"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Keep GR Equity's FX subtitle on one line via AutoFitAmount"
   },
   {
