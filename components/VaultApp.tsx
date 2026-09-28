@@ -251,7 +251,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // below for RSU/ESPP. null = not fetched yet (or fetch failed); Net Worth falls back to the
     // book-value ledger row in that case rather than silently showing $0.
     [liveRetirementBalance, setLiveRetirementBalance] = useState<number | null>(null),
-    [openReportGroup, setOpenReportGroup] = useState<string | null>(null);
+    [openReportGroup, setOpenReportGroup] = useState<string | null>(null),
+    // Which vouchers have an explicitly confirmed Plaid bank-transaction match (see
+    // app/api/plaid/confirmed-matches and PlaidImport.tsx's "Already posted?" flow) -- surfaced
+    // as a "Reconciled" badge in the Day Book's inline expand (see TransactionTable.tsx's
+    // matchedVoucherIds prop). Just the raw records; matchedVoucherIds below derives the actual
+    // Set of voucher ids from them.
+    [confirmedMatches, setConfirmedMatches] = useState<{ vault_voucher_id: number }[]>([]);
   const { privacyMode, togglePrivacy, darkMode, toggleDarkMode } = useUiPrefs();
   // Ledgers tab's own DataGrid Total-row alignment -- must live at the top level (Rules of
   // Hooks), even though the grid itself only renders when tab === "ledgers", since apiRef needs
@@ -948,6 +954,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       })
       .catch(() => {});
   }, [!!data]);
+
+  // Fetched once per session, same as attachments usage above -- just a KV read (no live Plaid
+  // API calls), cheap enough to always have available for the Day Book's inline "Reconciled"
+  // badge without waiting on the user to open the Plaid Import tab first.
+  useEffect(() => {
+    if (!data || book === "india") return;
+    apiFetch("/api/plaid/confirmed-matches")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((j: unknown) => setConfirmedMatches(Array.isArray(j) ? j : []))
+      .catch(() => {});
+  }, [!!data, book]);
+  const matchedVoucherIds = useMemo(() => new Set(confirmedMatches.map((m) => m.vault_voucher_id)), [confirmedMatches]);
 
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
   // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
@@ -3575,6 +3593,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onCopy={(t) => copyVoucher(t as Tx)}
             onDelete={(t) => deleteVoucher(t as Tx)}
             closedPeriods={data.closedPeriods}
+            matchedVoucherIds={matchedVoucherIds}
             virtualized
             mobileCards
           />

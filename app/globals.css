@@ -3125,6 +3125,19 @@ tfoot th {
   color: #475569;
   font-variant-numeric: tabular-nums;
 }
+/* Attachment count + system entry time -- a quiet footer line under the Dr/Cr entries, same
+   left-indent as the entries themselves so it reads as "about this voucher" rather than a new
+   section. */
+.voucher-detail-footer {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  padding-top: 6px;
+  padding-left: 20px;
+  border-top: 1px dashed #e2e8f0;
+  font-size: 11px;
+  color: #94a3b8;
+}
 .dark-mode .voucher-detail-row {
   background: rgba(47, 111, 237, 0.06);
 }
@@ -3136,6 +3149,19 @@ tfoot th {
 }
 .dark-mode .voucher-detail-leader {
   border-bottom-color: rgba(226, 232, 240, 0.25);
+}
+.dark-mode .voucher-detail-footer {
+  border-top-color: rgba(226, 232, 240, 0.15);
+}
+/* "✓ Reconciled" -- a genuinely meaningful status (explicitly confirmed against a real bank
+   transaction), not decorative, so it gets its own real color rather than the footer's default
+   muted gray. */
+.voucher-detail-reconciled {
+  color: #16a34a;
+  font-weight: 600;
+}
+.dark-mode .voucher-detail-reconciled {
+  color: #4ade80;
 }
 /* Compact Tally-style single-ledger table (LoansAdvancesFxRegister) -- deliberately few, narrow
    columns (Date/Voucher/Narration/Debit/Credit/Balance) instead of one column per figure, so an
@@ -3209,6 +3235,9 @@ tfoot th {
 }
 .voucher-card .voucher-detail-entries {
   margin-top: 8px;
+  padding-left: 12px;
+}
+.voucher-card .voucher-detail-footer {
   padding-left: 12px;
 }
 .voucher-card-top {

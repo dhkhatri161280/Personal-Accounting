@@ -10,6 +10,8 @@ import { useGridColumnWidths } from "@/hooks/useGridColumnWidths";
 import { fiscalYearOf } from "@/lib/vault-accounting";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { formatPacificTimestamp } from "@/lib/format-date";
+import type { Attachment } from "@/lib/vault-types";
 
 type Entry = { accountName: string; amount: number };
 export type VoucherRow = {
@@ -20,6 +22,15 @@ export type VoucherRow = {
   narration: string;
   cancelled?: boolean;
   entries: Entry[];
+  // Both optional -- only used by the inline expand's footer (attachment count, system entry
+  // time). Real Tx records already carry both; older/Tally-synced vouchers may have neither.
+  attachments?: Attachment[];
+  createdAt?: string;
+  // The real Tx.id (not guid) -- confirmed Plaid bank-match records (see app/api/plaid/
+  // confirmed-matches) key on this numeric id, so the inline expand's "Reconciled" badge (via
+  // the matchedVoucherIds prop below) needs it to cross-reference. Optional since not every
+  // caller of this table has voucher ids to pass (e.g. a synthetic/QA row).
+  id?: number;
 };
 type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount" | "debitAmount" | "creditAmount";
 
@@ -203,7 +214,19 @@ function periodLabel(dateIso: string, period: SubtotalPeriod): string {
 // The inline expand's own content -- every entry line for one voucher (account + Dr/Cr amount),
 // same data TallyPrime's Alt+F5 Detailed Daybook shows beneath each voucher header. Shared between
 // the plain-table row and the mobile card, so both stay in sync automatically.
-function VoucherDetailEntries({ voucher, formatAmount }: { voucher: VoucherRow; formatAmount: (n: number) => string }) {
+function VoucherDetailEntries({
+  voucher,
+  formatAmount,
+  matched,
+}: {
+  voucher: VoucherRow;
+  formatAmount: (n: number) => string;
+  // True when this voucher's id appears in the confirmed Plaid bank-match records (see
+  // matchedVoucherIds prop on TransactionTable) -- an explicit "you already reconciled this
+  // against your bank" signal, distinct from the automatic date+amount heuristic
+  // reconciliationStatusForAccounts uses elsewhere (Bank Reconciliation report).
+  matched?: boolean;
+}) {
   return (
     <div className="voucher-detail-entries">
       {voucher.entries.map((e, i) => (
@@ -219,6 +242,23 @@ function VoucherDetailEntries({ voucher, formatAmount }: { voucher: VoucherRow; 
           <span className="voucher-detail-amount">{formatAmount(Math.abs(e.amount))}</span>
         </div>
       ))}
+      {/* Attachment count + system entry time -- same "when was this actually recorded, and is
+          there a receipt behind it" context the full voucher view modal already shows, surfaced
+          here too so it's visible without a second click into that modal. Renders nothing when
+          neither applies (no attachments, no createdAt -- e.g. an older or Tally-synced voucher). */}
+      {(voucher.attachments?.length || formatPacificTimestamp(voucher.createdAt) || matched) && (
+        <div className="voucher-detail-footer">
+          {matched && <span className="voucher-detail-reconciled">✓ Reconciled</span>}
+          {!!voucher.attachments?.length && (
+            <span className="voucher-detail-attachments">
+              📎 {voucher.attachments.length} attachment{voucher.attachments.length === 1 ? "" : "s"}
+            </span>
+          )}
+          {formatPacificTimestamp(voucher.createdAt) && (
+            <span className="voucher-detail-entered">Entered {formatPacificTimestamp(voucher.createdAt)}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -302,6 +342,7 @@ export function TransactionTable({
   openingBalance,
   onClearSearch,
   closedPeriods,
+  matchedVoucherIds,
   virtualized,
   mobileCards,
 }: {
@@ -314,6 +355,11 @@ export function TransactionTable({
   selectedLedgerName?: string;
   openingBalance?: number;
   onClearSearch?: () => void;
+  // Voucher ids (VoucherRow.id, i.e. the real Tx.id) with an explicitly confirmed Plaid
+  // bank-match (see app/api/plaid/confirmed-matches) -- shown as a "✓ Reconciled" badge in the
+  // inline expand footer. Optional/omitted entirely outside Day Book (e.g. the Ledger drilldown),
+  // where no caller currently fetches this data.
+  matchedVoucherIds?: Set<number>;
   // Edit/Delete are hidden (not just blocked at save time) for a voucher dated in one of these
   // "YYYY-MM" periods -- see isPeriodClosed in lib/vault-accounting.ts, same source of truth
   // the actual save-time enforcement uses.
@@ -466,6 +512,14 @@ export function TransactionTable({
     () => rows.reduce((sum, t) => sum + ledgerSignedAmount(t, selectedLedgerName), 0),
     [rows, selectedLedgerName]
   );
+  // Every currently-visible (filtered) split voucher's guid -- the candidate set for the global
+  // "Expand all splits" toggle below. Tally's own Alt+F5 Detailed Daybook expands EVERY voucher
+  // at once via one global toggle, not one row at a time -- this matches that, instead of only
+  // offering the per-row click this feature started with.
+  const expandableGuids = useMemo(() => rows.filter((t) => t.entries.length > 2).map((t) => t.guid), [rows]);
+  const allExpanded = expandableGuids.length > 0 && expandableGuids.every((g) => expandedVouchers.has(g));
+  const toggleAllExpanded = () =>
+    setExpandedVouchers(allExpanded ? new Set() : new Set(expandableGuids));
 
   // Running balance: computed chronologically on all (unfiltered) transactions so that
   // each row always shows its correct cumulative balance regardless of active filters.
@@ -735,6 +789,11 @@ export function TransactionTable({
           Clear all filters
         </button>
         <ExportButton onExport={exportRows} />
+        {expandableGuids.length > 0 && (
+          <button onClick={toggleAllExpanded}>
+            {allExpanded ? "Collapse all" : `Expand all splits (${expandableGuids.length})`}
+          </button>
+        )}
         {balanceMap && (
           <label style={{ marginLeft: "auto", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
             Sub-total
@@ -839,7 +898,11 @@ export function TransactionTable({
                 )}
                 {canExpand(t) && expandedVouchers.has(t.id) && (
                   <div onClick={(e) => e.stopPropagation()}>
-                    <VoucherDetailEntries voucher={t.voucher} formatAmount={formatAmount} />
+                    <VoucherDetailEntries
+                      voucher={t.voucher}
+                      formatAmount={formatAmount}
+                      matched={t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id)}
+                    />
                   </div>
                 )}
               </div>
@@ -992,7 +1055,11 @@ export function TransactionTable({
                       <tr key={`${t.id}-detail`} className="voucher-detail-row">
                         <td></td>
                         <td colSpan={(balanceMap ? 8 : 7)}>
-                          <VoucherDetailEntries voucher={t.voucher} formatAmount={formatAmount} />
+                          <VoucherDetailEntries
+                            voucher={t.voucher}
+                            formatAmount={formatAmount}
+                            matched={t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id)}
+                          />
                         </td>
                         <td></td>
                       </tr>
