@@ -956,16 +956,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .catch(() => {});
   }, [!!data]);
 
-  // Fetched once per session, same as attachments usage above -- just a KV read (no live Plaid
-  // API calls), cheap enough to always have available for the Day Book's inline "Reconciled"
-  // badge without waiting on the user to open the Plaid Import tab first.
+  // Refetched on every tab switch (not just once per session) -- cheap enough (just a KV read,
+  // no live Plaid API calls) to always keep current. Needed because the Reports -> Bank Recon
+  // screen (components/reports/BankReconciliation.tsx) writes new confirmed matches into this
+  // same KV list from its own local state -- without refetching here, a voucher bulk-reconciled
+  // there would keep showing no badge in the Day Book/voucher modal until the next full vault
+  // unlock, since this component's own confirmedMatches state had no way to know it changed.
   useEffect(() => {
     if (!data || book === "india") return;
     apiFetch("/api/plaid/confirmed-matches")
       .then((r) => (r.ok ? r.json() : []))
       .then((j: unknown) => setConfirmedMatches(Array.isArray(j) ? j : []))
       .catch(() => {});
-  }, [!!data, book]);
+  }, [!!data, book, tab]);
   const matchedVoucherIds = useMemo(() => new Set(confirmedMatches.map((m) => m.vault_voucher_id)), [confirmedMatches]);
 
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally

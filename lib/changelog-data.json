@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Add bulk \"Reconcile all now\" to the actual Bank Recon report screen"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Add Reconcile History reviewer for pre-plaidTxId vouchers"
   },
   {
