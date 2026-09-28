@@ -1244,11 +1244,18 @@ export function GrApp() {
             iconColor="#64748b"
             label="Equity (NVDA)"
             value={equityData ? fmt(equityTotalInr) : "—"}
+            // One <small> (DashboardCard's own wrapper) is nowrap+ellipsis -- confirmed live
+            // the full one-line FX calculation ("$225.00 × ₹95.45 = ₹21,475.71") silently
+            // clipped at ordinary desktop widths (1920px), losing digits with no "..." shown
+            // (same underlying issue as VaultApp's own Equity subtitle, fixed there the same
+            // way: split across two lines via <br/> instead of one unbreakable string).
             subtitle={
               nvdaPrice && latestFxRate ? (
-                <span className="equity-price-note">
-                  ${nvdaPrice.toFixed(2)} × ₹{latestFxRate.toFixed(2)} = ₹{(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
+                <>
+                  <span className="equity-price-note">${nvdaPrice.toFixed(2)} × ₹{latestFxRate.toFixed(2)}</span>
+                  <br />
+                  <span className="equity-price-note">= ₹{(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </>
               ) : (
                 <span className="equity-price-note">{equityData ? "loading price…" : "No equity data"}</span>
               )

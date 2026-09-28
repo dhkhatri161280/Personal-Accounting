@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Force the build stamp onto its own line in every book"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Fix dashboard card number clipping on mobile and desktop, all books"
   },
   {
