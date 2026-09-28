@@ -260,3 +260,65 @@ export function reconciliationStatusForAccounts(
   }
   return results.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }
+
+export type HistoricalReconcileCandidate = {
+  voucher: Tx;
+  account: Account;
+  plaidTx: PlaidTxSummary;
+};
+
+// The historical counterpart to `unmatchedVault` above: instead of surfacing vault vouchers with
+// NO Plaid match, this finds ones that DO already have a real matching Plaid transaction (same
+// date+amount logic already proven in reconciliationStatusForAccounts) but predate the app
+// recording that link permanently on the voucher itself (Tx.plaidTxId, added later) -- vouchers
+// imported before that existed have no durable "this came from Plaid" marker to check, so this
+// re-derives the same answer from a live Plaid fetch instead. Deliberately returns candidates for
+// human confirmation (via the existing confirmed-matches flow), not an auto-applied write -- two
+// same-day same-amount vouchers at one merchant would otherwise silently swap.
+export function findHistoricalReconcileCandidates(
+  data: Ledger,
+  plaidAccounts: PlaidAccountSummary[],
+  plaidTransactions: PlaidTxSummary[],
+  alreadyReconciledVoucherIds: Set<number>
+): HistoricalReconcileCandidate[] {
+  const groups = new Map<number, { account: Account; plaidAccounts: PlaidAccountSummary[] }>();
+  for (const pa of plaidAccounts) {
+    const account = matchVaultAccount(pa, data.accounts);
+    if (!account) continue;
+    const g = groups.get(account.id) ?? { account, plaidAccounts: [] };
+    g.plaidAccounts.push(pa);
+    groups.set(account.id, g);
+  }
+
+  const out: HistoricalReconcileCandidate[] = [];
+  for (const { account, plaidAccounts: paGroup } of groups.values()) {
+    const groupAcctIds = new Set(paGroup.map((pa) => pa.account_id));
+    // Cleared transactions only -- a still-pending Plaid amount can legitimately change before it
+    // posts, so it's not a safe thing to confirm a permanent match against yet.
+    const acctPlaidTxs = plaidTransactions.filter((t) => groupAcctIds.has(t.account_id) && !t.pending);
+    const acctVaultTxs = data.transactions.filter(
+      (t) =>
+        !t.deleted &&
+        !t.cancelled &&
+        !t.plaidTxId &&
+        t.syncStatus !== "bank-pending" &&
+        !alreadyReconciledVoucherIds.has(t.id) &&
+        t.entries.some((e) => e.accountId === account.id)
+    );
+    for (const vt of acctVaultTxs) {
+      const amt = vaultTxAccountAmount(vt, account.id);
+      let best: PlaidTxSummary | undefined;
+      let bestGap = Infinity;
+      for (const pt of acctPlaidTxs) {
+        if (Math.abs(pt.amount - amt) >= 0.5) continue;
+        const gap = daysApart(vt.date, pt.date);
+        if (gap <= DATE_TOL_DAYS && gap < bestGap) {
+          best = pt;
+          bestGap = gap;
+        }
+      }
+      if (best) out.push({ voucher: vt, account, plaidTx: best });
+    }
+  }
+  return out.sort((a, b) => (a.voucher.date < b.voucher.date ? 1 : -1));
+}

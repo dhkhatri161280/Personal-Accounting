@@ -13,7 +13,7 @@ import {
 } from "@/lib/mortgage-amortization";
 import { isCcAcct, isBankAcct, enforceContraType } from "@/lib/plaid-classify";
 import { matchRecurringTemplate, buildVoucherFromTemplate, currentPeriodKey } from "@/lib/recurring";
-import { vaultBookBalance, findAcct, matchVaultAccount, bofaCardGlAccountName, vaultExceptionKey } from "@/lib/plaid-recon";
+import { vaultBookBalance, findAcct, matchVaultAccount, bofaCardGlAccountName, vaultExceptionKey, findHistoricalReconcileCandidates, type HistoricalReconcileCandidate } from "@/lib/plaid-recon";
 import { fmtDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ interface Props {
   onSave: (next: Ledger) => Promise<boolean>;
   // Lets a caller (the search palette) deep-link straight into Transactions/Pending/Balances --
   // read once on mount, same pattern as MastersPanel's initialSection.
-  initialTab?: "transactions" | "pending" | "balances";
+  initialTab?: "transactions" | "pending" | "balances" | "reconcile";
 }
 
 function fmtMoney(n: number): string {
@@ -1572,7 +1572,18 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     }
   }
   const [plaidAccounts, setPlaidAccounts] = useState<PlaidAccount[]>([]);
-  const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances">(initialTab ?? "transactions");
+  const [activeTab, setActiveTab] = useState<"transactions" | "pending" | "balances" | "reconcile">(initialTab ?? "transactions");
+  // "Reconcile History" tab -- a wider-window Plaid fetch (independent of the main Transactions
+  // tab's 90-day default) used only to re-derive the Reconciled badge for vault vouchers imported
+  // before Tx.plaidTxId existed to record it permanently. Fetched on demand (button click), not
+  // automatically, since it's a separate, heavier Plaid call most sessions won't need.
+  const [historicalTxs, setHistoricalTxs] = useState<PlaidTxRaw[]>([]);
+  const [historicalAccounts, setHistoricalAccounts] = useState<PlaidAccount[]>([]);
+  const [historicalMonths, setHistoricalMonths] = useState(12);
+  const [historicalFetching, setHistoricalFetching] = useState(false);
+  const [historicalFetched, setHistoricalFetched] = useState(false);
+  const [historicalConfirmedGuids, setHistoricalConfirmedGuids] = useState<Set<string>>(new Set());
+  const [historicalSkippedGuids, setHistoricalSkippedGuids] = useState<Set<string>>(new Set());
   const [pendingRows, setPendingRows] = useState<ImportRow[]>([]);
   const [savingPending, setSavingPending] = useState(false);
   const [expandedReconIdx, setExpandedReconIdx] = useState<number | null>(null);
@@ -1745,6 +1756,77 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     } finally {
       setFetching(false);
     }
+  }
+
+  // Wider-window fetch for the "Reconcile History" tab -- independent of fetchTransactions()
+  // above, which defaults server-side to the last 90 days (fine for day-to-day import, too
+  // narrow to find candidates for older, already-saved vouchers). Plaid itself may not have
+  // transaction history going back the full requested range regardless (retention varies by
+  // institution) -- whatever it does return is all this can ever find candidates within.
+  async function fetchHistoricalTransactions() {
+    setHistoricalFetching(true);
+    setStatus(`Fetching ${historicalMonths} months of transaction history…`);
+    try {
+      const end = new Date().toISOString().slice(0, 10);
+      const start = new Date(Date.now() - historicalMonths * 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const r = await apiFetch(`/api/plaid/transactions?start=${start}&end=${end}`);
+      const { transactions, accounts: rawPlaidAccts, errors } = (await r.json()) as {
+        transactions: PlaidTxRaw[];
+        accounts: PlaidAccount[];
+        errors: string[];
+      };
+      if (errors?.length) setStatus(`Partial fetch — ${errors.join(", ")}`);
+      else setStatus("");
+      const acctToInst = new Map<string, string>();
+      for (const tx of transactions) {
+        if (tx.institution_name && !acctToInst.has(tx.account_id)) acctToInst.set(tx.account_id, tx.institution_name);
+      }
+      setHistoricalAccounts((rawPlaidAccts || []).map((a) => ({ ...a, institution_name: acctToInst.get(a.account_id) || a.institution_name || "" })));
+      setHistoricalTxs(transactions);
+      setHistoricalFetched(true);
+      setHistoricalConfirmedGuids(new Set());
+      setHistoricalSkippedGuids(new Set());
+    } catch {
+      setStatus("Failed to fetch transaction history");
+    } finally {
+      setHistoricalFetching(false);
+    }
+  }
+
+  async function confirmHistoricalMatch(candidate: HistoricalReconcileCandidate) {
+    const { voucher, plaidTx } = candidate;
+    const debitEntry = voucher.entries.find((e) => e.amount < 0);
+    const creditEntry = voucher.entries.find((e) => e.amount > 0);
+    const merchantKey = (plaidTx.name || "").toLowerCase().split(/\W+/).find((w) => w.length > 2) || "";
+    const res = await apiFetch("/api/plaid/confirmed-matches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tx_id: plaidTx.transaction_id,
+        merchant_key: merchantKey,
+        amount: Math.abs(plaidTx.amount),
+        vault_voucher_id: voucher.id,
+        vault_narration: voucher.narration || "",
+        debit_account_id: debitEntry?.accountId ?? 0,
+        credit_account_id: creditEntry?.accountId ?? 0,
+      }),
+    });
+    if (!res.ok) { setStatus("Confirm failed — see vault status for details."); return; }
+    setConfirmedMatches((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        merchant_key: merchantKey,
+        amount: Math.abs(plaidTx.amount),
+        vault_voucher_id: voucher.id,
+        vault_narration: voucher.narration || "",
+        debit_account_id: debitEntry?.accountId ?? 0,
+        credit_account_id: creditEntry?.accountId ?? 0,
+        confirmed_tx_ids: [plaidTx.transaction_id],
+        confirmed_at: new Date().toISOString(),
+      },
+    ]);
+    setHistoricalConfirmedGuids((prev) => new Set(prev).add(voucher.guid));
   }
 
   async function disconnect(item_id: string) {
@@ -2386,7 +2468,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       )}
 
       {/* Tab bar */}
-      {(rows.length > 0 || pendingTxs.length > 0 || plaidAccounts.length > 0) && (
+      {(rows.length > 0 || pendingTxs.length > 0 || plaidAccounts.length > 0 || connections.length > 0) && (
         <div className="plaid-tabs">
           <button
             className={`plaid-tab-btn${activeTab === "transactions" ? " active" : ""}`}
@@ -2408,6 +2490,12 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
             onClick={() => setActiveTab("balances")}
           >
             Balances
+          </button>
+          <button
+            className={`plaid-tab-btn${activeTab === "reconcile" ? " active" : ""}`}
+            onClick={() => setActiveTab("reconcile")}
+          >
+            Reconcile History
           </button>
         </div>
       )}
@@ -3642,6 +3730,97 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                 {" "}<strong>Note:</strong> Plaid credit card balances can lag 1–2 days for settled transactions — the drill-down "Remaining gap" will show whether it's a sync lag or missing entries.
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* Reconcile History tab -- one-time reviewer for vouchers saved before Tx.plaidTxId
+          existed to record the Plaid link permanently. Re-derives candidate matches from a live
+          Plaid fetch using the same proven date/amount matcher the Balances tab's drill-down
+          uses, but never auto-applies one: each pair needs your explicit confirm, same as the
+          Transactions tab's own "match to existing voucher" picker. */}
+      {activeTab === "reconcile" && (
+        <div className="plaid-recon-section">
+          <div className="plaid-queue-toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
+            <span>
+              Finds older vouchers that already match a real Plaid transaction but were saved before this app recorded that link permanently — review each pair and confirm the real matches.
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem" }}>
+              Look back
+              <select value={historicalMonths} onChange={(e) => setHistoricalMonths(Number(e.target.value))}>
+                <option value={3}>3 months</option>
+                <option value={6}>6 months</option>
+                <option value={12}>12 months</option>
+                <option value={24}>24 months</option>
+              </select>
+            </label>
+            <button className="tr-refresh-btn" disabled={historicalFetching} onClick={fetchHistoricalTransactions}>
+              {historicalFetching ? "Fetching…" : historicalFetched ? "Refetch" : "Find matches"}
+            </button>
+            <span style={{ fontSize: "0.75rem", opacity: 0.6 }}>
+              Only finds what Plaid still has on record — older institutions may not return the full range.
+            </span>
+          </div>
+          {!historicalFetched ? (
+            <div className="plaid-pending-empty">Click "Find matches" to scan your Plaid history against existing vouchers.</div>
+          ) : (
+            (() => {
+              const alreadyReconciled = new Set(confirmedMatches.map((m) => m.vault_voucher_id));
+              const candidates = findHistoricalReconcileCandidates(data, historicalAccounts, historicalTxs, alreadyReconciled).filter(
+                (c) => !historicalConfirmedGuids.has(c.voucher.guid) && !historicalSkippedGuids.has(c.voucher.guid)
+              );
+              const confirmedCount = historicalConfirmedGuids.size;
+              if (candidates.length === 0)
+                return (
+                  <div className="plaid-pending-empty">
+                    {confirmedCount > 0
+                      ? `No more candidates — confirmed ${confirmedCount} voucher(s) as Reconciled this session.`
+                      : "No candidates found in this window. Either everything's already reconciled, or nothing in the vault matches Plaid's returned history."}
+                  </div>
+                );
+              return (
+                <table className="plaid-recon-table">
+                  <thead>
+                    <tr>
+                      <th>Voucher</th>
+                      <th>Account</th>
+                      <th>Matched Plaid transaction</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {candidates.map((c) => (
+                      <tr key={c.voucher.guid}>
+                        <td>
+                          {fmtDate(c.voucher.date)} — {c.voucher.type} {c.voucher.number || ""} — {c.voucher.narration || "(no narration)"}
+                          <br />
+                          <small style={{ opacity: 0.6 }}>{fmtMoney(Math.abs(c.plaidTx.amount))}</small>
+                        </td>
+                        <td>{c.account.name}</td>
+                        <td>
+                          {fmtDate(c.plaidTx.date)} — {c.plaidTx.name}
+                          <br />
+                          <small style={{ opacity: 0.6 }}>{fmtMoney(Math.abs(c.plaidTx.amount))}</small>
+                        </td>
+                        <td style={{ display: "flex", gap: 6 }}>
+                          <button className="tr-refresh-btn" onClick={() => confirmHistoricalMatch(c)}>
+                            Confirm reconciled
+                          </button>
+                          <button
+                            className="tr-refresh-btn"
+                            onClick={() => setHistoricalSkippedGuids((prev) => new Set(prev).add(c.voucher.guid))}
+                          >
+                            Not a match
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()
           )}
         </div>
       )}

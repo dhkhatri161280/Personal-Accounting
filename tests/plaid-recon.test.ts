@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { vaultBookBalance, matchVaultAccount, reconciliationStatusForAccounts, vaultExceptionKey, plaidExceptionKey, type PlaidAccountSummary, type PlaidTxSummary } from "../lib/plaid-recon.ts";
+import { vaultBookBalance, matchVaultAccount, reconciliationStatusForAccounts, vaultExceptionKey, plaidExceptionKey, findHistoricalReconcileCandidates, type PlaidAccountSummary, type PlaidTxSummary } from "../lib/plaid-recon.ts";
 import type { Ledger, BankReconException } from "../lib/vault-types.ts";
 
 function baseLedger(overrides: Partial<Ledger> = {}): Ledger {
@@ -264,4 +264,101 @@ test("reconciliationStatusForAccounts: a credit card's pending charge (current b
   const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-09-23");
   assert.equal(status.uncleared, 40);
   assert.equal(status.diff, 40);
+});
+
+test("findHistoricalReconcileCandidates: an old voucher with no plaidTxId matches a real cleared Plaid transaction within tolerance", () => {
+  const ledger = baseLedger({
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-05", number: "1", type: "Payment", narration: "grocery run", historical: false,
+        entries: [{ accountId: 2, accountName: "Groceries", amount: -50 }, { accountId: 1, accountName: "Bank Of America", amount: 50 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-08-06", name: "Grocery Store", amount: 50, account_id: "a1" },
+  ];
+  const candidates = findHistoricalReconcileCandidates(ledger, plaidAccounts, plaidTransactions, new Set());
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].voucher.guid, "v1");
+  assert.equal(candidates[0].plaidTx.transaction_id, "t1");
+});
+
+test("findHistoricalReconcileCandidates: skips a voucher that already has plaidTxId recorded", () => {
+  const ledger = baseLedger({
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-05", number: "1", type: "Payment", narration: "grocery run", historical: false, plaidTxId: "t1",
+        entries: [{ accountId: 2, accountName: "Groceries", amount: -50 }, { accountId: 1, accountName: "Bank Of America", amount: 50 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-08-06", name: "Grocery Store", amount: 50, account_id: "a1" },
+  ];
+  const candidates = findHistoricalReconcileCandidates(ledger, plaidAccounts, plaidTransactions, new Set());
+  assert.equal(candidates.length, 0);
+});
+
+test("findHistoricalReconcileCandidates: skips a voucher whose id is already in the confirmed-matches set", () => {
+  const ledger = baseLedger({
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-05", number: "1", type: "Payment", narration: "grocery run", historical: false,
+        entries: [{ accountId: 2, accountName: "Groceries", amount: -50 }, { accountId: 1, accountName: "Bank Of America", amount: 50 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-08-06", name: "Grocery Store", amount: 50, account_id: "a1" },
+  ];
+  const candidates = findHistoricalReconcileCandidates(ledger, plaidAccounts, plaidTransactions, new Set([1]));
+  assert.equal(candidates.length, 0);
+});
+
+test("findHistoricalReconcileCandidates: ignores a still-pending Plaid transaction as a match source", () => {
+  const ledger = baseLedger({
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-05", number: "1", type: "Payment", narration: "grocery run", historical: false,
+        entries: [{ accountId: 2, accountName: "Groceries", amount: -50 }, { accountId: 1, accountName: "Bank Of America", amount: 50 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-08-06", name: "Grocery Store", amount: 50, account_id: "a1", pending: true },
+  ];
+  const candidates = findHistoricalReconcileCandidates(ledger, plaidAccounts, plaidTransactions, new Set());
+  assert.equal(candidates.length, 0);
+});
+
+test("findHistoricalReconcileCandidates: a date gap beyond tolerance produces no match", () => {
+  const ledger = baseLedger({
+    transactions: [
+      {
+        id: 1, guid: "v1", date: "2026-08-05", number: "1", type: "Payment", narration: "grocery run", historical: false,
+        entries: [{ accountId: 2, accountName: "Groceries", amount: -50 }, { accountId: 1, accountName: "Bank Of America", amount: 50 }],
+      },
+    ],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "a1", type: "depository", subtype: "checking", name: "Checking", institution_name: "Bank Of America", balances: { current: -50, available: -50 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-08-20", name: "Grocery Store", amount: 50, account_id: "a1" },
+  ];
+  const candidates = findHistoricalReconcileCandidates(ledger, plaidAccounts, plaidTransactions, new Set());
+  assert.equal(candidates.length, 0);
 });
