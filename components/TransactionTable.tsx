@@ -31,6 +31,15 @@ export type VoucherRow = {
   // the matchedVoucherIds prop below) needs it to cross-reference. Optional since not every
   // caller of this table has voucher ids to pass (e.g. a synthetic/QA row).
   id?: number;
+  // Set when this voucher was saved directly from a real Plaid bank transaction (see
+  // lib/vault-types.ts's Tx.plaidTxId) -- on its own enough to mark "Reconciled", independent
+  // of the separate confirmed-matches flow below.
+  plaidTxId?: string;
+  // "bank-pending" is the original Plaid-import marker (see PlaidImport.tsx) for vouchers saved
+  // before plaidTxId existed -- still readable as long as Tally sync hasn't yet overwritten it
+  // to "synced". A free, zero-risk backfill for older Plaid-imported vouchers: no data recovery
+  // needed, the signal is already sitting right here.
+  syncStatus?: string;
 };
 type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount" | "debitAmount" | "creditAmount";
 
@@ -901,7 +910,7 @@ export function TransactionTable({
                     <VoucherDetailEntries
                       voucher={t.voucher}
                       formatAmount={formatAmount}
-                      matched={t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id)}
+                      matched={!!t.voucher.plaidTxId || t.voucher.syncStatus === "bank-pending" || (t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id))}
                     />
                   </div>
                 )}
@@ -1058,7 +1067,7 @@ export function TransactionTable({
                           <VoucherDetailEntries
                             voucher={t.voucher}
                             formatAmount={formatAmount}
-                            matched={t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id)}
+                            matched={!!t.voucher.plaidTxId || t.voucher.syncStatus === "bank-pending" || (t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id))}
                           />
                         </td>
                         <td></td>

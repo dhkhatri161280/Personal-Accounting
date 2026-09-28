@@ -39,6 +39,12 @@ export type Tx = {
   // Receipts/statements attached via the voucher view modal. File bytes live in R2 (the
   // ATTACHMENTS binding) -- only this small metadata array lives in the encrypted vault blob.
   attachments?: Attachment[];
+  // Set once, at creation, when this voucher was saved directly from a real Plaid bank
+  // transaction (the Bank Reconciliation "Save pending" bulk-import path) -- the permanent
+  // "this is backed by an actual bank record" marker. Deliberately NOT syncStatus: that field
+  // gets overwritten to "synced" the first time Tally sync runs (tools/tally-sync/apply-one-
+  // app-change.js), which would silently erase the Plaid origin the moment the voucher synced.
+  plaidTxId?: string;
 };
 
 export type Attachment = {

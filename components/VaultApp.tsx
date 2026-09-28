@@ -5392,14 +5392,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 shows the same wall-clock entry time no matter which machine it's checked from.
                 Hidden entirely when createdAt is missing (vouchers from before this field
                 existed, or synced in from Tally, which never sets it). */}
-            {(formatPacificTimestamp(selectedVoucher.createdAt) || matchedVoucherIds.has(selectedVoucher.id)) && (
-              <p className="voucher-entered-at">
-                {matchedVoucherIds.has(selectedVoucher.id) && (
-                  <span className="voucher-detail-reconciled">✓ Reconciled </span>
-                )}
-                {formatPacificTimestamp(selectedVoucher.createdAt) && `Entered ${formatPacificTimestamp(selectedVoucher.createdAt)}`}
-              </p>
-            )}
+            {(() => {
+              const reconciled = !!selectedVoucher.plaidTxId || selectedVoucher.syncStatus === "bank-pending" || matchedVoucherIds.has(selectedVoucher.id);
+              const entered = formatPacificTimestamp(selectedVoucher.createdAt);
+              return (reconciled || entered) && (
+                <p className="voucher-entered-at">
+                  {reconciled && <span className="voucher-detail-reconciled">✓ Reconciled </span>}
+                  {entered && `Entered ${entered}`}
+                </p>
+              );
+            })()}
             <h3>Narration</h3>
             <p className="voucher-narration">{cleanText(selectedVoucher.narration) || "-"}</p>
             <VoucherFlow entries={selectedVoucher.entries} fmt={fmt} />

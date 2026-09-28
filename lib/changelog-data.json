@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Show Reconciled badge in the voucher detail modal too"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Fix VaultApp Equity subtitle clipping too, same fix as GR's"
   },
   {
