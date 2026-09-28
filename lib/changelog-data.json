@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Add Reconcile History reviewer for pre-plaidTxId vouchers"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Fix Reconciled badge missing on the main cleared-transaction import path"
   },
   {

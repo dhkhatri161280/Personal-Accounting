@@ -6,6 +6,7 @@ import {
   reconciliationStatusForAccounts,
   vaultExceptionKey,
   plaidExceptionKey,
+  findHistoricalReconcileCandidates,
   DIFF_TOL,
   type PlaidAccountSummary,
   type PlaidTxSummary,
@@ -20,6 +21,20 @@ import { todayLocalIso } from "@/lib/format-date";
 const MONEY_IN = "#16a34a";
 const MONEY_OUT = "#dc2626";
 
+// Local shape, matching app/api/plaid/confirmed-matches's own record -- same pattern
+// components/vault/PlaidImport.tsx already uses rather than importing a type from a route file.
+type ConfirmedMatch = {
+  id: string;
+  merchant_key: string;
+  amount: number;
+  vault_voucher_id: number;
+  vault_narration: string;
+  debit_account_id: number;
+  credit_account_id: number;
+  confirmed_tx_ids: string[];
+  confirmed_at: string;
+};
+
 export function BankReconciliation({
   data,
   fmt,
@@ -32,6 +47,20 @@ export function BankReconciliation({
   const [fetching, setFetching] = useState(false);
   const [status, setStatus] = useState("");
   const [plaidData, setPlaidData] = useState<{ accounts: PlaidAccountSummary[]; transactions: PlaidTxSummary[] } | null>(null);
+  // Reconciled-badge backfill (see TransactionTable.tsx's "Reconciled" footer) -- vouchers saved
+  // before Tx.plaidTxId existed to record the link permanently have no durable "came from Plaid"
+  // marker, so this re-derives the same answer from the live Plaid fetch above and lets the user
+  // bulk-confirm every match in one action instead of clicking through them one at a time.
+  const [confirmedMatches, setConfirmedMatches] = useState<ConfirmedMatch[]>([]);
+  const [bulkReconciling, setBulkReconciling] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState("");
+
+  useEffect(() => {
+    apiFetch("/api/plaid/confirmed-matches")
+      .then((r) => r.json())
+      .then((ms: unknown) => setConfirmedMatches(ms as ConfirmedMatch[]))
+      .catch(() => {});
+  }, []);
 
   async function load() {
     setFetching(true);
@@ -64,6 +93,70 @@ export function BankReconciliation({
   const rows = plaidData
     ? reconciliationStatusForAccounts(data, plaidData.accounts, plaidData.transactions, todayLocalIso(), data.bankReconExceptions)
     : null;
+
+  const historicalCandidates = plaidData
+    ? findHistoricalReconcileCandidates(
+        data,
+        plaidData.accounts,
+        plaidData.transactions,
+        new Set(confirmedMatches.map((m) => m.vault_voucher_id))
+      )
+    : [];
+
+  // Bulk-confirms every candidate this fetch currently shows as matched against a CLEARED Plaid
+  // transaction -- findHistoricalReconcileCandidates already excludes anything still pending in
+  // Plaid (see lib/plaid-recon.ts), so "uncleared stays unreconciled, everything else becomes
+  // Reconciled" is exactly what this does. Sequential, not Promise.all: the confirmed-matches API
+  // is a read-modify-write over one shared KV list (see app/api/plaid/confirmed-matches/route.ts)
+  // -- firing every POST in parallel would race, each reading the same starting list and only its
+  // own addition surviving the last write to land.
+  async function reconcileAllNow() {
+    setBulkReconciling(true);
+    const total = historicalCandidates.length;
+    let done = 0;
+    for (const c of historicalCandidates) {
+      const { voucher, plaidTx } = c;
+      const debitEntry = voucher.entries.find((e) => e.amount < 0);
+      const creditEntry = voucher.entries.find((e) => e.amount > 0);
+      const merchantKey = (plaidTx.name || "").toLowerCase().split(/\W+/).find((w) => w.length > 2) || "";
+      try {
+        const res = await apiFetch("/api/plaid/confirmed-matches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tx_id: plaidTx.transaction_id,
+            merchant_key: merchantKey,
+            amount: Math.abs(plaidTx.amount),
+            vault_voucher_id: voucher.id,
+            vault_narration: voucher.narration || "",
+            debit_account_id: debitEntry?.accountId ?? 0,
+            credit_account_id: creditEntry?.accountId ?? 0,
+          }),
+        });
+        if (res.ok) {
+          done++;
+          setConfirmedMatches((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              merchant_key: merchantKey,
+              amount: Math.abs(plaidTx.amount),
+              vault_voucher_id: voucher.id,
+              vault_narration: voucher.narration || "",
+              debit_account_id: debitEntry?.accountId ?? 0,
+              credit_account_id: creditEntry?.accountId ?? 0,
+              confirmed_tx_ids: [plaidTx.transaction_id],
+              confirmed_at: new Date().toISOString(),
+            },
+          ]);
+        }
+      } catch {
+        // Keep going -- one failed write shouldn't abandon the rest of the batch.
+      }
+    }
+    setBulkStatus(done === total ? `Reconciled ${done} voucher(s).` : `Reconciled ${done} of ${total} voucher(s) — some failed, try again.`);
+    setBulkReconciling(false);
+  }
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const toggle = (id: number) =>
@@ -120,6 +213,36 @@ export function BankReconciliation({
           </div>
         ))}
       </div>
+      {(historicalCandidates.length > 0 || bulkStatus) && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: 8,
+            padding: "8px 12px",
+            marginBottom: "0.75rem",
+            fontSize: 13,
+          }}
+        >
+          {historicalCandidates.length > 0 ? (
+            <>
+              <span style={{ color: "#166534" }}>
+                {historicalCandidates.length} older voucher(s) already match a cleared Plaid transaction but aren't marked Reconciled yet.
+              </span>
+              <button type="button" className="tr-refresh-btn" disabled={bulkReconciling} onClick={reconcileAllNow}>
+                {bulkReconciling ? "Reconciling…" : `Reconcile all ${historicalCandidates.length} now`}
+              </button>
+            </>
+          ) : (
+            <span style={{ color: "#166534" }}>{bulkStatus}</span>
+          )}
+          {historicalCandidates.length > 0 && bulkStatus && <span style={{ color: "#166534" }}>{bulkStatus}</span>}
+        </div>
+      )}
       <div className="report-view-toggle-row">
         <span style={{ fontSize: 12, opacity: 0.7 }}>
           {rows === null
