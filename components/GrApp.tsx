@@ -24,6 +24,7 @@ import type { SpendLine } from "@/components/reports/SpendReport";
 import { computeGrNetWorthTrend, computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
+import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -1246,16 +1247,20 @@ export function GrApp() {
             value={equityData ? fmt(equityTotalInr) : "—"}
             // One <small> (DashboardCard's own wrapper) is nowrap+ellipsis -- confirmed live
             // the full one-line FX calculation ("$225.00 × ₹95.45 = ₹21,475.71") silently
-            // clipped at ordinary desktop widths (1920px), losing digits with no "..." shown
-            // (same underlying issue as VaultApp's own Equity subtitle, fixed there the same
-            // way: split across two lines via <br/> instead of one unbreakable string).
+            // clipped at ordinary desktop widths (1920px), losing digits with no "..." shown.
+            // First fix (splitting across two lines via <br/>, matching VaultApp's own Equity
+            // subtitle) worked but the user wanted it kept on one line -- AutoFitAmount instead
+            // (same shrink-to-fit component the headline number uses) keeps it a single line at
+            // any width, down to a 7px floor, rather than ever wrapping or truncating.
             subtitle={
               nvdaPrice && latestFxRate ? (
-                <>
-                  <span className="equity-price-note">${nvdaPrice.toFixed(2)} × ₹{latestFxRate.toFixed(2)}</span>
-                  <br />
-                  <span className="equity-price-note">= ₹{(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </>
+                <AutoFitAmount
+                  text={`$${nvdaPrice.toFixed(2)} × ₹${latestFxRate.toFixed(2)} = ₹${(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  maxFontSize={11}
+                  minFontSize={7}
+                  className="equity-price-note"
+                  style={{ fontWeight: 400 }}
+                />
               ) : (
                 <span className="equity-price-note">{equityData ? "loading price…" : "No equity data"}</span>
               )

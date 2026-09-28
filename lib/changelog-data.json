@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Fix GR Equity card's FX subtitle silently clipping"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Force the build stamp onto its own line in every book"
   },
   {
