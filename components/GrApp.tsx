@@ -24,7 +24,6 @@ import type { SpendLine } from "@/components/reports/SpendReport";
 import { computeGrNetWorthTrend, computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
-import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -1231,46 +1230,54 @@ export function GrApp() {
             )}
           </DashboardCard>
 
-          {/* Card 6: Equity (NVDA) in INR */}
-          <div className="dashboard-card-slot period-slot">
-            <button
-              className="dashboard-balance-card"
-              onClick={() => { setTab("reports"); setReport("equity"); }}
-            >
-              <StatIcon kind="stock" color="#64748b" />
-              <div className="dashboard-card-main">
-                <span>Equity (NVDA)</span>
-                <AutoFitAmount text={equityData ? fmt(equityTotalInr) : "—"} maxFontSize={30} minFontSize={14} />
-                <small className="equity-price-note">
-                  {nvdaPrice && latestFxRate
-                    ? `$${nvdaPrice.toFixed(2)} × ₹${latestFxRate.toFixed(2)} = ₹${(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : equityData ? "loading price…" : "No equity data"}
-                </small>
-              </div>
-              <div className="dashboard-card-highlights">
-                <span className="gr-dash-pill gr-dash-pill-us">
-                  <b>RSU</b>
-                  <em>{equityData ? fmtL(equityRsuInr) : "—"}</em>
+          {/* Card 6: Equity (NVDA) in INR -- routed through the shared DashboardCard component
+              (was hand-rolled markup that quietly fell out of sync with every layout/overflow
+              fix made to the shared component, e.g. the highlights-column grid overflow bug and
+              AutoFitAmount's hero font floor -- confirmed live: GR's rupee-formatted hero
+              figures still clipped on mobile after those fixes landed everywhere else, because
+              this card was never routed through the code that got fixed). Same conversion
+              already done for VaultApp.tsx's own Equity card. */}
+          <DashboardCard
+            slotClassName="period-slot"
+            cardClassName="equity-card"
+            icon="stock"
+            iconColor="#64748b"
+            label="Equity (NVDA)"
+            value={equityData ? fmt(equityTotalInr) : "—"}
+            subtitle={
+              nvdaPrice && latestFxRate ? (
+                <span className="equity-price-note">
+                  ${nvdaPrice.toFixed(2)} × ₹{latestFxRate.toFixed(2)} = ₹{(nvdaPrice * latestFxRate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
-                <span className="gr-dash-pill gr-dash-pill-us">
-                  <b>ESPP</b>
-                  <em>{equityData ? fmtL(equityEsppInr) : "—"}</em>
+              ) : (
+                <span className="equity-price-note">{equityData ? "loading price…" : "No equity data"}</span>
+              )
+            }
+            open={false}
+            onClick={() => { setTab("reports"); setReport("equity"); }}
+            highlights={[
+              <span key="rsu" className="gr-dash-pill gr-dash-pill-us">
+                <b>RSU</b>
+                <em>{equityData ? fmtL(equityRsuInr) : "—"}</em>
+              </span>,
+              <span key="espp" className="gr-dash-pill gr-dash-pill-us">
+                <b>ESPP</b>
+                <em>{equityData ? fmtL(equityEsppInr) : "—"}</em>
+              </span>,
+              equityDailyGLInr !== null && (
+                <span key="today" className={`gr-dash-pill ${equityDailyGLInr >= 0 ? "equity-daily-chip--pos" : "equity-daily-chip--neg"}`}>
+                  <b>Today</b>
+                  <em>{equityDailyGLInr >= 0 ? "+" : "-"}{fmtL(equityDailyGLInr)}</em>
                 </span>
-                {equityDailyGLInr !== null && (
-                  <span className={`gr-dash-pill ${equityDailyGLInr >= 0 ? "equity-daily-chip--pos" : "equity-daily-chip--neg"}`}>
-                    <b>Today</b>
-                    <em>{equityDailyGLInr >= 0 ? "+" : "-"}{fmtL(equityDailyGLInr)}</em>
-                  </span>
-                )}
-                {equityScheduledSharesGr > 0 && (
-                  <span className="gr-dash-pill equity-sch-chip">
-                    <b>Scheduled</b>
-                    <em>{fmtL(equityScheduledInr)}</em>
-                  </span>
-                )}
-              </div>
-            </button>
-          </div>
+              ),
+              equityScheduledSharesGr > 0 && (
+                <span key="scheduled" className="gr-dash-pill equity-sch-chip">
+                  <b>Scheduled</b>
+                  <em>{fmtL(equityScheduledInr)}</em>
+                </span>
+              ),
+            ].filter(Boolean)}
+          />
         </section>
       )}
 

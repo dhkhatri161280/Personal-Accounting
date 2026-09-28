@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Extend Day Book inline expand: global toggle, attachments, timestamp, reconciled badge"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Generate the changelog from git log, show full history with a filter"
   },
   {

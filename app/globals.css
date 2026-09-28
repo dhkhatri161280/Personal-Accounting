@@ -2436,7 +2436,16 @@ tfoot th {
 }
 .dashboard-stats button .dashboard-card-highlights span {
   display: grid;
-  grid-template-columns: 58px 1fr;
+  /* minmax(0, 1fr), not a bare 1fr -- a plain 1fr track has an implicit min-width equal to its
+     content's natural size, so it refuses to shrink below that even when the container is
+     narrower. Confirmed live on a phone-width dashboard: the label column stayed fixed width
+     (its `b` already ellipsizes safely), but the VALUE column silently overflowed the card's own
+     `overflow: hidden` edge with zero visual indication -- worse than truncation, since a wrong-
+     looking dollar figure with no "..." reads as a real (wrong) number. Label gets the flexible/
+     shrinkable column instead (it already handles ellipsis gracefully via `b`'s own overflow
+     rule below); the amount gets `auto`, its own natural un-shrunk width, so a dollar figure is
+     never silently clipped. */
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 8px;
   width: 100%;
@@ -2456,12 +2465,20 @@ tfoot th {
   letter-spacing: -0.01em;
 }
 .dashboard-card-highlights b {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* display: block, not flex -- text-overflow: ellipsis doesn't reliably apply to a flex
+     container's bare-text child (confirmed live: no "..." ever rendered, and a narrow column
+     silently center-clipped from BOTH ends via justify-content: center instead, e.g. "CANYON"
+     became "ANYO" with no indication anything was cut). A block element's text-align + line-
+     height gives the same visual centering as the old flex align-items/justify-content did, but
+     lets text-overflow: ellipsis actually work -- a real, predictable "CANYO…" instead of silent
+     mystery clipping from an arbitrary point.
+     */
+  display: block;
   width: 100%;
   height: 17px;
+  line-height: 17px;
   padding: 0 6px;
+  box-sizing: border-box;
   border-radius: 9px;
   background: #eaf2ff;
   color: #245fb6;
@@ -9242,23 +9259,34 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 }
 .ui-refresh .dashboard-stats button .dashboard-card-highlights span {
   font-size: var(--fs-xs) !important;
-  /* 76px, not the base rule's 58px -- confirmed live on the real deployed dashboard: a genuine
-     ledger name like "Nissan Rogue" (12 chars) still clipped to "NISSAN ROGUI" at 58px even
-     after the text-align fix below, because that fix's own padding-left ate further into an
-     already-too-narrow column. Widened instead of guessing again. */
-  grid-template-columns: 76px 1fr !important;
+  /* minmax(0, 1fr) auto -- not a fixed 76px label + bare 1fr amount. That bare 1fr amount column
+     had an implicit min-width equal to its own content's natural size, so on a narrow (phone-
+     width) card it silently overflowed the card's own `overflow: hidden` edge with NO ellipsis,
+     NO visible sign anything was cut -- a wrong-looking dollar figure reads as a real (wrong)
+     number, worse than the label-clipping bug this rule originally fixed. Swapped: the amount
+     now gets `auto` (its own un-shrunk natural width, so a dollar figure can never be silently
+     clipped) and the label becomes the flexible/shrinkable column -- safe, since `b` below
+     already ellipsizes gracefully when its column runs out of room (that's what originally fixed
+     "Nissan Rogue" clipping to "NISSAN ROGUI"; this doesn't undo that, a wide card still gives
+     the label all the room it needs since 1fr grows into whatever the amount doesn't use). */
+  grid-template-columns: minmax(0, 1fr) auto !important;
 }
 .ui-refresh .dashboard-card-highlights em {
   font-size: clamp(10px, 0.8vw, 12px) !important;
 }
 .ui-refresh .dashboard-card-highlights b {
   height: 19px !important;
+  line-height: 19px !important;
   font-size: 8px !important;
   /* text-align left, not the base rule's center -- confirmed live: a centered nowrap+ellipsis
      label that overflows its column clips silently from BOTH sides with no "..." shown at all
      ("BOFA CHECKING" rendered as "OFA CHECKIN"), a genuine (pre-existing, just more visible
      now that real ledger names commonly exceed the old 58px at this bigger hero-card scale) CSS
-     quirk -- ellipsis only reliably shows for left-aligned nowrap overflow. */
+     quirk -- ellipsis only reliably shows for left-aligned nowrap overflow. This text-align only
+     actually took effect once the base rule's `b` switched from display:flex to display:block
+     (see that rule's own comment) -- text-align has no effect on a flex container's item
+     position, which is why this comment's own diagnosis was right but the fix silently didn't
+     work until that display change landed alongside it. */
   text-align: left !important;
   padding-left: 4px !important;
 }
@@ -9267,9 +9295,36 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    with it (min(48%, 172px), same as the 3-column layout) -- confirmed live: at 820px viewport
    width the value column drops to ~107px, not enough room for a 7-figure balance even at
    AutoFitAmount's minFontSize floor (clipped by 9px). Give the value column more of the card at
-   this breakpoint by shrinking the highlights side instead. */
-@media (max-width: 900px) {
+   this breakpoint by shrinking the highlights side instead.
+   Widened from 900px to 1300px -- confirmed live the exact same headline-clipping failure mode
+   also happens at a completely ordinary 1280px desktop width, where .dashboard-stats' own
+   3-column layout (not the 2-column case above) still lands each card at only ~398px: overhead
+   (icon + 2 gaps + card padding + a 172px-capped highlights column) leaves main only ~99-116px,
+   a few px short of fitting "$1,041,299.75"/"$3,536,550.00" even at their font floors. The same
+   110px highlights width already confirmed safe for the longest real chip amount (see the 480px
+   breakpoint below) fixes this width band too. */
+@media (max-width: 1300px) {
   .ui-refresh .dashboard-card-highlights { width: min(38%, 140px) !important; min-width: 110px !important; }
+}
+/* True phone width (confirmed live at 375px, an iPhone SE/mini-class viewport): the highlights
+   column's 110px min-width above already sits right at the true floor -- the longest real chip
+   amount ("$1,057,378.02") needs ~72px of that, plus its own 16px padding-left, 8px column-gap,
+   and at least a sliver for the label column, leaving no further room to shrink there without
+   re-clipping the amounts the minmax(0,1fr)/auto grid fix above was just built to protect. So
+   the room for a 7-figure HERO headline number has to come from elsewhere on the card instead:
+   tighter icon size, card padding, and icon/main/highlights gap. Confirmed live this is enough
+   (combined with AutoFitAmount's hero floor already lowered to 16px) to stop "$1,041,299.75"
+   clipping on Capital Closing at 375px width.
+   Icon shrunk further (34px -> 30px) and padding tightened once more (14px -> 12px) -- confirmed
+   live on GR Books (consolidated USD+INR view): its rupee-formatted hero figures run longer than
+   the USD ones this breakpoint was first tuned against (e.g. "₹1,01,06,266.26", 15 characters,
+   still clipped by 5px at the values above). GR's own chip amounts were already fully protected
+   by the highlights-column fix; only the hero headline needed this little bit more room. */
+@media (max-width: 480px) {
+  .ui-refresh .dashboard-stats button { padding: 10px !important; }
+  .ui-refresh .dashboard-balance-card { gap: 6px !important; }
+  .ui-refresh .dashboard-balance-card .stat-icon { width: 30px !important; height: 30px !important; }
+  .ui-refresh .dashboard-balance-card .stat-icon svg { width: 15px !important; height: 15px !important; }
 }
 
 /* Dashboard color/hierarchy pass -- comparing against Rillet's Launchpad surfaced two real

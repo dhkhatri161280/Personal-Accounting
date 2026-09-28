@@ -69,9 +69,16 @@ export function DashboardCard({
              value falls back to a plain <strong> so nothing breaks if a future caller passes
              JSX instead. Hero cards get a taller ceiling (36px) than the demoted secondary
              cards (24px) -- the actual size difference that gives the dashboard a hierarchy
-             instead of every card shouting the same volume. */}
+             instead of every card shouting the same volume.
+             minFontSize floor lowered from the original 20 -- confirmed live on an actual phone-
+             width (375px) card that a 7-figure hero balance ("$1,041,299.75") still needed to
+             shrink past 20px to avoid silently clipping against the card's own overflow:hidden
+             edge (the 20px floor was tuned against a ~450px desktop card width per the comment
+             above, not a real ~327px phone-width one). 16 still reads meaningfully bigger than
+             the 14px secondary-card floor, so the hero/non-hero size hierarchy survives; a
+             clipped dollar figure is a worse outcome than a slightly smaller hero number. */}
           {typeof value === "string" ? (
-            <AutoFitAmount text={value} maxFontSize={hero ? 36 : 24} minFontSize={hero ? 20 : 14} />
+            <AutoFitAmount text={value} maxFontSize={hero ? 36 : 24} minFontSize={hero ? 16 : 14} />
           ) : (
             <strong>{value}</strong>
           )}
