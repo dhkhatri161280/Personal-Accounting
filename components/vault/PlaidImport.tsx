@@ -2038,6 +2038,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         historical: false,
         cancelled: false,
         entries: r.entries,
+        plaidTxId: r.plaidTx.transaction_id,
       } satisfies Tx,
     }));
 

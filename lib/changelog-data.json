@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Fix Reconciled badge to actually cover Plaid-imported vouchers"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Show Reconciled badge in the voucher detail modal too"
   },
   {
