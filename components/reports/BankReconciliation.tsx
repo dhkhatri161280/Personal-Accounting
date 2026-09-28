@@ -12,6 +12,7 @@ import {
   type PlaidTxSummary,
   type ReconAccountStatus,
 } from "@/lib/plaid-recon";
+import { isCashBankGroup } from "@/lib/plaid-classify";
 import { exportWorkbook } from "@/lib/export-excel";
 import { apiFetch } from "@/lib/api-fetch";
 import { ExportButton } from "@/components/ExportButton";
@@ -236,7 +237,7 @@ export function BankReconciliation({
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px" }}>
             {data.accounts
-              .filter((a) => a.active !== false)
+              .filter((a) => a.active !== false && isCashBankGroup(a))
               .map((a) => (
                 <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input

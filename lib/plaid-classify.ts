@@ -4,6 +4,17 @@
 // logic that produced a real bug this session (a Contra promoted with unhelpful raw bank text
 // as its narration instead of a clean "{Card} Payment" label).
 
+// This book's Chart of Accounts files every reconciled account -- checking, savings, credit
+// cards, the HSA, and Charles Schwab's cash sweep -- under one "Bank Accounts" master group
+// (confirmed live: none of them have their own dedicated group), plus "Cash-in-Hand" for
+// physical cash. Originally local to VaultApp.tsx's Cash Flow report ("Cash and Bank Balances"
+// breakdown); extracted here so other callers (the Bank Recon report's always-reconciled account
+// picker) can reuse the exact same "is this a Cash/Bank group account" definition instead of
+// drifting from it with their own guess.
+export function isCashBankGroup(a: { parent?: string }): boolean {
+  return /^(bank accounts|cash-in-hand)$/.test((a.parent || "").toLowerCase());
+}
+
 export function isCcAcct(a: { name: string; parent?: string }): boolean {
   // The account's own group is authoritative when it says so -- falls back to requiring the
   // literal words "credit card" in the name (avoids false matches on "credit union", "income

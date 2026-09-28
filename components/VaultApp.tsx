@@ -55,6 +55,7 @@ import {
   draftLinesFromTx,
 } from "@/lib/vault-accounting";
 import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel, formatPacificTimestamp } from "@/lib/format-date";
+import { isCashBankGroup } from "@/lib/plaid-classify";
 import { SyncNowButton, SyncStatusDot, SyncLockMenuRow } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
@@ -1405,8 +1406,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     debits = active.reduce((s, a) => s + (a.closing < 0 ? -a.closing : 0), 0),
     credits = active.reduce((s, a) => s + (a.closing > 0 ? a.closing : 0), 0);
 
-  const isCashBank = (a: Account) =>
-    /^(bank accounts|cash-in-hand)$/.test((a.parent || "").toLowerCase());
+  const isCashBank = isCashBankGroup;
 
   // Display order for the Cash and Bank Balances breakdown: Credit Cards,
   // then Checking, then Savings, then Charles Schwab last.
