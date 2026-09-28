@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Fix dashboard card number clipping on mobile and desktop, all books"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Extend Day Book inline expand: global toggle, attachments, timestamp, reconciled badge"
   },
   {
