@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-09-28",
+    "summary": "Fix bulk reconcile losing most of the batch to a KV consistency race"
+  },
+  {
     "date": "2026-09-27",
     "summary": "Add \"Confirm all shown\" bulk action to the Reconcile History tab"
   },

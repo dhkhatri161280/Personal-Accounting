@@ -43,13 +43,19 @@ type ConfirmBody = {
 };
 
 // Merge one confirmation into an in-memory list (mutates `matches`) -- shared by the single and
-// bulk POST paths so both apply the exact same merchant_key+amount merge rule.
+// bulk POST paths.
+//
+// Only merges into an existing record for the SAME voucher (Plaid can reissue a new
+// transaction_id for an already-confirmed pending item on a later fetch -- see PlaidImport.tsx's
+// alreadyImported() comment on this). Previously also merged across DIFFERENT vouchers whenever
+// merchant_key+amount happened to be close (e.g. two separate "Costco" charges a few dollars
+// apart) -- since a ConfirmedMatch only carries ONE vault_voucher_id, that merge silently
+// DISCARDED every voucher's id after the first one to match a given pattern. Confirmed live: bulk
+// "Reconcile all" on 75 candidates kept reporting success but the badge count never actually
+// dropped, because most of the 75 distinct vault_voucher_ids never got their own record at all --
+// they'd each collided into whichever earlier voucher first claimed that merchant/amount pattern.
 function applyConfirm(matches: ConfirmedMatch[], body: ConfirmBody) {
-  const existing = matches.find(
-    (m) =>
-      m.merchant_key === body.merchant_key &&
-      Math.abs(m.amount - body.amount) < Math.max(0.05, body.amount * 0.02)
-  );
+  const existing = matches.find((m) => m.vault_voucher_id === body.vault_voucher_id);
   if (existing) {
     if (!existing.confirmed_tx_ids.includes(body.tx_id))
       existing.confirmed_tx_ids.push(body.tx_id);
