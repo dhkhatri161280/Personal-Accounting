@@ -184,6 +184,17 @@ export function BankReconciliation({
     await onSave(next);
   }
 
+  // Toggles an account into/out of Ledger.alwaysReconciledAccountIds (see lib/vault-types.ts) --
+  // for accounts where per-transaction Plaid matching will never be possible (HSA/401k-type
+  // balance-only feeds, or Schwab's own separate non-Plaid sync), so every voucher touching that
+  // account shows "Reconciled" on its own account-level balance agreement instead of being stuck
+  // permanently "unreconciled" waiting for a transaction match that can never arrive.
+  async function toggleAlwaysReconciledAccount(accountId: number) {
+    const current = new Set(data.alwaysReconciledAccountIds ?? []);
+    current.has(accountId) ? current.delete(accountId) : current.add(accountId);
+    await onSave({ ...data, alwaysReconciledAccountIds: [...current] });
+  }
+
   const reconciled = (rows ?? []).filter((r) => Math.abs(r.diff) <= DIFF_TOL).length;
   const total = rows?.length ?? 0;
   const needsAttention = total - reconciled;
@@ -212,6 +223,33 @@ export function BankReconciliation({
           </div>
         ))}
       </div>
+      <details style={{ marginBottom: "0.75rem" }}>
+        <summary style={{ cursor: "pointer", fontSize: 13, color: "#475569" }}>
+          Always-reconciled accounts{(data.alwaysReconciledAccountIds?.length ?? 0) > 0 ? ` (${data.alwaysReconciledAccountIds!.length})` : ""}
+        </summary>
+        <div style={{ padding: "8px 4px", fontSize: 13 }}>
+          <p style={{ margin: "0 0 8px", opacity: 0.7 }}>
+            For accounts Plaid can never give a per-transaction match for (HSA/401k-type accounts that only expose a
+            balance, or Schwab, which isn't Plaid-connected at all) -- check an account here and every voucher
+            touching it shows "Reconciled" based on its balance agreeing, without waiting on a transaction match that
+            will never arrive.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px" }}>
+            {data.accounts
+              .filter((a) => a.active !== false)
+              .map((a) => (
+                <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={(data.alwaysReconciledAccountIds ?? []).includes(a.id)}
+                    onChange={() => toggleAlwaysReconciledAccount(a.id)}
+                  />
+                  {a.name}
+                </label>
+              ))}
+          </div>
+        </div>
+      </details>
       {(historicalCandidates.length > 0 || bulkStatus) && (
         <div
           style={{

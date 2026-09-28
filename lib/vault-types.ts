@@ -523,6 +523,14 @@ export type Ledger = {
   // report -- e.g. a cash transaction with no corresponding Plaid line, or a known one-off Plaid
   // entry (a bank fee) the user doesn't book as a voucher. See lib/plaid-recon.ts.
   bankReconExceptions?: BankReconException[];
+  // Ledger account ids whose vouchers should always show "Reconciled", regardless of any
+  // per-voucher Plaid match -- for accounts where Plaid only ever exposes a balance, never a
+  // transaction feed to match against (HSA/401k-type accounts, per ReconAccountStatus's
+  // noPlaidTransactionFeed in lib/plaid-recon.ts), or that aren't Plaid-connected at all
+  // (Schwab brokerage, its own separate direct-API sync). The account's balance is the real
+  // source of truth in both cases, not a per-transaction match this app can ever produce. See
+  // TransactionTable.tsx's isReconciled.
+  alwaysReconciledAccountIds?: number[];
   // Depreciable physical assets tracked in the Fixed Asset Register. See lib/fixed-assets.ts.
   fixedAssets?: FixedAsset[];
   // Prepaid expenses amortized over time. See lib/prepaid-expense.ts.

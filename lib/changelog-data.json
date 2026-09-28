@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-28",
+    "summary": "Add Reconciled/Unreconciled filter to the Day Book toolbar"
+  },
+  {
+    "date": "2026-09-28",
     "summary": "Fix confirmed-matches silently discarding distinct vouchers on merge"
   },
   {

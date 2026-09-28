@@ -13,7 +13,9 @@ import { ExportButton } from "@/components/ExportButton";
 import { formatPacificTimestamp } from "@/lib/format-date";
 import type { Attachment } from "@/lib/vault-types";
 
-type Entry = { accountName: string; amount: number };
+// accountId is optional here (older/synthetic rows may omit it) but real Tx.entries always carry
+// it -- needed by isReconciled below to check an entry's account against alwaysReconciledAccountIds.
+type Entry = { accountId?: number; accountName: string; amount: number };
 export type VoucherRow = {
   guid: string;
   date: string;
@@ -352,6 +354,7 @@ export function TransactionTable({
   onClearSearch,
   closedPeriods,
   matchedVoucherIds,
+  alwaysReconciledAccountIds,
   virtualized,
   mobileCards,
 }: {
@@ -369,6 +372,12 @@ export function TransactionTable({
   // inline expand footer. Optional/omitted entirely outside Day Book (e.g. the Ledger drilldown),
   // where no caller currently fetches this data.
   matchedVoucherIds?: Set<number>;
+  // Ledger account ids the user has designated as always-reconciled (see Ledger.alwaysReconciledAccountIds
+  // in lib/vault-types.ts) -- any voucher touching one of these accounts shows "Reconciled"
+  // regardless of Plaid match state, since these are accounts Plaid can never produce a
+  // per-transaction match for in the first place (balance-only feeds like HSA, or non-Plaid
+  // integrations like Schwab).
+  alwaysReconciledAccountIds?: Set<number>;
   // Edit/Delete are hidden (not just blocked at save time) for a voucher dated in one of these
   // "YYYY-MM" periods -- see isPeriodClosed in lib/vault-accounting.ts, same source of truth
   // the actual save-time enforcement uses.
@@ -438,7 +447,10 @@ export function TransactionTable({
   // recomputing its own separate notion of "reconciled".
   const [reconciledFilter, setReconciledFilter] = useState<"all" | "reconciled" | "unreconciled">("all");
   const isReconciled = (t: VoucherRow) =>
-    !!t.plaidTxId || t.syncStatus === "bank-pending" || (t.id != null && !!matchedVoucherIds?.has(t.id));
+    !!t.plaidTxId ||
+    t.syncStatus === "bank-pending" ||
+    (t.id != null && !!matchedVoucherIds?.has(t.id)) ||
+    (!!alwaysReconciledAccountIds?.size && t.entries.some((e) => e.accountId != null && alwaysReconciledAccountIds.has(e.accountId)));
   // Collapsed by default -- a period only expands into its individual vouchers once its own
   // header row is clicked. Keyed by periodKey, so switching between e.g. Monthly and Quarterly
   // starts every group fresh rather than carrying over stale keys from a different bucketing.
@@ -931,7 +943,7 @@ export function TransactionTable({
                     <VoucherDetailEntries
                       voucher={t.voucher}
                       formatAmount={formatAmount}
-                      matched={!!t.voucher.plaidTxId || t.voucher.syncStatus === "bank-pending" || (t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id))}
+                      matched={isReconciled(t.voucher)}
                     />
                   </div>
                 )}
@@ -1088,7 +1100,7 @@ export function TransactionTable({
                           <VoucherDetailEntries
                             voucher={t.voucher}
                             formatAmount={formatAmount}
-                            matched={!!t.voucher.plaidTxId || t.voucher.syncStatus === "bank-pending" || (t.voucher.id != null && matchedVoucherIds?.has(t.voucher.id))}
+                            matched={isReconciled(t.voucher)}
                           />
                         </td>
                         <td></td>

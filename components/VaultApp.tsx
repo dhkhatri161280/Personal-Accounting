@@ -970,6 +970,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .catch(() => {});
   }, [!!data, book, tab]);
   const matchedVoucherIds = useMemo(() => new Set(confirmedMatches.map((m) => m.vault_voucher_id)), [confirmedMatches]);
+  const alwaysReconciledAccountIds = useMemo(
+    () => new Set(data?.alwaysReconciledAccountIds ?? []),
+    [data?.alwaysReconciledAccountIds]
+  );
 
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
   // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
@@ -3616,6 +3620,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             onDelete={(t) => deleteVoucher(t as Tx)}
             closedPeriods={data.closedPeriods}
             matchedVoucherIds={matchedVoucherIds}
+            alwaysReconciledAccountIds={alwaysReconciledAccountIds}
             virtualized
             mobileCards
           />
@@ -5396,7 +5401,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Hidden entirely when createdAt is missing (vouchers from before this field
                 existed, or synced in from Tally, which never sets it). */}
             {(() => {
-              const reconciled = !!selectedVoucher.plaidTxId || selectedVoucher.syncStatus === "bank-pending" || matchedVoucherIds.has(selectedVoucher.id);
+              const reconciled =
+                !!selectedVoucher.plaidTxId ||
+                selectedVoucher.syncStatus === "bank-pending" ||
+                matchedVoucherIds.has(selectedVoucher.id) ||
+                selectedVoucher.entries.some((e) => alwaysReconciledAccountIds.has(e.accountId));
               const entered = formatPacificTimestamp(selectedVoucher.createdAt);
               return (reconciled || entered) && (
                 <p className="voucher-entered-at">
