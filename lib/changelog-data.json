@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-28",
+    "summary": "Fix confirmed-matches silently discarding distinct vouchers on merge"
+  },
+  {
+    "date": "2026-09-28",
     "summary": "Fix bulk reconcile losing most of the batch to a KV consistency race"
   },
   {

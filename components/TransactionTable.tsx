@@ -432,6 +432,13 @@ export function TransactionTable({
   // each period's rows land contiguously; sorting by any other column while sub-totaled would
   // scatter one period's rows across the table and break the grouping.
   const [subtotalPeriod, setSubtotalPeriod] = useState<SubtotalPeriod>("none");
+  // "Reconciled" status filter -- same three signals the inline expand's "✓ Reconciled" badge
+  // itself checks (plaidTxId, the original "bank-pending" import marker, or an explicit
+  // confirmed-matches entry), so this filter always agrees with what the badge shows rather than
+  // recomputing its own separate notion of "reconciled".
+  const [reconciledFilter, setReconciledFilter] = useState<"all" | "reconciled" | "unreconciled">("all");
+  const isReconciled = (t: VoucherRow) =>
+    !!t.plaidTxId || t.syncStatus === "bank-pending" || (t.id != null && !!matchedVoucherIds?.has(t.id));
   // Collapsed by default -- a period only expands into its individual vouchers once its own
   // header row is clicked. Keyed by periodKey, so switching between e.g. Monthly and Quarterly
   // starts every group fresh rather than carrying over stale keys from a different bucketing.
@@ -488,6 +495,9 @@ export function TransactionTable({
             return String(cell).toLowerCase().includes(filter);
           })
         )
+        .filter((t) =>
+          reconciledFilter === "all" ? true : reconciledFilter === "reconciled" ? isReconciled(t) : !isReconciled(t)
+        )
         .sort((a, b) => {
           if (sort.key === "date") {
             const av = String(value(a, "date")), bv = String(value(b, "date"));
@@ -515,7 +525,7 @@ export function TransactionTable({
                   : String(av).localeCompare(String(bv), undefined, { numeric: true });
           return sort.direction === "asc" ? result : -result;
         }),
-    [transactions, filters, sort, selectedLedgerName]
+    [transactions, filters, sort, selectedLedgerName, reconciledFilter, matchedVoucherIds]
   );
   const filteredTotal = useMemo(
     () => rows.reduce((sum, t) => sum + ledgerSignedAmount(t, selectedLedgerName), 0),
@@ -792,11 +802,22 @@ export function TransactionTable({
         <button
           onClick={() => {
             setFilters({ date: "", type: "", number: "", debit: "", credit: "", narration: "", amount: "", debitAmount: "", creditAmount: "" });
+            setReconciledFilter("all");
             onClearSearch?.();
           }}
         >
           Clear all filters
         </button>
+        {matchedVoucherIds && (
+          <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+            Reconciled
+            <select value={reconciledFilter} onChange={(e) => setReconciledFilter(e.target.value as typeof reconciledFilter)}>
+              <option value="all">All</option>
+              <option value="reconciled">Reconciled only</option>
+              <option value="unreconciled">Unreconciled only</option>
+            </select>
+          </label>
+        )}
         <ExportButton onExport={exportRows} />
         {expandableGuids.length > 0 && (
           <button onClick={toggleAllExpanded}>
