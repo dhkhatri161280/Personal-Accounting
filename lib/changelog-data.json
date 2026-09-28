@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Keep GR Equity's FX subtitle on one line via AutoFitAmount"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Fix GR Equity card's FX subtitle silently clipping"
   },
   {

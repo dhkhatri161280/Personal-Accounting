@@ -82,6 +82,7 @@ import { equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWo
 import { computeNetWorthTrend } from "@/lib/net-worth-trend";
 import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/equity-holdings";
 import { StatIcon } from "@/components/Icon";
+import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { computeDashboardTrend } from "@/lib/dashboard-trend";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
@@ -3392,15 +3393,33 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               label="Equity (NVDA)"
               value={fmt(equityMktValue)}
               // Two real data lines (share count, live price), not a static caption like every
-              // other card's subtitle -- one <small> (DashboardCard's own wrapper) with a <br/>
-              // between two inner spans instead of two separate <small> tags, so this doesn't
-              // nest <small> inside <small>. equity-price-note stays on the inner spans so
-              // privacy-mode blurring (.privacy-mode .equity-price-note) still applies per line.
+              // other card's subtitle -- one <small> (DashboardCard's own wrapper) wrapping two
+              // AutoFitAmount lines instead of two separate <small> tags, so this doesn't nest
+              // <small> inside <small>. Each line is its own AutoFitAmount (same shrink-to-fit
+              // component the headline number uses, and the fix already applied to GR's Equity
+              // subtitle) rather than a plain nowrap span -- confirmed live the plain-span
+              // version silently clipped "15,718 sh (held + scheduled)" to "...SCHEDULE" with no
+              // visual indication at a real card width. Two lines stay two lines here (unlike
+              // GR's single FX formula, forced onto one line) since these are two separate facts,
+              // not one calculation -- AutoFitAmount's own display:block stacks them without
+              // needing an explicit <br/>. equity-price-note stays on each line so privacy-mode
+              // blurring (.privacy-mode .equity-price-note) still applies per line.
               subtitle={
                 <>
-                  <span className="equity-price-note">{equityTotalShares.toLocaleString()} sh (held + scheduled)</span>
-                  <br />
-                  <span className="equity-price-note">{nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}</span>
+                  <AutoFitAmount
+                    text={`${equityTotalShares.toLocaleString()} sh (held + scheduled)`}
+                    maxFontSize={11}
+                    minFontSize={7}
+                    className="equity-price-note"
+                    style={{ fontWeight: 400 }}
+                  />
+                  <AutoFitAmount
+                    text={nvdaPrice ? `@ $${nvdaPrice.toFixed(2)} live` : data?.equity ? "price loading…" : "No equity data"}
+                    maxFontSize={11}
+                    minFontSize={7}
+                    className="equity-price-note"
+                    style={{ fontWeight: 400 }}
+                  />
                 </>
               }
               // No inline expand panel -- this card navigates straight to the Equity report
