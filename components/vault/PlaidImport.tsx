@@ -1584,6 +1584,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   const [historicalFetched, setHistoricalFetched] = useState(false);
   const [historicalConfirmedGuids, setHistoricalConfirmedGuids] = useState<Set<string>>(new Set());
   const [historicalSkippedGuids, setHistoricalSkippedGuids] = useState<Set<string>>(new Set());
+  const [historicalBulkConfirming, setHistoricalBulkConfirming] = useState(false);
   const [pendingRows, setPendingRows] = useState<ImportRow[]>([]);
   const [savingPending, setSavingPending] = useState(false);
   const [expandedReconIdx, setExpandedReconIdx] = useState<number | null>(null);
@@ -1793,7 +1794,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     }
   }
 
-  async function confirmHistoricalMatch(candidate: HistoricalReconcileCandidate) {
+  async function confirmHistoricalMatch(candidate: HistoricalReconcileCandidate): Promise<boolean> {
     const { voucher, plaidTx } = candidate;
     const debitEntry = voucher.entries.find((e) => e.amount < 0);
     const creditEntry = voucher.entries.find((e) => e.amount > 0);
@@ -1811,7 +1812,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         credit_account_id: creditEntry?.accountId ?? 0,
       }),
     });
-    if (!res.ok) { setStatus("Confirm failed — see vault status for details."); return; }
+    if (!res.ok) { setStatus("Confirm failed — see vault status for details."); return false; }
     setConfirmedMatches((prev) => [
       ...prev,
       {
@@ -1827,6 +1828,21 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       },
     ]);
     setHistoricalConfirmedGuids((prev) => new Set(prev).add(voucher.guid));
+    return true;
+  }
+
+  // Confirms every candidate currently shown, not just one at a time -- sequential, not
+  // Promise.all, since /api/plaid/confirmed-matches is a read-modify-write over one shared KV
+  // list (see that route) and concurrent POSTs would race, each reading the same starting list
+  // and only the last write's own addition surviving.
+  async function confirmAllHistoricalMatches(candidates: HistoricalReconcileCandidate[]) {
+    setHistoricalBulkConfirming(true);
+    let done = 0;
+    for (const c of candidates) {
+      if (await confirmHistoricalMatch(c)) done++;
+    }
+    setStatus(`Confirmed ${done} of ${candidates.length} voucher(s) as Reconciled.`);
+    setHistoricalBulkConfirming(false);
   }
 
   async function disconnect(item_id: string) {
@@ -3781,7 +3797,20 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                   </div>
                 );
               return (
-                <table className="plaid-recon-table">
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                    <button
+                      className="tr-refresh-btn"
+                      disabled={historicalBulkConfirming}
+                      onClick={() => confirmAllHistoricalMatches(candidates)}
+                    >
+                      {historicalBulkConfirming ? "Confirming…" : `Confirm all ${candidates.length} shown`}
+                    </button>
+                    <span style={{ fontSize: "0.75rem", opacity: 0.6 }}>
+                      Confirms every pair below as Reconciled in one go — review the list first if you're not sure about all of them.
+                    </span>
+                  </div>
+                  <table className="plaid-recon-table">
                   <thead>
                     <tr>
                       <th>Voucher</th>
@@ -3818,7 +3847,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                  </table>
+                </>
               );
             })()
           )}
