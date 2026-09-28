@@ -106,55 +106,54 @@ export function BankReconciliation({
   // Bulk-confirms every candidate this fetch currently shows as matched against a CLEARED Plaid
   // transaction -- findHistoricalReconcileCandidates already excludes anything still pending in
   // Plaid (see lib/plaid-recon.ts), so "uncleared stays unreconciled, everything else becomes
-  // Reconciled" is exactly what this does. Sequential, not Promise.all: the confirmed-matches API
-  // is a read-modify-write over one shared KV list (see app/api/plaid/confirmed-matches/route.ts)
-  // -- firing every POST in parallel would race, each reading the same starting list and only its
-  // own addition surviving the last write to land.
+  // Reconciled" is exactly what this does. Sends the whole batch as ONE request (server applies
+  // all of them against a single read + single write -- see the bulk path in
+  // app/api/plaid/confirmed-matches/route.ts), not N separate POSTs: Cloudflare KV is only
+  // eventually consistent, so N sequential read-then-write requests against the same key can
+  // still race each other even fully awaited one at a time -- confirmed live, the candidate count
+  // kept coming back unchanged after repeated "Reconcile all now" clicks because most of each
+  // batch's writes were silently lost to exactly that race.
   async function reconcileAllNow() {
     setBulkReconciling(true);
     const total = historicalCandidates.length;
-    let done = 0;
-    for (const c of historicalCandidates) {
+    const items = historicalCandidates.map((c) => {
       const { voucher, plaidTx } = c;
       const debitEntry = voucher.entries.find((e) => e.amount < 0);
       const creditEntry = voucher.entries.find((e) => e.amount > 0);
       const merchantKey = (plaidTx.name || "").toLowerCase().split(/\W+/).find((w) => w.length > 2) || "";
-      try {
-        const res = await apiFetch("/api/plaid/confirmed-matches", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tx_id: plaidTx.transaction_id,
-            merchant_key: merchantKey,
-            amount: Math.abs(plaidTx.amount),
-            vault_voucher_id: voucher.id,
-            vault_narration: voucher.narration || "",
-            debit_account_id: debitEntry?.accountId ?? 0,
-            credit_account_id: creditEntry?.accountId ?? 0,
-          }),
-        });
-        if (res.ok) {
-          done++;
-          setConfirmedMatches((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              merchant_key: merchantKey,
-              amount: Math.abs(plaidTx.amount),
-              vault_voucher_id: voucher.id,
-              vault_narration: voucher.narration || "",
-              debit_account_id: debitEntry?.accountId ?? 0,
-              credit_account_id: creditEntry?.accountId ?? 0,
-              confirmed_tx_ids: [plaidTx.transaction_id],
-              confirmed_at: new Date().toISOString(),
-            },
-          ]);
-        }
-      } catch {
-        // Keep going -- one failed write shouldn't abandon the rest of the batch.
+      return {
+        tx_id: plaidTx.transaction_id,
+        merchant_key: merchantKey,
+        amount: Math.abs(plaidTx.amount),
+        vault_voucher_id: voucher.id,
+        vault_narration: voucher.narration || "",
+        debit_account_id: debitEntry?.accountId ?? 0,
+        credit_account_id: creditEntry?.accountId ?? 0,
+      };
+    });
+    try {
+      const res = await apiFetch("/api/plaid/confirmed-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matches: items }),
+      });
+      if (res.ok) {
+        setConfirmedMatches((prev) => [
+          ...prev,
+          ...items.map((item) => ({
+            id: crypto.randomUUID(),
+            ...item,
+            confirmed_tx_ids: [item.tx_id],
+            confirmed_at: new Date().toISOString(),
+          })),
+        ]);
+        setBulkStatus(`Reconciled ${total} voucher(s).`);
+      } else {
+        setBulkStatus("Bulk reconcile failed — try again.");
       }
+    } catch {
+      setBulkStatus("Bulk reconcile failed — try again.");
     }
-    setBulkStatus(done === total ? `Reconciled ${done} voucher(s).` : `Reconciled ${done} of ${total} voucher(s) — some failed, try again.`);
     setBulkReconciling(false);
   }
 

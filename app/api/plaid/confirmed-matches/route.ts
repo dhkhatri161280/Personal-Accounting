@@ -32,25 +32,19 @@ export async function GET(request: Request) {
   return Response.json(await load());
 }
 
-export async function POST(request: Request) {
-  const denied = requireAccessToken(request, bindings);
-  if (denied) return denied;
+type ConfirmBody = {
+  tx_id: string;
+  merchant_key: string;
+  amount: number;
+  vault_voucher_id: number;
+  vault_narration: string;
+  debit_account_id: number;
+  credit_account_id: number;
+};
 
-  let body: {
-    tx_id: string;
-    merchant_key: string;
-    amount: number;
-    vault_voucher_id: number;
-    vault_narration: string;
-    debit_account_id: number;
-    credit_account_id: number;
-  };
-  try { body = await request.json(); }
-  catch { return new Response("Invalid JSON", { status: 400 }); }
-
-  const matches = await load();
-
-  // Merge into existing pattern if merchant_key + amount already confirmed (±2%)
+// Merge one confirmation into an in-memory list (mutates `matches`) -- shared by the single and
+// bulk POST paths so both apply the exact same merchant_key+amount merge rule.
+function applyConfirm(matches: ConfirmedMatch[], body: ConfirmBody) {
   const existing = matches.find(
     (m) =>
       m.merchant_key === body.merchant_key &&
@@ -72,6 +66,37 @@ export async function POST(request: Request) {
       confirmed_at: new Date().toISOString(),
     });
   }
+}
+
+export async function POST(request: Request) {
+  const denied = requireAccessToken(request, bindings);
+  if (denied) return denied;
+
+  let parsed: unknown;
+  try { parsed = await request.json(); }
+  catch { return new Response("Invalid JSON", { status: 400 }); }
+
+  const matches = await load();
+
+  // Bulk path: { matches: ConfirmBody[] } -- applies every confirmation against ONE in-memory
+  // list and writes ONCE. Cloudflare KV is only eventually consistent, so N separate
+  // POST-per-confirmation requests (each doing its own read-then-write of this same key) can
+  // race: a later request's read may not yet reflect an earlier request's very recent write,
+  // silently dropping it when that later request overwrites the key. Confirmed live: bulk
+  // "Reconcile all" runs kept reporting success but the candidate count never actually dropped
+  // on refresh. A single read + single write for the whole batch removes the race entirely.
+  if (parsed && typeof parsed === "object" && Array.isArray((parsed as { matches?: unknown }).matches)) {
+    const body = parsed as { matches: ConfirmBody[] };
+    for (const item of body.matches) applyConfirm(matches, item);
+    try {
+      await bindings.VAULT.put(KEY, JSON.stringify(matches));
+    } catch (e: any) {
+      return new Response("Storage unavailable: " + (e?.message || "write failed"), { status: 503 });
+    }
+    return Response.json({ ok: true, count: body.matches.length });
+  }
+
+  applyConfirm(matches, parsed as ConfirmBody);
 
   try {
     await bindings.VAULT.put(KEY, JSON.stringify(matches));

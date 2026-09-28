@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-27",
+    "summary": "Add \"Confirm all shown\" bulk action to the Reconcile History tab"
+  },
+  {
+    "date": "2026-09-27",
     "summary": "Fix stale confirmed-matches cache hiding the badge right after bulk reconcile"
   },
   {

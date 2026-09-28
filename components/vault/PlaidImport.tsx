@@ -1831,17 +1831,60 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     return true;
   }
 
-  // Confirms every candidate currently shown, not just one at a time -- sequential, not
-  // Promise.all, since /api/plaid/confirmed-matches is a read-modify-write over one shared KV
-  // list (see that route) and concurrent POSTs would race, each reading the same starting list
-  // and only the last write's own addition surviving.
+  // Confirms every candidate currently shown in ONE request (server applies the whole batch
+  // against a single read + single write -- see the bulk path in
+  // app/api/plaid/confirmed-matches/route.ts). NOT N separate POSTs, even sequential/awaited
+  // ones: Cloudflare KV is only eventually consistent, so successive read-then-write requests
+  // against the same key can still race each other -- confirmed live, repeated bulk-confirm
+  // clicks kept losing most of the batch to exactly that.
   async function confirmAllHistoricalMatches(candidates: HistoricalReconcileCandidate[]) {
     setHistoricalBulkConfirming(true);
-    let done = 0;
-    for (const c of candidates) {
-      if (await confirmHistoricalMatch(c)) done++;
+    const items = candidates.map((c) => {
+      const { voucher, plaidTx } = c;
+      const debitEntry = voucher.entries.find((e) => e.amount < 0);
+      const creditEntry = voucher.entries.find((e) => e.amount > 0);
+      const merchantKey = (plaidTx.name || "").toLowerCase().split(/\W+/).find((w) => w.length > 2) || "";
+      return {
+        voucher,
+        payload: {
+          tx_id: plaidTx.transaction_id,
+          merchant_key: merchantKey,
+          amount: Math.abs(plaidTx.amount),
+          vault_voucher_id: voucher.id,
+          vault_narration: voucher.narration || "",
+          debit_account_id: debitEntry?.accountId ?? 0,
+          credit_account_id: creditEntry?.accountId ?? 0,
+        },
+      };
+    });
+    try {
+      const res = await apiFetch("/api/plaid/confirmed-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matches: items.map((i) => i.payload) }),
+      });
+      if (res.ok) {
+        setConfirmedMatches((prev) => [
+          ...prev,
+          ...items.map((i) => ({
+            id: crypto.randomUUID(),
+            ...i.payload,
+            confirmed_tx_ids: [i.payload.tx_id],
+            confirmed_at: new Date().toISOString(),
+          })),
+        ]);
+        setHistoricalConfirmedGuids((prev) => {
+          const next = new Set(prev);
+          for (const i of items) next.add(i.voucher.guid);
+          return next;
+        });
+        setStatus(`Confirmed ${items.length} voucher(s) as Reconciled.`);
+      } else {
+        setStatus("Bulk confirm failed — see vault status for details.");
+      }
+    } catch {
+      setStatus("Bulk confirm failed — see vault status for details.");
     }
-    setStatus(`Confirmed ${done} of ${candidates.length} voucher(s) as Reconciled.`);
     setHistoricalBulkConfirming(false);
   }
 
