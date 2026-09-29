@@ -871,15 +871,24 @@ export function GrApp() {
               {bookMenuOpen && (
                 <div className="book-switcher-menu">
                   <a href="/vault">
-                    US Books
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      US Books
+                      <CountryFlag book="us" />
+                    </span>
                     <em>USD</em>
                   </a>
                   <a href="/india">
-                    India Books
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      India Books
+                      <CountryFlag book="india" />
+                    </span>
                     <em>INR</em>
                   </a>
                   <a href="/gr" className="selected">
-                    GR Books
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      GR Books
+                      <CountryFlag book="gr" />
+                    </span>
                     <em>USD + INR</em>
                   </a>
                 </div>
