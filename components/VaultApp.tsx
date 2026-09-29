@@ -3145,19 +3145,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           <span className="header-tab-bar-icon" aria-hidden="true">📖</span>
           <span>Day Book</span>
         </button>
-        {book !== "india" && (
-          <button
-            className={tab === "bank-import" ? "selected" : ""}
-            onClick={() => {
-              setPlaidImportTab("transactions");
-              setTab("bank-import");
-            }}
-            title="Import"
-          >
-            <span className="header-tab-bar-icon" aria-hidden="true">⇩</span>
-            <span>Import</span>
-          </button>
-        )}
         <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
           <span className="header-tab-bar-icon" aria-hidden="true">📊</span>
           <span>Reports</span>
@@ -3177,6 +3164,19 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           <span className="header-tab-bar-icon" aria-hidden="true">📚</span>
           <span>Ledgers</span>
         </button>
+        {book !== "india" && (
+          <button
+            className={tab === "bank-import" ? "selected" : ""}
+            onClick={() => {
+              setPlaidImportTab("transactions");
+              setTab("bank-import");
+            }}
+            title="Import"
+          >
+            <span className="header-tab-bar-icon" aria-hidden="true">⇩</span>
+            <span>Import</span>
+          </button>
+        )}
         {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
       </div>
         <div className="workspace-content">

@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-09-29",
+    "summary": "Reorder Spend Report quick-range buttons: This month before Last 30 days"
+  },
+  {
     "date": "2026-09-28",
     "summary": "Add flags to the book switcher dropdown list items too"
   },
