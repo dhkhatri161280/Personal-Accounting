@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-28",
+    "summary": "Add flags to the book switcher dropdown list items too"
+  },
+  {
+    "date": "2026-09-28",
     "summary": "Add small country flags to the book switcher button"
   },
   {

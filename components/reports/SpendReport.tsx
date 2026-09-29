@@ -157,11 +157,11 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
         <button type="button" className="tr-refresh-btn" onClick={() => applyPreset(7)}>
           Last 7 days
         </button>
-        <button type="button" className="tr-refresh-btn" onClick={() => applyPreset(30)}>
-          Last 30 days
-        </button>
         <button type="button" className="tr-refresh-btn" onClick={applyThisMonth}>
           This month
+        </button>
+        <button type="button" className="tr-refresh-btn" onClick={() => applyPreset(30)}>
+          Last 30 days
         </button>
         <ExportButton
           disabled={expenseLines.length === 0 && incomeLines.length === 0}
