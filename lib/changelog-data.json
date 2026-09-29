@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-28",
+    "summary": "Scope the always-reconciled account picker to Cash and Bank Group only"
+  },
+  {
+    "date": "2026-09-28",
     "summary": "Add always-reconciled account designation for HSA/Schwab-style accounts"
   },
   {

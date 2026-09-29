@@ -33,6 +33,7 @@ import { apiFetch } from "@/lib/api-fetch";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { BuildStamp } from "@/components/BuildStamp";
+import { CountryFlag } from "@/components/CountryFlag";
 import { PWAInstallButtons } from "@/components/PWARegister";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
@@ -861,6 +862,7 @@ export function GrApp() {
                 aria-label="Switch books"
               >
                 <span className="book-switcher-name">GR Books</span>
+                <CountryFlag book="gr" />
                 <span className="book-switcher-currency">USD + INR</span>
                 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="m6 9 6 6 6-6" />

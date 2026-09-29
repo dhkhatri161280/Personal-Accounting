@@ -9,6 +9,7 @@ import { useGridColumnWidths } from "@/hooks/useGridColumnWidths";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
 import { BuildStamp } from "@/components/BuildStamp";
+import { CountryFlag } from "@/components/CountryFlag";
 import { PWAInstallButtons } from "@/components/PWARegister";
 import { TransactionTable } from "@/components/TransactionTable";
 import { MastersPanel, type MasterGroup } from "@/components/MastersPanel";
@@ -2772,6 +2773,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 aria-label="Switch books"
               >
                 <span className="book-switcher-name">{book === "india" ? "India Books" : "US Books"}</span>
+                <CountryFlag book={book === "india" ? "india" : "us"} />
                 <span className="book-switcher-currency">{book === "india" ? "INR" : "USD"}</span>
                 <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="m6 9 6 6 6-6" />
