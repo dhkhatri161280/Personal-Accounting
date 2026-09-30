@@ -184,6 +184,10 @@ export type ManualPayrollPeriod = {
   // otherAdjustments. Negative when it's net a credit/addback to pay, same sign convention as
   // every other deduction field here. Undefined for Excel-imported or pre-this-feature periods.
   otherAdjustments?: number;
+  // The real row name(s) behind otherAdjustments (e.g. "RSU Excess Tax"), comma-joined when a
+  // paystub had more than one -- lets the period-view modal show the actual label instead of a
+  // generic "Other Adjustments". Purely descriptive, never read for any calculation.
+  otherAdjustmentsLabel?: string;
 };
 
 // Real tax withheld on a specific RSU vesting event, entered from the actual "stock-only"

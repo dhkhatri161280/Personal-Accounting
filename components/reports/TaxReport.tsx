@@ -976,6 +976,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         net: (prior?.net ?? 0) + parsed.netPay,
         fitTaxableWages: (prior?.fitTaxableWages ?? 0) + parsed.fitTaxableWages,
         otherAdjustments: (prior?.otherAdjustments ?? 0) + parsed.otherAdjustments,
+        // "Add" mode: union the distinct labels rather than concatenating duplicates -- a
+        // second same-period upload carrying the same "RSU Excess Tax" line again shouldn't
+        // turn the label into "RSU Excess Tax, RSU Excess Tax".
+        otherAdjustmentsLabel:
+          [
+            ...new Set([
+              ...(prior?.otherAdjustmentsLabel ? prior.otherAdjustmentsLabel.split(", ") : []),
+              ...parsed.otherAdjustmentsDetail.map((d) => d.label),
+            ]),
+          ].join(", ") || undefined,
         estimated: false as const,
       };
       const updatedYears = payroll!.years.map((y) => {
@@ -2757,6 +2767,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           // When present, preferred over deriving the same gap generically from net vs. the
           // itemized remainder below, since this one carries where it actually came from.
           otherAdjustments?: number;
+          otherAdjustmentsLabel?: string;
         } | null = null;
 
         if (viewPeriod.type === "ytd") {
@@ -2826,6 +2837,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               // figure, so it carries no extra information the remainder calc below doesn't.
               net: m.estimated ? undefined : m.net,
               otherAdjustments: m.estimated ? undefined : m.otherAdjustments,
+              otherAdjustmentsLabel: m.estimated ? undefined : m.otherAdjustmentsLabel,
             };
           }
         }
@@ -2902,7 +2914,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               ...(Math.abs(unaccounted) > 0.01
                 ? [{
                     label: unaccountedIsKnown
-                      ? "Other Adjustments"
+                      ? period.otherAdjustmentsLabel || "Other Adjustments"
                       : unaccounted > 0
                         ? "Other (not itemized)"
                         : "Other deduction (not itemized)",

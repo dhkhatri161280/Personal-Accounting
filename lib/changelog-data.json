@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-30",
+    "summary": "Itemize paystub \"Other Adjustments\" generically; add depreciation spread-posting"
+  },
+  {
+    "date": "2026-09-30",
     "summary": "Add W2 Preview to the Tax tab, sourced from real paystub data"
   },
   {
