@@ -1326,11 +1326,19 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
     voucherPeriods.reduce((s, m) => s + (m.fitTaxableWages ?? Math.max(0, m.base + m.telephone - m.k401 - m.medical)), 0) +
     vestGrossTotal;
   // 401(k) is pretax for federal income tax (already excluded from Box1 above) but NOT for
-  // Social Security/Medicare -- added back for Box 3/5. Box 3 technically caps at the annual SS
-  // wage base (this doesn't model that cap); Box 5 has no cap so it's not an issue there. Box 16
-  // (state wages) approximated as equal to Box 1 -- most states follow the same federal pretax
-  // treatment for 401(k)/Section 125, though not universally.
-  const w2Box3SsWages = w2Box1Wages + totalK401;
+  // Social Security/Medicare, so Box 5 (no wage-base cap) is just Box 1 with it added back.
+  // Box 3 is NOT simply Box1+401k the same way -- it caps at the annual Social Security wage
+  // base ($176,100 for 2025), confirmed directly against a real NVIDIA W-2's own reconciliation
+  // worksheet ("Less Excess Wages: -$798,218.33", applied only to the SS Wages column -- the
+  // employee's real wages far exceeded the cap that year). Rather than hardcode that dollar
+  // figure (it changes every year, would silently go stale), Box 3 is derived from the SS tax
+  // actually withheld instead: the employee-side OASDI rate is a fixed 6.2% by law, so
+  // withheld / 0.062 always recovers the true CAPPED wage base with zero maintenance -- verified
+  // exactly against the same real W-2: $10,918.20 / 0.062 = $176,100.00. Box 16 (state wages)
+  // approximated as equal to Box 1 -- most states follow the same federal pretax treatment for
+  // 401(k)/Section 125, though not universally; also confirmed exact on that same real W-2.
+  const SS_EMPLOYEE_TAX_RATE = 0.062;
+  const w2Box3SsWages = totalSsn / SS_EMPLOYEE_TAX_RATE;
   const w2Box5MedicareWages = w2Box1Wages + totalK401;
 
   // ESPP purchases come from Reports > Equity the same way RSU vests do.
@@ -2615,10 +2623,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       {showW2Preview && (
         <Modal title={`W2 Preview — ${yr.year}`} onClose={() => setShowW2Preview(false)} wide>
           <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
-            Estimated from your paystub data, not your real W-2 — a reconciliation aid, not a substitute. Boxes 3/5/16
-            are approximated (401(k) added back for SS/Medicare, state wages assumed to equal Box 1); items this app
-            doesn't itemize on its own (e.g. group-term-life imputed income over $50k) may still cause a small
-            difference from the real form.
+            Estimated from your paystub data, not your real W-2 — a reconciliation aid, not a substitute. Box 3 is
+            derived from Social Security tax actually withheld (so it correctly caps at the wage base for high
+            earners); Box 5 adds 401(k) back to Box 1 (no cap); Box 16 (state wages) is assumed to equal Box 1 — all
+            three confirmed exact against a real NVIDIA W-2. Items this app doesn't itemize on its own (e.g.
+            group-term-life imputed income over $50k) may still cause a small difference from the real form.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "0.75rem 1.25rem" }}>
             {[

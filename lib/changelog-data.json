@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-09-30",
+    "summary": "Fix W2 Preview Box 3 (Social Security wages) to respect the annual wage-base cap"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Add overdue-backup reminder -- zero new page space"
+  },
+  {
+    "date": "2026-09-30",
     "summary": "Fix Fixed Asset Register toolbar wrapping to a second line"
   },
   {
