@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-30",
+    "summary": "Fix Fixed Asset Register toolbar wrapping to a second line"
+  },
+  {
+    "date": "2026-09-30",
     "summary": "Show the real paystub line name instead of generic \"Other Adjustments\""
   },
   {

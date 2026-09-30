@@ -650,6 +650,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       a.download = `${book}-vault-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
+      // Records the backup itself happening, not this bookkeeping write -- if this save fails
+      // (offline, etc.) the download the user actually wanted has already succeeded either way,
+      // so no error is surfaced for it; worst case the overdue reminder just doesn't reset yet.
+      if (data) save({ ...data, lastBackupAt: new Date().toISOString() }, "settings").catch(() => {});
     } catch {
       setStatus("Backup download failed.");
     }
@@ -2954,6 +2958,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
               </svg>
               <SyncStatusDot book={book} />
+              {/* Overdue-backup reminder -- separate concern from Tally sync health above
+                  (SyncStatusDot), so its own dot rather than overloading that one's meaning.
+                  30-day threshold, "never backed up" counts as overdue too. Only nags once
+                  there's actually something worth backing up (a handful of vouchers), not a
+                  freshly-unlocked empty vault. */}
+              {data && data.transactions.length > 5 &&
+                (!data.lastBackupAt || Date.now() - new Date(data.lastBackupAt).getTime() > 30 * 86400000) && (
+                  <span
+                    className="backup-reminder-dot"
+                    title={
+                      data.lastBackupAt
+                        ? `Last backup was over 30 days ago (${new Date(data.lastBackupAt).toLocaleDateString()}) — Settings > Download backup`
+                        : "You've never downloaded a vault backup — Settings > Download backup"
+                    }
+                    aria-hidden="true"
+                  />
+                )}
             </button>
             {settingsMenuOpen && (
               <div className="header-settings-menu">
@@ -3013,6 +3034,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     <path d="M5 21h14" />
                   </svg>
                   Download backup
+                  <small style={{ marginLeft: "auto", fontWeight: 400, opacity: 0.6 }}>
+                    {data?.lastBackupAt ? new Date(data.lastBackupAt).toLocaleDateString() : "never"}
+                  </small>
                 </button>
               </div>
             )}

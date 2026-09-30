@@ -568,6 +568,10 @@ export type Ledger = {
   // stored purely for later reference, no ledger posting or reconciliation tied to any entry.
   // Same "metadata in the vault, bytes in R2" split as Tx.attachments above; see VaultDocument.
   documents?: VaultDocument[];
+  // ISO timestamp of the last time the user clicked "Download backup" (see VaultApp.tsx's
+  // downloadVaultBackup) -- purely informational, drives the overdue-backup reminder dot on the
+  // settings gear icon. Never set any other way; undefined means "never backed up".
+  lastBackupAt?: string;
 };
 
 // One archived personal document (pay stub, RSU grant agreement/award notice, offer letter, ...).
