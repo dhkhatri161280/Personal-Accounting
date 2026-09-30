@@ -9467,7 +9467,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    this app has hit repeatedly elsewhere (Day Book, Columnar reports, equity vest/ESPP tables). */
 .ui-refresh .tr-table-wrap {
   border-radius: var(--ref-radius);
-  overflow: hidden;
+  /* NOT overflow:hidden -- that was the actual reason Trading's wide tables couldn't scroll
+     horizontally on a phone at all (confirmed live: the base .tr-table-wrap's own
+     overflow-x:auto, further up this file, was being fully overridden back to hidden by this
+     higher-specificity/later .ui-refresh rule, not just competing with an outer container the
+     way the .data-panel fix above addresses for every other report). overflow-x:auto restores
+     scrolling; overflow-y:hidden keeps the same rounded-corner clipping this rule originally
+     wanted -- both non-"visible" axes, so this combination doesn't hit the CSS Overflow spec's
+     visible-forced-to-auto resolution the .data-panel fix above had to work around. */
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid #cbd5e1;
   box-shadow: var(--ref-shadow);
 }

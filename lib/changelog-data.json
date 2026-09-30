@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-29",
+    "summary": "Fix wide-table horizontal scroll broken across ~10 reports, all devices"
+  },
+  {
+    "date": "2026-09-29",
     "summary": "Move Import tab to the end of US Books' tab bar"
   },
   {
