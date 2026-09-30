@@ -2622,13 +2622,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
 
       {showW2Preview && (
         <Modal title={`W2 Preview — ${yr.year}`} onClose={() => setShowW2Preview(false)} wide>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
-            Estimated from your paystub data, not your real W-2 — a reconciliation aid, not a substitute. Box 3 is
-            derived from Social Security tax actually withheld (so it correctly caps at the wage base for high
-            earners); Box 5 adds 401(k) back to Box 1 (no cap); Box 16 (state wages) is assumed to equal Box 1 — all
-            three confirmed exact against a real NVIDIA W-2. Items this app doesn't itemize on its own (e.g.
-            group-term-life imputed income over $50k) may still cause a small difference from the real form.
-          </p>
+          <details style={{ fontSize: 12, margin: "0 0 0.75rem" }}>
+            <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>
+              ⓘ How these numbers are calculated
+            </summary>
+            <p style={{ opacity: 0.75, margin: "6px 0 0", maxWidth: 640 }}>
+              Estimated from your paystub data, not your real W-2 — a reconciliation aid, not a substitute. Box 3 is
+              derived from Social Security tax actually withheld (so it correctly caps at the wage base for high
+              earners); Box 5 adds 401(k) back to Box 1 (no cap); Box 16 (state wages) is assumed to equal Box 1 —
+              all three confirmed exact against a real NVIDIA W-2. Items this app doesn't itemize on its own (e.g.
+              group-term-life imputed income over $50k) may still cause a small difference from the real form.
+            </p>
+          </details>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "0.75rem 1.25rem" }}>
             {[
               ["Box 1 — Wages, tips, other comp", w2Box1Wages],
@@ -2647,6 +2652,54 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               </div>
             ))}
           </div>
+          {(() => {
+            // Mirrors the "reconciliation worksheet" NVIDIA's own W-2 packet includes: same
+            // Gross Wages figure feeds all three columns, then 401(k)/Sec125 pretax deductions
+            // are subtracted per-column (401k only reduces Wages/Tips, not SS/Medicare), and the
+            // SS column alone takes a further "Excess Wages" cut down to the wage-base cap --
+            // confirmed line-for-line against a real NVIDIA W-2's page-4 worksheet.
+            const grossWorksheet = w2Box1Wages + totalK401 + totalMedical;
+            const excessWages = w2Box5MedicareWages - w2Box3SsWages;
+            const rows: [string, number | null, number | null, number | null][] = [
+              ["Gross Wages", grossWorksheet, grossWorksheet, grossWorksheet],
+              ["Less Deferred Comp (401k)", -totalK401, null, null],
+              ["Less Sec 125 (medical)", -totalMedical, -totalMedical, -totalMedical],
+              ["Less Excess Wages", null, -excessWages, null],
+            ];
+            return (
+              <details style={{ fontSize: 12, marginTop: "1rem" }}>
+                <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>
+                  ⓘ Reconciliation worksheet (Gross → Box 1/3/5)
+                </summary>
+                <table style={{ marginTop: 8, borderCollapse: "collapse", width: "100%", maxWidth: 640 }}>
+                  <thead>
+                    <tr style={{ textAlign: "right" }}>
+                      <th style={{ textAlign: "left", fontWeight: 600, padding: "3px 8px 3px 0" }}>Earnings Description</th>
+                      <th style={{ fontWeight: 600, padding: "3px 8px" }}>Wages, Tips, Other Comp.</th>
+                      <th style={{ fontWeight: 600, padding: "3px 8px" }}>Social Security Wages</th>
+                      <th style={{ fontWeight: 600, padding: "3px 0 3px 8px" }}>Medicare Wages</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(([label, w1, ss, med]) => (
+                      <tr key={label}>
+                        <td style={{ padding: "3px 8px 3px 0", opacity: 0.8 }}>{label}</td>
+                        <td style={{ textAlign: "right", padding: "3px 8px" }}>{w1 == null ? "" : fmt(w1)}</td>
+                        <td style={{ textAlign: "right", padding: "3px 8px" }}>{ss == null ? "" : fmt(ss)}</td>
+                        <td style={{ textAlign: "right", padding: "3px 0 3px 8px" }}>{med == null ? "" : fmt(med)}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ fontWeight: 700, borderTop: "1px solid #dde2ea" }}>
+                      <td style={{ padding: "5px 8px 3px 0" }}>Taxable Wages (Box 1/3/5)</td>
+                      <td style={{ textAlign: "right", padding: "5px 8px 3px" }}>{fmt(w2Box1Wages)}</td>
+                      <td style={{ textAlign: "right", padding: "5px 8px 3px" }}>{fmt(w2Box3SsWages)}</td>
+                      <td style={{ textAlign: "right", padding: "5px 0 3px 8px" }}>{fmt(w2Box5MedicareWages)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
+            );
+          })()}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowW2Preview(false)}>Close</button>
           </div>
