@@ -11,7 +11,17 @@ import {
   round2,
   assetClassFromTag,
   guessAssetClass,
+  addMonths,
 } from "./fixed-assets.ts";
+
+// "YYYY-MM" -> that month's real last calendar day as "YYYY-MM-DD" -- same computation
+// components/reports/FixedAssetRegister.tsx's own local lastDayOfMonth already does, needed
+// here too for postDepreciationSpread's own installment dates.
+function monthEndDate(yearMonth: string): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  return `${yearMonth}-${String(lastDay).padStart(2, "0")}`;
+}
 import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity.ts";
 
 // Finds an existing ledger account by name under the "Fixed Assets" group, or creates one -- used
@@ -153,6 +163,84 @@ export function postDepreciationConsolidated(data: Ledger, throughDate: string, 
     });
     workingTxs = workingLedger.transactions;
     postedCount++;
+    updatedAssets.push({ ...asset, lastDepreciatedThrough: lastThrough });
+  }
+
+  return { data: { ...workingLedger, transactions: workingTxs, fixedAssets: updatedAssets }, postedCount };
+}
+
+// Same pending-months math and total as postDepreciationConsolidated, but splits each asset's
+// full catch-up total evenly across `periods` consecutive month-end vouchers instead of one
+// lump sum -- for a backlog large enough that posting it all in a single period would swing
+// that month's Income & Expenditure hard (confirmed live: a personal vault with 1,132
+// asset-months never posted; a one-shot consolidated run would have dumped the entire backlog
+// into one month's expenses). lastDepreciatedThrough still advances to the full backlog's last
+// pending month in one shot, same as the consolidated path -- the asset's real depreciation
+// SCHEDULE isn't changing, only how many vouchers/periods absorb this one-time catch-up.
+export function postDepreciationSpread(
+  data: Ledger,
+  throughDate: string,
+  periods: number,
+  startPostMonth: string // "YYYY-MM" -- the first installment's month; later ones follow monthly
+): { data: Ledger; postedCount: number } {
+  const { data: withAccounts, depreciationExpenseAcct, accumulatedDeprecAcct } = ensureFixedAssetAccounts(data);
+  const assets = withAccounts.fixedAssets ?? [];
+  let workingTxs = [...withAccounts.transactions];
+  let workingLedger = { ...withAccounts, transactions: workingTxs };
+  const updatedAssets: FixedAsset[] = [];
+  let postedCount = 0;
+  const n = Math.max(1, Math.floor(periods));
+
+  for (const asset of assets) {
+    if (asset.disposed) {
+      updatedAssets.push(asset);
+      continue;
+    }
+    const pending = pendingDepreciationMonths(asset, throughDate);
+    const total = round2(pending.reduce((s, m) => s + m.amount, 0));
+    if (!pending.length || total <= 0) {
+      updatedAssets.push(asset);
+      continue;
+    }
+    const lastThrough = pending[pending.length - 1].yearMonth;
+    const perInstallment = round2(total / n);
+    let postedSoFar = 0;
+    for (let i = 0; i < n; i++) {
+      // The last installment absorbs whatever's left rather than the flat per-installment
+      // amount -- n equal round2() slices can undershoot the true total by a cent or two, the
+      // same residue-handling pendingDepreciationMonths itself already applies to an asset's
+      // final useful-life month, reused here for the same reason.
+      const amount = i === n - 1 ? round2(total - postedSoFar) : perInstallment;
+      if (amount <= 0) continue;
+      const postDate = monthEndDate(addMonths(startPostMonth, i));
+      const tx: Tx = {
+        id: nextTransactionIds(workingTxs, 1)[0],
+        guid: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        date: postDate,
+        number: nextVoucherNumber(workingLedger, "Journal", postDate),
+        type: "Journal",
+        narration: `Depreciation catch-up (${i + 1}/${n}) - ${asset.name} - through ${lastThrough}`,
+        historical: false,
+        cancelled: false,
+        syncStatus: "pending",
+        entries: [
+          { accountId: depreciationExpenseAcct.id, accountName: depreciationExpenseAcct.name, amount: -amount, ...(asset.sourceTag ? { assetTag: asset.sourceTag } : {}) },
+          { accountId: accumulatedDeprecAcct.id, accountName: accumulatedDeprecAcct.name, amount, ...(asset.sourceTag ? { assetTag: asset.sourceTag } : {}) },
+        ],
+      };
+      workingTxs = [...workingTxs, tx];
+      workingLedger = { ...workingLedger, transactions: workingTxs };
+      workingLedger = appendAuditEntry(workingLedger, {
+        entity: "voucher",
+        entityId: tx.guid,
+        action: "created",
+        summary: `Depreciation catch-up (${i + 1}/${n}) posted for ${asset.name}: through ${lastThrough} (${amount})`,
+      });
+      workingTxs = workingLedger.transactions;
+      postedSoFar = round2(postedSoFar + amount);
+      postedCount++;
+    }
     updatedAssets.push({ ...asset, lastDepreciatedThrough: lastThrough });
   }
 

@@ -14,7 +14,7 @@ import {
   ASSET_CLASS_PREFIXES,
   suggestNextAssetTag,
 } from "@/lib/fixed-assets";
-import { postDepreciation, postDepreciationConsolidated, disposeAsset } from "@/lib/fixed-assets-ledger";
+import { postDepreciation, postDepreciationConsolidated, postDepreciationSpread, disposeAsset } from "@/lib/fixed-assets-ledger";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
@@ -99,28 +99,38 @@ export function FixedAssetRegister({
   // date") -- defaults to today, but the user can pick any earlier date to post depreciation
   // only through a specific closed month instead of always catching all the way up to today.
   const [throughDate, setThroughDate] = useState(todayStr);
-  // Default OFF: periodic (one voucher per pending asset-month, dated at that month's own
-  // end -- the historically-correct posting). Turning this on switches to one consolidated
-  // catch-up voucher per asset instead -- needed when the backlog spans already-closed periods
-  // that per-month vouchers can't be dated into.
-  const [consolidate, setConsolidate] = useState(false);
-  // What gets stamped on the consolidated voucher -- deliberately separate from throughDate
-  // (which only controls how many pending months get swept in). Real close processes run a few
-  // days before month-end for review time, but the entry itself still needs to land in the period
-  // being closed, not the day the accountant happened to click the button -- same "processing
-  // date vs. posting date" split every real ERP (SAP/Oracle/NetSuite) close process uses. Defaults
-  // to throughDate's own month-end and re-defaults whenever throughDate changes, but stays
-  // independently editable in between.
+  // Default "periodic": one voucher per pending asset-month, dated at that month's own end --
+  // the historically-correct posting. "consolidated" switches to one true-up voucher per asset
+  // instead -- needed when the backlog spans already-closed periods that per-month vouchers
+  // can't be dated into. "spread" also posts one true-up total per asset, but splits it evenly
+  // across `spreadPeriods` consecutive month-end vouchers instead of a single lump sum -- for a
+  // backlog large enough that consolidated's one-shot total would swing a single month's
+  // Income & Expenditure hard (confirmed live: a personal vault with 1,132 asset-months never
+  // posted -- a straight consolidated run would have dumped the whole thing into one month).
+  const [postMode, setPostMode] = useState<"periodic" | "consolidated" | "spread">("periodic");
+  const [spreadPeriods, setSpreadPeriods] = useState(12);
+  // What gets stamped on the consolidated voucher, or the FIRST of the spread installments --
+  // deliberately separate from throughDate (which only controls how many pending months get
+  // swept in). Real close processes run a few days before month-end for review time, but the
+  // entry itself still needs to land in the period being closed, not the day the accountant
+  // happened to click the button -- same "processing date vs. posting date" split every real ERP
+  // (SAP/Oracle/NetSuite) close process uses. Defaults to throughDate's own month-end and
+  // re-defaults whenever throughDate changes, but stays independently editable in between.
   const [postDate, setPostDate] = useState(lastDayOfMonth(todayStr));
   const [showPreview, setShowPreview] = useState(false);
 
   const active = assets.filter((a) => !a.disposed);
-  // postDepreciation/postDepreciationConsolidated are pure (return a new object, never mutate
-  // `data`) -- calling here just to read postedCount/pendingAmount for the button label, and for
-  // the Preview window below, is safe and cheap for a personal-scale register. Nothing here ever
-  // calls onSave -- Preview is read-only by construction, not a separate "dry run" mode to keep
-  // in sync with the real posting logic.
-  const runResult = consolidate ? postDepreciationConsolidated(data, throughDate, postDate) : postDepreciation(data, throughDate);
+  // postDepreciation/postDepreciationConsolidated/postDepreciationSpread are pure (return a new
+  // object, never mutate `data`) -- calling here just to read postedCount/pendingAmount for the
+  // button label, and for the Preview window below, is safe and cheap for a personal-scale
+  // register. Nothing here ever calls onSave -- Preview is read-only by construction, not a
+  // separate "dry run" mode to keep in sync with the real posting logic.
+  const runResult =
+    postMode === "consolidated"
+      ? postDepreciationConsolidated(data, throughDate, postDate)
+      : postMode === "spread"
+        ? postDepreciationSpread(data, throughDate, spreadPeriods, postDate.slice(0, 7))
+        : postDepreciation(data, throughDate);
   const pendingCount = runResult.postedCount;
   const pendingAmount = active.reduce(
     (s, a) => s + pendingDepreciationMonths(a, throughDate).reduce((ss, m) => ss + m.amount, 0),
@@ -135,9 +145,12 @@ export function FixedAssetRegister({
   async function runDepreciation() {
     setSaving(true);
     try {
-      const { data: next } = consolidate
-        ? postDepreciationConsolidated(data, throughDate, postDate)
-        : postDepreciation(data, throughDate);
+      const { data: next } =
+        postMode === "consolidated"
+          ? postDepreciationConsolidated(data, throughDate, postDate)
+          : postMode === "spread"
+            ? postDepreciationSpread(data, throughDate, spreadPeriods, postDate.slice(0, 7))
+            : postDepreciation(data, throughDate);
       await onSave(next);
     } finally {
       setSaving(false);
@@ -268,11 +281,13 @@ export function FixedAssetRegister({
             Straight-line only. Each asset gets its own ledger account under "Fixed Assets". The Monthly/Accum./Book Value
             columns are always live — no action needed. "Run Depreciation" is a separate, optional step that{" "}
             <strong>posts real Journal vouchers</strong> (Dr Depreciation Expense / Cr Accumulated Depreciation) through the date
-            you choose. By default it's one voucher per pending asset-month, dated at that month's own end. If your backlog spans
-            periods you've already closed and reported, check "Consolidate" to post one true-up voucher per asset instead, dated
-            on a separate "Post as of" date you choose — so you can run the close early in the month (for review time) while the
-            entry itself still lands on the period's real last day, the same "processing date vs. posting date" split SAP/Oracle/
-            NetSuite use for period-end close. Name/Group/Class/Useful Life are
+            you choose. "Periodic" (default) posts one voucher per pending asset-month, dated at that month's own end. If your
+            backlog spans periods you've already closed and reported, "Consolidate" posts one true-up voucher per asset instead,
+            dated on a separate "Post as of" date you choose — so you can run the close early in the month (for review time) while
+            the entry itself still lands on the period's real last day, the same "processing date vs. posting date" split
+            SAP/Oracle/NetSuite use for period-end close. "Spread over N months" posts that same per-asset true-up total, but split
+            evenly across N consecutive month-end vouchers starting from "Starting" instead of one lump sum — for a backlog large
+            enough that a single Consolidate run would swing one month's Income &amp; Expenditure hard. Name/Group/Class/Useful Life are
             managed in Masters &gt; Fixed Assets — tag a voucher line's "Fixed Asset #" and its master record is created there
             automatically, no separate sync step needed.
           </p>
@@ -293,19 +308,47 @@ export function FixedAssetRegister({
             style={{ padding: "5px 7px" }}
           />
         </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}>
+          <input type="radio" checked={postMode === "periodic"} onChange={() => setPostMode("periodic")} />
+          Periodic
+        </label>
         <label
-          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}
+          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}
           title={`Posts one true-up voucher per asset, dated ${postDate}, instead of one per pending asset-month`}
         >
-          <input type="checkbox" checked={consolidate} onChange={(e) => setConsolidate(e.target.checked)} />
+          <input type="radio" checked={postMode === "consolidated"} onChange={() => setPostMode("consolidated")} />
           Consolidate
         </label>
-        {consolidate && (
+        <label
+          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}
+          title="Posts each asset's true-up total split evenly across several consecutive month-end vouchers, instead of one lump sum -- avoids a large backlog swinging a single month's Income & Expenditure"
+        >
+          <input type="radio" checked={postMode === "spread"} onChange={() => setPostMode("spread")} />
+          Spread over
+        </label>
+        {postMode === "spread" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#53627a" }}>
+            <input
+              type="number"
+              min={2}
+              max={60}
+              value={spreadPeriods}
+              onChange={(e) => setSpreadPeriods(Math.max(2, Math.min(60, Number(e.target.value) || 2)))}
+              style={{ padding: "5px 7px", width: 56 }}
+            />
+            months
+          </label>
+        )}
+        {(postMode === "consolidated" || postMode === "spread") && (
           <label
             style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#53627a" }}
-            title="What gets stamped on the consolidated voucher -- run the close any day you like, this keeps the entry itself dated in the period it belongs to"
+            title={
+              postMode === "spread"
+                ? "First installment's month -- run the close any day you like, later installments follow monthly from here"
+                : "What gets stamped on the consolidated voucher -- run the close any day you like, this keeps the entry itself dated in the period it belongs to"
+            }
           >
-            Post as of
+            {postMode === "spread" ? "Starting" : "Post as of"}
             <input type="date" value={postDate} onChange={(e) => setPostDate(e.target.value)} style={{ padding: "5px 7px" }} />
           </label>
         )}
@@ -586,7 +629,11 @@ export function FixedAssetRegister({
         >
           <p style={{ opacity: 0.75, margin: "0 0 10px", fontSize: 12 }}>
             Nothing has been posted. This is exactly what "Run Depreciation" would create through {fmtDate(throughDate)}
-            {consolidate ? ` (consolidated, 1 voucher/asset, dated ${fmtDate(postDate)})` : " (1 voucher per pending asset-month)"} — close this and click
+            {postMode === "consolidated"
+              ? ` (consolidated, 1 voucher/asset, dated ${fmtDate(postDate)})`
+              : postMode === "spread"
+                ? ` (spread, ${spreadPeriods} vouchers/asset, starting ${fmtDate(postDate)})`
+                : " (1 voucher per pending asset-month)"} — close this and click
             "Run Depreciation" to actually post it.
           </p>
           <div className="columnar-report-scroll">

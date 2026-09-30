@@ -179,6 +179,11 @@ export type ManualPayrollPeriod = {
   // pre-this-feature periods, which have no such figure to draw from -- see W2Preview's own
   // fallback formula for those. See lib/parse-paystub-pdf.ts's ParsedPaystub.fitTaxableWages.
   fitTaxableWages?: number;
+  // Sum of every Deductions-table row a real uploaded paystub had that this app has no
+  // dedicated bucket for (e.g. "RSU Excess Tax") -- see lib/parse-paystub-pdf.ts's
+  // otherAdjustments. Negative when it's net a credit/addback to pay, same sign convention as
+  // every other deduction field here. Undefined for Excel-imported or pre-this-feature periods.
+  otherAdjustments?: number;
 };
 
 // Real tax withheld on a specific RSU vesting event, entered from the actual "stock-only"

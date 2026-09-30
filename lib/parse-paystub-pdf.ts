@@ -50,6 +50,13 @@ export interface ParsedPaystub {
   // telephone), since it excludes 401(k)/Section 125 the way Gross doesn't. See W2Preview in
   // components/reports/TaxReport.tsx.
   fitTaxableWages: number;
+  // Sum of every Deductions-table row this parser has no dedicated bucket for (e.g. "RSU Excess
+  // Tax") -- negative when it's net a credit/addback, same sign convention as every other
+  // deduction field. otherAdjustmentsDetail carries the real row labels for display; only the
+  // summed number is persisted onto ManualPayrollPeriod (see savePaystubReview), the detail is
+  // shown once at upload-review time, not stored long-term.
+  otherAdjustments: number;
+  otherAdjustmentsDetail: { label: string; amount: number }[];
   distribution: ParsedPaystubDistribution[];
   rawText: string;
   pageCount: number; // how many pages looked like a real Pay Statement page (>1 means summed)
@@ -137,6 +144,8 @@ type PageFields = {
   base: number; telephone: number; medical: number; k401: number; k401Emplr: number; espp: number;
   federal: number; ssn: number; medicare: number; stateWH: number; stateSDI: number; totalTax: number;
   fitTaxableWages: number;
+  otherAdjustments: number;
+  otherAdjustmentsDetail: { label: string; amount: number }[];
   distribution: ParsedPaystubDistribution[];
   warnings: string[];
 };
@@ -189,6 +198,38 @@ function parsePageFields(rows: Row[], pageText: string): PageFields {
   const k401 = dedCurrent(/^401\(k\) plan$/i);
   const k401Emplr = rowValue(rows, /^401k-\s*Employer$/i, 4); // Employer Current, not Employee Current
   const espp = rowValuesSum(rows, /^ESPP \d+$/i, 2);
+
+  // ── Other Deductions table rows this parser doesn't already have a bucket for ──
+  // Rather than hardcoding "RSU Excess Tax" by name (fragile -- NVIDIA could rename it, or add a
+  // different one-off line next year), generically scans every row between the "Deductions" and
+  // "Taxes" section headers and sums whatever ISN'T one of the known buckets above. The known
+  // imputed-income lines (Com Child Life, Com Spouse Life, Group Term Life) are excluded
+  // deliberately, not swept into this bucket -- each appears identically on the Earnings side
+  // too (added there, subtracted here), a wash with zero net effect on pay, which this parser
+  // doesn't itemize on either side; sweeping just the deduction half in here would fabricate a
+  // phantom deduction with nothing offsetting it. toNum() already turns a parenthesized amount
+  // like "RSU Excess Tax ($603.84)" into a genuine negative, so a CREDIT (net effect: adds to
+  // pay) comes through as a negative "deduction" here automatically, same sign convention as
+  // every other deduction field -- no special-casing needed for that.
+  const KNOWN_DEDUCTION_LABELS = [/^401\(k\) plan$/i, /^Dental$/i, /^Vision$/i, /^Medical$/i, /^Legal Plan$/i, /^ESPP \d+$/i, /^401k-\s*Employer$/i];
+  const WASH_IMPUTED_INCOME_LABELS = [/^Com Child Life$/i, /^Com Spouse Life$/i, /^Group Term Life$/i];
+  const deductionsY = rows.find((r) => /^Deductions$/i.test(r.cols[0] || ""))?.y;
+  const taxesY = rows.find((r) => /^Taxes$/i.test(r.cols[0] || ""))?.y;
+  const otherAdjustmentsDetail: { label: string; amount: number }[] = [];
+  let otherAdjustments = 0;
+  if (deductionsY !== undefined && taxesY !== undefined) {
+    for (const r of rows) {
+      if (r.y >= deductionsY || r.y <= taxesY) continue; // outside the Deductions table's own row range
+      const label = r.cols[0] || "";
+      if (!label || /^Deduction$/i.test(label)) continue; // the table's own column-header row
+      if (KNOWN_DEDUCTION_LABELS.some((re) => re.test(label))) continue;
+      if (WASH_IMPUTED_INCOME_LABELS.some((re) => re.test(label))) continue;
+      const amount = toNum(r.cols[2]);
+      if (Math.abs(amount) < 0.005) continue;
+      otherAdjustments += amount;
+      otherAdjustmentsDetail.push({ label, amount });
+    }
+  }
 
   // ── Taxes (Current is column index 1) ─────────────────────────────────────
   const federal = rowValue(rows, /^Federal Income Tax$/i, 1);
@@ -243,7 +284,7 @@ function parsePageFields(rows: Row[], pageText: string): PageFields {
     periodStart, periodEnd, payDate, netPay,
     base, telephone, medical, k401, k401Emplr, espp,
     federal, ssn, medicare, stateWH, stateSDI, totalTax,
-    fitTaxableWages,
+    fitTaxableWages, otherAdjustments, otherAdjustmentsDetail,
     distribution, warnings,
   };
 }
@@ -302,21 +343,21 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   const federal = sum((p) => p.federal), ssn = sum((p) => p.ssn), medicare = sum((p) => p.medicare);
   const stateWH = sum((p) => p.stateWH), stateSDI = sum((p) => p.stateSDI);
   const fitTaxableWages = sum((p) => p.fitTaxableWages);
-  // Self-check, not a hard failure: this parser only itemizes a fixed set of rows (Salary,
-  // Wireless Device, Medical/Dental/Vision/Legal Plan, 401(k), ESPP, the standard taxes) --
-  // nothing stops NVIDIA's payroll system from printing a line this list doesn't cover (confirmed
-  // live: a "RSU Excess Tax" credit -- a refund of previously over-withheld RSU tax -- silently
-  // made a downstream screen understate Net Take-Home by exactly that amount, since nothing here
-  // ever flagged that the itemized fields didn't add up to the PDF's own printed Net Pay). Net Pay
-  // itself is still trusted as parsed either way (it's its own independent row, unaffected by
-  // this), but the user gets a heads-up to check the PDF for an uncaptured line instead of the
-  // gap only surfacing later as a silently-wrong number somewhere downstream.
-  const itemizedNet = base + telephone - medical - k401 - espp - federal - ssn - medicare - stateWH - stateSDI;
+  const otherAdjustments = sum((p) => p.otherAdjustments);
+  const otherAdjustmentsDetail = summedPages.flatMap((p) => p.otherAdjustmentsDetail);
+  // Self-check, not a hard failure: even with the generic "Other Deductions table rows this
+  // parser doesn't already have a bucket for" scan above, nothing guarantees every possible
+  // paystub quirk lands inside that one table -- an unusual EARNINGS-side line, or a template
+  // this parser doesn't recognize at all, wouldn't be caught by it. If the itemized total
+  // (now including otherAdjustments) still doesn't reconcile to the PDF's own printed Net Pay,
+  // that's still worth a heads-up. Net Pay itself is always trusted as parsed either way (it's
+  // its own independent row, unaffected by this).
+  const itemizedNet = base + telephone - medical - k401 - espp - federal - ssn - medicare - stateWH - stateSDI - otherAdjustments;
   const unexplainedGap = netPay - itemizedNet;
   if (Math.abs(unexplainedGap) > 0.5) {
     warnings.push(
       `Net Pay ($${netPay.toFixed(2)}) doesn't match Gross minus the itemized deductions above ($${itemizedNet.toFixed(2)}, a $${unexplainedGap.toFixed(2)} gap) — ` +
-      `this paystub likely has a line item this parser doesn't itemize (e.g. a tax credit/adjustment). Net Pay itself is still used as printed; double-check the PDF for an unlisted line.`
+      `this paystub likely has a line item this parser doesn't recognize at all. Net Pay itself is still used as printed; double-check the PDF for an unlisted line.`
     );
   }
   const distribution = summedPages.flatMap((p) => p.distribution);
@@ -334,7 +375,7 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
     k401, k401Emplr: sum((p) => p.k401Emplr), espp,
     federal, ssn, medicare,
     stateWH, stateSDI, totalTax: sum((p) => p.totalTax),
-    fitTaxableWages,
+    fitTaxableWages, otherAdjustments, otherAdjustmentsDetail,
     distribution,
     rawText, pageCount: summedPages.length, warnings,
   };

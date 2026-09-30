@@ -975,6 +975,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         totalTax: (prior?.totalTax ?? 0) + parsed.totalTax,
         net: (prior?.net ?? 0) + parsed.netPay,
         fitTaxableWages: (prior?.fitTaxableWages ?? 0) + parsed.fitTaxableWages,
+        otherAdjustments: (prior?.otherAdjustments ?? 0) + parsed.otherAdjustments,
         estimated: false as const,
       };
       const updatedYears = payroll!.years.map((y) => {
@@ -1706,6 +1707,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 <ul style={{ fontSize: 12, color: "#b45309", margin: "0.4rem 0", paddingLeft: "1.2rem" }}>
                   {parsed.warnings.map((w, i) => <li key={i}>{w}</li>)}
                 </ul>
+              )}
+              {parsed.otherAdjustmentsDetail.length > 0 && (
+                <p style={{ fontSize: 12, opacity: 0.75, margin: "0.4rem 0" }}>
+                  Deductions-table line(s) not tracked under their own category — folded into Other Adjustments:{" "}
+                  {parsed.otherAdjustmentsDetail.map((d) => `${d.label} ${fmt(d.amount)}`).join(", ")}
+                </p>
               )}
               <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
                 <button className="equity-refresh" onClick={savePaystubReview} disabled={savingPaystub}>
@@ -2745,6 +2752,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           // real paystub has a line item this app doesn't have its own bucket for (confirmed
           // live: an NVIDIA "RSU Excess Tax" credit line made Net Take-Home read $603.84 low).
           net?: number;
+          // Real, labeled leftover from a real uploaded paystub's own Deductions table (e.g.
+          // "RSU Excess Tax") -- see lib/vault-types.ts's ManualPayrollPeriod.otherAdjustments.
+          // When present, preferred over deriving the same gap generically from net vs. the
+          // itemized remainder below, since this one carries where it actually came from.
+          otherAdjustments?: number;
         } | null = null;
 
         if (viewPeriod.type === "ytd") {
@@ -2813,6 +2825,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               // period's "net" is itself just a same-formula estimate, not an independent PDF
               // figure, so it carries no extra information the remainder calc below doesn't.
               net: m.estimated ? undefined : m.net,
+              otherAdjustments: m.estimated ? undefined : m.otherAdjustments,
             };
           }
         }
@@ -2845,7 +2858,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           period.gross - period.federal - period.ssn - period.medicare - period.stateWH - period.stateSDI - period.k401 - period.medical - period.espp - (period.refund || 0)
         );
         const netTakeHome = period.net ?? remainderNet;
-        const unaccounted = period.net != null ? period.net - remainderNet : 0;
+        // Prefer the real, labeled figure (period.otherAdjustments, a real Deductions-table row
+        // this app has no bucket for -- e.g. "RSU Excess Tax") over re-deriving the same gap
+        // generically from net vs. the itemized remainder. Sign-flipped: otherAdjustments uses
+        // the same convention as every other deduction field (negative = a credit/addback), the
+        // opposite of `unaccounted`'s "positive = adds to take-home" convention below.
+        const unaccounted =
+          period.otherAdjustments != null
+            ? -period.otherAdjustments
+            : period.net != null
+              ? period.net - remainderNet
+              : 0;
+        const unaccountedIsKnown = period.otherAdjustments != null;
         const grid: { label: string; value: number; kind: "in" | "out" }[] = period.isVest
           ? [
               { label: "Net Take-Home", value: netTakeHome, kind: "in" },
@@ -2877,7 +2901,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               // shown explicitly rather than silently folded into (or dropped from) Net Take-Home.
               ...(Math.abs(unaccounted) > 0.01
                 ? [{
-                    label: unaccounted > 0 ? "Other (not itemized)" : "Other deduction (not itemized)",
+                    label: unaccountedIsKnown
+                      ? "Other Adjustments"
+                      : unaccounted > 0
+                        ? "Other (not itemized)"
+                        : "Other deduction (not itemized)",
                     value: Math.abs(unaccounted),
                     kind: unaccounted > 0 ? ("in" as const) : ("out" as const),
                   }]
