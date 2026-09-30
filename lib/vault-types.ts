@@ -172,6 +172,13 @@ export type ManualPayrollPeriod = {
   totalTax: number;
   net: number;
   estimated: boolean;   // true until the user edits it with real paystub numbers
+  // "FIT Taxable Wages" straight off an uploaded paystub PDF's own Pay Summary table -- a truer
+  // Box 1 (W-2 "Wages, tips, other comp") figure than Gross, since it already excludes 401(k)
+  // and Section 125 (medical/dental/vision) but still includes imputed-income lines this app
+  // doesn't separately itemize (e.g. group-term-life over $50k). Undefined for Excel-imported or
+  // pre-this-feature periods, which have no such figure to draw from -- see W2Preview's own
+  // fallback formula for those. See lib/parse-paystub-pdf.ts's ParsedPaystub.fitTaxableWages.
+  fitTaxableWages?: number;
 };
 
 // Real tax withheld on a specific RSU vesting event, entered from the actual "stock-only"

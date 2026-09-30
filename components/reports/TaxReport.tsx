@@ -557,6 +557,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   const [periodVestModal, setPeriodVestModal] = useState<{ label: string; items: { grant: RsuGrant; vest: RsuVest }[] } | null>(null);
   const [showEsppModal, setShowEsppModal] = useState(false);
   const [periodEsppModal, setPeriodEsppModal] = useState<{ label: string; items: EsppPurchase[] } | null>(null);
+  // W2 Preview -- opened from a button in the existing toolbar, not a new page row/section (see
+  // W2Preview below for the actual box computations).
+  const [showW2Preview, setShowW2Preview] = useState(false);
   const [voucherModalTx, setVoucherModalTx] = useState<Tx | null>(null);
   const [editingTarget, setEditingTarget] = useState<{ id: string | null; periodIndex?: number; label: string } | null>(null);
   const [manualForm, setManualForm] = useState(BLANK_MANUAL_FORM);
@@ -971,6 +974,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         stateSDI: (prior?.stateSDI ?? 0) + parsed.stateSDI,
         totalTax: (prior?.totalTax ?? 0) + parsed.totalTax,
         net: (prior?.net ?? 0) + parsed.netPay,
+        fitTaxableWages: (prior?.fitTaxableWages ?? 0) + parsed.fitTaxableWages,
         estimated: false as const,
       };
       const updatedYears = payroll!.years.map((y) => {
@@ -1292,6 +1296,32 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   const totalTelephoneYtd = overriddenTotal(telRow, "telephone") + manualTelephone;
   const effectiveRate = totalGross > 0 ? (totalTaxAll / totalGross) * 100 : 0;
 
+  // W2 Preview box computations -- see lib/vault-types.ts's ManualPayrollPeriod.fitTaxableWages
+  // and lib/parse-paystub-pdf.ts for where the real per-period figure comes from. Not reusing
+  // `taxableWages` a bit below (the existing Federal tax ESTIMATE's own Gross-minus-401k
+  // approximation) on purpose -- this is meant to be the more accurate figure where a real
+  // uploaded paystub's own printed "FIT Taxable Wages" is available, not the same estimate
+  // duplicated under a new name.
+  function periodFitTaxableWages(i: number): number {
+    const ov = overrideByIndex.get(i);
+    if (ov) return ov.fitTaxableWages ?? Math.max(0, ov.base + ov.telephone - ov.k401 - ov.medical);
+    return Math.max(0, at(baseRow, i) + at(telRow, i) - at(k401, i) - at(medicalRow, i));
+  }
+  // RSU vest value is fully federally-taxable wages (no 401k/Section 125 reduction applies to
+  // equity comp), so it's added on top rather than run through the same pretax-subtracting
+  // formula the regular pay-period component uses.
+  const w2Box1Wages =
+    Array.from({ length: yr.periodLabels.length }, (_, i) => periodFitTaxableWages(i)).reduce((s, v) => s + v, 0) +
+    voucherPeriods.reduce((s, m) => s + (m.fitTaxableWages ?? Math.max(0, m.base + m.telephone - m.k401 - m.medical)), 0) +
+    vestGrossTotal;
+  // 401(k) is pretax for federal income tax (already excluded from Box1 above) but NOT for
+  // Social Security/Medicare -- added back for Box 3/5. Box 3 technically caps at the annual SS
+  // wage base (this doesn't model that cap); Box 5 has no cap so it's not an issue there. Box 16
+  // (state wages) approximated as equal to Box 1 -- most states follow the same federal pretax
+  // treatment for 401(k)/Section 125, though not universally.
+  const w2Box3SsWages = w2Box1Wages + totalK401;
+  const w2Box5MedicareWages = w2Box1Wages + totalK401;
+
   // ESPP purchases come from Reports > Equity the same way RSU vests do.
   const yearEspp = (equity?.esppPurchases ?? [])
     .filter((e) => e.purchaseDate.startsWith(yr.year))
@@ -1545,6 +1575,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 📄 Documents
               </button>
             )}
+            <button className="equity-refresh" onClick={() => setShowW2Preview(true)} title={`Estimated W-2 box breakdown for ${yr.year}`}>
+              🧾 W2 Preview
+            </button>
             <ExportButton
               onExport={async () => {
                 const header = ["Period", "Gross", "Federal", "SSN", "Medicare", "State W/H", "State SDI", "Total Tax", "Net"];
@@ -2558,6 +2591,38 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           )}
           <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => setShowRsuModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {showW2Preview && (
+        <Modal title={`W2 Preview — ${yr.year}`} onClose={() => setShowW2Preview(false)} wide>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
+            Estimated from your paystub data, not your real W-2 — a reconciliation aid, not a substitute. Boxes 3/5/16
+            are approximated (401(k) added back for SS/Medicare, state wages assumed to equal Box 1); items this app
+            doesn't itemize on its own (e.g. group-term-life imputed income over $50k) may still cause a small
+            difference from the real form.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "0.75rem 1.25rem" }}>
+            {[
+              ["Box 1 — Wages, tips, other comp", w2Box1Wages],
+              ["Box 2 — Federal income tax withheld", totalFederal],
+              ["Box 3 — Social security wages", w2Box3SsWages],
+              ["Box 4 — Social security tax withheld", totalSsn],
+              ["Box 5 — Medicare wages and tips", w2Box5MedicareWages],
+              ["Box 6 — Medicare tax withheld", totalMedicare],
+              ["Box 12D — 401(k) elective deferrals", totalK401],
+              ["Box 16 — State wages, tips, etc.", w2Box1Wages],
+              ["Box 17 — State income tax withheld", totalStateWH],
+            ].map(([label, val]) => (
+              <div key={label as string}>
+                <div style={{ fontSize: 11, opacity: 0.7 }}>{label}</div>
+                <strong className="equity-amt">{fmt(val as number)}</strong>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setShowW2Preview(false)}>Close</button>
           </div>
         </Modal>
       )}

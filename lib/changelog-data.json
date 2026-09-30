@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-30",
+    "summary": "De-duplicate tab bar markup; add paystub reconciliation self-check"
+  },
+  {
+    "date": "2026-09-30",
     "summary": "Add editable posting date to Pending tab rows, auto-switching House Hold Exps month"
   },
   {

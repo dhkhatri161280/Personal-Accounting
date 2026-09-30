@@ -46,6 +46,10 @@ export interface ParsedPaystub {
   stateWH: number; // "<State> State Income Tax" -- state name varies by residency
   stateSDI: number; // "<State> Voluntary Plan EE" / SDI -- varies by residency, may not exist
   totalTax: number;
+  // "FIT Taxable Wages" off the Pay Summary table -- a truer W-2 Box 1 figure than Gross (base +
+  // telephone), since it excludes 401(k)/Section 125 the way Gross doesn't. See W2Preview in
+  // components/reports/TaxReport.tsx.
+  fitTaxableWages: number;
   distribution: ParsedPaystubDistribution[];
   rawText: string;
   pageCount: number; // how many pages looked like a real Pay Statement page (>1 means summed)
@@ -132,6 +136,7 @@ type PageFields = {
   periodStart: string; periodEnd: string; payDate: string; netPay: number;
   base: number; telephone: number; medical: number; k401: number; k401Emplr: number; espp: number;
   federal: number; ssn: number; medicare: number; stateWH: number; stateSDI: number; totalTax: number;
+  fitTaxableWages: number;
   distribution: ParsedPaystubDistribution[];
   warnings: string[];
 };
@@ -200,6 +205,22 @@ function parsePageFields(rows: Row[], pageText: string): PageFields {
 
   const totalTax = federal + ssn + medicare + stateWH + stateSDI;
 
+  // ── FIT Taxable Wages (Pay Summary table) ─────────────────────────────────
+  // "Pay Summary" is laid out with "Current"/"YTD" as the ROW labels (unlike every other table
+  // on this page, which labels rows by deduction/earning/tax name) and Gross/FIT Taxable Wages/
+  // Taxes/Deductions/Net Pay as the columns -- "Current $10,240.68 $9,242.85 $2,062.48 $1,972.00
+  // $6,206.20" on a real paystub, so column index 2 is FIT Taxable Wages. A truer Box 1 (W-2
+  // "Wages, tips, other comp") figure than Gross: already excludes 401(k) and Section 125
+  // (medical/dental/vision), which Gross doesn't. Falls back to an approximation (Gross minus
+  // this parser's own 401k/medical buckets) when the row can't be found at all -- an older or
+  // differently-templated paystub might not have this exact table -- so W2Preview always has
+  // SOME figure to show rather than silently treating it as $0.
+  const fitTaxableWagesRow = rowExists(rows, /^Current$/i) ? rowValue(rows, /^Current$/i, 2) : null;
+  const fitTaxableWages = fitTaxableWagesRow ?? Math.max(0, base + telephone - k401 - medical);
+  if (fitTaxableWagesRow === null) {
+    warnings.push("Could not find the Pay Summary's FIT Taxable Wages figure — estimated it instead (Gross minus 401(k)/medical); check the W2 Preview against your real paystub.");
+  }
+
   // ── Net Pay Distribution (one or more bank accounts) ──────────────────────
   // This table can share a row with an unrelated left-side "Paid Time Off" table at the same Y
   // position -- search within each row's text for the masked-account pattern rather than
@@ -222,6 +243,7 @@ function parsePageFields(rows: Row[], pageText: string): PageFields {
     periodStart, periodEnd, payDate, netPay,
     base, telephone, medical, k401, k401Emplr, espp,
     federal, ssn, medicare, stateWH, stateSDI, totalTax,
+    fitTaxableWages,
     distribution, warnings,
   };
 }
@@ -279,6 +301,7 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   const k401 = sum((p) => p.k401), espp = sum((p) => p.espp);
   const federal = sum((p) => p.federal), ssn = sum((p) => p.ssn), medicare = sum((p) => p.medicare);
   const stateWH = sum((p) => p.stateWH), stateSDI = sum((p) => p.stateSDI);
+  const fitTaxableWages = sum((p) => p.fitTaxableWages);
   // Self-check, not a hard failure: this parser only itemizes a fixed set of rows (Salary,
   // Wireless Device, Medical/Dental/Vision/Legal Plan, 401(k), ESPP, the standard taxes) --
   // nothing stops NVIDIA's payroll system from printing a line this list doesn't cover (confirmed
@@ -311,6 +334,7 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
     k401, k401Emplr: sum((p) => p.k401Emplr), espp,
     federal, ssn, medicare,
     stateWH, stateSDI, totalTax: sum((p) => p.totalTax),
+    fitTaxableWages,
     distribution,
     rawText, pageCount: summedPages.length, warnings,
   };
