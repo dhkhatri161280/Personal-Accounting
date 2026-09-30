@@ -35,8 +35,11 @@ export function FloatingWindow({
   initialHeight?: number;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [rect, setRect] = useState<Rect | null>(null);
   const dragRef = useRef<{ corner: Corner; startX: number; startY: number; rect: Rect } | null>(null);
+  const userResizedRef = useRef(false);
 
   useEffect(() => {
     const vw = window.innerWidth,
@@ -47,6 +50,27 @@ export function FloatingWindow({
     const height = Math.min(initialHeight ?? naturalHeight, vh * 0.9);
     setRect({ top: Math.max(12, (vh - height) / 2), left: Math.max(12, (vw - width) / 2), width, height });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Grows the panel (e.g. when a <details> section inside expands) instead of letting the extra
+  // content scroll inside a fixed-height box the user can't see all of at once. Only grows, never
+  // shrinks back (collapsing a <details> shouldn't yank the window smaller under the user), and
+  // never fights a resize the user did by hand via the corner handles.
+  useEffect(() => {
+    if (!contentRef.current) return;
+    const observer = new ResizeObserver(() => {
+      if (userResizedRef.current) return;
+      setRect((prev) => {
+        if (!prev || !contentRef.current || !headRef.current) return prev;
+        const vh = window.innerHeight;
+        const desired = Math.min(contentRef.current.offsetHeight + headRef.current.offsetHeight, vh - 24);
+        if (desired <= prev.height) return prev;
+        const top = Math.max(12, Math.min(prev.top, vh - desired - 12));
+        return { ...prev, height: desired, top };
+      });
+    });
+    observer.observe(contentRef.current);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -84,6 +108,7 @@ export function FloatingWindow({
       if (!rect) return;
       e.preventDefault();
       e.stopPropagation();
+      userResizedRef.current = true;
       dragRef.current = { corner, startX: e.clientX, startY: e.clientY, rect };
     };
   }
@@ -96,13 +121,15 @@ export function FloatingWindow({
         onClick={(e) => e.stopPropagation()}
         style={rect ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height } : { visibility: "hidden" }}
       >
-        <div className="fw-head">
+        <div className="fw-head" ref={headRef}>
           <strong>{title}</strong>
           <button className="fw-close" onClick={onClose} aria-label="Close">
             ×
           </button>
         </div>
-        <div className="fw-body">{children}</div>
+        <div className="fw-body">
+          <div ref={contentRef}>{children}</div>
+        </div>
         {CORNERS.map((c) => (
           <div key={c} className={`fw-handle fw-handle-${c}`} onPointerDown={startDrag(c)} />
         ))}
