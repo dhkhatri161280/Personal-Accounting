@@ -308,23 +308,15 @@ export function FixedAssetRegister({
             style={{ padding: "5px 7px" }}
           />
         </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}>
-          <input type="radio" checked={postMode === "periodic"} onChange={() => setPostMode("periodic")} />
-          Periodic
-        </label>
         <label
-          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}
-          title={`Posts one true-up voucher per asset, dated ${postDate}, instead of one per pending asset-month`}
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#53627a" }}
+          title="Periodic: one voucher per pending asset-month. Consolidate: one true-up voucher per asset. Spread: that same true-up total split evenly across several consecutive month-end vouchers -- avoids a large backlog swinging a single month's Income & Expenditure."
         >
-          <input type="radio" checked={postMode === "consolidated"} onChange={() => setPostMode("consolidated")} />
-          Consolidate
-        </label>
-        <label
-          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: "#53627a", whiteSpace: "nowrap" }}
-          title="Posts each asset's true-up total split evenly across several consecutive month-end vouchers, instead of one lump sum -- avoids a large backlog swinging a single month's Income & Expenditure"
-        >
-          <input type="radio" checked={postMode === "spread"} onChange={() => setPostMode("spread")} />
-          Spread over
+          <select value={postMode} onChange={(e) => setPostMode(e.target.value as typeof postMode)} style={{ padding: "5px 7px" }}>
+            <option value="periodic">Periodic</option>
+            <option value="consolidated">Consolidate</option>
+            <option value="spread">Spread over…</option>
+          </select>
         </label>
         {postMode === "spread" && (
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#53627a" }}>

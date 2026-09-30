@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-30",
+    "summary": "Show the real paystub line name instead of generic \"Other Adjustments\""
+  },
+  {
+    "date": "2026-09-30",
     "summary": "Itemize paystub \"Other Adjustments\" generically; add depreciation spread-posting"
   },
   {
