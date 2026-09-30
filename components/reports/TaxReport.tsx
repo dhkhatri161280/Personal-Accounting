@@ -7,7 +7,8 @@ import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
 import { findPayrollVoucher, findAllPayrollVouchers, parsePeriodRange, findUncoveredSalaryVouchers, estimateManualPeriod, generateStandardPeriodLabels, normalizePayrollYear, matchPayrollPeriod, inferPeriodLabel } from "@/lib/payroll-match";
 import type { ParsedPaystub } from "@/lib/parse-paystub-pdf";
 import { StatIcon, type IconKind } from "@/components/Icon";
-import { DonutChart, type DonutSegment } from "@/components/DonutChart";
+import { DonutChart } from "@/components/DonutChart";
+import { paystubDonutSegments } from "@/lib/paystub-donut";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
@@ -88,29 +89,6 @@ function employerFromVoucher(tx: Tx): string | null {
   return m ? m[1].trim() : null;
 }
 
-// Fixed color per component (not palette-cycled) so a given slice means the same thing across
-// every paystub you open -- comparing periods side by side relies on Federal always being red,
-// Net always being green, etc. Take-home is computed as the REMAINDER (gross minus every other
-// slice), not read from a separately-stored "net" figure -- this app has more than one "Net"
-// concept on a paystub (e.g. "Net Salary" is gross minus tax only, before 401K/medical/ESPP;
-// "After Tax Salary" is the true final take-home), and picking the wrong one silently produces
-// slices that don't sum to gross. Computing the remainder guarantees they always do.
-function paystubDonutSegments({
-  gross, federal, ssn, medicare, state, k401, medical, espp,
-}: {
-  gross: number; federal: number; ssn: number; medicare: number; state: number; k401: number; medical: number; espp: number;
-}): DonutSegment[] {
-  const otherSlices = Math.max(0, federal) + Math.max(0, ssn) + Math.max(0, medicare) + Math.max(0, state) + Math.max(0, k401) + Math.max(0, medical) + Math.max(0, espp);
-  return [
-    { label: "Net Take-Home", value: Math.max(0, gross - otherSlices), color: "#16a34a" },
-    { label: "Federal Tax", value: Math.max(0, federal), color: "#dc2626" },
-    { label: "SSN + Medicare", value: Math.max(0, ssn + medicare), color: "#d97706" },
-    { label: "State Tax", value: Math.max(0, state), color: "#7c3aed" },
-    { label: "401K", value: Math.max(0, k401), color: "#0891b2" },
-    { label: "Medical", value: Math.max(0, medical), color: "#0d9488" },
-    { label: "ESPP", value: Math.max(0, espp), color: "#db2777" },
-  ];
-}
 
 // Display-only: "Jan 01 Jan 15" -> "Jan 15" to save space in the Pay Periods table. The full
 // label is still what's stored/matched against everywhere else -- only this rendering uses
@@ -2693,6 +2671,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           isEditing: boolean; onEdit: (() => void) | null; estimated?: boolean;
           isVest?: boolean; shares?: number; onViewShares?: () => void;
           employer?: string; refund?: number;
+          // The actual parsed/stored Net Pay for a real uploaded paystub (m.net) -- present ONLY
+          // for a manually-uploaded-PDF period, where it's independently parsed straight off the
+          // PDF's own "Net Pay" line (lib/parse-paystub-pdf.ts) and is authoritative. Excel-row/
+          // YTD/vest periods have no such figure (their source data only ever had the itemized
+          // categories below, nothing hidden), so they're left as-is. See its use below: this
+          // lets the popup show the TRUE net instead of silently under/over-stating it whenever a
+          // real paystub has a line item this app doesn't have its own bucket for (confirmed
+          // live: an NVIDIA "RSU Excess Tax" credit line made Net Take-Home read $603.84 low).
+          net?: number;
         } | null = null;
 
         if (viewPeriod.type === "ytd") {
@@ -2757,6 +2744,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               isEditing: editingTarget?.id === m.id,
               onEdit: readOnly ? null : () => startEditExisting(m),
               estimated: m.estimated,
+              // Only trust it as authoritative for a REAL uploaded paystub -- an estimated
+              // period's "net" is itself just a same-formula estimate, not an independent PDF
+              // figure, so it carries no extra information the remainder calc below doesn't.
+              net: m.estimated ? undefined : m.net,
             };
           }
         }
@@ -2772,13 +2763,24 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         // Green = added to you (earned pay, employer-paid benefits); red = comes out of your
         // paycheck (taxes, your own contributions/premiums) -- same "money in / money out"
         // convention as the donut's Net Take-Home (green) vs. tax/deduction slices (red/warm).
-        // Net Take-Home is computed the same way for every period type -- gross minus every
-        // other line below -- rather than trusting a separately-stored figure, so it can never
-        // silently be missing (a vest event never had one at all) or drift from what's shown.
-        const netTakeHome = Math.max(
+        // Net Take-Home used to ALWAYS be gross minus every itemized line below, on the theory
+        // that trusting a remainder can never drift from what's shown. That's backwards when the
+        // itemized categories aren't actually exhaustive: a real NVIDIA paystub can carry a line
+        // this app has no bucket for at all (confirmed live: an "RSU Excess Tax" credit of
+        // -$603.84, a refund of previously over-withheld RSU tax) -- the remainder silently
+        // dropped it, understating Net Take-Home by exactly that amount versus the PDF's own
+        // printed Net Pay. Now: when a real parsed net figure exists (period.net, an uploaded
+        // PDF's own independently-parsed "Net Pay" line -- see lib/parse-paystub-pdf.ts), THAT is
+        // authoritative and any gap between it and the itemized remainder is surfaced as its own
+        // "Other" line instead of silently vanishing into (or out of) Net Take-Home. Falls back to
+        // the old remainder-only behavior when there's no such figure (Excel-row/YTD/vest periods
+        // -- their source data only ever had these itemized categories, nothing hidden).
+        const remainderNet = Math.max(
           0,
           period.gross - period.federal - period.ssn - period.medicare - period.stateWH - period.stateSDI - period.k401 - period.medical - period.espp - (period.refund || 0)
         );
+        const netTakeHome = period.net ?? remainderNet;
+        const unaccounted = period.net != null ? period.net - remainderNet : 0;
         const grid: { label: string; value: number; kind: "in" | "out" }[] = period.isVest
           ? [
               { label: "Net Take-Home", value: netTakeHome, kind: "in" },
@@ -2806,6 +2808,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               // Only shown when non-zero -- specific to a "no active project" bench refund
               // arrangement at one old employer, absent for everyone else.
               ...(period.refund ? [{ label: "Refund to Employer", value: period.refund, kind: "out" as const }] : []),
+              // A real paystub line this app doesn't itemize (e.g. an RSU tax true-up credit) --
+              // shown explicitly rather than silently folded into (or dropped from) Net Take-Home.
+              ...(Math.abs(unaccounted) > 0.01
+                ? [{
+                    label: unaccounted > 0 ? "Other (not itemized)" : "Other deduction (not itemized)",
+                    value: Math.abs(unaccounted),
+                    kind: unaccounted > 0 ? ("in" as const) : ("out" as const),
+                  }]
+                : []),
             ];
 
         return (
@@ -2842,6 +2853,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                       segments={paystubDonutSegments({
                         gross: period.gross, federal: period.federal, ssn: period.ssn, medicare: period.medicare,
                         state: period.stateWH + period.stateSDI, k401: period.k401, medical: period.medical, espp: period.espp,
+                        net: period.net,
                       })}
                       size={170}
                       thickness={24}

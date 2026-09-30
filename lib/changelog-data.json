@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-29",
+    "summary": "Fix the real reason Trading's table still couldn't scroll: overflow:hidden"
+  },
+  {
+    "date": "2026-09-29",
     "summary": "Fix wide-table horizontal scroll broken across ~10 reports, all devices"
   },
   {
