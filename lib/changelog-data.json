@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-09-30",
+    "summary": "Fix paystub Net Take-Home silently dropping unitemized PDF lines"
+  },
+  {
     "date": "2026-09-29",
     "summary": "Fix the real reason Trading's table still couldn't scroll: overflow:hidden"
   },

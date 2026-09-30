@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlaidLink, type PlaidLinkOnSuccess, type PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import type { Ledger, Tx, Account } from "@/lib/vault-types";
-import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
+import { nextVoucherNumber, nextTransactionIds, currentMonthSiblingAccount } from "@/lib/vault-accounting";
 import { apiFetch } from "@/lib/api-fetch";
 import { matchPayrollPeriod, rowValue } from "@/lib/payroll-match";
 import {
@@ -108,6 +108,13 @@ interface ImportRow {
   // an imbalanced voucher must never be postable no matter what. Holds the exact difference so the
   // banner can show it.
   imbalanceCents?: number;
+  // User-overridden posting date for a Pending-tab row -- Plaid's own reported date (a pending
+  // charge's authorization date) is often earlier than when it'll actually settle on the
+  // statement, and the user may know that settlement date ahead of time. Only ever set by the
+  // Pending tab's own date input; when unset, saving still falls back to plaidTx.date exactly as
+  // before. Kept separate from plaidTx.date itself (never mutated) since that field is also used
+  // for duplicate-detection/matching against Plaid's own data.
+  effectiveDate?: string;
 }
 
 interface ConfirmedMatch {
@@ -2013,7 +2020,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         guid: crypto.randomUUID(),
         syncStatus: "bank-pending" as const,
         createdAt: importedAt,
-        date: r.plaidTx.date,
+        date: r.effectiveDate ?? r.plaidTx.date,
         number: "",
         type: r.voucherType,
         narration: r.narration,
@@ -2841,7 +2848,27 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       title={row.alreadyImported ? "Already saved" : "Skip"}
                     />
                     <div className="plaid-tx-info">
-                      <span className="plaid-tx-date">{fmtDate(row.plaidTx.date)}</span>
+                      {row.alreadyImported ? (
+                        <span className="plaid-tx-date">{fmtDate(row.plaidTx.date)}</span>
+                      ) : (
+                        <input
+                          type="date"
+                          className="plaid-tx-date-input"
+                          value={row.effectiveDate ?? row.plaidTx.date}
+                          title="Expected posting date — defaults to Plaid's authorization date; edit if you know the real settlement date. The debit account auto-switches to that month's House Hold Exps sibling."
+                          onChange={(e) => {
+                            const newDate = e.target.value;
+                            if (!newDate) return;
+                            const resolvedEntries = row.entries.map((entry) => {
+                              const acc = data.accounts.find((a) => a.id === entry.accountId);
+                              if (!acc) return entry;
+                              const sibling = currentMonthSiblingAccount(acc, data.accounts, newDate);
+                              return sibling.id === acc.id ? entry : { ...entry, accountId: sibling.id, accountName: sibling.name };
+                            });
+                            updatePendingRow(idx, { effectiveDate: newDate, entries: resolvedEntries });
+                          }}
+                        />
+                      )}
                       <span className="plaid-tx-name">
                         <span className="plaid-pending-badge-sm">PND</span>
                         {row.plaidTx.name}

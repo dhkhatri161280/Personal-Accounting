@@ -8173,6 +8173,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-row-unmatched { border-left: 3px solid #f97316; }
 .plaid-tx-info { display: grid; grid-template-columns: 90px 1fr 80px 100px; gap: 6px; align-items: center; font-size: var(--fs-md); }
 .plaid-tx-date { color: #6b7fa0; font-weight: 700; }
+.plaid-tx-date-input {
+  color: #6b7fa0;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 3px;
+  width: 100%;
+  min-width: 0;
+}
 .plaid-tx-name { font-weight: 800; color: #1e2d40; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plaid-tx-amt { font-weight: 900; text-align: right; }
 .plaid-tx-amt.credit { color: #16a34a; }
