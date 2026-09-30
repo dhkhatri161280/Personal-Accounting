@@ -275,6 +275,27 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
 
   const sum = (f: (p: PageFields) => number) => summedPages.reduce((s, p) => s + f(p), 0);
   const netPay = sum((p) => p.netPay);
+  const base = sum((p) => p.base), telephone = sum((p) => p.telephone), medical = sum((p) => p.medical);
+  const k401 = sum((p) => p.k401), espp = sum((p) => p.espp);
+  const federal = sum((p) => p.federal), ssn = sum((p) => p.ssn), medicare = sum((p) => p.medicare);
+  const stateWH = sum((p) => p.stateWH), stateSDI = sum((p) => p.stateSDI);
+  // Self-check, not a hard failure: this parser only itemizes a fixed set of rows (Salary,
+  // Wireless Device, Medical/Dental/Vision/Legal Plan, 401(k), ESPP, the standard taxes) --
+  // nothing stops NVIDIA's payroll system from printing a line this list doesn't cover (confirmed
+  // live: a "RSU Excess Tax" credit -- a refund of previously over-withheld RSU tax -- silently
+  // made a downstream screen understate Net Take-Home by exactly that amount, since nothing here
+  // ever flagged that the itemized fields didn't add up to the PDF's own printed Net Pay). Net Pay
+  // itself is still trusted as parsed either way (it's its own independent row, unaffected by
+  // this), but the user gets a heads-up to check the PDF for an uncaptured line instead of the
+  // gap only surfacing later as a silently-wrong number somewhere downstream.
+  const itemizedNet = base + telephone - medical - k401 - espp - federal - ssn - medicare - stateWH - stateSDI;
+  const unexplainedGap = netPay - itemizedNet;
+  if (Math.abs(unexplainedGap) > 0.5) {
+    warnings.push(
+      `Net Pay ($${netPay.toFixed(2)}) doesn't match Gross minus the itemized deductions above ($${itemizedNet.toFixed(2)}, a $${unexplainedGap.toFixed(2)} gap) — ` +
+      `this paystub likely has a line item this parser doesn't itemize (e.g. a tax credit/adjustment). Net Pay itself is still used as printed; double-check the PDF for an unlisted line.`
+    );
+  }
   const distribution = summedPages.flatMap((p) => p.distribution);
   // Checked once at the aggregate level, not per page -- a $0-net-pay "stock only" vesting page
   // (taxes withheld entirely via shares) legitimately has no distribution row, which isn't worth
@@ -286,10 +307,10 @@ export async function parsePaystubPdf(file: File): Promise<ParsedPaystub> {
   return {
     periodStart: first.periodStart, periodEnd: first.periodEnd, payDate: first.payDate,
     netPay,
-    base: sum((p) => p.base), telephone: sum((p) => p.telephone), medical: sum((p) => p.medical),
-    k401: sum((p) => p.k401), k401Emplr: sum((p) => p.k401Emplr), espp: sum((p) => p.espp),
-    federal: sum((p) => p.federal), ssn: sum((p) => p.ssn), medicare: sum((p) => p.medicare),
-    stateWH: sum((p) => p.stateWH), stateSDI: sum((p) => p.stateSDI), totalTax: sum((p) => p.totalTax),
+    base, telephone, medical,
+    k401, k401Emplr: sum((p) => p.k401Emplr), espp,
+    federal, ssn, medicare,
+    stateWH, stateSDI, totalTax: sum((p) => p.totalTax),
     distribution,
     rawText, pageCount: summedPages.length, warnings,
   };

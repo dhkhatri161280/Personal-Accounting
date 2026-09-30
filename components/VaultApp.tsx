@@ -10,6 +10,7 @@ import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
 import { BuildStamp } from "@/components/BuildStamp";
 import { CountryFlag } from "@/components/CountryFlag";
+import { TabBarButton } from "@/components/TabBarButton";
 import { PWAInstallButtons } from "@/components/PWARegister";
 import { TransactionTable } from "@/components/TransactionTable";
 import { MastersPanel, type MasterGroup } from "@/components/MastersPanel";
@@ -3133,49 +3134,29 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </FloatingWindow>
       )}
       <div className="header-tab-bar">
-        <button
-          className={tab === "dashboard" ? "selected" : ""}
-          onClick={() => setTab("dashboard")}
-          title="Dashboard"
-        >
-          <span className="header-tab-bar-icon" aria-hidden="true">⌂</span>
-          <span>Dashboard</span>
-        </button>
-        <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
-          <span className="header-tab-bar-icon" aria-hidden="true">📖</span>
-          <span>Day Book</span>
-        </button>
-        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
-          <span className="header-tab-bar-icon" aria-hidden="true">📊</span>
-          <span>Reports</span>
-        </button>
-        <button
-          className={tab === "masters" ? "selected" : ""}
+        <TabBarButton icon="⌂" label="Dashboard" selected={tab === "dashboard"} onClick={() => setTab("dashboard")} />
+        <TabBarButton icon="📖" label="Day Book" selected={tab === "daybook"} onClick={() => setTab("daybook")} />
+        <TabBarButton icon="📊" label="Reports" selected={tab === "reports"} onClick={() => setTab("reports")} />
+        <TabBarButton
+          icon="🗄"
+          label="Masters"
+          selected={tab === "masters"}
           onClick={() => {
             setMastersSection("ledgers");
             setTab("masters");
           }}
-          title="Masters"
-        >
-          <span className="header-tab-bar-icon" aria-hidden="true">🗄</span>
-          <span>Masters</span>
-        </button>
-        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
-          <span className="header-tab-bar-icon" aria-hidden="true">📚</span>
-          <span>Ledgers</span>
-        </button>
+        />
+        <TabBarButton icon="📚" label="Ledgers" selected={tab === "ledgers"} onClick={() => setTab("ledgers")} />
         {book !== "india" && (
-          <button
-            className={tab === "bank-import" ? "selected" : ""}
+          <TabBarButton
+            icon="⇩"
+            label="Import"
+            selected={tab === "bank-import"}
             onClick={() => {
               setPlaidImportTab("transactions");
               setTab("bank-import");
             }}
-            title="Import"
-          >
-            <span className="header-tab-bar-icon" aria-hidden="true">⇩</span>
-            <span>Import</span>
-          </button>
+          />
         )}
         {/* Anomalies tab hidden — ask Claude to re-enable when needed */}
       </div>

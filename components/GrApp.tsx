@@ -34,6 +34,7 @@ import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
 import { BuildStamp } from "@/components/BuildStamp";
 import { CountryFlag } from "@/components/CountryFlag";
+import { TabBarButton } from "@/components/TabBarButton";
 import { PWAInstallButtons } from "@/components/PWARegister";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
@@ -945,34 +946,19 @@ export function GrApp() {
       </header>
 
       <div className="header-tab-bar">
-        <button className={tab === "dashboard" ? "selected" : ""} onClick={() => setTab("dashboard")} title="Dashboard">
-          <span className="header-tab-bar-icon" aria-hidden="true">⌂</span>
-          <span>Dashboard</span>
-        </button>
-        <button className={tab === "daybook" ? "selected" : ""} onClick={() => setTab("daybook")} title="Day Book">
-          <span className="header-tab-bar-icon" aria-hidden="true">📖</span>
-          <span>Day Book</span>
-        </button>
-        <button className={tab === "ledgers" ? "selected" : ""} onClick={() => setTab("ledgers")} title="Ledgers">
-          <span className="header-tab-bar-icon" aria-hidden="true">📚</span>
-          <span>Ledgers</span>
-        </button>
-        <button className={tab === "reports" ? "selected" : ""} onClick={() => setTab("reports")} title="Reports">
-          <span className="header-tab-bar-icon" aria-hidden="true">📊</span>
-          <span>Reports</span>
-        </button>
-        <button className={tab === "fxrates" ? "selected" : ""} onClick={() => setTab("fxrates")} title="FX Rates">
-          <span className="header-tab-bar-icon" aria-hidden="true">⇄</span>
-          <span>FX Rates</span>
-        </button>
-        <button
-          className={`gr-edit-mode-btn ${editMode ? "selected" : ""}`}
+        <TabBarButton icon="⌂" label="Dashboard" selected={tab === "dashboard"} onClick={() => setTab("dashboard")} />
+        <TabBarButton icon="📖" label="Day Book" selected={tab === "daybook"} onClick={() => setTab("daybook")} />
+        <TabBarButton icon="📚" label="Ledgers" selected={tab === "ledgers"} onClick={() => setTab("ledgers")} />
+        <TabBarButton icon="📊" label="Reports" selected={tab === "reports"} onClick={() => setTab("reports")} />
+        <TabBarButton icon="⇄" label="FX Rates" selected={tab === "fxrates"} onClick={() => setTab("fxrates")} />
+        <TabBarButton
+          icon="✎"
+          label={editMode ? "Edit: ON" : "Edit Mode"}
+          selected={editMode}
           onClick={() => setEditMode((v) => !v)}
           title={editMode ? "Exit edit mode" : "Enter edit mode to override FX rates"}
-        >
-          <span className="header-tab-bar-icon" aria-hidden="true">✎</span>
-          <span>{editMode ? "Edit: ON" : "Edit Mode"}</span>
-        </button>
+          className="gr-edit-mode-btn"
+        />
       </div>
         <div className="workspace-content">
       {TAB_LABELS[tab] && <h2 className="workspace-page-title">{TAB_LABELS[tab]}</h2>}

@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-30",
+    "summary": "Add editable posting date to Pending tab rows, auto-switching House Hold Exps month"
+  },
+  {
+    "date": "2026-09-30",
     "summary": "Fix paystub Net Take-Home silently dropping unitemized PDF lines"
   },
   {
