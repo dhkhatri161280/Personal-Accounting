@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-09-29",
+    "summary": "Move Import tab to the end of US Books' tab bar"
+  },
+  {
+    "date": "2026-09-29",
     "summary": "Reorder Spend Report quick-range buttons: This month before Last 30 days"
   },
   {

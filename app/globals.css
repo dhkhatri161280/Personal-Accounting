@@ -1255,6 +1255,28 @@ a.action {
   overflow: auto;
   padding: 18px;
 }
+/* A report's own inner scroll wrapper (.tr-table-wrap, .columnar-report-scroll, .table-scroll --
+   every one of them already has its own overflow-x:auto for its wide table) competes with this
+   outer .data-panel's overflow:auto (needed elsewhere to clip rounded-corner children) for the
+   same touch-drag gesture on mobile: confirmed live, the swipe gets consumed by the outer
+   container (whose own horizontal scroll range is identical, since its content is exactly as
+   wide as the table inside it) instead of reaching the inner table, so nothing visibly scrolls
+   either way. Not specific to Trading -- .columnar-report-scroll alone is reused by roughly a
+   dozen other reports (Bank Recon, Budget vs Actual, Cash Flow Forecast, Financial Ratios, Fixed
+   Asset Register, Fund Summary, Loan Register, Multi-Year Trend, Prepaid Expense Register, Tax
+   Report) and .table-scroll by GR Books' own Day Book -- every one of them sits inside this same
+   .data-panel wrapper and hits the identical bug, not just Trading.
+   Both axes have to be freed together, not just overflow-x: per the CSS Overflow spec, a browser
+   force-resolves overflow-x:visible back to auto whenever overflow-y computes to auto on the same
+   element (mixing visible with a scrolling axis is disallowed) -- confirmed live, an
+   overflow-x-only override here was silently no-op'd back to auto by the browser itself, not by
+   any competing CSS rule. No other .data-panel usage has this nested-wide-table shape, so losing
+   the panel's own vertical clip/scroll here is safe. */
+.data-panel:has(.tr-table-wrap),
+.data-panel:has(.columnar-report-scroll),
+.data-panel:has(.table-scroll) {
+  overflow: visible;
+}
 .data-panel h3 {
   font-size: var(--fs-xl);
   margin: 0 0 16px;
