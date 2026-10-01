@@ -1,5 +1,5 @@
 import type { Ledger } from "./vault-types";
-import { accountNature, fiscalYearOf, isProfitAndLossAccountName } from "./vault-accounting";
+import { accountNature, fiscalYearOf } from "./vault-accounting";
 import { FIXED_ASSETS_GROUP_NAME, ASSET_CLASS_SUGGESTIONS, UNCLASSIFIED_LABEL } from "./fixed-assets";
 
 // Composer, not self-contained -- imports runtime values from other lib/*.ts files
@@ -21,9 +21,6 @@ export type FundGroup = { label: string; lines: FundLine[]; total: number; pctOf
 export type FundSummaryResult = {
   periodStart: string;
   periodEnd: string; // capped at today for the current, still-open fiscal year
-  // TEMPORARY diagnostic -- debugging why Opening Capital computes to 0 for a specific book.
-  // Remove once resolved.
-  debugOpeningCapital: { isFirstTrackedYear: boolean; earliest: number | null; periodStartFy: number; capitalAccountNames: string[] };
   incoming: FundGroup;
   // Net new borrowing -- deliberately NOT part of `incoming` (a loan isn't income), shown as its
   // own section between Incoming and Outgoing instead. Still folded into `liquidityBalance` below
@@ -133,6 +130,7 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   const active = data.accounts.filter((a) => a.active !== false);
   const earliest = earliestFiscalYear(data);
   const isFirstTrackedYear = earliest !== null && fiscalYearOf(periodStart) <= earliest;
+  const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(accountNature(a, groupMap)));
 
   // ── Incoming Fund ──────────────────────────────────────────────────────────────────────────
   const incomeAccounts = active.filter((a) => accountNature(a, groupMap) === "Income");
@@ -142,21 +140,27 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
     accountIds: [a.id],
   }));
   // Opening Capital: only meaningful in the book's own first tracked fiscal year -- the balance
-  // this account already held before any transaction history began. Every later year it's 0,
-  // matching the original sheet's own "Opening Capital: 0" line for an ongoing year.
+  // Bank/Cash accounts already held before any transaction history began (every later year it's
+  // 0, matching the original sheet's own "Opening Capital: 0" line for an ongoing year).
   //
-  // Excludes "Profit & Loss A/c" even though it shares the "Capital Account" group (same
-  // exclusion lib/vault-accounting.ts's buildFiscalYearCloseVoucher/isFiscalYearAlreadyClosed
-  // already use) -- it's a nominal/flow account, not a real source of funds, and its own
-  // Account.openingBalance field was confirmed (via live drill-down showing 21 years of
-  // Profit & Loss A/c <-> Capital year-end closing journals) to hold a stale migration-time
-  // balance snapshot rather than a true day-one opening figure. Including it inflated Opening
-  // Capital by ~63 lakh beyond the real ₹78,235 capital contribution.
-  const capitalAccounts = active.filter((a) => accountNature(a, groupMap) === "Capital" && !isProfitAndLossAccountName(a.name));
-  const openingCapital = isFirstTrackedYear ? capitalAccounts.reduce((s, a) => s - a.openingBalance, 0) : 0;
+  // Deliberately reads the Bank/Cash accounts' OWN Account.openingBalance sum here, not the
+  // Capital account's -- `bankCashChange` below (the real Bank+Cash cross-check this whole report
+  // validates against) is built purely from `periodNetDebit`, which only sums TRANSACTIONS and
+  // never includes any account's static opening-balance field. So whatever pre-tracking cash
+  // actually funded Bank/Cash's own starting balance is exactly the blind spot that needs to
+  // appear here to make Liquidity Balance tie out -- using the Capital account's own field
+  // instead assumes it's a mirror of that, which isn't reliable (confirmed live: one book's
+  // Capital account carried a stale, unrelated ~78k opening figure with Bank/Cash still at a
+  // real $0 start, and using it created an exact ~78k mismatch in EITHER sign direction; only
+  // reading the Bank/Cash side itself, as done here, reproduced the real cross-check exactly).
+  // Dr(-)=increase, same convention as every other asset-side balance in this app (see
+  // components/MastersPanel.tsx:619's `openingBalance: side === "Dr" ? -amount : amount`) -- a
+  // Dr opening balance on a Bank/Cash account is real cash that exists, so it needs the sign
+  // flip to read as a positive contribution to Incoming Fund.
+  const openingCapital = isFirstTrackedYear ? bankCashAccounts.reduce((s, a) => s - a.openingBalance, 0) : 0;
   const incomingRaw: RawLine[] = [
     ...incomeLines,
-    { label: "Opening Capital", amount: openingCapital, accountIds: capitalAccounts.map((a) => a.id) },
+    { label: "Opening Capital", amount: openingCapital, accountIds: bankCashAccounts.map((a) => a.id) },
   ];
   const incomingTotal = incomingRaw.reduce((s, l) => s + l.amount, 0);
   const incoming = groupOf("Incoming Fund", toLines(consolidateFamilies(incomingRaw), incomingTotal), incomingTotal);
@@ -254,18 +258,11 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   const totalOutgoing = outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total + outgoingLoans.total;
   const liquidityBalance = incomingTotal + financing.total - totalOutgoing;
 
-  const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(accountNature(a, groupMap)));
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + periodNetDebit(data, a.id, periodStart, periodEnd), 0);
 
   return {
     periodStart,
     periodEnd,
-    debugOpeningCapital: {
-      isFirstTrackedYear,
-      earliest,
-      periodStartFy: fiscalYearOf(periodStart),
-      capitalAccountNames: capitalAccounts.map((a) => `${a.name} (opening=${a.openingBalance})`),
-    },
     incoming,
     financing,
     outgoingExpenses,
