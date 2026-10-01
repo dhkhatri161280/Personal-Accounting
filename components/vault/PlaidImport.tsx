@@ -2185,7 +2185,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         guid: crypto.randomUUID(),
         syncStatus: "pending" as const,
         createdAt: importedAt,
-        date: r.plaidTx.date,
+        date: r.effectiveDate ?? r.plaidTx.date,
         number: "",
         type: r.voucherType,
         narration: r.narration,
@@ -2628,7 +2628,27 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
 
                 {/* Transaction info */}
                 <div className="plaid-tx-info">
-                  <span className="plaid-tx-date">{fmtDate(row.plaidTx.date)}</span>
+                  {row.alreadyImported ? (
+                    <span className="plaid-tx-date">{fmtDate(row.plaidTx.date)}</span>
+                  ) : (
+                    <input
+                      type="date"
+                      className="plaid-tx-date-input"
+                      value={row.effectiveDate ?? row.plaidTx.date}
+                      title="Posting date — defaults to Plaid's date; edit if the real transaction needs to post to a different month (e.g. a closed period). The debit account auto-switches to that month's House Hold Exps sibling."
+                      onChange={(e) => {
+                        const newDate = e.target.value;
+                        if (!newDate) return;
+                        const resolvedEntries = row.entries.map((entry) => {
+                          const acc = data.accounts.find((a) => a.id === entry.accountId);
+                          if (!acc) return entry;
+                          const sibling = currentMonthSiblingAccount(acc, data.accounts, newDate);
+                          return sibling.id === acc.id ? entry : { ...entry, accountId: sibling.id, accountName: sibling.name };
+                        });
+                        updateRow(idx, { effectiveDate: newDate, entries: resolvedEntries });
+                      }}
+                    />
+                  )}
                   <span className="plaid-tx-name">{row.plaidTx.name}</span>
                   <span className={`plaid-tx-amt ${row.plaidTx.amount < 0 ? "credit" : "debit"}`}>
                     {row.plaidTx.amount < 0 ? "+" : "−"}${Math.abs(row.plaidTx.amount).toFixed(2)}
