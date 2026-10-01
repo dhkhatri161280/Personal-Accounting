@@ -525,10 +525,13 @@ export function SchwabImport({ data, onSave }: Props) {
   return (
     <div className="plaid-import">
       <h3 style={{ margin: "0 0 4px" }}>Charles Schwab</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 12px" }}>
-        Connect, fetch, and confirm here — Trading and Equity reports just show whatever's already
-        been confirmed, same as Plaid transactions never need a separate confirm step in Daybook.
-      </p>
+      <details style={{ fontSize: 12, margin: "0 0 12px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ How this works</summary>
+        <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+          Connect, fetch, and confirm here — Trading and Equity reports just show whatever's already
+          been confirmed, same as Plaid transactions never need a separate confirm step in Daybook.
+        </p>
+      </details>
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: 14 }}>
         {status?.connected === true ? (

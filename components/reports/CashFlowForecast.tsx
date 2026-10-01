@@ -289,10 +289,13 @@ export function CashFlowForecast({
       {unplacedYearly.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <h4 style={{ margin: "0 0 8px" }}>Yearly items with no detectable month</h4>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-            These recur yearly, but there's no posting history yet to tell which month -- not included in "Projected Annual
-            Payments" above. Once one is posted, it'll be placed automatically from then on.
-          </p>
+          <details style={{ fontSize: 12, margin: "0 0 8px" }}>
+            <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ Why these show up here</summary>
+            <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+              These recur yearly, but there's no posting history yet to tell which month -- not included in "Projected Annual
+              Payments" above. Once one is posted, it'll be placed automatically from then on.
+            </p>
+          </details>
           {unplacedYearly.map((item) => (
             <div className="report-line" key={item.label}>
               <span>{item.label}</span>

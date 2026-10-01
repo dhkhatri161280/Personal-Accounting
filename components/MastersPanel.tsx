@@ -2064,9 +2064,12 @@ export function MastersPanel({
             <label className="check-label">
               <input name="active" type="checkbox" defaultChecked={recurringTemplate?.active !== false} /> Active
             </label>
-            <p style={{ fontSize: 12, opacity: 0.7, margin: "0.5rem 0" }}>
-              Optional: auto-detect this template in Plaid Import when a matching bank transaction arrives. Leave blank to only post it manually.
-            </p>
+            <details style={{ fontSize: 12, margin: "0.5rem 0" }}>
+              <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ About the fields below</summary>
+              <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+                Optional: auto-detect this template in Plaid Import when a matching bank transaction arrives. Leave blank to only post it manually.
+              </p>
+            </details>
             <label>
               Plaid institution pattern (optional)
               <input name="institutionPattern" defaultValue={recurringTemplate?.plaidMatch?.institutionPattern} placeholder="e.g. Bank of America" />
