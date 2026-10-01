@@ -138,14 +138,27 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
     amount: periodNetDebit(data, a.id, periodStart, periodEnd) * -1, // Cr(+)=income
     accountIds: [a.id],
   }));
-  // Opening Capital: only meaningful in the book's own first tracked fiscal year -- the balance
-  // this account already held before any transaction history began. Every later year it's 0,
-  // matching the original sheet's own "Opening Capital: 0" line for an ongoing year.
+  // Opening Capital has two sources, both added together into one line:
+  //  1. The static `Account.openingBalance` field -- a balance an account already held before any
+  //     transaction history began, only meaningful in the book's own first tracked fiscal year
+  //     (every later year it's 0, matching the original sheet's own "Opening Capital: 0" line).
+  //  2. Real transactions posted to any Capital-nature account -- most commonly an "Opening
+  //     Balance Equity" voucher (see lib/opening-balance-equity.ts), which registers a
+  //     mid-stream account's starting balance via a proper double-entry Journal rather than the
+  //     raw field, so it shows up in `data.transactions` and affects real Bank/Cash the same way
+  //     an income or loan would -- but was previously invisible here entirely, undercounting
+  //     Incoming Fund by exactly that amount versus the real Bank+Cash change. Scoped to
+  //     whichever period is selected, not gated to the first tracked year, since these vouchers
+  //     can be dated any time (e.g. a Prepaid Expense/Fixed Asset registered in a later year).
+  //     The year-end FY-close voucher (Dr Capital / Cr "Profit & Loss A/c") also touches
+  //     Capital-nature accounts, but BOTH its legs are Capital-nature, so it always nets to
+  //     exactly zero here -- no special-case exclusion needed.
   const capitalAccounts = active.filter((a) => accountNature(a, groupMap) === "Capital");
-  const openingCapital = isFirstTrackedYear ? capitalAccounts.reduce((s, a) => s - a.openingBalance, 0) : 0;
+  const openingCapitalField = isFirstTrackedYear ? capitalAccounts.reduce((s, a) => s - a.openingBalance, 0) : 0;
+  const capitalTransactions = capitalAccounts.reduce((s, a) => s + periodNetDebit(data, a.id, periodStart, periodEnd) * -1, 0);
   const incomingRaw: RawLine[] = [
     ...incomeLines,
-    { label: "Opening Capital", amount: openingCapital, accountIds: capitalAccounts.map((a) => a.id) },
+    { label: "Opening Capital", amount: openingCapitalField + capitalTransactions, accountIds: capitalAccounts.map((a) => a.id) },
   ];
   const incomingTotal = incomingRaw.reduce((s, l) => s + l.amount, 0);
   const incoming = groupOf("Incoming Fund", toLines(consolidateFamilies(incomingRaw), incomingTotal), incomingTotal);
