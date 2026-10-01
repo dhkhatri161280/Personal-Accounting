@@ -159,15 +159,17 @@ export function computeGrFundSummary(
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(nature(a)));
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + netDr(a.name), 0);
 
-  // TEMPORARY diagnostic -- round 1 (unclassified "Asset" accounts) didn't explain the gap, so
-  // this is now a full transparency dump: EVERY active account's computed nature and net period
-  // movement, sorted by magnitude, so a real Bank/Cash account landing in the WRONG bucket (not
-  // just the un-bucketed default) is visible directly instead of guessed at. Remove once resolved.
+  // TEMPORARY diagnostic -- round 2. Double-entry bookkeeping guarantees total Dr = total Cr
+  // across the WHOLE ledger, which algebraically means: bankCashChange - liquidityBalance must
+  // exactly equal the combined net movement of every Capital-nature account plus every
+  // uncategorized "Asset" account (the only two buckets this report counts nowhere). Round 1
+  // (top 30 by magnitude, any nature) wasn't the right filter -- this is now exactly those two
+  // buckets, unsliced, so the full set (not just the biggest) is visible. Remove once resolved.
   const debugUnclassifiedAssets = active
+    .filter((a) => nature(a) === "Capital" || (nature(a) === "Asset" && (a.parent || "") !== FIXED_ASSETS_GROUP_NAME && !/^loans & advances \(asset\)$/i.test(a.parent || "")))
     .map((a) => ({ name: a.name, parent: a.parent || "", nature: nature(a), amount: netDr(a.name) }))
     .filter((a) => Math.abs(a.amount) > 0.005)
-    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
-    .slice(0, 30);
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 
   return {
     periodStart,

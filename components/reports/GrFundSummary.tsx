@@ -167,8 +167,9 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
 
       {mismatch && s.debugUnclassifiedAssets.length > 0 && (
         <div style={{ fontSize: 11, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", margin: "0 0 10px" }}>
-          <strong>TEMP DEBUG (will be removed):</strong> every account's computed nature and net period movement, largest
-          first -- look for a real Bank/Cash account landing in the wrong bucket:
+          <strong>TEMP DEBUG (will be removed):</strong> every Capital-nature or uncategorized-Asset account (the only two
+          buckets counted nowhere in this report) with real period activity. Their sum should equal{" "}
+          {fmt(s.liquidityBalance - s.bankCashChange)} if they fully explain the mismatch.
           <table style={{ width: "100%", marginTop: 6 }}>
             <thead>
               <tr>
@@ -187,6 +188,10 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
                   <td style={{ textAlign: "right" }}>{fmt(a.amount)}</td>
                 </tr>
               ))}
+              <tr style={{ fontWeight: 700, borderTop: "1px solid #fde68a" }}>
+                <td colSpan={3}>Sum</td>
+                <td style={{ textAlign: "right" }}>{fmt(s.debugUnclassifiedAssets.reduce((sum, a) => sum + a.amount, 0))}</td>
+              </tr>
             </tbody>
           </table>
         </div>
