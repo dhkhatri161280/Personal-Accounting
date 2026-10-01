@@ -950,8 +950,8 @@ export function GrApp() {
       <div className="header-tab-bar">
         <TabBarButton icon="⌂" label="Dashboard" selected={tab === "dashboard"} onClick={() => setTab("dashboard")} />
         <TabBarButton icon="📖" label="Day Book" selected={tab === "daybook"} onClick={() => setTab("daybook")} />
-        <TabBarButton icon="📚" label="Ledgers" selected={tab === "ledgers"} onClick={() => setTab("ledgers")} />
         <TabBarButton icon="📊" label="Reports" selected={tab === "reports"} onClick={() => setTab("reports")} />
+        <TabBarButton icon="📚" label="Ledgers" selected={tab === "ledgers"} onClick={() => setTab("ledgers")} />
         <TabBarButton icon="⇄" label="FX Rates" selected={tab === "fxrates"} onClick={() => setTab("fxrates")} />
         <TabBarButton
           icon="✎"
