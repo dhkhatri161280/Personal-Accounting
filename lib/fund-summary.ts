@@ -1,5 +1,5 @@
 import type { Ledger } from "./vault-types";
-import { accountNature, fiscalYearOf } from "./vault-accounting";
+import { accountNature, fiscalYearOf, isProfitAndLossAccountName } from "./vault-accounting";
 import { FIXED_ASSETS_GROUP_NAME, ASSET_CLASS_SUGGESTIONS, UNCLASSIFIED_LABEL } from "./fixed-assets";
 
 // Composer, not self-contained -- imports runtime values from other lib/*.ts files
@@ -141,7 +141,15 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   // Opening Capital: only meaningful in the book's own first tracked fiscal year -- the balance
   // this account already held before any transaction history began. Every later year it's 0,
   // matching the original sheet's own "Opening Capital: 0" line for an ongoing year.
-  const capitalAccounts = active.filter((a) => accountNature(a, groupMap) === "Capital");
+  //
+  // Excludes "Profit & Loss A/c" even though it shares the "Capital Account" group (same
+  // exclusion lib/vault-accounting.ts's buildFiscalYearCloseVoucher/isFiscalYearAlreadyClosed
+  // already use) -- it's a nominal/flow account, not a real source of funds, and its own
+  // Account.openingBalance field was confirmed (via live drill-down showing 21 years of
+  // Profit & Loss A/c <-> Capital year-end closing journals) to hold a stale migration-time
+  // balance snapshot rather than a true day-one opening figure. Including it inflated Opening
+  // Capital by ~63 lakh beyond the real ₹78,235 capital contribution.
+  const capitalAccounts = active.filter((a) => accountNature(a, groupMap) === "Capital" && !isProfitAndLossAccountName(a.name));
   const openingCapital = isFirstTrackedYear ? capitalAccounts.reduce((s, a) => s - a.openingBalance, 0) : 0;
   const incomingRaw: RawLine[] = [
     ...incomeLines,
