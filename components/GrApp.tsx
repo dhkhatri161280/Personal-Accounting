@@ -18,6 +18,8 @@ import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
+import { GrFundSummary } from "@/components/reports/GrFundSummary";
+import { computeGrFundSummary } from "@/lib/gr-fund-summary";
 import { EquityReport } from "@/components/reports/EquityReport";
 import { GrSpendReport } from "@/components/reports/GrSpendReport";
 import type { SpendLine } from "@/components/reports/SpendReport";
@@ -41,7 +43,7 @@ import { DashboardCard } from "@/components/DashboardCard";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
-type Report = "trial" | "income" | "balance" | "cashflow" | "cash" | "equity" | "networth" | "spend";
+type Report = "trial" | "income" | "balance" | "cashflow" | "fundsummary" | "cash" | "equity" | "networth" | "spend";
 type DashKind = "cash" | "investments" | "fixedassets" | "capital" | "income" | "vouchers";
 
 const fmtInr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
@@ -1513,6 +1515,9 @@ export function GrApp() {
             <button className={report === "cashflow" ? "selected" : ""} onClick={() => setReport("cashflow")}>
               Cash Flow
             </button>
+            <button className={report === "fundsummary" ? "selected" : ""} onClick={() => setReport("fundsummary")}>
+              Fund Summary
+            </button>
             <button className={report === "cash" ? "selected" : ""} onClick={() => setReport("cash")}>
               Cash and Bank
             </button>
@@ -1736,6 +1741,14 @@ export function GrApp() {
               fmt={(n) => fmt(n)}
               onGroup={() => {}}
               onLedger={() => {}}
+            />
+          )}
+
+          {report === "fundsummary" && (
+            <GrFundSummary
+              s={computeGrFundSummary(gr, periodRange.start, periodRange.end, groupNatures)}
+              fmt={(n) => fmt(n)}
+              periodLabel={periodLabel}
             />
           )}
 
