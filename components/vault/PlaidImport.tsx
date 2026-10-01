@@ -1304,7 +1304,7 @@ function buildInvestmentWithdrawalRows(
   const accounts = ledger.accounts.filter((a) => a.active !== false);
 
   const candidates = investmentTxs
-    .filter((t) => t.type === "cash" && (t.subtype === "withdrawal" || t.subtype === "deposit"))
+    .filter((t) => t.type === "cash" && (t.subtype === "withdrawal" || t.subtype === "deposit" || t.subtype === "interest"))
     .map((t) => {
       const plaidAcct = plaidAcctMap.get(t.account_id);
       const vaultAcct = plaidAcct
@@ -1324,20 +1324,33 @@ function buildInvestmentWithdrawalRows(
       // pre-fill the actual source instead of a generic guess -- Contra vouchers additionally
       // require every line to be a bank/cash account (see validateEntryRules), so a non-bank
       // fallback here would just make the row fail to save until the user fixes it anyway.
-      // A withdrawal's other side is an unknowable expense category, so it stays a generic
+      // Interest is real income earned IN the account, not a transfer -- its other side is
+      // "Interest Income" (same dedicated-ledger convention lib/tax-classify.ts already expects),
+      // posted as a Receipt, not a Contra (Contra requires every line to be bank/cash, and Income
+      // isn't). A withdrawal's other side is an unknowable expense category, so it stays a generic
       // placeholder for a human (or AI Suggest, since confidence 0.3 below makes these rows
       // eligible for it) to fill in. Either way, excludes vaultAcct itself -- confirmed live:
       // when vaultAcct sorted first alphabetically among only 2 accounts, both entry lines
       // defaulted to the SAME account, which is nonsensical even as a placeholder.
       const bofaAcct = t.subtype === "deposit" ? findAcct(accounts, "Bank Of America", "Bank of America") : undefined;
+      const interestAcct = t.subtype === "interest" ? findAcct(accounts, "Interest Income") : undefined;
+      const resolvedInterestAcct = interestAcct && interestAcct.id !== vaultAcct?.id ? interestAcct : undefined;
       const fallbackAcct =
         (bofaAcct && bofaAcct.id !== vaultAcct?.id ? bofaAcct : undefined) ??
+        resolvedInterestAcct ??
         accounts.filter((a) => a.id !== vaultAcct?.id).sort((a, b) => a.name.localeCompare(b.name))[0];
-      return { t, vaultAcct, fallbackAcct };
+      // Unlike a withdrawal/deposit's generic placeholder, an interest row with a real "Interest
+      // Income" ledger found is an unambiguous, high-confidence pairing -- no human judgment call
+      // needed, same bar the payroll rows already use for "this is almost certainly right."
+      const highConfidence = t.subtype === "interest" && !!resolvedInterestAcct;
+      return { t, vaultAcct, fallbackAcct, highConfidence };
     })
     // No known GL mapping for this Plaid account yet (see matchVaultAccount), or no other
     // active ledger exists to pair it with -- nothing useful to propose either way.
-    .filter((x): x is { t: PlaidInvestmentTx; vaultAcct: Account; fallbackAcct: Account } => !!x.vaultAcct && !!x.fallbackAcct);
+    .filter(
+      (x): x is { t: PlaidInvestmentTx; vaultAcct: Account; fallbackAcct: Account; highConfidence: boolean } =>
+        !!x.vaultAcct && !!x.fallbackAcct
+    );
 
   const syntheticTxs: PlaidTxRaw[] = candidates.map(({ t }) => ({
     transaction_id: t.investment_transaction_id,
@@ -1348,7 +1361,7 @@ function buildInvestmentWithdrawalRows(
     institution_name: t.institution_name,
   }));
 
-  return candidates.map(({ t, vaultAcct, fallbackAcct }, i) => {
+  return candidates.map(({ t, vaultAcct, fallbackAcct, highConfidence }, i) => {
     const amt = Math.abs(t.amount);
     // NOT alreadyImported() -- that matcher deliberately excludes any vault entry with a bank/CC
     // account on BOTH sides (its comment: "Exclude Contra entries... A CC payment has the same
@@ -1373,20 +1386,21 @@ function buildInvestmentWithdrawalRows(
       return v.entries.some((e) => e.accountId === vaultAcct.id && Math.abs(e.amount - t.amount) < 0.05);
     });
     // Plaid: positive amount = money OUT of the account (withdrawal), negative = money IN
-    // (deposit) -- this app: Entry.amount negative = Dr, positive = Cr. A withdrawal credits
-    // (decreases) the HSA asset; a deposit debits (increases) it.
+    // (deposit/interest) -- this app: Entry.amount negative = Dr, positive = Cr. A withdrawal
+    // credits (decreases) the HSA asset; a deposit or interest credit debits (increases) it.
     const isDeposit = t.amount < 0;
+    const isInterest = t.subtype === "interest";
     return {
       plaidTx: syntheticTxs[i],
       skip: imported,
       alreadyImported: imported,
-      voucherType: isDeposit ? "Contra" : "Payment",
+      voucherType: isInterest ? "Receipt" : isDeposit ? "Contra" : "Payment",
       narration: t.name,
       entries: [
         { accountId: fallbackAcct.id, accountName: fallbackAcct.name, amount: isDeposit ? amt : -amt },
         { accountId: vaultAcct.id, accountName: vaultAcct.name, amount: isDeposit ? -amt : amt },
       ],
-      confidence: 0.3,
+      confidence: highConfidence ? 0.9 : 0.3,
       source: "investment",
     };
   });
