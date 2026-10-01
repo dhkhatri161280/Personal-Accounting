@@ -165,6 +165,24 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
         )}
       </p>
 
+      {mismatch && s.debugUnclassifiedAssets.length > 0 && (
+        <div style={{ fontSize: 11, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", margin: "0 0 10px" }}>
+          <strong>TEMP DEBUG (will be removed):</strong> accounts not counted anywhere in this report (generic "Asset" nature,
+          not Fixed Assets/Loans), with real period activity:
+          <table style={{ width: "100%", marginTop: 6 }}>
+            <tbody>
+              {s.debugUnclassifiedAssets.map((a) => (
+                <tr key={a.name}>
+                  <td>{a.name}</td>
+                  <td>{a.parent}</td>
+                  <td style={{ textAlign: "right" }}>{fmt(a.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <h4 style={{ margin: "0 0 8px" }}>Detail</h4>
       <div className="columnar-report-scroll">
         <table className="columnar-report-table budget-table">

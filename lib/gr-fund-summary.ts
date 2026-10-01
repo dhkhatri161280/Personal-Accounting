@@ -30,6 +30,8 @@ export type GrFundSummaryResult = {
   // period -- a mismatch means some account isn't classified the way this report expects, same
   // spirit as lib/fund-summary.ts's own cross-check.
   bankCashChange: number;
+  // TEMPORARY diagnostic -- remove once resolved.
+  debugUnclassifiedAssets: { name: string; parent: string; amount: number }[];
 };
 
 function normKey(name: string): string {
@@ -157,6 +159,20 @@ export function computeGrFundSummary(
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(nature(a)));
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + netDr(a.name), 0);
 
+  // TEMPORARY diagnostic -- every account that falls into the generic "Asset" catch-all nature
+  // (not Income/Expense/Bank/Cash/Investment/Liability/Capital) and isn't already counted via
+  // Fixed Assets or Loans (Asset), with real period movement. These are invisible to this report
+  // entirely -- any one of them with real cash backing is a candidate for the cross-check gap.
+  // Remove once resolved.
+  const debugUnclassifiedAssets = active
+    .filter((a) => nature(a) === "Asset")
+    .filter((a) => (a.parent || "") !== FIXED_ASSETS_GROUP_NAME)
+    .filter((a) => !/^loans & advances \(asset\)$/i.test(a.parent || ""))
+    .map((a) => ({ name: a.name, parent: a.parent || "", amount: netDr(a.name) }))
+    .filter((a) => Math.abs(a.amount) > 0.005)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+    .slice(0, 20);
+
   return {
     periodStart,
     periodEnd,
@@ -171,5 +187,6 @@ export function computeGrFundSummary(
     liquidityBalance,
     liquidityBalancePct: incomingTotal > 0.5 ? liquidityBalance / incomingTotal : 0,
     bankCashChange,
+    debugUnclassifiedAssets,
   };
 }
