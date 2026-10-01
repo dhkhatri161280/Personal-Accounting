@@ -128,6 +128,11 @@ export function FundSummary({
         {s.periodStart <= "0001-01-01" ? "all periods" : `${fmtDate(s.periodStart)} – ${fmtDate(s.periodEnd)}`} (follows the
         Financial period selected above). Click any line to see the vouchers behind it.
       </p>
+      <p style={{ fontSize: 11, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "6px 10px", margin: "0 0 10px" }}>
+        TEMP DEBUG (will be removed): isFirstTrackedYear={String(s.debugOpeningCapital.isFirstTrackedYear)}, earliest=
+        {String(s.debugOpeningCapital.earliest)}, periodStartFy={s.debugOpeningCapital.periodStartFy}, capitalAccounts=[
+        {s.debugOpeningCapital.capitalAccountNames.join(", ")}]
+      </p>
 
       <h4 style={{ margin: "0 0 8px" }}>Summary</h4>
       <div className="columnar-report-scroll">

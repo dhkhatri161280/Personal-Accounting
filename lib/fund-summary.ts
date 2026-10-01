@@ -21,6 +21,9 @@ export type FundGroup = { label: string; lines: FundLine[]; total: number; pctOf
 export type FundSummaryResult = {
   periodStart: string;
   periodEnd: string; // capped at today for the current, still-open fiscal year
+  // TEMPORARY diagnostic -- debugging why Opening Capital computes to 0 for a specific book.
+  // Remove once resolved.
+  debugOpeningCapital: { isFirstTrackedYear: boolean; earliest: number | null; periodStartFy: number; capitalAccountNames: string[] };
   incoming: FundGroup;
   // Net new borrowing -- deliberately NOT part of `incoming` (a loan isn't income), shown as its
   // own section between Incoming and Outgoing instead. Still folded into `liquidityBalance` below
@@ -257,6 +260,12 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   return {
     periodStart,
     periodEnd,
+    debugOpeningCapital: {
+      isFirstTrackedYear,
+      earliest,
+      periodStartFy: fiscalYearOf(periodStart),
+      capitalAccountNames: capitalAccounts.map((a) => `${a.name} (opening=${a.openingBalance})`),
+    },
     incoming,
     financing,
     outgoingExpenses,
