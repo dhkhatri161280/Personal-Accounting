@@ -107,3 +107,25 @@ test("computeGrFundSummary: Deposits (Asset) is its own Outgoing bucket, not lef
   assert.equal(s.outgoingDeposits.total, 20000);
   assert.equal(s.liquidityBalance, s.bankCashChange);
 });
+
+test("computeGrFundSummary: House Hold Exps / Salary Income families consolidate into one line each", () => {
+  const accounts = [
+    acc("House Hold Exps - Apr 26", "Indirect Expenses"),
+    acc("House Hold Exps - May 26", "Indirect Expenses"),
+    acc("Salary Income - Nvidia", "Direct Incomes"),
+    acc("Salary Income - Katerra", "Direct Incomes"),
+  ];
+  const transactions = [
+    tx("t1", "2026-04-05", [{ accountName: "House Hold Exps - Apr 26", amountInr: -10000, originalAmount: -10000 }]),
+    tx("t2", "2026-05-05", [{ accountName: "House Hold Exps - May 26", amountInr: -15000, originalAmount: -15000 }]),
+    tx("t3", "2026-04-05", [{ accountName: "Salary Income - Nvidia", amountInr: 500000, originalAmount: 500000 }]),
+    tx("t4", "2026-04-05", [{ accountName: "Salary Income - Katerra", amountInr: 200000, originalAmount: 200000 }]),
+  ];
+  const s = computeGrFundSummary(ledger(accounts, transactions), "2026-04-01", "2027-03-31", new Map());
+  assert.equal(s.outgoingExpenses.lines.length, 1);
+  assert.equal(s.outgoingExpenses.lines[0].label, "House Hold Exps");
+  assert.equal(s.outgoingExpenses.total, 25000);
+  assert.equal(s.incoming.lines.length, 1);
+  assert.equal(s.incoming.lines[0].label, "Salary Income");
+  assert.equal(s.incoming.total, 700000);
+});

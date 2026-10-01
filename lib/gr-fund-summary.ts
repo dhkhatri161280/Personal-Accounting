@@ -57,6 +57,30 @@ function grFundNature(parent: string, groupNatures: Map<string, string>): GrNatu
   return "Asset";
 }
 
+// Mirrors lib/fund-summary.ts's own CONSOLIDATED_FAMILIES/consolidateFamilies exactly -- "House
+// Hold Exps - <Month> <Year>" gets a new account auto-created every calendar month, and "Salary
+// Income - <Employer>" splits by employer, so a period spanning more than one month/employer
+// would otherwise list dozens of near-duplicate lines instead of one combined total.
+const CONSOLIDATED_FAMILIES: { pattern: RegExp; label: string }[] = [
+  { pattern: /^house hold exps/i, label: "House Hold Exps" },
+  { pattern: /^salary income/i, label: "Salary Income" },
+];
+function consolidateFamilies(lines: { label: string; amount: number }[]): { label: string; amount: number }[] {
+  const merged = new Map<string, { label: string; amount: number }>();
+  const rest: { label: string; amount: number }[] = [];
+  for (const l of lines) {
+    const family = CONSOLIDATED_FAMILIES.find((f) => f.pattern.test(l.label));
+    if (!family) {
+      rest.push(l);
+      continue;
+    }
+    const existing = merged.get(family.label);
+    if (existing) existing.amount += l.amount;
+    else merged.set(family.label, { label: family.label, amount: l.amount });
+  }
+  return [...rest, ...merged.values()];
+}
+
 function toLines(entries: { label: string; amount: number }[], incomingTotal: number): GrFundLine[] {
   return entries
     .filter((e) => Math.abs(e.amount) > 0.005)
@@ -98,7 +122,7 @@ export function computeGrFundSummary(
   const incomeAccounts = active.filter((a) => nature(a) === "Income");
   const incomingRaw = incomeAccounts.map((a) => ({ label: a.name, amount: netCr(a.name) }));
   const incomingTotal = incomingRaw.reduce((s, l) => s + l.amount, 0);
-  const incoming = groupOf("Incoming Fund", toLines(incomingRaw, incomingTotal), incomingTotal);
+  const incoming = groupOf("Incoming Fund", toLines(consolidateFamilies(incomingRaw), incomingTotal), incomingTotal);
 
   // ── Financing: net new borrowing this period, excluding CCU Home Loan (see Fixed Assets below
   // -- its effect is already fully netted into the Home line there, same reasoning as the US
@@ -115,7 +139,7 @@ export function computeGrFundSummary(
   const expenseAccounts = active.filter((a) => nature(a) === "Expense");
   const outgoingExpenses = groupOf(
     "Expenses",
-    toLines(expenseAccounts.map((a) => ({ label: a.name, amount: netDr(a.name) })), incomingTotal),
+    toLines(consolidateFamilies(expenseAccounts.map((a) => ({ label: a.name, amount: netDr(a.name) }))), incomingTotal),
     incomingTotal
   );
 
