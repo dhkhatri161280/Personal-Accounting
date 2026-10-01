@@ -22,6 +22,10 @@ export type FundSummaryResult = {
   periodStart: string;
   periodEnd: string; // capped at today for the current, still-open fiscal year
   incoming: FundGroup;
+  // Net new borrowing -- deliberately NOT part of `incoming` (a loan isn't income), shown as its
+  // own section between Incoming and Outgoing instead. Still folded into `liquidityBalance` below
+  // so the report's own Bank+Cash cross-check keeps balancing even in a year you actually borrow.
+  financing: FundGroup;
   outgoingExpenses: FundGroup;
   outgoingFixedAssets: FundGroup;
   outgoingInvestments: FundGroup;
@@ -134,11 +138,6 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
     amount: periodNetDebit(data, a.id, periodStart, periodEnd) * -1, // Cr(+)=income
     accountIds: [a.id],
   }));
-  // Net new borrowing this period (credit/increase to Liability accounts); a net repayment shows
-  // as a negative line here rather than a separate Outgoing category, since the original sheet
-  // has no repayment line and this keeps Incoming - Outgoing = Liquidity Balance exact either way.
-  const liabilityAccounts = active.filter((a) => accountNature(a, groupMap) === "Liability");
-  const loanTaken = liabilityAccounts.reduce((s, a) => s + periodNetDebit(data, a.id, periodStart, periodEnd) * -1, 0);
   // Opening Capital: only meaningful in the book's own first tracked fiscal year -- the balance
   // this account already held before any transaction history began. Every later year it's 0,
   // matching the original sheet's own "Opening Capital: 0" line for an ongoing year.
@@ -146,11 +145,19 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   const openingCapital = isFirstTrackedYear ? capitalAccounts.reduce((s, a) => s - a.openingBalance, 0) : 0;
   const incomingRaw: RawLine[] = [
     ...incomeLines,
-    { label: "Loan Taken", amount: loanTaken, accountIds: liabilityAccounts.map((a) => a.id) },
     { label: "Opening Capital", amount: openingCapital, accountIds: capitalAccounts.map((a) => a.id) },
   ];
   const incomingTotal = incomingRaw.reduce((s, l) => s + l.amount, 0);
   const incoming = groupOf("Incoming Fund", toLines(consolidateFamilies(incomingRaw), incomingTotal), incomingTotal);
+
+  // ── Financing: net new borrowing this period ──────────────────────────────────────────────
+  // A loan is a source of cash but not income, so it's its own section rather than folded into
+  // Incoming Fund. A net repayment shows as a negative line here (no separate Outgoing line for
+  // it), same as before this was split out.
+  const liabilityAccounts = active.filter((a) => accountNature(a, groupMap) === "Liability");
+  const loanTaken = liabilityAccounts.reduce((s, a) => s + periodNetDebit(data, a.id, periodStart, periodEnd) * -1, 0);
+  const financingRaw: RawLine[] = [{ label: "Loan Taken", amount: loanTaken, accountIds: liabilityAccounts.map((a) => a.id) }];
+  const financing = groupOf("Financing", toLines(financingRaw, incomingTotal), incomingTotal);
 
   // ── Outgoing Fund: Expenses ────────────────────────────────────────────────────────────────
   const expenseLines: RawLine[] = active
@@ -226,7 +233,7 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   const outgoingLoans = groupOf("Loans (Asset)", toLines(loansLines, incomingTotal), incomingTotal);
 
   const totalOutgoing = outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total + outgoingLoans.total;
-  const liquidityBalance = incomingTotal - totalOutgoing;
+  const liquidityBalance = incomingTotal + financing.total - totalOutgoing;
 
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(accountNature(a, groupMap)));
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + periodNetDebit(data, a.id, periodStart, periodEnd), 0);
@@ -235,6 +242,7 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
     periodStart,
     periodEnd,
     incoming,
+    financing,
     outgoingExpenses,
     outgoingFixedAssets,
     outgoingInvestments,

@@ -84,6 +84,7 @@ export function FundSummary({
     const header = ["Line", "Amount", "% of Incoming Fund"];
     const summaryRows = [
       ["Incoming Fund", s.incoming.total, s.incoming.pctOfIncoming],
+      [`  ${s.financing.label}`, s.financing.total, s.financing.pctOfIncoming],
       ["Outgoing Fund", "", ""],
       [`  ${s.outgoingExpenses.label}`, s.outgoingExpenses.total, s.outgoingExpenses.pctOfIncoming],
       [`  ${s.outgoingFixedAssets.label}`, s.outgoingFixedAssets.total, s.outgoingFixedAssets.pctOfIncoming],
@@ -100,6 +101,8 @@ export function FundSummary({
     ];
     const detailRows = [
       ...groupRows(s.incoming),
+      [],
+      ...groupRows(s.financing),
       [],
       ["Outgoing Fund", "", ""],
       ...groupRows(s.outgoingExpenses),
@@ -150,6 +153,17 @@ export function FundSummary({
                 <strong>{fmtPct(s.incoming.pctOfIncoming)}</strong>
               </td>
             </tr>
+            {Math.abs(s.financing.total) > 0.005 && (
+              <tr>
+                <td>
+                  <button type="button" className="ledger-link" onClick={() => drill(s.financing.label, s.financing.accountIds)}>
+                    {s.financing.label}
+                  </button>
+                </td>
+                <td className="right">{fmt(s.financing.total)}</td>
+                <td className="right">{fmtPct(s.financing.pctOfIncoming)}</td>
+              </tr>
+            )}
             <tr className="ledger-subtotal-row">
               <td colSpan={3}>Outgoing Fund</td>
             </tr>
@@ -219,6 +233,9 @@ export function FundSummary({
           </thead>
           <tbody>
             <DetailGroupRows group={s.incoming} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
+            {Math.abs(s.financing.total) > 0.005 && (
+              <DetailGroupRows group={s.financing} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
+            )}
             <tr className="ledger-subtotal-row">
               <td colSpan={3}>Outgoing Fund</td>
             </tr>
