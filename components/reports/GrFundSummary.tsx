@@ -167,14 +167,23 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
 
       {mismatch && s.debugUnclassifiedAssets.length > 0 && (
         <div style={{ fontSize: 11, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", margin: "0 0 10px" }}>
-          <strong>TEMP DEBUG (will be removed):</strong> accounts not counted anywhere in this report (generic "Asset" nature,
-          not Fixed Assets/Loans), with real period activity:
+          <strong>TEMP DEBUG (will be removed):</strong> every account's computed nature and net period movement, largest
+          first -- look for a real Bank/Cash account landing in the wrong bucket:
           <table style={{ width: "100%", marginTop: 6 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Account</th>
+                <th style={{ textAlign: "left" }}>Parent</th>
+                <th style={{ textAlign: "left" }}>Nature</th>
+                <th style={{ textAlign: "right" }}>Amount</th>
+              </tr>
+            </thead>
             <tbody>
               {s.debugUnclassifiedAssets.map((a) => (
                 <tr key={a.name}>
                   <td>{a.name}</td>
                   <td>{a.parent}</td>
+                  <td>{a.nature}</td>
                   <td style={{ textAlign: "right" }}>{fmt(a.amount)}</td>
                 </tr>
               ))}

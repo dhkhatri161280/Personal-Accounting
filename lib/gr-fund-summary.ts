@@ -31,7 +31,7 @@ export type GrFundSummaryResult = {
   // spirit as lib/fund-summary.ts's own cross-check.
   bankCashChange: number;
   // TEMPORARY diagnostic -- remove once resolved.
-  debugUnclassifiedAssets: { name: string; parent: string; amount: number }[];
+  debugUnclassifiedAssets: { name: string; parent: string; nature: string; amount: number }[];
 };
 
 function normKey(name: string): string {
@@ -159,19 +159,15 @@ export function computeGrFundSummary(
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(nature(a)));
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + netDr(a.name), 0);
 
-  // TEMPORARY diagnostic -- every account that falls into the generic "Asset" catch-all nature
-  // (not Income/Expense/Bank/Cash/Investment/Liability/Capital) and isn't already counted via
-  // Fixed Assets or Loans (Asset), with real period movement. These are invisible to this report
-  // entirely -- any one of them with real cash backing is a candidate for the cross-check gap.
-  // Remove once resolved.
+  // TEMPORARY diagnostic -- round 1 (unclassified "Asset" accounts) didn't explain the gap, so
+  // this is now a full transparency dump: EVERY active account's computed nature and net period
+  // movement, sorted by magnitude, so a real Bank/Cash account landing in the WRONG bucket (not
+  // just the un-bucketed default) is visible directly instead of guessed at. Remove once resolved.
   const debugUnclassifiedAssets = active
-    .filter((a) => nature(a) === "Asset")
-    .filter((a) => (a.parent || "") !== FIXED_ASSETS_GROUP_NAME)
-    .filter((a) => !/^loans & advances \(asset\)$/i.test(a.parent || ""))
-    .map((a) => ({ name: a.name, parent: a.parent || "", amount: netDr(a.name) }))
+    .map((a) => ({ name: a.name, parent: a.parent || "", nature: nature(a), amount: netDr(a.name) }))
     .filter((a) => Math.abs(a.amount) > 0.005)
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
-    .slice(0, 20);
+    .slice(0, 30);
 
   return {
     periodStart,
