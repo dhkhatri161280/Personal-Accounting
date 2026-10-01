@@ -133,6 +133,19 @@ export function consolidateLedger(
   const latestRate =
     Object.entries(fxRates).sort(([a], [b]) => b.localeCompare(a))[0]?.[1] ?? 84;
 
+  // Resolve a transaction entry's account NAME via its immutable accountId against the book's
+  // CURRENT account list, falling back to the entry's own stored snapshot only if that account
+  // was genuinely deleted. A voucher entry's `accountName` is a snapshot taken at creation time
+  // and can drift from the ledger's real current name (a rename, or just an inconsistent name
+  // entered on one voucher) -- and `gr.accounts` below is built entirely from the current
+  // `data.accounts` lists, not from these entries. Using the stale snapshot name here silently
+  // made that account's transactions match no GrAccount at all, invisible to every GR report
+  // that relies on gr.accounts (confirmed live: a "Salary Income TCS" voucher entry with no
+  // hyphen, against a real "Salary Income - TCS" ledger, orphaned ~36 lakh of real activity from
+  // GR's Fund Summary cross-check with zero indication anything was missing).
+  const inAccountNameById = new Map(indiaData.accounts.map((a) => [a.id, a.name]));
+  const usAccountNameById = new Map(usData.accounts.map((a) => [a.id, a.name]));
+
   // ── Build transactions ───────────────────────────────────────────────────
   const transactions: GrTx[] = [];
 
@@ -152,7 +165,7 @@ export function consolidateLedger(
       amountInr: amtInr,
       appliedRate: 1,
       entries: t.entries.map((e) => ({
-        accountName: e.accountName,
+        accountName: inAccountNameById.get(e.accountId) ?? e.accountName,
         amountInr: e.amount,
         originalAmount: e.amount,
       })),
@@ -181,7 +194,7 @@ export function consolidateLedger(
       amountInr: amtUsd * rate,
       appliedRate: rate,
       entries: t.entries.map((e) => ({
-        accountName: e.accountName,
+        accountName: usAccountNameById.get(e.accountId) ?? e.accountName,
         amountInr: e.amount * rate,
         originalAmount: e.amount,
       })),

@@ -30,8 +30,6 @@ export type GrFundSummaryResult = {
   // period -- a mismatch means some account isn't classified the way this report expects, same
   // spirit as lib/fund-summary.ts's own cross-check.
   bankCashChange: number;
-  // TEMPORARY diagnostic -- remove once resolved.
-  debugUnclassifiedAssets: { name: string; parent: string; nature: string; amount: number }[];
 };
 
 function normKey(name: string): string {
@@ -159,29 +157,6 @@ export function computeGrFundSummary(
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(nature(a)));
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + netDr(a.name), 0);
 
-  // TEMPORARY diagnostic -- round 3. Round 2's Capital + uncategorized-Asset sum (-2,770.33) came
-  // nowhere near the expected gap, which means the double-entry invariant itself looked broken --
-  // only possible if some account has real transaction entries that are invisible to every bucket
-  // here, not just miscategorized. `dr`/`cr` above are built from EVERY gr.transactions entry by
-  // normalized name directly, with no dependency on `gr.accounts` at all -- but every bucket
-  // above (including round 2's) only ever iterates `active` (a FILTERED subset of `gr.accounts`).
-  // So: list every name-key with real dr/cr activity that has NO matching entry in `active` at
-  // all (either genuinely missing from gr.accounts, or present but excluded by the active-account
-  // filter despite real activity) -- these are completely invisible to this report, not merely
-  // miscategorized. Remove once resolved.
-  const activeNameKeys = new Set(active.map((a) => normKey(a.name)));
-  const allNameKeys = new Set([...dr.keys(), ...cr.keys()]);
-  const debugUnclassifiedAssets = [...allNameKeys]
-    .filter((k) => !activeNameKeys.has(k))
-    .map((k) => ({
-      name: k,
-      parent: gr.accounts.find((a) => normKey(a.name) === k)?.parent || "(not in gr.accounts at all)",
-      nature: "orphaned",
-      amount: (dr.get(k) || 0) - (cr.get(k) || 0),
-    }))
-    .filter((a) => Math.abs(a.amount) > 0.005)
-    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-
   return {
     periodStart,
     periodEnd,
@@ -196,6 +171,5 @@ export function computeGrFundSummary(
     liquidityBalance,
     liquidityBalancePct: incomingTotal > 0.5 ? liquidityBalance / incomingTotal : 0,
     bankCashChange,
-    debugUnclassifiedAssets,
   };
 }

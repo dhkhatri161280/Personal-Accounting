@@ -165,38 +165,6 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
         )}
       </p>
 
-      {mismatch && s.debugUnclassifiedAssets.length > 0 && (
-        <div style={{ fontSize: 11, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", margin: "0 0 10px" }}>
-          <strong>TEMP DEBUG round 3 (will be removed):</strong> accounts with real transaction activity that are completely
-          invisible to this report -- not in any bucket at all, not even Capital/uncategorized-Asset. Target remaining gap:{" "}
-          {fmt(s.liquidityBalance - s.bankCashChange + 2770.33)} (round 2's -₹2,770.33 already found, subtracted out).
-          <table style={{ width: "100%", marginTop: 6 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left" }}>Account</th>
-                <th style={{ textAlign: "left" }}>Parent</th>
-                <th style={{ textAlign: "left" }}>Nature</th>
-                <th style={{ textAlign: "right" }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.debugUnclassifiedAssets.map((a) => (
-                <tr key={a.name}>
-                  <td>{a.name}</td>
-                  <td>{a.parent}</td>
-                  <td>{a.nature}</td>
-                  <td style={{ textAlign: "right" }}>{fmt(a.amount)}</td>
-                </tr>
-              ))}
-              <tr style={{ fontWeight: 700, borderTop: "1px solid #fde68a" }}>
-                <td colSpan={3}>Sum</td>
-                <td style={{ textAlign: "right" }}>{fmt(s.debugUnclassifiedAssets.reduce((sum, a) => sum + a.amount, 0))}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
       <h4 style={{ margin: "0 0 8px" }}>Detail</h4>
       <div className="columnar-report-scroll">
         <table className="columnar-report-table budget-table">
