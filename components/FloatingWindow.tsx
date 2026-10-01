@@ -94,6 +94,13 @@ export function FloatingWindow({
     }
     function onUp() {
       dragRef.current = null;
+      // Suppress auto-grow only through the drag's trailing reflow (e.g. narrowing the panel can
+      // wrap text taller, which would otherwise immediately re-grow the window and fight the
+      // resize the user just made) -- not permanently. Re-enable shortly after so a <details>
+      // section expanded later still grows the window as intended.
+      setTimeout(() => {
+        userResizedRef.current = false;
+      }, 200);
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);

@@ -2659,12 +2659,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             // SS column alone takes a further "Excess Wages" cut down to the wage-base cap --
             // confirmed line-for-line against a real NVIDIA W-2's page-4 worksheet.
             const grossWorksheet = w2Box1Wages + totalK401 + totalMedical;
-            const excessWages = w2Box5MedicareWages - w2Box3SsWages;
+            // Only exceeds zero for earners above the annual SS wage base -- most users never hit
+            // that cap, and a real W-2's worksheet simply omits this line for them rather than
+            // showing a zero/negative "excess" that doesn't correspond to anything real.
+            const excessWages = Math.max(0, w2Box5MedicareWages - w2Box3SsWages);
             const rows: [string, number | null, number | null, number | null][] = [
               ["Gross Wages", grossWorksheet, grossWorksheet, grossWorksheet],
               ["Less Deferred Comp (401k)", -totalK401, null, null],
               ["Less Sec 125 (medical)", -totalMedical, -totalMedical, -totalMedical],
-              ["Less Excess Wages", null, -excessWages, null],
+              ...(excessWages > 0 ? [["Less Excess Wages", null, -excessWages, null] as [string, number | null, number | null, number | null]] : []),
             ];
             return (
               <details style={{ fontSize: 12, marginTop: "1rem" }}>

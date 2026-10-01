@@ -1559,11 +1559,17 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   // genuinely-matching Plaid transaction can still arrive for the same voucher and must still be
   // allowed to match then.
   const [investmentMatchOverrides, setInvestmentMatchOverrides] = useState<Set<string>>(new Set());
-  useEffect(() => {
+  // A failure here used to fail silently -- the user's prior "this is NOT a real match"
+  // rejections would just come back as an empty Set, so previously-rejected matches could
+  // silently reappear as matched with no indication anything went wrong.
+  function loadInvestmentMatchOverrides() {
     apiFetch("/api/plaid/investment-match-overrides")
       .then((r) => r.json() as Promise<{ voucher_guid: string; plaid_transaction_id: string }[]>)
       .then((pairs) => setInvestmentMatchOverrides(new Set(pairs.map((p) => `${p.voucher_guid}|${p.plaid_transaction_id}`))))
-      .catch(() => {});
+      .catch(() => setStatus("Couldn't load your prior investment-match corrections — some may show as matched until this loads. Reopen this tab to retry."));
+  }
+  useEffect(() => {
+    loadInvestmentMatchOverrides();
   }, []);
   async function rejectInvestmentMatch(guid: string, plaidTransactionId: string) {
     setInvestmentMatchOverrides((prev) => new Set(prev).add(`${guid}|${plaidTransactionId}`));
