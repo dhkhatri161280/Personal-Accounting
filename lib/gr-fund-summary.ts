@@ -159,15 +159,26 @@ export function computeGrFundSummary(
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(nature(a)));
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + netDr(a.name), 0);
 
-  // TEMPORARY diagnostic -- round 2. Double-entry bookkeeping guarantees total Dr = total Cr
-  // across the WHOLE ledger, which algebraically means: bankCashChange - liquidityBalance must
-  // exactly equal the combined net movement of every Capital-nature account plus every
-  // uncategorized "Asset" account (the only two buckets this report counts nowhere). Round 1
-  // (top 30 by magnitude, any nature) wasn't the right filter -- this is now exactly those two
-  // buckets, unsliced, so the full set (not just the biggest) is visible. Remove once resolved.
-  const debugUnclassifiedAssets = active
-    .filter((a) => nature(a) === "Capital" || (nature(a) === "Asset" && (a.parent || "") !== FIXED_ASSETS_GROUP_NAME && !/^loans & advances \(asset\)$/i.test(a.parent || "")))
-    .map((a) => ({ name: a.name, parent: a.parent || "", nature: nature(a), amount: netDr(a.name) }))
+  // TEMPORARY diagnostic -- round 3. Round 2's Capital + uncategorized-Asset sum (-2,770.33) came
+  // nowhere near the expected gap, which means the double-entry invariant itself looked broken --
+  // only possible if some account has real transaction entries that are invisible to every bucket
+  // here, not just miscategorized. `dr`/`cr` above are built from EVERY gr.transactions entry by
+  // normalized name directly, with no dependency on `gr.accounts` at all -- but every bucket
+  // above (including round 2's) only ever iterates `active` (a FILTERED subset of `gr.accounts`).
+  // So: list every name-key with real dr/cr activity that has NO matching entry in `active` at
+  // all (either genuinely missing from gr.accounts, or present but excluded by the active-account
+  // filter despite real activity) -- these are completely invisible to this report, not merely
+  // miscategorized. Remove once resolved.
+  const activeNameKeys = new Set(active.map((a) => normKey(a.name)));
+  const allNameKeys = new Set([...dr.keys(), ...cr.keys()]);
+  const debugUnclassifiedAssets = [...allNameKeys]
+    .filter((k) => !activeNameKeys.has(k))
+    .map((k) => ({
+      name: k,
+      parent: gr.accounts.find((a) => normKey(a.name) === k)?.parent || "(not in gr.accounts at all)",
+      nature: "orphaned",
+      amount: (dr.get(k) || 0) - (cr.get(k) || 0),
+    }))
     .filter((a) => Math.abs(a.amount) > 0.005)
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
 

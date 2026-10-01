@@ -167,9 +167,9 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
 
       {mismatch && s.debugUnclassifiedAssets.length > 0 && (
         <div style={{ fontSize: 11, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", margin: "0 0 10px" }}>
-          <strong>TEMP DEBUG (will be removed):</strong> every Capital-nature or uncategorized-Asset account (the only two
-          buckets counted nowhere in this report) with real period activity. Their sum should equal{" "}
-          {fmt(s.liquidityBalance - s.bankCashChange)} if they fully explain the mismatch.
+          <strong>TEMP DEBUG round 3 (will be removed):</strong> accounts with real transaction activity that are completely
+          invisible to this report -- not in any bucket at all, not even Capital/uncategorized-Asset. Target remaining gap:{" "}
+          {fmt(s.liquidityBalance - s.bankCashChange + 2770.33)} (round 2's -₹2,770.33 already found, subtracted out).
           <table style={{ width: "100%", marginTop: 6 }}>
             <thead>
               <tr>
