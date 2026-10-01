@@ -143,12 +143,15 @@ export function PrepaidExpenseRegister({
   return (
     <div className="data-panel">
       <h3>Prepaid Expense Amortization</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Straight-line amortization only. Each prepaid item gets its own ledger account under "Current Assets". The
-        Amortized/Remaining columns below are always live and up to date — no action needed to see them. "Run Amortization" is a
-        separate, optional step that <strong>posts real Journal vouchers</strong> for whichever months haven't been posted yet;
-        skip it if you only want the numbers for reference.
-      </p>
+      <details style={{ fontSize: 12, margin: "0 0 10px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ How amortization posting works</summary>
+        <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+          Straight-line amortization only. Each prepaid item gets its own ledger account under "Current Assets". The
+          Amortized/Remaining columns below are always live and up to date — no action needed to see them. "Run Amortization" is a
+          separate, optional step that <strong>posts real Journal vouchers</strong> for whichever months haven't been posted yet;
+          skip it if you only want the numbers for reference.
+        </p>
+      </details>
       <div className="master-toolbar">
         <button type="button" className="tr-refresh-btn" onClick={() => setShowAdd((v) => !v)}>
           {showAdd ? "Cancel" : "+ Add Prepaid Expense"}

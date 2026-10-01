@@ -204,14 +204,17 @@ export function LoansAdvancesFxRegister({
   return (
     <div className="data-panel">
       <h3>Loans &amp; Advances — USD Translation</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Every voucher posted to the selected "Loans &amp; Advances (Asset)" ledger, translated to USD at the
-        INR/USD rate on that transaction's own date (sourced from frankfurter.app, cached once per date). Lent
-        (Dr)/Repaid (Cr) amounts always show what that specific payment was worth in USD on the day it happened.
-        The Balance column follows the toggle below: Historical-cost accumulates each payment's own-date USD
-        value; Mark-to-market instead revalues today's outstanding INR balance at today's rate. Follows the
-        header's Financial period selector, same as every other report.
-      </p>
+      <details style={{ fontSize: 12, margin: "0 0 10px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ How this works</summary>
+        <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+          Every voucher posted to the selected "Loans &amp; Advances (Asset)" ledger, translated to USD at the
+          INR/USD rate on that transaction's own date (sourced from frankfurter.app, cached once per date). Lent
+          (Dr)/Repaid (Cr) amounts always show what that specific payment was worth in USD on the day it happened.
+          The Balance column follows the toggle below: Historical-cost accumulates each payment's own-date USD
+          value; Mark-to-market instead revalues today's outstanding INR balance at today's rate. Follows the
+          header's Financial period selector, same as every other report.
+        </p>
+      </details>
       {groupAccounts.length === 0 ? (
         <p style={{ opacity: 0.7 }}>No ledgers found under "Loans &amp; Advances (Asset)".</p>
       ) : (

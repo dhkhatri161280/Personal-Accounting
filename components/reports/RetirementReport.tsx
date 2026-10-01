@@ -217,12 +217,15 @@ export function RetirementReport({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
         <div>
           <h3 style={{ margin: "0 0 4px" }}>Retirement</h3>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: 0 }}>
-            Live balances from Plaid's Balances product (already covered by your existing Fidelity
-            connection -- no separate Investments product enabled). Fund-level holdings/allocation
-            aren't available here yet, only total account balance. HSA has its own reconciliation
-            in Import &gt; Plaid &gt; Balances instead, since it's tracked as a real ledger account.
-          </p>
+          <details style={{ fontSize: 12 }}>
+            <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ What this shows</summary>
+            <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+              Live balances from Plaid's Balances product (already covered by your existing Fidelity
+              connection -- no separate Investments product enabled). Fund-level holdings/allocation
+              aren't available here yet, only total account balance. HSA has its own reconciliation
+              in Import &gt; Plaid &gt; Balances instead, since it's tracked as a real ledger account.
+            </p>
+          </details>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <ExportButton

@@ -32,11 +32,14 @@ export function AuditLog({ data, onViewVoucher }: { data: Ledger; onViewVoucher:
   return (
     <div className="data-panel">
       <h3>Audit Log</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        A running record of who changed what, going forward from when this was added — every voucher create/edit/delete/restore
-        and every Masters ledger/group save or delete appends an entry here with a before/after summary. It doesn't retroactively
-        cover changes made before this feature shipped, and Tally-side sync activity isn't tracked (only edits made in this app).
-      </p>
+      <details style={{ fontSize: 12, margin: "0 0 10px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ What this tracks</summary>
+        <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+          A running record of who changed what, going forward from when this was added — every voucher create/edit/delete/restore
+          and every Masters ledger/group save or delete appends an entry here with a before/after summary. It doesn't retroactively
+          cover changes made before this feature shipped, and Tally-side sync activity isn't tracked (only edits made in this app).
+        </p>
+      </details>
       <div className="master-toolbar">
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search summary" />
         <select value={entityFilter} onChange={(e) => setEntityFilter(e.target.value as typeof entityFilter)}>

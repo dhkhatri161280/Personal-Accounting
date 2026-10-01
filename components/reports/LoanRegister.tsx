@@ -204,10 +204,13 @@ export function LoanRegister({
   return (
     <div className="data-panel">
       <h3>Loan / Debt Register</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Each loan gets its own liability account under "Loans (Liability)". A loan payment is a real cash event, not a backfillable
-        accrual, so record each payment as it happens — the principal/interest split is computed from the current balance.
-      </p>
+      <details style={{ fontSize: 12, margin: "0 0 10px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ How this works</summary>
+        <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+          Each loan gets its own liability account under "Loans (Liability)". A loan payment is a real cash event, not a backfillable
+          accrual, so record each payment as it happens — the principal/interest split is computed from the current balance.
+        </p>
+      </details>
       <div className="master-toolbar">
         <button type="button" className="tr-refresh-btn" onClick={() => setShowAdd((v) => !v)}>
           {showAdd ? "Cancel" : "+ Add Loan"}

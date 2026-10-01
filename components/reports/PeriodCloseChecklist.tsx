@@ -112,10 +112,13 @@ export function PeriodCloseChecklist({
   return (
     <div className="data-panel">
       <h3>Period-Close Checklist</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Informational only — nothing here blocks closing the period. It's just a quick look at what's still outstanding before
-        you do.
-      </p>
+      <details style={{ fontSize: 12, margin: "0 0 10px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ What this is</summary>
+        <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+          Informational only — nothing here blocks closing the period. It's just a quick look at what's still outstanding before
+          you do.
+        </p>
+      </details>
       <div className="master-toolbar">
         <select value={period} onChange={(e) => setPeriod(e.target.value)}>
           {periodsWithActivity.map((p) => (

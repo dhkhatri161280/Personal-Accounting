@@ -912,13 +912,16 @@ export function TradingReport({
           initialWidth={920}
           initialHeight={720}
         >
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 1rem" }}>
-            Upload the transaction history CSV from Schwab.com (Accounts → History → Export) --
-            this is separate from the Trader API and covers your full account history, not just
-            what's synced so far. Read-only cross-check against Trading; nothing here is saved
-            except any income voucher you explicitly click Add on below. Drag any corner of this
-            window to resize it.
-          </p>
+          <details style={{ fontSize: 12, margin: "0 0 1rem" }}>
+            <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ How this works</summary>
+            <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+              Upload the transaction history CSV from Schwab.com (Accounts → History → Export) --
+              this is separate from the Trader API and covers your full account history, not just
+              what's synced so far. Read-only cross-check against Trading; nothing here is saved
+              except any income voucher you explicitly click Add on below. Drag any corner of this
+              window to resize it.
+            </p>
+          </details>
           {!csvRows ? (
             <>
               <input type="file" accept=".csv" onChange={handleCsvFile} />

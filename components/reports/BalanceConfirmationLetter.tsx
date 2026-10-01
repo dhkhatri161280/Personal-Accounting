@@ -214,10 +214,13 @@ export function BalanceConfirmationLetter({ data, fmt }: { data: Ledger; fmt: (n
   return (
     <div className="data-panel">
       <h3>Balance Confirmation Letter</h3>
-      <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>
-        Generates a standard confirmation letter stating the balance per your books as of a date, for the other party to confirm.
-        Fill in the fields below, then download the PDF and copy the email text to send manually.
-      </p>
+      <details style={{ fontSize: 12, margin: "0 0 10px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "none", color: "#6f7d92", fontWeight: 600 }}>ⓘ How this works</summary>
+        <p style={{ opacity: 0.7, margin: "6px 0 0" }}>
+          Generates a standard confirmation letter stating the balance per your books as of a date, for the other party to confirm.
+          Fill in the fields below, then download the PDF and copy the email text to send manually.
+        </p>
+      </details>
 
       <div className="bcl-form">
         <label>
