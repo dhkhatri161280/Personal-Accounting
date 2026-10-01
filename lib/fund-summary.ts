@@ -154,7 +154,16 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   // A loan is a source of cash but not income, so it's its own section rather than folded into
   // Incoming Fund. A net repayment shows as a negative line here (no separate Outgoing line for
   // it), same as before this was split out.
-  const liabilityAccounts = active.filter((a) => accountNature(a, groupMap) === "Liability");
+  //
+  // "CCU Home Loan" is excluded here -- it's a non-cash mortgage draw that funded a home purchase
+  // directly (the lender paid the seller; the money never touched Bank/Cash), already fully
+  // absorbed into the Home/Home Mortgage/CCU Home Loan netting below (see that comment). Counting
+  // it here too would double-count it as a cash source with nothing offsetting it on the Outgoing
+  // side, inflating Liquidity Balance by exactly that amount above the real Bank+Cash change.
+  const ccuHomeLoanAcc = active.find((a) => a.name.toLowerCase() === "ccu home loan");
+  const liabilityAccounts = active
+    .filter((a) => accountNature(a, groupMap) === "Liability")
+    .filter((a) => a.id !== ccuHomeLoanAcc?.id);
   const loanTaken = liabilityAccounts.reduce((s, a) => s + periodNetDebit(data, a.id, periodStart, periodEnd) * -1, 0);
   const financingRaw: RawLine[] = [{ label: "Loan Taken", amount: loanTaken, accountIds: liabilityAccounts.map((a) => a.id) }];
   const financing = groupOf("Financing", toLines(financingRaw, incomingTotal), incomingTotal);
@@ -178,7 +187,6 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   // home's true standalone value instead of an inflated, unexplained "Unclassified" figure.
   const homeAcc = fixedAssetAccounts.find((a) => a.name.toLowerCase() === "home");
   const homeMortgageAcc = fixedAssetAccounts.find((a) => a.name.toLowerCase() === "home mortgage");
-  const ccuHomeLoanAcc = active.find((a) => a.name.toLowerCase() === "ccu home loan");
   const classOrder = [...ASSET_CLASS_SUGGESTIONS, UNCLASSIFIED_LABEL];
   const fixedAssetByClass = new Map<string, { amount: number; accountIds: number[] }>();
   for (const acc of fixedAssetAccounts) {
