@@ -90,6 +90,7 @@ export function FundSummary({
       [`  ${s.outgoingFixedAssets.label}`, s.outgoingFixedAssets.total, s.outgoingFixedAssets.pctOfIncoming],
       [`  ${s.outgoingInvestments.label}`, s.outgoingInvestments.total, s.outgoingInvestments.pctOfIncoming],
       [`  ${s.outgoingLoans.label}`, s.outgoingLoans.total, s.outgoingLoans.pctOfIncoming],
+      [`  ${s.outgoingDeposits.label}`, s.outgoingDeposits.total, s.outgoingDeposits.pctOfIncoming],
       ["Total Outgoing Fund", s.totalOutgoing, s.totalOutgoingPct],
       [],
       ["Liquidity Balance", s.liquidityBalance, s.liquidityBalancePct],
@@ -109,6 +110,7 @@ export function FundSummary({
       ...groupRows(s.outgoingFixedAssets),
       ...groupRows(s.outgoingInvestments),
       ...groupRows(s.outgoingLoans),
+      ...groupRows(s.outgoingDeposits),
     ];
     const rangeLabel = s.periodStart <= "0001-01-01" ? "All periods" : `${fmtDate(s.periodStart)} to ${fmtDate(s.periodEnd)}`;
     await exportWorkbook(`Fund Summary ${rangeLabel}.xlsx`, [
@@ -167,7 +169,7 @@ export function FundSummary({
             <tr className="ledger-subtotal-row">
               <td colSpan={3}>Outgoing Fund</td>
             </tr>
-            {[s.outgoingExpenses, s.outgoingFixedAssets, s.outgoingInvestments, s.outgoingLoans].map((g) => (
+            {[s.outgoingExpenses, s.outgoingFixedAssets, s.outgoingInvestments, s.outgoingLoans, s.outgoingDeposits].map((g) => (
               <tr key={g.label}>
                 <td style={{ paddingLeft: 24 }}>
                   <button type="button" className="ledger-link" onClick={() => drill(g.label, g.accountIds)}>
@@ -243,6 +245,7 @@ export function FundSummary({
             <DetailGroupRows group={s.outgoingFixedAssets} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
             <DetailGroupRows group={s.outgoingInvestments} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
             <DetailGroupRows group={s.outgoingLoans} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
+            <DetailGroupRows group={s.outgoingDeposits} fmt={fmt} fmtPct={fmtPct} onDrilldown={drill} />
           </tbody>
         </table>
       </div>

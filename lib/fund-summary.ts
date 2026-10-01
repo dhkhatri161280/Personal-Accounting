@@ -30,6 +30,7 @@ export type FundSummaryResult = {
   outgoingFixedAssets: FundGroup;
   outgoingInvestments: FundGroup;
   outgoingLoans: FundGroup;
+  outgoingDeposits: FundGroup;
   totalOutgoing: number;
   totalOutgoingPct: number;
   totalOutgoingAccountIds: number[];
@@ -230,7 +231,18 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
   }));
   const outgoingLoans = groupOf("Loans (Asset)", toLines(loansLines, incomingTotal), incomingTotal);
 
-  const totalOutgoing = outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total + outgoingLoans.total;
+  // ── Outgoing Fund: Deposits (Asset) -- security deposits paid out (rent, utilities), a real
+  // use of funds like Loans (Asset) ─────────────────────────────────────────────────────────────
+  const depositsAccounts = active.filter((a) => /^deposits \(asset\)$/i.test(a.parent || ""));
+  const depositsLines: RawLine[] = depositsAccounts.map((a) => ({
+    label: a.name,
+    amount: periodNetDebit(data, a.id, periodStart, periodEnd),
+    accountIds: [a.id],
+  }));
+  const outgoingDeposits = groupOf("Deposits (Asset)", toLines(depositsLines, incomingTotal), incomingTotal);
+
+  const totalOutgoing =
+    outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total + outgoingLoans.total + outgoingDeposits.total;
   const liquidityBalance = incomingTotal + financing.total - totalOutgoing;
 
   const bankCashChange = bankCashAccounts.reduce((s, a) => s + periodNetDebit(data, a.id, periodStart, periodEnd), 0);
@@ -244,6 +256,7 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
     outgoingFixedAssets,
     outgoingInvestments,
     outgoingLoans,
+    outgoingDeposits,
     totalOutgoing,
     totalOutgoingPct: incomingTotal > 0.5 ? totalOutgoing / incomingTotal : 0,
     totalOutgoingAccountIds: [
@@ -251,6 +264,7 @@ export function computeFundSummary(data: Ledger, rawStart: string, rawEnd: strin
       ...outgoingFixedAssets.accountIds,
       ...outgoingInvestments.accountIds,
       ...outgoingLoans.accountIds,
+      ...outgoingDeposits.accountIds,
     ],
     liquidityBalance,
     liquidityBalancePct: incomingTotal > 0.5 ? liquidityBalance / incomingTotal : 0,

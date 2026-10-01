@@ -22,6 +22,7 @@ export type GrFundSummaryResult = {
   outgoingFixedAssets: GrFundGroup;
   outgoingInvestments: GrFundGroup;
   outgoingLoans: GrFundGroup;
+  outgoingDeposits: GrFundGroup;
   totalOutgoing: number;
   totalOutgoingPct: number;
   liquidityBalance: number;
@@ -151,7 +152,19 @@ export function computeGrFundSummary(
     incomingTotal
   );
 
-  const totalOutgoing = outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total + outgoingLoans.total;
+  // ── Outgoing: Deposits (Asset) -- security deposits paid out (rent, utilities), same treatment
+  // as Loans (Asset). Found live: without this bucket, "House Rent Deposit"/"PG & E Deposit"
+  // fell into the generic uncategorized-Asset bucket, leaving a small but real Liquidity Balance
+  // gap (-2,770.33 on the user's real consolidated book).
+  const depositsAccounts = active.filter((a) => /^deposits \(asset\)$/i.test(a.parent || ""));
+  const outgoingDeposits = groupOf(
+    "Deposits (Asset)",
+    toLines(depositsAccounts.map((a) => ({ label: a.name, amount: netDr(a.name) })), incomingTotal),
+    incomingTotal
+  );
+
+  const totalOutgoing =
+    outgoingExpenses.total + outgoingFixedAssets.total + outgoingInvestments.total + outgoingLoans.total + outgoingDeposits.total;
   const liquidityBalance = incomingTotal + financing.total - totalOutgoing;
 
   const bankCashAccounts = active.filter((a) => ["Bank", "Cash"].includes(nature(a)));
@@ -166,6 +179,7 @@ export function computeGrFundSummary(
     outgoingFixedAssets,
     outgoingInvestments,
     outgoingLoans,
+    outgoingDeposits,
     totalOutgoing,
     totalOutgoingPct: incomingTotal > 0.5 ? totalOutgoing / incomingTotal : 0,
     liquidityBalance,

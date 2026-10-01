@@ -52,6 +52,7 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
       [`  ${s.outgoingFixedAssets.label}`, s.outgoingFixedAssets.total, s.outgoingFixedAssets.pctOfIncoming],
       [`  ${s.outgoingInvestments.label}`, s.outgoingInvestments.total, s.outgoingInvestments.pctOfIncoming],
       [`  ${s.outgoingLoans.label}`, s.outgoingLoans.total, s.outgoingLoans.pctOfIncoming],
+      [`  ${s.outgoingDeposits.label}`, s.outgoingDeposits.total, s.outgoingDeposits.pctOfIncoming],
       ["Total Outgoing Fund", s.totalOutgoing, s.totalOutgoingPct],
       [],
       ["Liquidity Balance", s.liquidityBalance, s.liquidityBalancePct],
@@ -71,6 +72,7 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
       ...groupRows(s.outgoingFixedAssets),
       ...groupRows(s.outgoingInvestments),
       ...groupRows(s.outgoingLoans),
+      ...groupRows(s.outgoingDeposits),
     ];
     await exportWorkbook(`GR Fund Summary ${periodLabel}.xlsx`, [
       { name: "Summary", rows: [header, ...summaryRows] },
@@ -121,7 +123,7 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
             <tr className="ledger-subtotal-row">
               <td colSpan={3}>Outgoing Fund</td>
             </tr>
-            {[s.outgoingExpenses, s.outgoingFixedAssets, s.outgoingInvestments, s.outgoingLoans].map((g) => (
+            {[s.outgoingExpenses, s.outgoingFixedAssets, s.outgoingInvestments, s.outgoingLoans, s.outgoingDeposits].map((g) => (
               <tr key={g.label}>
                 <td style={{ paddingLeft: 24 }}>{g.label}</td>
                 <td className="right">{fmt(g.total)}</td>
@@ -185,6 +187,7 @@ export function GrFundSummary({ s, fmt, periodLabel }: { s: GrFundSummaryResult;
             <DetailGroupRows group={s.outgoingFixedAssets} fmt={fmt} fmtPct={fmtPct} />
             <DetailGroupRows group={s.outgoingInvestments} fmt={fmt} fmtPct={fmtPct} />
             <DetailGroupRows group={s.outgoingLoans} fmt={fmt} fmtPct={fmtPct} />
+            <DetailGroupRows group={s.outgoingDeposits} fmt={fmt} fmtPct={fmtPct} />
           </tbody>
         </table>
       </div>

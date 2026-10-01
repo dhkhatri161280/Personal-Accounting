@@ -92,3 +92,18 @@ test("computeGrFundSummary: Investment stays distinct from generic Asset via gro
   assert.equal(s.outgoingInvestments.total, 50000);
   assert.equal(s.outgoingFixedAssets.total, 0);
 });
+
+test("computeGrFundSummary: Deposits (Asset) is its own Outgoing bucket, not left uncategorized", () => {
+  // Found live: security deposits (rent, utilities) under "Deposits (Asset)" fell into the
+  // generic uncategorized-Asset bucket, leaving a small real Liquidity Balance gap.
+  const accounts = [acc("House Rent Deposit", "Deposits (Asset)"), acc("Bank Of India", "Bank Accounts")];
+  const transactions = [
+    tx("t1", "2026-04-05", [
+      { accountName: "House Rent Deposit", amountInr: -20000, originalAmount: -20000 },
+      { accountName: "Bank Of India", amountInr: 20000, originalAmount: 20000 },
+    ]),
+  ];
+  const s = computeGrFundSummary(ledger(accounts, transactions), "2026-04-01", "2027-03-31", new Map());
+  assert.equal(s.outgoingDeposits.total, 20000);
+  assert.equal(s.liquidityBalance, s.bankCashChange);
+});
