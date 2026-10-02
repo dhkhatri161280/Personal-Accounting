@@ -71,6 +71,46 @@ test("excludes deleted and cancelled vouchers", () => {
   assert.equal(sumInterestDividendIncome(txs, accounts, "2025"), 0);
 });
 
+test("counts a Schwab catch-up dividend toward its REAL year, not the posting (today) date", () => {
+  // The actual bug from this session: confirmIncome() in SchwabImport.tsx deliberately posts a
+  // catch-up dividend dated TODAY (not backdated), but its own narration names the real date --
+  // a dividend truly paid in 2025 posted in 2026 must still count toward 2025.
+  const accounts = [account({ id: 3, name: "Other Income" }), account({ id: 2, name: "Bank - Schwab", category: "Assets" })];
+  const txs = [
+    tx({
+      date: "2026-08-28", // posted (confirmed) on this date
+      narration: "NVDA Qualified Dividend (02-04-2025)", // but really paid 2025-04-02
+      entries: [{ accountId: 2, accountName: "Bank - Schwab", amount: -88.33 }, { accountId: 3, accountName: "Other Income", amount: 88.33 }],
+    }),
+  ];
+  assert.equal(sumInterestDividendIncome(txs, accounts, "2025"), 88.33);
+  assert.equal(sumInterestDividendIncome(txs, accounts, "2026"), 0);
+});
+
+test("falls back to Tx.date when a narration-matched posting has no embedded date to parse", () => {
+  const accounts = [account({ id: 3, name: "Other Income" }), account({ id: 2, name: "Bank - Schwab", category: "Assets" })];
+  const txs = [
+    tx({
+      date: "2025-06-01",
+      narration: "Dividend/interest income",
+      entries: [{ accountId: 2, accountName: "Bank - Schwab", amount: -50 }, { accountId: 3, accountName: "Other Income", amount: 50 }],
+    }),
+  ];
+  assert.equal(sumInterestDividendIncome(txs, accounts, "2025"), 50);
+});
+
+test("an account-name-only match (no descriptive narration) still uses Tx.date, not a narration date", () => {
+  const accounts = [account({ id: 1, name: "Interest Income" }), account({ id: 2, name: "Bank - Chase", category: "Assets" })];
+  const txs = [
+    tx({
+      date: "2025-03-01",
+      narration: "", // no date to parse -- account name alone drives the match
+      entries: [{ accountId: 2, accountName: "Bank - Chase", amount: -2 }, { accountId: 1, accountName: "Interest Income", amount: 2 }],
+    }),
+  ];
+  assert.equal(sumInterestDividendIncome(txs, accounts, "2025"), 2);
+});
+
 test("matches the real filed-return 2025 total: $2 interest + $391 dividends", () => {
   const accounts = [
     account({ id: 1, name: "Interest Income" }),

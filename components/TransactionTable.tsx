@@ -1129,7 +1129,11 @@ export function TransactionTable({
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={6}>Displayed voucher total</th>
+                {/* 7, not 6 -- the expand-toggle column plus Date/Type/#/Debit/Credit/Narration
+                    is 7 columns before Amount; colSpan=6 left the total's <th> landing one column
+                    short, under Narration instead of Amount (confirmed live: visibly misaligned
+                    against the Amount column's own header). */}
+                <th colSpan={7}>Displayed voucher total</th>
                 <th className="right">{formatAmount(filteredTotal)}</th>
                 {balanceMap && <th></th>}
                 <th></th>

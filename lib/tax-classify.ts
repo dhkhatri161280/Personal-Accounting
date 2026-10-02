@@ -1,5 +1,6 @@
 import type { Account, EsppPurchase, RsuGrant, Trade, Tx } from "./vault-types.ts";
 import { round2 } from "./tax-usa-engine.ts";
+import { parseNarrationDate } from "./format-date.ts";
 
 export interface CapitalGainEvent {
   id: string;
@@ -181,13 +182,22 @@ const PASSIVE_INCOME_RE = /dividend|interest/i;
  * /dividend|interest/i (the common dedicated-ledger convention, e.g. "Interest Income"), OR
  * whose voucher narration does (covers a posting to a generic "Other Income" account with a
  * descriptive narration instead -- see components/vault/SchwabImport.tsx's confirmIncome,
- * which posts exactly that way when no dedicated ticker-matched income account exists). */
+ * which posts exactly that way when no dedicated ticker-matched income account exists).
+ *
+ * The YEAR a narration-matched posting counts toward is taken from its own narration's embedded
+ * date when present (parseNarrationDate), not Tx.date -- a Schwab catch-up entry is deliberately
+ * posted TODAY, not backdated to the real dividend date (closed-period safety), so Tx.date alone
+ * would silently shift a real December-2025 dividend confirmed in 2026 into tax year 2026 instead
+ * of 2025. Falls back to Tx.date for an account-name-only match (no descriptive narration to
+ * parse) or any narration without the embedded date. */
 export function sumInterestDividendIncome(transactions: Tx[], accounts: Account[], year: string): number {
   const incomeAccounts = new Map(accounts.filter((a) => a.category === "Income").map((a) => [a.id, a]));
   let total = 0;
   for (const t of transactions) {
-    if (t.deleted || t.cancelled || !t.date.startsWith(year)) continue;
+    if (t.deleted || t.cancelled) continue;
     const narrationMatches = PASSIVE_INCOME_RE.test(t.narration || "");
+    const effectiveDate = (narrationMatches && parseNarrationDate(t.narration || "")) || t.date;
+    if (!effectiveDate.startsWith(year)) continue;
     for (const e of t.entries) {
       if (e.amount <= 0) continue; // positive = credit = income recognized, for an Income-category account
       const acct = incomeAccounts.get(e.accountId);

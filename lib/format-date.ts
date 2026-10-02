@@ -7,6 +7,19 @@ export function fmtDate(iso: string): string {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : iso;
 }
 
+// Inverse of fmtDate -- pulls the first "(DD-MM-YYYY)" this app's own narration conventions embed
+// (Schwab dividend/interest catch-up postings, voucher reversals) back out as ISO. For a Schwab
+// catch-up entry specifically, this is the REAL event date -- Tx.date is deliberately today's
+// date instead (see SchwabImport.tsx's confirmIncome: "catch-up entry posted today, not
+// backdated"), which is right for closed-period safety but wrong for anything that needs to know
+// which calendar year/month the income actually belongs to (lib/tax-classify.ts's
+// sumInterestDividendIncome, lib/cash-flow-forecast.ts's projectPassiveIncome). Returns undefined
+// when no such date is present, so callers can fall back to Tx.date.
+export function parseNarrationDate(narration: string): string | undefined {
+  const m = narration.match(/\((\d{2})-(\d{2})-(\d{4})\)/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : undefined;
+}
+
 // Today as YYYY-MM-DD in the CALLER's local timezone -- `new Date().toISOString().slice(0, 10)`
 // (duplicated dozens of times across this app before this fix) is UTC, not local: in the evening
 // in a timezone behind UTC (e.g. US Pacific), UTC has already rolled to tomorrow, so any "is this

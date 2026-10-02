@@ -3,7 +3,7 @@ import { accountNature, ledgerBalanceAsOf, fiscalYearOf } from "./vault-accounti
 import { currentLoanBalance } from "./loans-ledger";
 import { computePaymentSplit } from "./loans";
 import { parsePeriodRange } from "./payroll-match";
-import { todayLocalIso } from "./format-date";
+import { todayLocalIso, parseNarrationDate } from "./format-date";
 import { periodBoundariesForRange, buildIncomeExpenseColumns } from "./columnar-report";
 import { DEPRECIATION_EXPENSE_ACCOUNT_NAME } from "./fixed-assets";
 import { budgetVsActualRows } from "./budget";
@@ -216,12 +216,18 @@ function projectPaycheckFromHistory(data: Ledger, groupMap: Map<string, { nature
 // history exists. Detection matches EITHER the account name (the common GL convention -- e.g. a
 // "Dividend Income"/"Interest Income" ledger) OR the voucher narration containing
 // "dividend"/"interest", whichever hits, since either convention shows up in real vaults.
+//
+// Bucketed by the narration's own embedded date (parseNarrationDate) when the match came from
+// narration text, not Tx.date -- same reasoning as lib/tax-classify.ts's sumInterestDividendIncome:
+// a Schwab catch-up entry is deliberately posted TODAY, not backdated to the real dividend date,
+// so Tx.date alone would replay a quarterly dividend into the wrong month entirely.
 function projectPassiveIncome(data: Ledger, groupMap: Map<string, { nature: string }>, startMonth: string, months: number): Map<string, number> {
   const accountById = new Map(data.accounts.map((a) => [a.id, a]));
   const byMonth = new Map<string, number>();
   const PASSIVE_RE = /dividend|interest/i;
   for (const t of data.transactions) {
     if (t.deleted || t.cancelled) continue;
+    const narrationMatches = PASSIVE_RE.test(t.narration || "");
     for (const e of t.entries) {
       const acct = accountById.get(e.accountId);
       if (!acct || e.amount >= 0) continue; // negative = Dr = cash/investment inflow
@@ -231,8 +237,9 @@ function projectPassiveIncome(data: Ledger, groupMap: Map<string, { nature: stri
         const oa = accountById.get(oe.accountId);
         return oa ? PASSIVE_RE.test(oa.name) : false;
       });
-      if (!PASSIVE_RE.test(t.narration || "") && !PASSIVE_RE.test(acct.name) && !otherLegMatches) continue;
-      const month = t.date.slice(0, 7);
+      if (!narrationMatches && !PASSIVE_RE.test(acct.name) && !otherLegMatches) continue;
+      const effectiveDate = (narrationMatches && parseNarrationDate(t.narration || "")) || t.date;
+      const month = effectiveDate.slice(0, 7);
       byMonth.set(month, (byMonth.get(month) || 0) + -e.amount);
     }
   }
