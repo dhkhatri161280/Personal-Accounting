@@ -3308,19 +3308,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             label={book === "india" ? "Total income" : "Salary income"}
             value={fmt(book === "india" ? totalIncome : salaryIncome)}
             // periodLabelShort ("FY 2026" not "FY 2026 (Apr 2026 - Mar 2027)") per user feedback --
-            // the long form overflowed this card ("FY 2026 (Apr 2026 - Mar ..." with no way to
-            // read the rest). Still wrapped in AutoFitAmount (same shrink-to-fit component the
-            // headline number and GR's Equity subtitle already use), not a plain nowrap string,
-            // as a safety net for the All-periods/custom-range cases periodLabelShort doesn't
-            // shorten. maxFontSize=8 matches --fs-2xs, the real size every OTHER card's plain
-            // <small> subtitle renders at -- confirmed live the first version (copied the
-            // Equity card's maxFontSize=11 without checking) rendered "FY 2026" visibly larger
-            // than "View account breakdown"/"Includes current result" on the cards right next
-            // to it, since a short string like "FY 2026" never needs to shrink off that ceiling.
-            // color #3970c5 matches that same plain <small>'s own color too -- AutoFitAmount
-            // renders a <strong>, which without this override inherits the dark navy headline
-            // color instead (confirmed live via computed-style, not assumed).
-            subtitle={<AutoFitAmount text={periodLabelShort} maxFontSize={8} minFontSize={6} style={{ fontWeight: 400, color: "#3970c5" }} />}
+            // the long form overflowed this card. A PLAIN STRING here, not AutoFitAmount -- two
+            // earlier attempts at that (maxFontSize=11, then a color/weight style override) both
+            // looked wrong live: AutoFitAmount renders a <strong>, and
+            // `.ui-refresh .dashboard-stats button strong` sets font-weight/color with
+            // !important, unconditionally overriding any inline style passed to it (confirmed via
+            // computed-style, not assumed, after the override attempt still failed live). A plain
+            // string instead renders as just <small>{text}</small> -- the same shape every other
+            // card's subtitle already uses -- so it picks up
+            // `.ui-refresh .dashboard-stats button small`'s own correct styling for free, with no
+            // manual override needed at all.
+            subtitle={periodLabelShort}
             open={dashboardDetail === "salary"}
             onClick={() => toggleDashboardDetail("salary")}
             highlights={(book === "india" ? totalIncomeHighlights : salaryHighlights).map((x) => (
