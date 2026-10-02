@@ -2650,7 +2650,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       cash: "Cash and Bank Balances",
       investments: "Investment Ledgers",
       capital: "Capital Account Composition",
-      salary: `Salary Income - ${periodLabel}`,
+      salary: book === "india" ? `Total Income - ${periodLabel}` : `Salary Income - ${periodLabel}`,
       active: "Active Ledgers",
       loans: "Loans (Asset) Ledgers",
     };
@@ -2667,7 +2667,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           : kind === "capital"
             ? capitalRows
             : kind === "salary"
-              ? salaryDetail
+              // India's headline value/highlights already use totalIncomeDetail (every Income-
+              // nature account, not just name-matched "salary" ones -- the India book's own
+              // income ledgers are never named that way) -- this drill-down panel hadn't been
+              // switched the same way, so it always showed US-only salaryDetail regardless of
+              // book, landing empty for India despite the card showing a real total. Remapped to
+              // totalIncomeDetail's own `incomeAmt` field here since the render below reads
+              // `.closing`, not `.incomeAmt`.
+              ? book === "india"
+                ? totalIncomeDetail.map((a) => ({ ...a, closing: a.incomeAmt }))
+                : salaryDetail
               : kind === "active"
                 ? [...active].sort((a, b) => Math.abs(b.closing) - Math.abs(a.closing))
                 : kind === "loans"
