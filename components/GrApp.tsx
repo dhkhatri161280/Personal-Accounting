@@ -477,6 +477,11 @@ export function GrApp() {
       return new Date(`${year}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
     return `FY ${year} (Apr ${year} – Mar ${Number(year) + 1})`;
   }, [year, customStart, customEnd]);
+  // Card-local short form -- used ONLY by the Period Income dashboard card's subtitle, same as
+  // VaultApp.tsx's own periodLabelShort. Deliberately not changing `periodLabel` itself, which
+  // Trial Balance/Cash Flow/Fund Summary/this card's own expanded-detail heading all also use and
+  // want the full Apr-Mar range for.
+  const periodLabelShort = year === "all" || year === "custom" || year.length === 7 ? periodLabel : `FY ${year}`;
 
   const filteredTxns = useMemo(() => {
     if (!gr) return [];
@@ -1178,7 +1183,11 @@ export function GrApp() {
             iconColor="#64748b"
             label="Period Income (INR)"
             value={fmt(periodIncome)}
-            subtitle={periodLabel}
+            // periodLabelShort ("FY 2026" not "FY 2026 (Apr 2026 - Mar 2027)") per user feedback,
+            // same as VaultApp's own Salary/Total income card. Still wrapped in AutoFitAmount
+            // (same fix already applied to GR's own Equity subtitle) as a safety net for the
+            // All-periods/custom-range cases periodLabelShort doesn't shorten.
+            subtitle={<AutoFitAmount text={periodLabelShort} maxFontSize={11} minFontSize={7} style={{ fontWeight: 400 }} />}
             open={dashboardDetail === "income"}
             onClick={() => toggleDashboardDetail("income")}
             highlights={

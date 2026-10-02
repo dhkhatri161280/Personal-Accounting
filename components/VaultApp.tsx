@@ -2229,6 +2229,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               year: "numeric",
             })
           : `FY ${year} (Apr ${year} - Mar ${Number(year) + 1})`;
+  // Card-local short form -- used ONLY by the Salary/Total income dashboard card's subtitle,
+  // deliberately not changing `periodLabel` itself, which Cash Flow/Loans FX Register/the
+  // drill-down panel title all also use and want the full Apr-Mar range for. Only the FY case
+  // actually needs shortening (the long parenthetical range is what overflowed the card); the
+  // other cases are already short enough as-is.
+  const periodLabelShort = year === "all" || year === "custom" || year.length === 7 ? periodLabel : `FY ${year}`;
 
   // Monthly/Quarterly columns follow whatever "Financial period" is currently selected -- a
   // fiscal year, a custom month range, or a single month -- not just a hardcoded FY. Only "all
@@ -3292,7 +3298,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             iconColor="#64748b"
             label={book === "india" ? "Total income" : "Salary income"}
             value={fmt(book === "india" ? totalIncome : salaryIncome)}
-            subtitle={periodLabel}
+            // periodLabelShort ("FY 2026" not "FY 2026 (Apr 2026 - Mar 2027)") per user feedback --
+            // the long form overflowed this card ("FY 2026 (Apr 2026 - Mar ..." with no way to
+            // read the rest). Still wrapped in AutoFitAmount (same shrink-to-fit component the
+            // headline number and GR's Equity subtitle already use), not a plain nowrap string,
+            // as a safety net for the All-periods/custom-range cases periodLabelShort doesn't
+            // shorten.
+            subtitle={<AutoFitAmount text={periodLabelShort} maxFontSize={11} minFontSize={7} style={{ fontWeight: 400 }} />}
             open={dashboardDetail === "salary"}
             onClick={() => toggleDashboardDetail("salary")}
             highlights={(book === "india" ? totalIncomeHighlights : salaryHighlights).map((x) => (
