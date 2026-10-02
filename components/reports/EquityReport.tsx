@@ -1822,11 +1822,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
                 )
               </em>
             </span>
-            <span className="equity-amt equity-col-val">{fmt(g.awardValue)}</span>
-            <span className="equity-amt equity-col-val">{fmt(g.saleValue)}</span>
-            <span className="equity-amt equity-col-val">{fmt(g.marketValue)}</span>
-            <span className={`equity-col-val ${g.gain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(g.gain)}</span>
-            <span className="equity-amt equity-col-val">{fmt(g.scheduledValue)}</span>
+            <span className="equity-amt equity-col-val" data-label="Award Value">{fmt(g.awardValue)}</span>
+            <span className="equity-amt equity-col-val" data-label="Sale Proceeds">{fmt(g.saleValue)}</span>
+            <span className="equity-amt equity-col-val" data-label="Market Value">{fmt(g.marketValue)}</span>
+            <span className={`equity-col-val ${g.gain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`} data-label="Gain">{fmt(g.gain)}</span>
+            <span className="equity-amt equity-col-val" data-label="Scheduled Value">{fmt(g.scheduledValue)}</span>
             <div className="equity-grant-btns" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() => {
