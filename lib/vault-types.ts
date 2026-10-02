@@ -45,6 +45,15 @@ export type Tx = {
   // gets overwritten to "synced" the first time Tally sync runs (tools/tally-sync/apply-one-
   // app-change.js), which would silently erase the Plaid origin the moment the voucher synced.
   plaidTxId?: string;
+  // Set once, at creation, when this voucher was saved via "Reverse" against another voucher
+  // (see useVoucherForm.ts's reverseVoucher) -- the id (Tx.id, not guid) of the voucher it
+  // reverses. A reversal pair nets to zero and reflects no real money movement, so neither leg
+  // can ever legitimately match a Plaid bank transaction -- TransactionTable.tsx's isReconciled
+  // treats both the reversal and the original it points to as reconciled on this basis alone, so
+  // the Day Book's "Unreconciled only" filter doesn't permanently clutter up with pairs that were
+  // never going to post to the bank in the first place (e.g. an order that showed as Plaid-
+  // pending, got posted, then never actually shipped/settled).
+  reversalOf?: number;
 };
 
 export type Attachment = {

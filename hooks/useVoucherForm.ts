@@ -345,6 +345,10 @@ export function useVoucherForm({
       attachments: pendingAttachments.length
         ? [...(editTx?.attachments ?? []), ...pendingAttachments]
         : editTx?.attachments,
+      // Links this new voucher back to the one it reverses (see Tx.reversalOf's comment) --
+      // reverseVoucher() only drafts the form and sets reverseTx; this is the actual save, the
+      // one point where the new Tx.id is finalized and worth persisting the link at.
+      ...(reverseTx ? { reversalOf: reverseTx.id } : {}),
     };
     const validation = validateVoucher(tx, data.accounts);
     if (!validation.valid) {

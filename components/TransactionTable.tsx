@@ -42,6 +42,8 @@ export type VoucherRow = {
   // to "synced". A free, zero-risk backfill for older Plaid-imported vouchers: no data recovery
   // needed, the signal is already sitting right here.
   syncStatus?: string;
+  // See Tx.reversalOf (lib/vault-types.ts) -- the id of the voucher this one reverses, if any.
+  reversalOf?: number;
 };
 type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount" | "debitAmount" | "creditAmount";
 
@@ -446,11 +448,26 @@ export function TransactionTable({
   // confirmed-matches entry), so this filter always agrees with what the badge shows rather than
   // recomputing its own separate notion of "reconciled".
   const [reconciledFilter, setReconciledFilter] = useState<"all" | "reconciled" | "unreconciled">("all");
+  // Both legs of a reversal pair (a voucher with reversalOf set, and the voucher its reversalOf
+  // id points to) -- see Tx.reversalOf's comment in lib/vault-types.ts for why these are treated
+  // as reconciled: they net to zero, reflect no real money movement, and so can never legitimately
+  // match a Plaid bank transaction either way. Computed from the current `transactions` prop, so
+  // a pair only gets caught here when both legs fall within whatever period/filter is in view.
+  const reversalPairIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const t of transactions) {
+      if (t.reversalOf == null) continue;
+      if (t.id != null) ids.add(t.id);
+      ids.add(t.reversalOf);
+    }
+    return ids;
+  }, [transactions]);
   const isReconciled = (t: VoucherRow) =>
     !!t.plaidTxId ||
     t.syncStatus === "bank-pending" ||
     (t.id != null && !!matchedVoucherIds?.has(t.id)) ||
-    (!!alwaysReconciledAccountIds?.size && t.entries.some((e) => e.accountId != null && alwaysReconciledAccountIds.has(e.accountId)));
+    (!!alwaysReconciledAccountIds?.size && t.entries.some((e) => e.accountId != null && alwaysReconciledAccountIds.has(e.accountId))) ||
+    (t.id != null && reversalPairIds.has(t.id));
   // Collapsed by default -- a period only expands into its individual vouchers once its own
   // header row is clicked. Keyed by periodKey, so switching between e.g. Monthly and Quarterly
   // starts every group fresh rather than carrying over stale keys from a different bucketing.
