@@ -2619,7 +2619,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           { label: "= AGI (YTD)", value: taxEstimate.agi, bold: true },
         ];
         const agiProjectedLines = [
-          { label: "Projected Gross Salary (full year: YTD + remaining paychecks + scheduled RSU)", value: taxPlanningProjection.fullYearGross },
+          { label: "Actual Gross Salary (right now, YTD)", value: totalGross },
+          { label: "+ Remaining Paychecks (projected, modeled on your most recent paystub)", value: taxPlanningProjection.projectedRemainingGross },
+          ...(taxPlanningProjection.futureVestShares > 0 && taxPlanningProjection.livePriceUsed
+            ? [{ label: `+ Scheduled RSU Vests (${taxPlanningProjection.futureVestShares.toLocaleString()} sh @ today's $${taxPlanningProjection.livePriceUsed.toFixed(2)})`, value: taxPlanningProjection.futureVestValue }]
+            : []),
+          { label: "= Projected Gross Salary (full year)", value: taxPlanningProjection.fullYearGross, bold: true },
           { label: "Less: Projected Employee 401(k) (full year, capped at IRS limit)", value: -taxPlanningProjection.fullYearK401 },
           { label: "= Projected Wages (full year)", value: taxPlanningProjection.projectedTaxableWages, bold: true },
           { label: "+ Taxable Interest & Dividends (YTD, not projected)", value: interestDividendIncome },
