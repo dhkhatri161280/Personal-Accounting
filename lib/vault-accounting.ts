@@ -154,6 +154,30 @@ export const backfillReversalLinks = (ledger: Ledger): Ledger => {
   return changed ? { ...ledger, transactions } : ledger;
 };
 
+// Backfills the missing "Dividend/Interest" keyword onto Schwab-imported vouchers posted before
+// lib/parse-schwab-transactions.ts's activityNarration() fix -- found live: a real $3,163.25 NVDA
+// "Qualified Dividend" posted as "CURRENCY_USD NVIDIA CORP (01-10-2026)" (correctly shown under
+// Schwab Import's own "Dividends / interest" bucket, but silently excluded from the Tax Report's
+// AGI calc and Cash Flow Forecast's passive-income projection, since both classify purely by
+// /dividend|interest/i against narration/account-name text -- see tax-classify.ts's
+// sumInterestDividendIncome). "CURRENCY_USD " is ONLY ever produced by that one buggy code path
+// (primaryInstrument falling back to a cash leg's instrument.symbol for a dividend/interest
+// activity with no EQUITY leg) -- no other narration in this app starts with that exact prefix --
+// so any existing voucher with it, crediting an Income-category account, is safe to treat as a
+// true dividend/interest posting that just lost its keyword. Idempotent: once appended, the
+// narration matches /dividend|interest/i, so a second pass is a no-op for that voucher.
+export const backfillDividendNarrations = (ledger: Ledger): Ledger => {
+  const incomeAccountIds = new Set(ledger.accounts.filter((a) => a.category === "Income").map((a) => a.id));
+  let changed = false;
+  const transactions = ledger.transactions.map((t) => {
+    if (t.deleted || !t.narration.startsWith("CURRENCY_USD ") || /dividend|interest/i.test(t.narration)) return t;
+    if (!t.entries.some((e) => e.amount > 0 && incomeAccountIds.has(e.accountId))) return t;
+    changed = true;
+    return { ...t, narration: `${t.narration} Dividend/Interest` };
+  });
+  return changed ? { ...ledger, transactions } : ledger;
+};
+
 // Redirects a REVERSAL's account to the current month's own "House Hold Exps - <Mon> <YY>"
 // sibling instead of keeping the original (now-stale) month's account -- e.g. reversing today in
 // September a voucher originally posted against "House Hold Exps - Aug 26" should land in

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findUnpairedPositiveJournalActivities } from "../lib/parse-schwab-transactions.ts";
+import { findUnpairedPositiveJournalActivities, activityNarration } from "../lib/parse-schwab-transactions.ts";
 import type { SchwabActivity } from "../lib/parse-schwab-transactions.ts";
 
 function activity(overrides: Partial<SchwabActivity> & { activityId: number }): SchwabActivity {
@@ -56,4 +56,36 @@ test("each negative can only consume one positive, even with three same-day/same
   ];
   const result = findUnpairedPositiveJournalActivities(activities);
   assert.equal(result.length, 1); // one positive gets paired off, the other stays unpaired/flagged
+});
+
+test("activityNarration uses the real EQUITY leg's ticker, not a cash leg's symbol", () => {
+  const a = activity({
+    activityId: 1,
+    type: "DIVIDEND_OR_INTEREST",
+    description: "Qualified Dividend",
+    transferItems: [{ instrument: { assetType: "EQUITY", symbol: "NOK" } }],
+  });
+  assert.equal(activityNarration(a), "NOK Qualified Dividend");
+});
+
+test("activityNarration never uses a non-EQUITY fallback leg's symbol (the actual $3,163.25 NVDA bug from this session)", () => {
+  const a = activity({
+    activityId: 1,
+    type: "DIVIDEND_OR_INTEREST",
+    description: "NVIDIA CORP",
+    transferItems: [{ instrument: { assetType: "CASH_EQUIVALENT", symbol: "CURRENCY_USD" } }],
+  });
+  // Must not read "CURRENCY_USD NVIDIA CORP" -- and since the description alone ("NVIDIA CORP")
+  // doesn't carry the word either, the DIVIDEND_OR_INTEREST type must force it in.
+  assert.equal(activityNarration(a), "NVIDIA CORP Dividend/Interest");
+});
+
+test("activityNarration leaves a description that already says Dividend/Interest untouched", () => {
+  const a = activity({ activityId: 1, type: "DIVIDEND_OR_INTEREST", description: "Qualified Dividend", transferItems: [] });
+  assert.equal(activityNarration(a), "Qualified Dividend");
+});
+
+test("activityNarration doesn't force the Dividend/Interest keyword onto a non-dividend activity", () => {
+  const a = activity({ activityId: 1, type: "JOURNAL", description: "NVIDIA CORP", transferItems: [{ instrument: { assetType: "CASH_EQUIVALENT", symbol: "CURRENCY_USD" } }] });
+  assert.equal(activityNarration(a), "NVIDIA CORP");
 });

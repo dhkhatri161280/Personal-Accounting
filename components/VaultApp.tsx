@@ -48,6 +48,7 @@ import {
   isPeriodClosed,
   ensureHouseHoldAccountsForFiscalYears,
   backfillReversalLinks,
+  backfillDividendNarrations,
   buildFiscalYearCloseVoucher,
   isFiscalYearAlreadyClosed,
   isProfitAndLossAccountName,
@@ -372,8 +373,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // One-time catch-up for any reversal voucher saved before Tx.reversalOf existed -- see
     // backfillReversalLinks's own comment. Idempotent and cheap once a vault's history is caught
     // up (returns the same reference, so reversalLinksBackfilled is false on every open after).
-    const decrypted = backfillReversalLinks(postedAmortization);
-    const reversalLinksBackfilled = decrypted !== postedAmortization;
+    const withReversalLinks = backfillReversalLinks(postedAmortization);
+    const reversalLinksBackfilled = withReversalLinks !== postedAmortization;
+    // Same one-time catch-up, for Schwab dividend/interest vouchers missing their keyword --
+    // see backfillDividendNarrations's own comment.
+    const decrypted = backfillDividendNarrations(withReversalLinks);
+    const dividendNarrationsBackfilled = decrypted !== withReversalLinks;
     const { changed: repaired, hadDuplicate } = recomputeVoucherNumbers(decrypted);
     setVaultEtag(etag);
     setPassword(pw);
@@ -385,7 +390,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     sessionStorage.setItem(sessionKey, pw);
     await cacheUnifiedVaultPassword(pw).catch(() => {});
     setLastSynced(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    if (repaired || newAccountCount > 0 || amortizationPosted > 0 || reversalLinksBackfilled) {
+    if (repaired || newAccountCount > 0 || amortizationPosted > 0 || reversalLinksBackfilled || dividendNarrationsBackfilled) {
       setStatus(
         repaired
           ? hadDuplicate
@@ -395,7 +400,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             ? `Posting ${amortizationPosted} pending prepaid amortization voucher(s)...`
             : reversalLinksBackfilled
               ? "Linking existing reversal vouchers so they stop showing as unreconciled..."
-              : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
+              : dividendNarrationsBackfilled
+                ? "Fixing dividend/interest vouchers missing from tax/forecast totals..."
+                : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
       );
       const corrected = await encryptVault(decrypted, pw),
         saved = await apiFetch(apiUrl, {
@@ -414,7 +421,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           ? `Auto-posted ${amortizationPosted} pending prepaid amortization voucher(s).`
           : reversalLinksBackfilled
             ? "Linked existing reversal vouchers — they'll no longer show as unreconciled."
-            : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
+            : dividendNarrationsBackfilled
+              ? "Fixed dividend/interest voucher(s) that were missing from Tax Report and Cash Flow Forecast totals."
+              : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
       setStatus(infoMsg);
       setTimeout(() => setStatus((s) => (s === infoMsg ? "" : s)), 5000);
     } else setStatus("");
@@ -796,6 +805,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // Same safety net as openVault() -- catches a reversal voucher saved elsewhere (e.g. a Tally
     // sync import) without a reversalOf link yet. See backfillReversalLinks's own comment.
     next = backfillReversalLinks(next);
+    // Same safety net, for Schwab dividend/interest vouchers missing their keyword -- see
+    // backfillDividendNarrations's own comment.
+    next = backfillDividendNarrations(next);
 
     recomputeVoucherNumbers(next);
     setStatus("Encrypting and saving...");

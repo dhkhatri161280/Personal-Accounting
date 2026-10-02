@@ -119,8 +119,24 @@ export function isInternalEquityTransfer(a: SchwabActivity): boolean {
 // Narration a posted dividend/interest voucher for this activity carries -- shared between the
 // posting function and any future "already recorded" check, same convention as
 // TradingReport's incomeNarration for CSV rows.
+//
+// Two real bugs fixed here (found live: a $3,163.25 NVDA "Qualified Dividend" activity posted as
+// "CURRENCY_USD NVIDIA CORP (01-10-2026)" -- correctly shown under Schwab Import's own "Dividends
+// / interest" bucket, but silently dropped from the Tax Report's AGI calc and Cash Flow
+// Forecast's passive-income projection, since both of those classify purely by narration text
+// matching /dividend|interest/i, with no idea which import bucket a voucher came from):
+//   1. primaryInstrument() falls back to transferItems[0] when no EQUITY leg exists -- for a
+//      cash-only dividend credit that's the CASH leg, whose instrument.symbol is the literal
+//      string "CURRENCY_USD", not a real ticker. Only trust the symbol when it actually came from
+//      an EQUITY leg; a non-equity fallback symbol is meaningless for display.
+//   2. Schwab's own `description` field is inconsistent across dividend activities -- sometimes
+//      "Qualified Dividend" (already matches the downstream regex), sometimes just the company
+//      name like "NVIDIA CORP" (doesn't). For anything Schwab itself typed as "DIVIDEND_OR_
+//      INTEREST", guarantee the word appears in the narration regardless of what description
+//      says, so it can never again silently fall out of tax/forecast classification.
 export function activityNarration(a: SchwabActivity): string {
   const inst = primaryInstrument(a);
-  const symbol = inst?.instrument?.symbol;
-  return symbol ? `${symbol} ${a.description || a.type}` : a.description || a.type;
+  const symbol = inst?.instrument?.assetType === "EQUITY" ? inst.instrument.symbol : undefined;
+  const base = symbol ? `${symbol} ${a.description || a.type}` : a.description || a.type;
+  return a.type === "DIVIDEND_OR_INTEREST" && !/dividend|interest/i.test(base) ? `${base} Dividend/Interest` : base;
 }
