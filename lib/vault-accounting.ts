@@ -124,6 +124,36 @@ export const ensureHouseHoldAccountsForFiscalYears = (ledger: Ledger, extraFisca
   return { ...ledger, accounts: [...ledger.accounts, ...newAccounts] };
 };
 
+// Backfills Tx.reversalOf onto reversal vouchers saved BEFORE that field existed -- the only
+// trace a pre-existing reversal carries is its narration, always written by reverseVoucher() in
+// this exact template: `Reversal of ${type} ${number} (${fmtDate(date)}) — ...` (DD-MM-YYYY, see
+// format-date.ts's fmtDate). Parses that back apart and looks up the one transaction with a
+// matching type+number+date to link to. Same idempotent/additive-only shape as
+// ensureHouseHoldAccountsForFiscalYears above -- only ever fills in a missing reversalOf, never
+// overwrites one, and returns the SAME ledger reference when nothing needs linking (the common
+// case on every load once a vault's history has been backfilled once). Run from both openVault()
+// and save(), same two call sites as the other backfills here, so it catches up a vault that
+// still has un-linked reversals from before Tx.reversalOf shipped without needing any one-time
+// user-triggered migration step.
+const REVERSAL_NARRATION = /^Reversal of (\S+) (\S+) \((\d{2})-(\d{2})-(\d{4})\) —/;
+export const backfillReversalLinks = (ledger: Ledger): Ledger => {
+  let changed = false;
+  const transactions = ledger.transactions.map((t) => {
+    if (t.reversalOf != null || t.deleted) return t;
+    const m = t.narration.match(REVERSAL_NARRATION);
+    if (!m) return t;
+    const [, type, number, dd, mm, yyyy] = m;
+    const date = `${yyyy}-${mm}-${dd}`;
+    const original = ledger.transactions.find(
+      (o) => o.id !== t.id && o.type === type && o.number === number && o.date === date
+    );
+    if (!original) return t;
+    changed = true;
+    return { ...t, reversalOf: original.id };
+  });
+  return changed ? { ...ledger, transactions } : ledger;
+};
+
 // Redirects a REVERSAL's account to the current month's own "House Hold Exps - <Mon> <YY>"
 // sibling instead of keeping the original (now-stale) month's account -- e.g. reversing today in
 // September a voucher originally posted against "House Hold Exps - Aug 26" should land in

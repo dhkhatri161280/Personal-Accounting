@@ -47,6 +47,7 @@ import {
   findClosedPeriodViolations,
   isPeriodClosed,
   ensureHouseHoldAccountsForFiscalYears,
+  backfillReversalLinks,
   buildFiscalYearCloseVoucher,
   isFiscalYearAlreadyClosed,
   isProfitAndLossAccountName,
@@ -367,7 +368,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // vault was opened, so it never depends on remembering to click "Run Amortization" -- posting
     // happens here (on unlock, when the vault is actually decrypted) rather than on a server-side
     // schedule, since the server never holds the password and can't touch the vault unattended.
-    const { data: decrypted, postedCount: amortizationPosted } = postAmortization(withHousehold, today);
+    const { data: postedAmortization, postedCount: amortizationPosted } = postAmortization(withHousehold, today);
+    // One-time catch-up for any reversal voucher saved before Tx.reversalOf existed -- see
+    // backfillReversalLinks's own comment. Idempotent and cheap once a vault's history is caught
+    // up (returns the same reference, so reversalLinksBackfilled is false on every open after).
+    const decrypted = backfillReversalLinks(postedAmortization);
+    const reversalLinksBackfilled = decrypted !== postedAmortization;
     const { changed: repaired, hadDuplicate } = recomputeVoucherNumbers(decrypted);
     setVaultEtag(etag);
     setPassword(pw);
@@ -379,7 +385,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     sessionStorage.setItem(sessionKey, pw);
     await cacheUnifiedVaultPassword(pw).catch(() => {});
     setLastSynced(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    if (repaired || newAccountCount > 0 || amortizationPosted > 0) {
+    if (repaired || newAccountCount > 0 || amortizationPosted > 0 || reversalLinksBackfilled) {
       setStatus(
         repaired
           ? hadDuplicate
@@ -387,7 +393,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             : "Resequencing voucher numbers and saving securely..."
           : amortizationPosted > 0
             ? `Posting ${amortizationPosted} pending prepaid amortization voucher(s)...`
-            : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
+            : reversalLinksBackfilled
+              ? "Linking existing reversal vouchers so they stop showing as unreconciled..."
+              : `Provisioning ${newAccountCount} new House Hold Exps account(s) for the fiscal year...`
       );
       const corrected = await encryptVault(decrypted, pw),
         saved = await apiFetch(apiUrl, {
@@ -404,7 +412,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           : "Voucher numbers resequenced (a backdated entry or deletion shifted the order) — no action needed."
         : amortizationPosted > 0
           ? `Auto-posted ${amortizationPosted} pending prepaid amortization voucher(s).`
-          : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
+          : reversalLinksBackfilled
+            ? "Linked existing reversal vouchers — they'll no longer show as unreconciled."
+            : `Auto-created ${newAccountCount} new House Hold Exps account(s) for FY ${fiscalYearOf(today)}.`;
       setStatus(infoMsg);
       setTimeout(() => setStatus((s) => (s === infoMsg ? "" : s)), 5000);
     } else setStatus("");
@@ -783,6 +793,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const withHouseHoldAccounts = ensureHouseHoldAccountsForFiscalYears(next);
     const newAccountCount = withHouseHoldAccounts.accounts.length - next.accounts.length;
     next = withHouseHoldAccounts;
+    // Same safety net as openVault() -- catches a reversal voucher saved elsewhere (e.g. a Tally
+    // sync import) without a reversalOf link yet. See backfillReversalLinks's own comment.
+    next = backfillReversalLinks(next);
 
     recomputeVoucherNumbers(next);
     setStatus("Encrypting and saving...");
