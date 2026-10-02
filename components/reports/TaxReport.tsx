@@ -2606,18 +2606,6 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         // contribution isn't tied to remaining paychecks the way 401(k) is) -- this keeps
         // Projected AGI reconciling exactly with the Projected Tax cards below, not independently
         // re-derived with a different HSA assumption.
-        const agiYtdLines = [
-          { label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other) (YTD)", value: totalGross },
-          { label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1) (YTD)", value: -totalK401 },
-          { label: "= Wages (W-2, incl. RSU/ESPP ordinary income) (YTD)", value: taxableWages, bold: true },
-          { label: "+ Taxable Interest & Dividends (YTD, not projected -- see note below)", value: interestDividendIncome },
-          { label: "Short-Term Capital Gain (YTD, not projected)", value: gainTotals.shortTermGainTaxable },
-          { label: "Less: Capital Loss Deduction (YTD, not projected)", value: -gainTotals.ordinaryLossDeduction },
-          { label: "Less: HSA Deduction (YTD -- see note below)", value: -hsaDeduction },
-          { label: "= Ordinary Income (YTD)", value: taxEstimate.ordinaryIncome, bold: true },
-          { label: "+ Long-Term Capital Gain (YTD, not projected)", value: taxEstimate.longTermGain },
-          { label: "= AGI (YTD)", value: taxEstimate.agi, bold: true },
-        ];
         const agiProjectedLines = [
           { label: "Actual Gross Salary (right now, YTD)", value: totalGross },
           { label: "+ Remaining Paychecks (projected, modeled on your most recent paystub)", value: taxPlanningProjection.projectedRemainingGross },
@@ -2664,7 +2652,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 icon: "wallet" as IconKind, color: "#1e40af",
                 onClick: () => setTaxBreakdownModal({
                   title: "Projected AGI (full year) — how it's derived",
-                  lines: [...agiYtdLines, ...agiProjectedLines],
+                  lines: agiProjectedLines,
                 }),
               },
               {
