@@ -58,6 +58,17 @@ export interface FullYearProjection {
   fullYearMedicareWages: number;
   fullYearMedicareWithheld: number;
   fullYearK401: number;
+  // Taxable wages after the projected 401(k); the HSA deduction used in the projection (YTD
+  // actual, not extrapolated -- see TaxPlanningInput.interestDividendIncome's comment on why HSA
+  // specifically isn't schedule-based either); and the full projected AGI waterfall these two
+  // feed into, in the SAME shape as TaxReport.tsx's own AGI card (Wages -> Ordinary Income ->
+  // AGI) -- exposed so that card's "Projected AGI" counterpart reconciles exactly with
+  // projectedFederalTax/projectedStateTax below rather than being independently re-derived.
+  projectedTaxableWages: number;
+  projectedHsaDeduction: number;
+  projectedOrdinaryIncome: number;
+  projectedLongTermGain: number;
+  projectedAgi: number;
   projectedFederalTax: number;
   projectedStateTax: number;
   projectedFederalBalanceDue: number;
@@ -83,6 +94,13 @@ export interface TaxPlanningInput {
   totalGross: number;
   totalFederal: number;
   totalMedicare: number;
+  // Not schedule-based like wages/401(k) -- a dividend lands on its own date, not per paycheck --
+  // so this is carried through as the flat YTD actual everywhere below, never extrapolated.
+  // Previously omitted entirely from every estimateUsFederalTax() call in this file (defaults to
+  // 0 when absent), silently understating every federal/state tax figure this module computes,
+  // including the headline projectedFederalTax/projectedStateTax shown directly in the Tax
+  // Report -- found while wiring up TaxReport.tsx's own Projected AGI card against this value.
+  interestDividendIncome: number;
   shortTermGainTaxable: number;
   longTermGainTaxable: number;
   capitalLossDeduction: number;
@@ -164,7 +182,7 @@ function semiMonthlyPeriodsElapsed(taxYear: string, todayIso: string): number {
 export function computeFullYearProjection(input: TaxPlanningInput): FullYearProjection {
   const {
     taxYear, filingStatus, stateCode, totalGross, totalFederal, totalMedicare, totalStateWH, totalK401,
-    totalEsppYtd, lastPeriod, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction, federalItemizedTotal,
+    totalEsppYtd, lastPeriod, interestDividendIncome, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction, federalItemizedTotal,
     hsaContributionTotal, hsaCoverage, stateHsaConforms, stateItemizedTotal, grants, esppPurchases, livePrice, todayIso,
   } = input;
 
@@ -234,7 +252,7 @@ export function computeFullYearProjection(input: TaxPlanningInput): FullYearProj
   const fed = estimateUsFederalTax({
     taxYear, filingStatus, wages: projTaxableWages, federalWithheld: fullYearFederalWithheld,
     medicareWages: fullYearMedicareWages, medicareWithheld: fullYearMedicareWithheld,
-    shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
+    interestDividendIncome, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
     aboveLineDeduction: hsaDeduction, itemizedDeduction: federalItemizedTotal,
   });
   const stateAgi = stateHsaConforms ? fed.agi : fed.agi + fed.aboveLineDeduction;
@@ -246,6 +264,8 @@ export function computeFullYearProjection(input: TaxPlanningInput): FullYearProj
     futureVestShares, futureVestValue, livePriceUsed: livePrice ?? null,
     fullYearGross, fullYearFederalWithheld, fullYearStateWithheld,
     fullYearMedicareWages, fullYearMedicareWithheld, fullYearK401,
+    projectedTaxableWages: projTaxableWages, projectedHsaDeduction: hsaDeduction,
+    projectedOrdinaryIncome: fed.ordinaryIncome, projectedLongTermGain: fed.longTermGain, projectedAgi: fed.agi,
     projectedFederalTax: fed.estimatedTax, projectedStateTax, projectedFederalBalanceDue: fed.balanceDue,
     perPeriodEspp, totalEsppYtd, projectedRemainingEspp, fullYearEspp,
     nextEsppPurchaseDate, projectedEsppByNextPurchase,
@@ -256,7 +276,7 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
   const scenarios: TaxPlanningScenario[] = [];
   const {
     taxYear, filingStatus, stateCode, stateName, longTermHoldingDays,
-    shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
+    interestDividendIncome, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
     federalItemizedTotal, hsaContributionTotal, hsaCoverage,
     stateItemizedTotal, stateHsaConforms, baselineFederalStandardDeduction,
     grants, esppPurchases, livePrice, todayIso,
@@ -286,7 +306,7 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
       const newFed = estimateUsFederalTax({
         taxYear, filingStatus, wages: newTaxableWages, federalWithheld: totalFederal,
         medicareWages: fullYearMedicareWages, medicareWithheld: totalMedicare,
-        shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
+        interestDividendIncome, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
         aboveLineDeduction: computeHsaDeduction(taxYear, hsaCoverage, hsaContributionTotal),
         itemizedDeduction: federalItemizedTotal,
       });
@@ -333,7 +353,7 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
       const newFed = estimateUsFederalTax({
         taxYear, filingStatus, wages: taxableWages, federalWithheld: totalFederal,
         medicareWages: fullYearMedicareWages, medicareWithheld: totalMedicare,
-        shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
+        interestDividendIncome, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
         aboveLineDeduction: newHsaDeduction,
         itemizedDeduction: federalItemizedTotal,
       });
@@ -391,12 +411,12 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
           const ltcgDateIso = ltcgDate.toISOString().slice(0, 10);
           const stNow = estimateUsFederalTax({
             taxYear, filingStatus, wages: taxableWages, federalWithheld: 0, medicareWages: fullYearMedicareWages,
-            shortTermGainTaxable: shortTermGainTaxable + unrealizedGain, longTermGainTaxable, capitalLossDeduction,
+            interestDividendIncome, shortTermGainTaxable: shortTermGainTaxable + unrealizedGain, longTermGainTaxable, capitalLossDeduction,
             itemizedDeduction: federalItemizedTotal,
           });
           const ltNow = estimateUsFederalTax({
             taxYear, filingStatus, wages: taxableWages, federalWithheld: 0, medicareWages: fullYearMedicareWages,
-            shortTermGainTaxable, longTermGainTaxable: longTermGainTaxable + unrealizedGain, capitalLossDeduction,
+            interestDividendIncome, shortTermGainTaxable, longTermGainTaxable: longTermGainTaxable + unrealizedGain, capitalLossDeduction,
             itemizedDeduction: federalItemizedTotal,
           });
           const fedSavings = Math.max(0, stNow.estimatedTax - ltNow.estimatedTax);
@@ -434,12 +454,12 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
         const ltcgDateIso = ltcgDate.toISOString().slice(0, 10);
         const stNow = estimateUsFederalTax({
           taxYear, filingStatus, wages: taxableWages, federalWithheld: 0, medicareWages: fullYearMedicareWages,
-          shortTermGainTaxable: shortTermGainTaxable + unrealizedGain, longTermGainTaxable, capitalLossDeduction,
+          interestDividendIncome, shortTermGainTaxable: shortTermGainTaxable + unrealizedGain, longTermGainTaxable, capitalLossDeduction,
           itemizedDeduction: federalItemizedTotal,
         });
         const ltNow = estimateUsFederalTax({
           taxYear, filingStatus, wages: taxableWages, federalWithheld: 0, medicareWages: fullYearMedicareWages,
-          shortTermGainTaxable, longTermGainTaxable: longTermGainTaxable + unrealizedGain, capitalLossDeduction,
+          interestDividendIncome, shortTermGainTaxable, longTermGainTaxable: longTermGainTaxable + unrealizedGain, capitalLossDeduction,
           itemizedDeduction: federalItemizedTotal,
         });
         const fedSavings = Math.max(0, stNow.estimatedTax - ltNow.estimatedTax);
@@ -467,7 +487,7 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
       const bumped = estimateUsFederalTax({
         taxYear, filingStatus, wages: taxableWages, federalWithheld: totalFederal,
         medicareWages: fullYearMedicareWages, medicareWithheld: totalMedicare,
-        shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
+        interestDividendIncome, shortTermGainTaxable, longTermGainTaxable, capitalLossDeduction,
         aboveLineDeduction: computeHsaDeduction(taxYear, hsaCoverage, hsaContributionTotal),
         itemizedDeduction: federalItemizedTotal + bunchTarget,
       });

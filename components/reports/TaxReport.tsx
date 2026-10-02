@@ -1466,6 +1466,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
     totalGross,
     totalFederal,
     totalMedicare,
+    interestDividendIncome,
     shortTermGainTaxable: gainTotals.shortTermGainTaxable,
     longTermGainTaxable: gainTotals.longTermGainTaxable,
     capitalLossDeduction: gainTotals.ordinaryLossDeduction,
@@ -2592,12 +2593,42 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           { label: `Less: ${stateResidency.code} Withheld (YTD)`, value: -actualStateWithheld },
           { label: `= Actual ${actualStateBalance > 0 ? "Balance Due" : "Refund"} (YTD)`, value: actualStateBalance, bold: true },
         ];
-        const grossYtdLines = [
-          { label: "Actual Gross (YTD)", value: totalGross },
-          { label: "+ Remaining Paychecks (projected)", value: taxPlanningProjection.projectedRemainingGross },
-          ...(taxPlanningProjection.futureVestShares > 0 && taxPlanningProjection.livePriceUsed
-            ? [{ label: `+ Scheduled RSU Vests (${taxPlanningProjection.futureVestShares.toLocaleString()} sh @ $${taxPlanningProjection.livePriceUsed.toFixed(2)})`, value: taxPlanningProjection.futureVestValue }]
-            : []),
+        // Same shape as the AGI card's own waterfall above (Gross -> less 401(k) -> Wages ->
+        // + Interest/Dividends -> Short-Term Gain -> less Capital Loss -> less HSA -> Ordinary
+        // Income -> + LTCG -> AGI), but with GROSS, 401(K), WAGES, ORDINARY INCOME, and AGI each
+        // projected to the full year -- those are the lines a steady per-paycheck/vest schedule
+        // can actually forecast. Interest & Dividends and every capital-gain/loss line stay YTD
+        // actual, unprojected: a dividend lands on its own date and a stock sale either already
+        // happened or hasn't, so there's no honest way to forecast either one from a schedule
+        // (per 2026-10-02 confirmation). HSA ALSO stays YTD actual here, matching the tax engine's
+        // own projectedFederalTax/projectedStateTax (lib/tax-planning.ts's computeFullYearProjection
+        // deliberately doesn't extrapolate HSA the way it does 401(k), since a lump-sum HSA
+        // contribution isn't tied to remaining paychecks the way 401(k) is) -- this keeps
+        // Projected AGI reconciling exactly with the Projected Tax cards below, not independently
+        // re-derived with a different HSA assumption.
+        const agiYtdLines = [
+          { label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other) (YTD)", value: totalGross },
+          { label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1) (YTD)", value: -totalK401 },
+          { label: "= Wages (W-2, incl. RSU/ESPP ordinary income) (YTD)", value: taxableWages, bold: true },
+          { label: "+ Taxable Interest & Dividends (YTD, not projected -- see note below)", value: interestDividendIncome },
+          { label: "Short-Term Capital Gain (YTD, not projected)", value: gainTotals.shortTermGainTaxable },
+          { label: "Less: Capital Loss Deduction (YTD, not projected)", value: -gainTotals.ordinaryLossDeduction },
+          { label: "Less: HSA Deduction (YTD -- see note below)", value: -hsaDeduction },
+          { label: "= Ordinary Income (YTD)", value: taxEstimate.ordinaryIncome, bold: true },
+          { label: "+ Long-Term Capital Gain (YTD, not projected)", value: taxEstimate.longTermGain },
+          { label: "= AGI (YTD)", value: taxEstimate.agi, bold: true },
+        ];
+        const agiProjectedLines = [
+          { label: "Projected Gross Salary (full year: YTD + remaining paychecks + scheduled RSU)", value: taxPlanningProjection.fullYearGross },
+          { label: "Less: Projected Employee 401(k) (full year, capped at IRS limit)", value: -taxPlanningProjection.fullYearK401 },
+          { label: "= Projected Wages (full year)", value: taxPlanningProjection.projectedTaxableWages, bold: true },
+          { label: "+ Taxable Interest & Dividends (YTD, not projected)", value: interestDividendIncome },
+          { label: "Short-Term Capital Gain (YTD, not projected)", value: gainTotals.shortTermGainTaxable },
+          { label: "Less: Capital Loss Deduction (YTD, not projected)", value: -gainTotals.ordinaryLossDeduction },
+          { label: "Less: HSA Deduction (YTD, not extrapolated -- see note below)", value: -taxPlanningProjection.projectedHsaDeduction },
+          { label: "= Projected Ordinary Income (full year)", value: taxPlanningProjection.projectedOrdinaryIncome, bold: true },
+          { label: "+ Long-Term Capital Gain (YTD, not projected)", value: taxPlanningProjection.projectedLongTermGain },
+          { label: "= Projected AGI (full year)", value: taxPlanningProjection.projectedAgi, bold: true },
         ];
         return (
       <details style={{ margin: "1rem 0 0" }}>
@@ -2623,12 +2654,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 a plain number with no actual-vs-projected context wasn't useful on its own. */}
             {([
               {
-                label: "Projected Gross (full year)", value: taxPlanningProjection.fullYearGross,
-                sub: `Actual (YTD): ${fmt(totalGross)} — click for details →`,
-                icon: "cash" as IconKind, color: "#1e40af",
+                label: "Projected AGI (full year)", value: taxPlanningProjection.projectedAgi,
+                sub: `Actual AGI (YTD): ${fmt(taxEstimate.agi)} — click for details →`,
+                icon: "wallet" as IconKind, color: "#1e40af",
                 onClick: () => setTaxBreakdownModal({
-                  title: "Projected Gross (full year) — how it's derived",
-                  lines: [...grossYtdLines, { label: "= Projected Gross (full year)", value: taxPlanningProjection.fullYearGross, bold: true }],
+                  title: "Projected AGI (full year) — how it's derived",
+                  lines: [...agiYtdLines, ...agiProjectedLines],
                 }),
               },
               {
