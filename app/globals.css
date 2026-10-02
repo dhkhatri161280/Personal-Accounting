@@ -8579,6 +8579,14 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
   .equity-grant-head { flex-wrap: wrap; }
   .equity-grant-label { flex: 1 1 100%; }
   .equity-col-head { display: none; }
+  /* .equity-section-total ("RSU Total"/"ESPP Total") reuses .equity-col-val just like the grant
+     row above, but is its own separate flex row with no flex-wrap of its own -- without this, the
+     flex:1 1 calc(50%...) rule below still applies to its children, but a nowrap parent can't
+     actually let them wrap onto a new line, so each one gets crushed far below its content's
+     real width instead and the unclipped text visibly overlaps its neighbor's (confirmed live:
+     "$56216$4065$26347...$582598.55" all painted on top of each other at 375px). */
+  .equity-section-total { flex-wrap: wrap; }
+  .equity-section-total > span:first-child { flex: 1 1 100%; }
   .equity-col-val {
     width: auto;
     min-width: 0;
@@ -8597,6 +8605,61 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
     letter-spacing: 0.04em;
   }
   .equity-grant-btns { flex: 1 1 100%; justify-content: flex-end; }
+
+  /* The expanded vest-by-vest table (.equity-vest-table) has the identical overflow problem one
+     level deeper -- 11 fixed-width columns (Vest Date, Award $/sh, Vest $/sh, Total, Tax, Sold,
+     Sale $/sh, Kept, Sale Value, Mkt Value, Gain) plus an action column, confirmed live to clip
+     on both edges exactly like the collapsed row above did before its own fix. Standard
+     responsive-table conversion: thead hidden, each <tr> becomes its own card, each <td> a
+     label:value row via its own data-label attribute (set in EquityReport.tsx) -- same pattern as
+     .equity-col-val just above, applied to a real <table> instead of a flex row. The colSpan
+     edit/record-vest rows (.equity-edit-row) carry their own <label> elements already, not
+     data-label cells, so they're excluded and just stack as plain blocks. */
+  .equity-vest-table, .equity-vest-table thead, .equity-vest-table tbody, .equity-vest-table tr, .equity-vest-table td {
+    display: block;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  .equity-vest-table thead { display: none; }
+  .equity-vest-table tr { border-bottom: 2px solid var(--border, #e2e8f0); padding: 4px 0; }
+  .equity-vest-table tr:last-child { border-bottom: none; }
+  .equity-vest-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    border-right: none;
+  }
+  .equity-vest-table td::before {
+    content: attr(data-label);
+    font-size: var(--fs-2xs);
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-align: left;
+  }
+  .equity-vest-table .equity-edit-row td {
+    display: block;
+    text-align: left;
+  }
+  .equity-vest-table .equity-edit-row td::before {
+    content: none;
+  }
+
+  /* Grand Total footer: same shape bug as RSU Total above, but .equity-grand-values' own
+     overflow:hidden clips the overflowing columns quietly instead of visibly overlapping text --
+     still incomplete information (SALE PROCEEDS/MARKET VALUE/TOTAL GAIN cut off entirely below
+     ~375px), just a quieter failure mode of the identical cause. Each .equity-grand-col already
+     renders its own visible label (no data-label/::before trick needed here), so just letting the
+     row wrap is enough. */
+  .equity-grand-total { flex-wrap: wrap; }
+  .equity-grand-label { flex: 1 1 100%; }
+  .equity-grand-values { flex-wrap: wrap; overflow: visible; }
+  .equity-grand-col { flex: 1 1 calc(50% - 1px); min-width: 0; border-top: 1px solid var(--border, #e2e8f0); }
+  .equity-grand-col:nth-child(1), .equity-grand-col:nth-child(2) { border-top: none; }
+  .equity-grand-col:nth-child(even) { border-left: 1px solid var(--border, #e2e8f0); }
+  .equity-grand-col:nth-child(odd) { border-left: none; }
 }
 
 .equity-grant-body { padding: 0.75rem 1rem 1rem; border-top: 1px solid var(--border, #e2e8f0); background: var(--surface2, #f8fafc); }

@@ -1941,17 +1941,17 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
                       }
                       return (
                         <tr key={v.id} className={`equity-pending-vest-row${isDue ? " equity-pending-due" : ""}`}>
-                          <td>{fmtDate(v.vestDate)}{isDue && <span className="equity-due-badge">Due</span>}</td>
-                          <td className="right equity-award-price">${g.grantPrice.toFixed(2)}</td>
-                          <td className="right"><span className="equity-neutral">—</span></td>
-                          <td className="right">{v.shares.toLocaleString()}</td>
-                          <td className="right"><span className="equity-neutral">—</span></td>
-                          <td className="right"><span className="equity-neutral">—</span></td>
-                          <td className="right"><span className="equity-neutral">—</span></td>
-                          <td className="right"><span className="equity-neutral">—</span></td>
-                          <td className="right"><span className="equity-neutral">—</span></td>
-                          <td className="right equity-neutral">{cur > 0 ? fmt(v.shares * cur) : "—"}</td>
-                          <td className={`right ${v.shares * (cur - g.grantPrice) >= 0 ? "equity-gain-pos" : "equity-gain-neg"} equity-neutral`}>{cur > 0 ? fmt(v.shares * (cur - g.grantPrice)) : "—"}</td>
+                          <td data-label="Vest Date">{fmtDate(v.vestDate)}{isDue && <span className="equity-due-badge">Due</span>}</td>
+                          <td className="right equity-award-price" data-label="Award $/sh">${g.grantPrice.toFixed(2)}</td>
+                          <td className="right" data-label="Vest $/sh"><span className="equity-neutral">—</span></td>
+                          <td className="right" data-label="Total">{v.shares.toLocaleString()}</td>
+                          <td className="right" data-label="Tax"><span className="equity-neutral">—</span></td>
+                          <td className="right" data-label="Sold"><span className="equity-neutral">—</span></td>
+                          <td className="right" data-label="Sale $/sh"><span className="equity-neutral">—</span></td>
+                          <td className="right" data-label="Kept"><span className="equity-neutral">—</span></td>
+                          <td className="right" data-label="Sale Value"><span className="equity-neutral">—</span></td>
+                          <td className="right equity-neutral" data-label="Mkt Value">{cur > 0 ? fmt(v.shares * cur) : "—"}</td>
+                          <td className={`right ${v.shares * (cur - g.grantPrice) >= 0 ? "equity-gain-pos" : "equity-gain-neg"} equity-neutral`} data-label="Gain">{cur > 0 ? fmt(v.shares * (cur - g.grantPrice)) : "—"}</td>
                           {!readOnly && (
                             <td>
                               {isDue && (
@@ -1972,27 +1972,27 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
                     const vestGain = userSaleVal + mktVal - v.shares * g.grantPrice;
                     return (
                       <tr key={v.id}>
-                        <td>{fmtDate(v.vestDate)}</td>
-                        <td className="right equity-award-price">${g.grantPrice.toFixed(2)}</td>
-                        <td className="right">${v.vestPrice.toFixed(2)}</td>
-                        <td className="right">{v.shares.toLocaleString()}</td>
-                        <td className="right">
+                        <td data-label="Vest Date">{fmtDate(v.vestDate)}</td>
+                        <td className="right equity-award-price" data-label="Award $/sh">${g.grantPrice.toFixed(2)}</td>
+                        <td className="right" data-label="Vest $/sh">${v.vestPrice.toFixed(2)}</td>
+                        <td className="right" data-label="Total">{v.shares.toLocaleString()}</td>
+                        <td className="right" data-label="Tax">
                           {tax > 0 ? <span className="equity-tax-badge">{tax.toLocaleString()}</span> : <span className="equity-neutral">—</span>}
                         </td>
-                        <td className="right">
+                        <td className="right" data-label="Sold">
                           {userSold > 0 ? <span className="equity-sold-badge">{userSold.toLocaleString()}</span> : <span className="equity-neutral">—</span>}
                         </td>
-                        <td className="right">
+                        <td className="right" data-label="Sale $/sh">
                           {userSold > 0
                             ? <span title={v.salePrice ? "actual sale price" : "est. from vest price"}>${sp.toFixed(2)}{!v.salePrice && userSold > 0 ? " *" : ""}</span>
                             : <span className="equity-neutral">—</span>}
                         </td>
-                        <td className="right">
+                        <td className="right" data-label="Kept">
                           {v.sharesHeld > 0 ? <span className="equity-kept-badge">{v.sharesHeld.toLocaleString()}</span> : <span className="equity-neutral">—</span>}
                         </td>
-                        <td className="right">{userSaleVal > 0 ? fmt(userSaleVal) : <span className="equity-neutral">—</span>}</td>
-                        <td className="right">{v.sharesHeld > 0 ? fmt(mktVal) : <span className="equity-neutral">—</span>}</td>
-                        <td className={`right ${vestGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(vestGain)}</td>
+                        <td className="right" data-label="Sale Value">{userSaleVal > 0 ? fmt(userSaleVal) : <span className="equity-neutral">—</span>}</td>
+                        <td className="right" data-label="Mkt Value">{v.sharesHeld > 0 ? fmt(mktVal) : <span className="equity-neutral">—</span>}</td>
+                        <td className={`right ${vestGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`} data-label="Gain">{fmt(vestGain)}</td>
                         {!readOnly && (
                           <td>
                             <button className="equity-edit-btn" title="Mark sold / update" onClick={() => {
@@ -2008,17 +2008,17 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
                   })}
                   {g.unvestedShares > 0 && (
                     <tr className="equity-unvested-row">
-                      <td><em>Unvested →</em></td>
-                      <td className="right equity-award-price">${g.grantPrice.toFixed(2)}</td>
-                      <td className="right">—</td>
-                      <td className="right equity-kept-badge">{g.unvestedShares.toLocaleString()}</td>
-                      <td className="right">—</td>
-                      <td className="right">—</td>
-                      <td className="right">—</td>
-                      <td className="right">—</td>
-                      <td className="right">—</td>
-                      <td className="right">{fmt(g.unvestedShares * cur)}</td>
-                      <td className={`right ${g.unvestedShares * (cur - g.grantPrice) >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>
+                      <td data-label="Vest Date"><em>Unvested →</em></td>
+                      <td className="right equity-award-price" data-label="Award $/sh">${g.grantPrice.toFixed(2)}</td>
+                      <td className="right" data-label="Vest $/sh">—</td>
+                      <td className="right equity-kept-badge" data-label="Total">{g.unvestedShares.toLocaleString()}</td>
+                      <td className="right" data-label="Tax">—</td>
+                      <td className="right" data-label="Sold">—</td>
+                      <td className="right" data-label="Sale $/sh">—</td>
+                      <td className="right" data-label="Kept">—</td>
+                      <td className="right" data-label="Sale Value">—</td>
+                      <td className="right" data-label="Mkt Value">{fmt(g.unvestedShares * cur)}</td>
+                      <td className={`right ${g.unvestedShares * (cur - g.grantPrice) >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`} data-label="Gain">
                         {fmt(g.unvestedShares * (cur - g.grantPrice))}
                       </td>
                       {!readOnly && <td />}
@@ -2099,11 +2099,11 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
       {grants.length > 0 && (
         <div className="equity-section-total">
           <span>RSU Total</span>
-          <span className="equity-amt equity-col-val">{fmt(rsuAward)}</span>
-          <span className="equity-amt equity-col-val">{fmt(rsuSaleValue)}</span>
-          <span className="equity-amt equity-col-val">{fmt(rsuMarketValue)}</span>
-          <span className={`equity-col-val ${rsuGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`}>{fmt(rsuGain)}</span>
-          <span className="equity-amt equity-col-val">{fmt(rsuScheduledValue)}</span>
+          <span className="equity-amt equity-col-val" data-label="Award Value">{fmt(rsuAward)}</span>
+          <span className="equity-amt equity-col-val" data-label="Sale Proceeds">{fmt(rsuSaleValue)}</span>
+          <span className="equity-amt equity-col-val" data-label="Market Value">{fmt(rsuMarketValue)}</span>
+          <span className={`equity-col-val ${rsuGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`} data-label="Gain">{fmt(rsuGain)}</span>
+          <span className="equity-amt equity-col-val" data-label="Scheduled Value">{fmt(rsuScheduledValue)}</span>
           <span style={{ width: 72 }} />
         </div>
       )}
