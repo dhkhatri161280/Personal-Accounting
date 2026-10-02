@@ -2556,8 +2556,51 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         ))}
       </div>
 
-      {taxYearIsOpenForPlanning && (
-        <details style={{ margin: "1rem 0 0" }}>
+      {/* Standalone copies of the same derivations the actual AGI/Federal/State cards above
+          already show (not a shared reference -- the actual cards' own onClick lines stay
+          completely untouched), relabeled "(YTD)" for standalone context and reused below so
+          every Projected Full Year card shows its full actual derivation PLUS one appended
+          projected line, instead of a bare "Actual $X / Projected $Y" with no derivation. */}
+      {taxYearIsOpenForPlanning && (() => {
+        const federalTaxYtdLines = [
+          { label: "Tax on Ordinary Income (brackets)", value: taxEstimate.ordinaryTax },
+          { label: "Tax on Long-Term Capital Gain", value: taxEstimate.ltcgTax },
+          { label: "Additional Medicare Tax (0.9% over threshold)", value: taxEstimate.additionalMedicareTax },
+          { label: "Net Investment Income Tax (NIIT, 3.8%)", value: taxEstimate.niit },
+          { label: "= Estimated Federal Tax (YTD)", value: taxEstimate.estimatedTax, bold: true },
+        ];
+        const federalWithheldYtdLines = [
+          { label: "Federal Income Tax Withheld (payroll, YTD)", value: taxEstimate.federalWithheld },
+          { label: "Additional Medicare Tax Withheld (YTD)", value: taxEstimate.additionalMedicareWithheld },
+          { label: "= Total Federal Withheld (YTD)", value: actualFederalWithheld, bold: true },
+        ];
+        const federalBalanceYtdLines = [
+          { label: "Estimated Federal Tax (YTD)", value: taxEstimate.estimatedTax },
+          { label: "Less: Total Federal Withheld (YTD)", value: -actualFederalWithheld },
+          { label: `= Actual ${actualFederalBalance > 0 ? "Balance Due" : "Refund"} (YTD)`, value: actualFederalBalance, bold: true },
+        ];
+        const stateTaxYtdLines = [
+          { label: "Bracket Tax (YTD)", value: stateTaxEstimate.bracketTax },
+          { label: "Mental Health Services Tax (1% over threshold, YTD)", value: stateTaxEstimate.mentalHealthTax },
+          { label: `= Estimated ${stateResidency.code} Tax (YTD)`, value: stateTaxEstimate.estimatedTax, bold: true },
+        ];
+        const stateWithheldYtdLines = [
+          { label: `State Income Tax Withheld (payroll, State W/H, YTD)`, value: actualStateWithheld, bold: true },
+        ];
+        const stateBalanceYtdLines = [
+          { label: `Estimated ${stateResidency.code} Tax (YTD)`, value: stateTaxEstimate.estimatedTax },
+          { label: `Less: ${stateResidency.code} Withheld (YTD)`, value: -actualStateWithheld },
+          { label: `= Actual ${actualStateBalance > 0 ? "Balance Due" : "Refund"} (YTD)`, value: actualStateBalance, bold: true },
+        ];
+        const grossYtdLines = [
+          { label: "Actual Gross (YTD)", value: totalGross },
+          { label: "+ Remaining Paychecks (projected)", value: taxPlanningProjection.projectedRemainingGross },
+          ...(taxPlanningProjection.futureVestShares > 0 && taxPlanningProjection.livePriceUsed
+            ? [{ label: `+ Scheduled RSU Vests (${taxPlanningProjection.futureVestShares.toLocaleString()} sh @ $${taxPlanningProjection.livePriceUsed.toFixed(2)})`, value: taxPlanningProjection.futureVestValue }]
+            : []),
+        ];
+        return (
+      <details style={{ margin: "1rem 0 0" }}>
           <summary className="tax-summary-figure" style={{ fontSize: 13, fontWeight: 600, cursor: "pointer", listStyle: "none" }}>
             📅 Projected Full Year (through Dec 31, {yr.year}) — {taxPlanningProjection.periodsRemaining} paycheck(s)
             {taxPlanningProjection.futureVestShares > 0 && <> + {taxPlanningProjection.futureVestShares.toLocaleString()} scheduled RSU shares</>} still to come, click to expand
@@ -2584,11 +2627,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 sub: `Actual (YTD): ${fmt(totalGross)} — click for details →`,
                 icon: "cash" as IconKind, color: "#1e40af",
                 onClick: () => setTaxBreakdownModal({
-                  title: "Projected Gross (full year) — actual vs. projected",
-                  lines: [
-                    { label: "Actual Gross (YTD)", value: totalGross },
-                    { label: "Projected Gross (full year)", value: taxPlanningProjection.fullYearGross, bold: true },
-                  ],
+                  title: "Projected Gross (full year) — how it's derived",
+                  lines: [...grossYtdLines, { label: "= Projected Gross (full year)", value: taxPlanningProjection.fullYearGross, bold: true }],
                 }),
               },
               {
@@ -2596,11 +2636,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 sub: `Actual (YTD-estimated): ${fmt(taxEstimate.estimatedTax)} — click for details →`,
                 icon: "receipt" as IconKind, color: "#dc2626",
                 onClick: () => setTaxBreakdownModal({
-                  title: "Projected Federal Tax — actual vs. projected",
-                  lines: [
-                    { label: "Actual Estimated Federal Tax (YTD)", value: taxEstimate.estimatedTax },
-                    { label: "Projected Federal Tax (full year)", value: taxPlanningProjection.projectedFederalTax, bold: true },
-                  ],
+                  title: "Projected Federal Tax — how it's derived",
+                  lines: [...federalTaxYtdLines, { label: "Projected Federal Tax (full year)", value: taxPlanningProjection.projectedFederalTax, bold: true }],
                 }),
               },
               {
@@ -2608,11 +2645,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 sub: `Actual (YTD): ${fmt(actualFederalWithheld)} — click for details →`,
                 icon: "shield" as IconKind, color: "#16a34a",
                 onClick: () => setTaxBreakdownModal({
-                  title: "Projected Federal Withheld — actual vs. projected",
-                  lines: [
-                    { label: "Actual Federal Withheld (YTD)", value: actualFederalWithheld },
-                    { label: "Projected Federal Withheld (full year)", value: taxPlanningProjection.fullYearFederalWithheld, bold: true },
-                  ],
+                  title: "Projected Federal Withheld — how it's derived",
+                  lines: [...federalWithheldYtdLines, { label: "Projected Federal Withheld (full year)", value: taxPlanningProjection.fullYearFederalWithheld, bold: true }],
                 }),
               },
               (() => {
@@ -2623,11 +2657,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                   sub: `Actual (YTD): ${actualFederalBalance > 0 ? "balance due" : "refund"} ${fmt(Math.abs(actualFederalBalance))} — click for details →`,
                   icon: "scale" as IconKind, color: dueNow ? "#dc2626" : "#16a34a", amountColor: dueNow ? "#dc2626" : "#16a34a",
                   onClick: () => setTaxBreakdownModal({
-                    title: "Projected Federal Balance — actual vs. projected",
+                    title: "Projected Federal Balance — how it's derived",
                     lines: [
-                      { label: "Actual Estimated Federal Tax (YTD)", value: taxEstimate.estimatedTax },
-                      { label: "Less: Actual Federal Withheld (YTD)", value: -actualFederalWithheld },
-                      { label: `= Actual ${actualFederalBalance > 0 ? "Balance Due" : "Refund"} (YTD)`, value: actualFederalBalance, bold: true },
+                      ...federalBalanceYtdLines,
                       { label: "Projected Federal Tax (full year)", value: taxPlanningProjection.projectedFederalTax },
                       { label: "Less: Projected Federal Withheld (full year)", value: -taxPlanningProjection.fullYearFederalWithheld },
                       { label: `= Projected ${dueNow ? "Balance Due" : "Refund"} (full year)`, value: projectedFederalBalance, bold: true },
@@ -2640,11 +2672,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 sub: `Actual (YTD-estimated): ${fmt(stateTaxEstimate.estimatedTax)} — click for details →`,
                 icon: "receipt" as IconKind, color: "#dc2626",
                 onClick: () => setTaxBreakdownModal({
-                  title: `Projected ${stateResidency.code} Tax — actual vs. projected`,
-                  lines: [
-                    { label: `Actual Estimated ${stateResidency.code} Tax (YTD)`, value: stateTaxEstimate.estimatedTax },
-                    { label: `Projected ${stateResidency.code} Tax (full year)`, value: taxPlanningProjection.projectedStateTax, bold: true },
-                  ],
+                  title: `Projected ${stateResidency.code} Tax — how it's derived`,
+                  lines: [...stateTaxYtdLines, { label: `Projected ${stateResidency.code} Tax (full year)`, value: taxPlanningProjection.projectedStateTax, bold: true }],
                 }),
               },
               {
@@ -2652,11 +2681,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 sub: `Actual (YTD): ${fmt(actualStateWithheld)} — click for details →`,
                 icon: "shield" as IconKind, color: "#16a34a",
                 onClick: () => setTaxBreakdownModal({
-                  title: `Projected ${stateResidency.code} Withheld — actual vs. projected`,
-                  lines: [
-                    { label: `Actual ${stateResidency.code} Withheld (YTD)`, value: actualStateWithheld },
-                    { label: `Projected ${stateResidency.code} Withheld (full year)`, value: taxPlanningProjection.fullYearStateWithheld, bold: true },
-                  ],
+                  title: `Projected ${stateResidency.code} Withheld — how it's derived`,
+                  lines: [...stateWithheldYtdLines, { label: `Projected ${stateResidency.code} Withheld (full year)`, value: taxPlanningProjection.fullYearStateWithheld, bold: true }],
                 }),
               },
               (() => {
@@ -2667,11 +2693,9 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                   sub: `Actual (YTD): ${actualStateBalance > 0 ? "balance due" : "refund"} ${fmt(Math.abs(actualStateBalance))} — click for details →`,
                   icon: "scale" as IconKind, color: dueNow ? "#dc2626" : "#16a34a", amountColor: dueNow ? "#dc2626" : "#16a34a",
                   onClick: () => setTaxBreakdownModal({
-                    title: `Projected ${stateResidency.code} Balance — actual vs. projected`,
+                    title: `Projected ${stateResidency.code} Balance — how it's derived`,
                     lines: [
-                      { label: `Actual Estimated ${stateResidency.code} Tax (YTD)`, value: stateTaxEstimate.estimatedTax },
-                      { label: `Less: Actual ${stateResidency.code} Withheld (YTD)`, value: -actualStateWithheld },
-                      { label: `= Actual ${actualStateBalance > 0 ? "Balance Due" : "Refund"} (YTD)`, value: actualStateBalance, bold: true },
+                      ...stateBalanceYtdLines,
                       { label: `Projected ${stateResidency.code} Tax (full year)`, value: taxPlanningProjection.projectedStateTax },
                       { label: `Less: Projected ${stateResidency.code} Withheld (full year)`, value: -taxPlanningProjection.fullYearStateWithheld },
                       { label: `= Projected ${dueNow ? "Balance Due" : "Refund"} (full year)`, value: projectedStateBalance, bold: true },
@@ -2693,7 +2717,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             ))}
           </div>
         </details>
-      )}
+        );
+      })()}
 
       {showRsuModal && (
         <Modal title={`RSU Vesting — ${yr.year}`} onClose={() => setShowRsuModal(false)} wide>
