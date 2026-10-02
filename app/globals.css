@@ -9318,15 +9318,23 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 
 /* Dashboard cards — flat elevation polish only; grid layout/highlight badges untouched
    (that internal structure has several overlapping !important rules across breakpoints
-   and is out of scope for this pass — see redesign plan). */
+   and is out of scope for this pass — see redesign plan).
+   "Soft depth" pass per 2026-10-02 mockup round (option B of three shown side by side) --
+   border swapped for a deeper ambient shadow and the card's internal padding/value-margin
+   tightened a notch. Previous "flat with hairline border" values, for an easy revert if this
+   doesn't hold up: border: 1px solid var(--ref-border) !important; box-shadow: var(--ref-shadow);
+   on :hover box-shadow: var(--ref-shadow-hover); on .dashboard-stats button padding: 22px
+   !important; on .dashboard-stats button strong margin: 8px 0 4px !important. (Also sitting in
+   git history, same as every other change in this app -- this comment is just a faster lookup
+   than `git log -p` for the exact prior numbers.) */
 .ui-refresh .dashboard-balance-card {
   border-radius: var(--ref-radius) !important;
-  border: 1px solid var(--ref-border) !important;
-  box-shadow: var(--ref-shadow);
+  border: none !important;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 10px rgba(16, 24, 40, 0.07) !important;
   background: #fff !important;
   transition: box-shadow 0.15s, transform 0.15s;
 }
-.ui-refresh .dashboard-balance-card:hover { box-shadow: var(--ref-shadow-hover); transform: translateY(-1px); }
+.ui-refresh .dashboard-balance-card:hover { box-shadow: 0 2px 4px rgba(16, 24, 40, 0.08), 0 8px 20px rgba(16, 24, 40, 0.12) !important; transform: translateY(-1px); }
 /* A universal "this card is clickable" chevron -- every dashboard-balance-card, whether it
    expands an inline detail panel (most cards) or navigates to a full report (the manual Equity
    card), responds to a click, but only the VaultApp cards whose subtitle happened to start with
@@ -9383,7 +9391,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    is used (VaultApp's DashboardCard-driven cards, VaultApp's manual Equity card, and GrApp's
    equivalents of both), with no risk of the three render sites drifting out of sync. */
 .ui-refresh .dashboard-stats { gap: 18px !important; }
-.ui-refresh .dashboard-stats button { padding: 22px !important; }
+.ui-refresh .dashboard-stats button { padding: 18px !important; }
 .ui-refresh .dashboard-balance-card .stat-icon { width: 42px !important; height: 42px !important; }
 .ui-refresh .dashboard-balance-card .stat-icon svg { width: 21px !important; height: 21px !important; }
 .ui-refresh .dashboard-stats button span {
@@ -9400,7 +9408,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
      without clipping; a font-size rule here would fight that inline style the same way it did
      for Tax's summary cards (see AutoFitAmount.tsx's own comment). */
   font-weight: 800 !important;
-  margin: 8px 0 4px !important;
+  margin: 6px 0 3px !important;
   color: #0f172a !important;
 }
 .ui-refresh .dashboard-stats button small {
