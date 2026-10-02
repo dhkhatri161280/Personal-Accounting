@@ -3303,8 +3303,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             // read the rest). Still wrapped in AutoFitAmount (same shrink-to-fit component the
             // headline number and GR's Equity subtitle already use), not a plain nowrap string,
             // as a safety net for the All-periods/custom-range cases periodLabelShort doesn't
-            // shorten.
-            subtitle={<AutoFitAmount text={periodLabelShort} maxFontSize={11} minFontSize={7} style={{ fontWeight: 400 }} />}
+            // shorten. maxFontSize=8 matches --fs-2xs, the real size every OTHER card's plain
+            // <small> subtitle renders at -- confirmed live the first version (copied the
+            // Equity card's maxFontSize=11 without checking) rendered "FY 2026" visibly larger
+            // than "View account breakdown"/"Includes current result" on the cards right next
+            // to it, since a short string like "FY 2026" never needs to shrink off that ceiling.
+            // color #3970c5 matches that same plain <small>'s own color too -- AutoFitAmount
+            // renders a <strong>, which without this override inherits the dark navy headline
+            // color instead (confirmed live via computed-style, not assumed).
+            subtitle={<AutoFitAmount text={periodLabelShort} maxFontSize={8} minFontSize={6} style={{ fontWeight: 400, color: "#3970c5" }} />}
             open={dashboardDetail === "salary"}
             onClick={() => toggleDashboardDetail("salary")}
             highlights={(book === "india" ? totalIncomeHighlights : salaryHighlights).map((x) => (

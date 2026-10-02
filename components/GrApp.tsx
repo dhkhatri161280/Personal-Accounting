@@ -1186,8 +1186,12 @@ export function GrApp() {
             // periodLabelShort ("FY 2026" not "FY 2026 (Apr 2026 - Mar 2027)") per user feedback,
             // same as VaultApp's own Salary/Total income card. Still wrapped in AutoFitAmount
             // (same fix already applied to GR's own Equity subtitle) as a safety net for the
-            // All-periods/custom-range cases periodLabelShort doesn't shorten.
-            subtitle={<AutoFitAmount text={periodLabelShort} maxFontSize={11} minFontSize={7} style={{ fontWeight: 400 }} />}
+            // All-periods/custom-range cases periodLabelShort doesn't shorten. maxFontSize=8
+            // matches --fs-2xs, the real size every other card's plain <small> subtitle renders
+            // at, and color #3970c5 matches that same <small>'s color (AutoFitAmount's <strong>
+            // otherwise inherits the dark navy headline color instead) -- see VaultApp.tsx's
+            // identical fix, confirmed live via computed-style on both.
+            subtitle={<AutoFitAmount text={periodLabelShort} maxFontSize={8} minFontSize={6} style={{ fontWeight: 400, color: "#3970c5" }} />}
             open={dashboardDetail === "income"}
             onClick={() => toggleDashboardDetail("income")}
             highlights={
