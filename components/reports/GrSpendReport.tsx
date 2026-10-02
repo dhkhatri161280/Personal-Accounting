@@ -58,6 +58,16 @@ export function GrSpendReport({
     setStartDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
     setEndDate(todayLocalIso());
   }
+  // The full previous calendar month (e.g. run on Oct 1 -> Sep 1 to Sep 30), not a rolling 30-day
+  // window -- same as components/reports/SpendReport.tsx's own applyLastMonth.
+  function applyLastMonth() {
+    const iso = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    const now = new Date();
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    setStartDate(iso(lastMonthStart));
+    setEndDate(iso(lastMonthEnd));
+  }
 
   return (
     <div className="data-panel">
@@ -106,8 +116,8 @@ export function GrSpendReport({
         <button type="button" className="tr-refresh-btn" onClick={() => applyPreset(7)}>
           Last 7 days
         </button>
-        <button type="button" className="tr-refresh-btn" onClick={() => applyPreset(30)}>
-          Last 30 days
+        <button type="button" className="tr-refresh-btn" onClick={applyLastMonth}>
+          Last Month
         </button>
         <button type="button" className="tr-refresh-btn" onClick={applyThisMonth}>
           This month

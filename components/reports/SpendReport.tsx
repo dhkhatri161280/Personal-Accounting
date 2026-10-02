@@ -110,6 +110,17 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     setStartDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
     setEndDate(todayLocalIso());
   }
+  // The full previous calendar month (e.g. run on Oct 1 -> Sep 1 to Sep 30), not a rolling 30-day
+  // window -- Date's own month/day normalization (negative month wraps to the prior year) handles
+  // the January-rollover case for free.
+  function applyLastMonth() {
+    const iso = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    const now = new Date();
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    setStartDate(iso(lastMonthStart));
+    setEndDate(iso(lastMonthEnd));
+  }
 
   return (
     <div className="data-panel">
@@ -160,8 +171,8 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
         <button type="button" className="tr-refresh-btn" onClick={applyThisMonth}>
           This month
         </button>
-        <button type="button" className="tr-refresh-btn" onClick={() => applyPreset(30)}>
-          Last 30 days
+        <button type="button" className="tr-refresh-btn" onClick={applyLastMonth}>
+          Last Month
         </button>
         <ExportButton
           disabled={expenseLines.length === 0 && incomeLines.length === 0}
