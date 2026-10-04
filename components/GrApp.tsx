@@ -201,6 +201,7 @@ export function GrApp() {
   const [expandedGuid, setExpandedGuid] = useState<string | null>(null);
   const { dashboardDetail, setDashboardDetail, toggleDashboardDetail } = useDashboardDetail<DashKind>();
   const [selectedLedgerName, setSelectedLedgerName] = useState<string | null>(null);
+  const [showAllVouchers, setShowAllVouchers] = useState(false);
   const [overlayYear, setOverlayYear] = useState<string>(() => {
     const now = new Date();
     return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
@@ -483,6 +484,12 @@ export function GrApp() {
   // want the full Apr-Mar range for.
   const periodLabelShort = year === "all" || year === "custom" || year.length === 7 ? periodLabel : `FY ${year}`;
 
+  // No slice/cap here -- this feeds the ledger drill-down panel (see ledgerTxns below) as well as
+  // the Day Book list, and silently truncating it (the previous .slice(0, 1500), with no banner
+  // and no way to see past it) could make a ledger drilldown quietly omit real transactions. The
+  // Day Book table has its own separate, visible cap further down (dayBookRows), applied only
+  // when "All periods" is selected -- same rule as VaultApp.tsx's DAY_BOOK_CAP, kept consistent
+  // across all three books (US/India/GR) per 2026-10-04 request.
   const filteredTxns = useMemo(() => {
     if (!gr) return [];
     const { start, end } = periodRange;
@@ -494,9 +501,16 @@ export function GrApp() {
           `${t.date} ${t.type} ${t.number} ${t.narration} ${t.entries.map((e) => e.accountName).join(" ")}`
             .toLowerCase()
             .includes(query.toLowerCase())
-      )
-      .slice(0, 1500);
+      );
   }, [gr, periodRange, query]);
+  const DAY_BOOK_CAP = 750;
+  // gr.transactions is already sorted most-recent-first (see lib/gr-consolidation.ts), and
+  // .filter() above preserves that order, so the first DAY_BOOK_CAP entries ARE the most recent
+  // -- no re-sort needed here. Same "All periods only" rule as VaultApp.tsx's dayBookCapped: a
+  // single fiscal year's voucher count is bounded by real activity, but "All periods" consolidates
+  // every year of BOTH books together and only grows over time.
+  const dayBookCapped = year === "all" && filteredTxns.length > DAY_BOOK_CAP;
+  const dayBookRows = showAllVouchers || !dayBookCapped ? filteredTxns : filteredTxns.slice(0, DAY_BOOK_CAP);
 
   // Period-specific Dr/Cr per account (for reports)
   const periodCalc = useMemo(() => {
@@ -1306,6 +1320,18 @@ export function GrApp() {
       {/* ── DAY BOOK ──────────────────────────────────────────────────────── */}
       {tab === "daybook" && (
         <div className="data-panel">
+          {dayBookCapped && (
+            <div style={{ padding: "6px 12px", background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", fontSize: "0.8rem", color: "#713f12", marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>
+                {showAllVouchers
+                  ? `Showing all ${filteredTxns.length} vouchers — large lists can render slowly.`
+                  : `Showing ${DAY_BOOK_CAP} of ${filteredTxns.length} vouchers — use the column filters below, or show all.`}
+              </span>
+              <button onClick={() => setShowAllVouchers((v) => !v)} style={{ padding: "3px 10px", fontSize: "0.75rem", margin: 0 }}>
+                {showAllVouchers ? "Show recent only" : `Show all ${filteredTxns.length}`}
+              </button>
+            </div>
+          )}
           <div className="excel-toolbar">
             <input
               className="search-box"
@@ -1345,7 +1371,7 @@ export function GrApp() {
                 </tr>
               </thead>
               <tbody>
-                {filteredTxns.map((t) => {
+                {dayBookRows.map((t) => {
                   const srcCls = t.source === "US" ? "gr-row-us" : "gr-row-in";
                   return (
                     <tr
@@ -1384,11 +1410,11 @@ export function GrApp() {
               <tfoot>
                 <tr>
                   <th colSpan={7}>
-                    Total — {filteredTxns.filter((t) => !t.cancelled).length} vouchers
+                    Total — {dayBookRows.filter((t) => !t.cancelled).length} vouchers
                   </th>
                   <th className="right">
                     {fmt(
-                      filteredTxns
+                      dayBookRows
                         .filter((t) => !t.cancelled)
                         .reduce((s, t) => s + t.amountInr, 0)
                     )}

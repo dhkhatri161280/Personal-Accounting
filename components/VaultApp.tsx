@@ -1633,7 +1633,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const DAY_BOOK_CAP = 750;
   // filteredAll is oldest-first (Tally order) — cap keeps the most recent entries by default
   // (large tables render slowly), but showAllVouchers lets the user opt into the full list.
-  const dayBookCapped = filteredAll.length > DAY_BOOK_CAP;
+  // Only applies when "All periods" is selected -- a single fiscal year's own voucher count is
+  // bounded by real activity (never grows without the user posting more), so capping it mid-year
+  // just to protect render speed meant the cap could kick in on an ordinary FY with no warning
+  // once it happened to cross 750 (confirmed live: FY 2026 hit 752 and the banner appeared with
+  // no change in behavior from the user). "All periods" has no such bound (every FY ever posted,
+  // only grows over time), so it's the one view that genuinely needs this safeguard.
+  const dayBookCapped = year === "all" && filteredAll.length > DAY_BOOK_CAP;
   const filtered = showAllVouchers || !dayBookCapped ? filteredAll : filteredAll.slice(-DAY_BOOK_CAP);
 
   const selectedRow = rows.find((a) => a.id === selected),
