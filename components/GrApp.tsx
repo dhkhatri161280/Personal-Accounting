@@ -1410,7 +1410,13 @@ export function GrApp() {
               <tfoot>
                 <tr>
                   <th colSpan={7}>
-                    Total — {dayBookRows.filter((t) => !t.cancelled).length} vouchers
+                    {/* "Displayed", not plain "Total" -- when dayBookCapped truncates to the most
+                        recent DAY_BOOK_CAP rows, this sums only dayBookRows (the shown subset),
+                        not every voucher in the period. Same honest wording VaultApp's own Day
+                        Book footer already uses for the identical capped-vs-full distinction (see
+                        TransactionTable.tsx's "Displayed voucher total") -- a plain "Total" here
+                        read like a grand total even when it silently wasn't one. */}
+                    Displayed total — {dayBookRows.filter((t) => !t.cancelled).length} vouchers
                   </th>
                   <th className="right">
                     {fmt(
