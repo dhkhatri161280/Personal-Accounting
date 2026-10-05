@@ -204,6 +204,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [mastersSection, setMastersSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings">("ledgers"),
     [searchOpen, setSearchOpen] = useState(false),
     [searchQuery, setSearchQuery] = useState(""),
+    // "Link existing voucher" picker for a due recurring template whose bill was already posted
+    // some other way (e.g. via Plaid import) before the template existed -- lets that period be
+    // marked satisfied without Post creating a duplicate voucher. null = closed.
+    [linkTemplateDue, setLinkTemplateDue] = useState<DueTemplate | null>(null),
+    [linkTemplateQuery, setLinkTemplateQuery] = useState(""),
     // Deep-link targets for report components with their own internal sub-tabs, set by the
     // search palette so e.g. "watchlist" or "pending transactions" lands on the right sub-view
     // instead of just the report's default. Read once on each component's mount (see each
@@ -878,6 +883,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const next: Ledger = { ...data, transactions: [...data.transactions, tx], recurringTemplates: nextTemplates };
     const ok = await save(next, "reports");
     if (!ok) setStatus(`Failed to post ${template.label}.`);
+    return ok;
+  }
+
+  // Marks a due template's period satisfied by an ALREADY-EXISTING voucher (e.g. one posted by
+  // hand or via Plaid import before the template was ever created) -- same postings link Post
+  // itself records, just pointing at a real txGuid instead of creating a new transaction. Lets
+  // "this period's bill is already in the books" be resolved without Post making a duplicate.
+  async function linkRecurringTemplateToVoucher(template: RecurringTemplate, periodKey: string, txGuid: string) {
+    if (!data) return false;
+    const nextTemplates = (data.recurringTemplates || []).map((t) =>
+      t.id === template.id ? { ...t, postings: [...t.postings, { periodKey, txGuid, postedAt: new Date().toISOString() }] } : t
+    );
+    const ok = await save({ ...data, recurringTemplates: nextTemplates }, "reports");
+    if (!ok) setStatus(`Failed to link ${template.label}.`);
     return ok;
   }
 
@@ -1970,7 +1989,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     for (const due of dueTemplates(data.recurringTemplates, todayStr)) {
       attentionItems.push({
         label: `Recurring: ${due.template.label} due`,
-        detail: `${due.periodLabel} — post it from Reports → Recurring, or below.`,
+        detail: `${due.periodLabel} — post it below, or if it's already posted some other way (e.g. Plaid), use "Already posted…" in Reports → Recurring to link it instead.`,
         action: { label: "Post", onClick: () => void postRecurringTemplate(due.template) },
       });
     }
@@ -3268,6 +3287,61 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           </div>
         </FloatingWindow>
       )}
+      {linkTemplateDue && data && (() => {
+        const periodKey = linkTemplateDue.periodKey;
+        const q = linkTemplateQuery.trim().toLowerCase();
+        const candidates = data.transactions
+          .filter((t) => !t.deleted && !t.cancelled && t.date.startsWith(periodKey))
+          .filter((t) => !q || t.narration.toLowerCase().includes(q) || t.number.toLowerCase().includes(q))
+          .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+          .slice(0, 30);
+        return (
+          <FloatingWindow
+            title={`Link an already-posted voucher — ${linkTemplateDue.template.label} (${linkTemplateDue.periodLabel})`}
+            onClose={() => setLinkTemplateDue(null)}
+            initialWidth={520}
+            initialHeight={460}
+          >
+            <div className="search-palette">
+              <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                Pick the voucher that already covers this period — it'll be linked to the template, not duplicated.
+              </p>
+              <input
+                className="search-palette-input"
+                autoFocus
+                placeholder="Search narration or voucher number…"
+                value={linkTemplateQuery}
+                onChange={(e) => setLinkTemplateQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setLinkTemplateDue(null);
+                }}
+              />
+              <div className="search-palette-results">
+                {candidates.length === 0 ? (
+                  <p className="dashboard-inline-empty">No vouchers found for {linkTemplateDue.periodLabel} matching that search.</p>
+                ) : (
+                  candidates.map((t) => (
+                    <button
+                      key={t.guid}
+                      type="button"
+                      className="search-palette-result"
+                      onClick={async () => {
+                        const ok = await linkRecurringTemplateToVoucher(linkTemplateDue.template, periodKey, t.guid);
+                        if (ok) setLinkTemplateDue(null);
+                      }}
+                    >
+                      <span>
+                        {t.type} {t.number || "(no number)"} — {fmtDate(t.date)} — {fmt(t.entries.filter((e) => e.amount < 0).reduce((s, e) => s - e.amount, 0))}
+                      </span>
+                      <em>{t.narration || "(no narration)"}</em>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </FloatingWindow>
+        );
+      })()}
       {tab === "dashboard" && (
         <section className="stats dashboard-stats">
           <DashboardCard
@@ -4730,14 +4804,24 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     {due.length === 0 ? (
                       <p style={{ opacity: 0.7 }}>Nothing due right now.</p>
                     ) : (
-                      due.map(({ template, periodLabel }) => (
-                        <div className="report-line" key={template.id}>
+                      due.map((d) => (
+                        <div className="report-line" key={d.template.id}>
                           <span>
-                            {template.label} <small style={{ opacity: 0.7 }}>({periodLabel})</small>
+                            {d.template.label} <small style={{ opacity: 0.7 }}>({d.periodLabel})</small>
                           </span>
-                          <button type="button" className="tr-refresh-btn" onClick={() => postRecurringTemplate(template)}>
-                            Post
-                          </button>
+                          <span style={{ display: "flex", gap: 6 }}>
+                            <button type="button" className="tr-refresh-btn" onClick={() => postRecurringTemplate(d.template)}>
+                              Post
+                            </button>
+                            <button
+                              type="button"
+                              className="tr-refresh-btn"
+                              title="Already posted this period's bill some other way (e.g. a Plaid import)? Link it here instead of posting a duplicate."
+                              onClick={() => { setLinkTemplateQuery(d.template.label); setLinkTemplateDue(d); }}
+                            >
+                              Already posted…
+                            </button>
+                          </span>
                         </div>
                       ))
                     )}
