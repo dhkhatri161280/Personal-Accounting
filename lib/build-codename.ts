@@ -25,7 +25,7 @@ export const CODENAMES: string[] = [
   "namkeen-chevdo", "chatpata-chevdo",
   "swadisht-handvo", "jordar-handvo",
   "kadak-khakhra", "crispy-khakhra",
-  "mithi-lapsi", "malai-lapsi",
+  "mithi-lapsi", "ghee-lapsi",
   "mithu-shrikhand", "malai-shrikhand",
   "tikha-bhajiya", "garmagaram-bhajiya",
   "namkeen-sev", "kadak-sev",

@@ -749,12 +749,12 @@ export function SchwabImport({ data, onSave }: Props) {
                 <span>Debit</span>
                 <select value={divDebitAcctId} onChange={(e) => setDivDebitAcctId(e.target.value ? Number(e.target.value) : "")}>
                   <option value="">— choose —</option>
-                  {data.accounts.filter((acc) => acc.active !== false).map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                  {[...data.accounts].filter((acc) => acc.active !== false).sort((a, b) => a.name.localeCompare(b.name)).map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
                 </select>
                 <span>Credit</span>
                 <select value={divCreditAcctId} onChange={(e) => setDivCreditAcctId(e.target.value ? Number(e.target.value) : "")}>
                   <option value="">— choose —</option>
-                  {data.accounts.filter((acc) => acc.active !== false).map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                  {[...data.accounts].filter((acc) => acc.active !== false).sort((a, b) => a.name.localeCompare(b.name)).map((acc) => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
                 </select>
               </div>
               {classified.dividendsInterest.map((a) =>
@@ -829,7 +829,7 @@ function IncomeReviewRow({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const active = accounts.filter((acc) => acc.active !== false);
+  const active = [...accounts].filter((acc) => acc.active !== false).sort((a, b) => a.name.localeCompare(b.name));
   return (
     <div style={{ border: "1px solid #93c5fd", background: "#eff6ff", borderRadius: 8, padding: "0.7rem 0.8rem", marginBottom: "0.5rem" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>

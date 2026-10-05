@@ -1989,6 +1989,13 @@ export function MastersPanel({
           title={`${recurringTemplate ? "Edit" : "Create"} Recurring Template`}
           onClose={() => setRecurringTemplateId(null)}
         >
+          {(() => {
+          // Newly auto-provisioned accounts (e.g. a fresh fiscal year's House Hold Exps months)
+          // land at the END of data.accounts, not next to their sibling months -- an unsorted
+          // dropdown buries them far past where the user expects to find them. Sort once here,
+          // same localeCompare convention already used for the other account pickers in this file.
+          const sortedActiveAccounts = [...data.accounts].filter((a) => a.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+          return (
           <form
             className="master-form"
             onSubmit={(e) => {
@@ -2029,7 +2036,7 @@ export function MastersPanel({
                 <option value="" disabled>
                   Select ledger
                 </option>
-                {data.accounts.filter((a) => a.active !== false).map((a) => (
+                {sortedActiveAccounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>
@@ -2042,7 +2049,7 @@ export function MastersPanel({
                 <option value="" disabled>
                   Select ledger
                 </option>
-                {data.accounts.filter((a) => a.active !== false).map((a) => (
+                {sortedActiveAccounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>
@@ -2085,6 +2092,8 @@ export function MastersPanel({
               <button className="primary">Save template</button>
             </div>
           </form>
+          );
+          })()}
         </FloatingWindow>
       )}
     </div>
