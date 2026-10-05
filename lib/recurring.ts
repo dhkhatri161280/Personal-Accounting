@@ -1,4 +1,5 @@
 import type { Account, Entry, RecurringTemplate } from "./vault-types";
+import { currentMonthSiblingAccount } from "./vault-accounting.ts";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -40,11 +41,24 @@ export function buildVoucherFromTemplate(
   const narration = template.narrationTemplate
     .replace("{month}", MONTH_NAMES[Number(m) - 1])
     .replace("{year}", y);
-  const entries: Entry[] = template.entries.map((e) => ({
-    accountId: e.accountId,
-    accountName: accountById.get(e.accountId)?.name ?? "",
-    amount: e.amount,
-  }));
+  // A template's own entries.accountId is fixed at creation time (e.g. "House Hold Exps - Apr
+  // 17", whichever month existed when the template was built). That family gets a brand-new
+  // ledger account every calendar month (see vault-accounting.ts), so posting straight against
+  // the saved accountId would forever hit that one stale month. Redirect through the same
+  // currentMonthSiblingAccount() reversals already use, so a House Hold Exps leg always lands
+  // in the account for `date`'s own month regardless of which sibling the template was created
+  // against; every other account family is untouched (currentMonthSiblingAccount no-ops on
+  // non-"House Hold Exps" names).
+  const accounts = Array.from(accountById.values());
+  const entries: Entry[] = template.entries.map((e) => {
+    const original = accountById.get(e.accountId);
+    const account = original ? currentMonthSiblingAccount(original, accounts, date) : undefined;
+    return {
+      accountId: account?.id ?? e.accountId,
+      accountName: account?.name ?? original?.name ?? "",
+      amount: e.amount,
+    };
+  });
   return { entries, voucherType: template.voucherType, narration };
 }
 

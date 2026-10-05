@@ -60,6 +60,31 @@ test("buildVoucherFromTemplate interpolates {month}/{year} and resolves account 
   ]);
 });
 
+test("buildVoucherFromTemplate redirects a House Hold Exps leg to the posting month's own sibling account, not the stale month saved on the template", () => {
+  const accountById = new Map<number, Account>([
+    [9, { id: 9, name: "House Hold Exps - Apr 17", parent: "Indirect Expenses", category: "Expense", currency: "USD", openingBalance: 0 }],
+    [8, { id: 8, name: "House Hold Exps - Sep 26", parent: "Indirect Expenses", category: "Expense", currency: "USD", openingBalance: 0 }],
+    [1, { id: 1, name: "Bank Of America", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 }],
+  ]);
+  const built = buildVoucherFromTemplate(template(), "2026-09-15", accountById);
+  assert.deepEqual(built.entries, [
+    { accountId: 8, accountName: "House Hold Exps - Sep 26", amount: -15.99 },
+    { accountId: 1, accountName: "Bank Of America", amount: 15.99 },
+  ]);
+});
+
+test("buildVoucherFromTemplate leaves a House Hold Exps leg on the saved account when that month's sibling doesn't exist yet", () => {
+  const accountById = new Map<number, Account>([
+    [9, { id: 9, name: "House Hold Exps - Apr 17", parent: "Indirect Expenses", category: "Expense", currency: "USD", openingBalance: 0 }],
+    [1, { id: 1, name: "Bank Of America", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 }],
+  ]);
+  const built = buildVoucherFromTemplate(template(), "2026-09-15", accountById);
+  assert.deepEqual(built.entries, [
+    { accountId: 9, accountName: "House Hold Exps - Apr 17", amount: -15.99 },
+    { accountId: 1, accountName: "Bank Of America", amount: 15.99 },
+  ]);
+});
+
 test("matchRecurringTemplate matches institution + amount within tolerance, ignores templates without plaidMatch", () => {
   const withPlaid = template({ plaidMatch: { institutionPattern: "Bank of America", amountTolerance: 1 } });
   const withoutPlaid = template({ id: "t2" });
