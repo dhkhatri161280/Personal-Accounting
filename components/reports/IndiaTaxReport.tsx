@@ -6,7 +6,7 @@ import { parseIndiaItrFile } from "@/lib/parse-india-itr";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { DonutChart } from "@/components/DonutChart";
 import { FloatingWindow } from "@/components/FloatingWindow";
-import { fmtDate } from "@/lib/format-date";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { estimateIndiaTax, hasIndiaTaxSlabsFor, section80CCap, SECTION_80D_CAP, section24bHomeLoanInterestCap } from "@/lib/india-tax-slabs";
 import { estimateEquityCapitalGainsTax } from "@/lib/india-capital-gains-tax";
 import { ledgerPeriodTotals } from "@/lib/ledger-period";
@@ -250,10 +250,16 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
   const months = indiaTax?.payslips?.months ?? [];
   const itrYears = (indiaTax?.itrYears ?? []).slice().sort((a, b) => b.assessmentYear.localeCompare(a.assessmentYear));
   // A year with only an ITR on file (no payslip data) must still be reachable from this one
-  // selector -- union both sources rather than driving the list off payslip months alone.
+  // selector -- union both sources rather than driving the list off payslip months alone. The
+  // CURRENT real-world FY is always included too, even with zero data yet -- without this, a
+  // user with no India salary (so no payslips) and no ITR entered yet for the ongoing year had
+  // no way to even select it to start entering non-salary income (LIC annuity, bank interest,
+  // etc.) against -- confirmed live: the selector simply never offered it, a real chicken-and-egg
+  // gap this app's own "+ Add ITR" flow couldn't break out of on its own.
   const fyList = Array.from(new Set([
     ...months.map((m) => fyOf(m.date)),
     ...itrYears.map((y) => fyOfAy(y.assessmentYear)),
+    fyOf(todayLocalIso()),
   ])).sort();
   const activeFy = selectedFy ?? fyList[fyList.length - 1] ?? null;
   const fyMonths = months.filter((m) => fyOf(m.date) === activeFy).sort((a, b) => a.date.localeCompare(b.date));
@@ -868,7 +874,19 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
     setGtiHomeLoanInterest(activeItrYear?.homeLoanInterest ? String(activeItrYear.homeLoanInterest) : "");
     setGtiRentIncome(activeItrYear?.houseRentIncome ? String(activeItrYear.houseRentIncome) : "");
     setGtiHomeLoanInterestCap(String(activeItrYear?.homeLoanInterestCapOverride ?? section24bHomeLoanInterestCap(activeAy ?? "")));
-    setGtiOtherSourcesIncome(activeItrYear?.otherSourcesIncome ? String(activeItrYear.otherSourcesIncome) : "");
+    // Pre-filled from the real "Interest On LIC Annuity" ledger the same way Gross Salary/Prof
+    // Tax above already default from real payslip data -- only when there's no stored override
+    // yet (first time this AY's form is opened), so re-opening after a save shows the saved
+    // figure as-is rather than re-adding the annuity on top of it every time. The "Add this"
+    // button next to the field still covers the case where a stored value predates this feature
+    // (e.g. typed in by hand before the ledger suggestion existed) and never included it.
+    setGtiOtherSourcesIncome(
+      activeItrYear?.otherSourcesIncome
+        ? String(activeItrYear.otherSourcesIncome)
+        : licAnnuityLedgerAmount
+          ? String(licAnnuityLedgerAmount)
+          : ""
+    );
     setReconcilingGti(true);
   }
   async function saveGtiForm() {
@@ -979,7 +997,10 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
   }
 
   function openAddItr() {
-    setItrForm(BLANK_ITR_FORM);
+    // Pre-filled with whichever AY the Financial Year selector is already on (same "pre-filled,
+    // correct it if wrong" convention as every other field here) -- previously left blank, so
+    // adding an ITR for the currently-selected FY meant re-typing its Assessment Year by hand.
+    setItrForm({ ...BLANK_ITR_FORM, assessmentYear: activeAy ?? "" });
     setEditingItrId("new");
   }
   function openEditItr(y: IndiaItrYear) {
@@ -2164,14 +2185,20 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
               Income from Other Sources (interest, dividends, etc.)
               {licAnnuityLedgerAmount != null && licAnnuityLedgerAmount > 0 && (
                 <span style={{ display: "block", fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
-                  From ledger &quot;{LIC_ANNUITY_INCOME_LEDGER}&quot;, FY {activeFy}: <span className="india-tax-amt">{fmt(licAnnuityLedgerAmount)}</span>{" "}
-                  <button
-                    type="button"
-                    onClick={() => setGtiOtherSourcesIncome(String((Number(gtiOtherSourcesIncome) || 0) + licAnnuityLedgerAmount))}
-                    style={{ fontSize: 11, padding: "1px 6px" }}
-                  >
-                    Add this
-                  </button>
+                  From ledger &quot;{LIC_ANNUITY_INCOME_LEDGER}&quot;, FY {activeFy}: <span className="india-tax-amt">{fmt(licAnnuityLedgerAmount)}</span>
+                  {licAnnuityLedgerAmount !== (Number(gtiOtherSourcesIncome) || 0) && (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        onClick={() => setGtiOtherSourcesIncome(String((Number(gtiOtherSourcesIncome) || 0) + licAnnuityLedgerAmount))}
+                        style={{ fontSize: 11, padding: "1px 6px" }}
+                      >
+                        Add this
+                      </button>
+                    </>
+                  )}
+                  {" "}(pre-filled below when this field was empty — already included unless you&apos;ve edited it)
                 </span>
               )}
               {licMaturityLedgerAmount != null && licMaturityLedgerAmount > 0 && (
