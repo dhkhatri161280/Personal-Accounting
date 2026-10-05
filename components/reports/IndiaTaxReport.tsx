@@ -20,6 +20,19 @@ import { buildPayrollLedgerReconciliation } from "@/lib/india-payroll-reconcile"
 // 24(b)'s proviso, not modeled here -- deliberately excluded rather than silently lumped in).
 const HOME_LOAN_INTEREST_LEDGER = "Interest on Housing Loan";
 
+// Real ledger account names for this user's LIC income -- "Interest On LIC Annuity" (Indirect
+// Incomes) is the recurring taxable annuity payout from a past employer's pension annuity;
+// "LIC Policy Matured" (Indirect Incomes) is the one-time maturity proceeds of a policy that
+// completed its full premium-paying term. Confirmed 2026-10 that no TDS was deducted under
+// Section 194DA on the maturity payout -- the real-world signal the insurer itself treated it as
+// exempt under Section 10(10D) (premium-to-sum-assured ratio stayed under the statutory cap) --
+// so the maturity amount is surfaced as an FYI-only reference, never added to taxable Other
+// Sources Income. Only the annuity is offered as a "Use this" suggestion. ("LIC Annuity - Yearly
+// Interest" and "LIC Premium", both under Investments, are asset-side balances for the underlying
+// investment/premium, not income -- deliberately not matched here.)
+const LIC_ANNUITY_INCOME_LEDGER = "Interest On LIC Annuity";
+const LIC_MATURITY_LEDGER = "LIC Policy Matured";
+
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
@@ -272,6 +285,17 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
     ? ledgerPeriodTotals(transactions, accounts, HOME_LOAN_INTEREST_LEDGER, `${activeFy.slice(0, 4)}-04-01`, `${Number(activeFy.slice(0, 4)) + 1}-03-31`)
     : null;
   const homeLoanLedgerAmount = homeLoanLedgerTotals ? Math.max(0, homeLoanLedgerTotals.debit - homeLoanLedgerTotals.credit) : null;
+  // Same shape as the home loan interest suggestion above, but these are INCOME ledgers (a
+  // credit increases income, unlike the expense-side debit home loan interest uses) -- credit
+  // minus debit, not the other way around.
+  const licAnnuityLedgerTotals = activeFy && transactions && accounts
+    ? ledgerPeriodTotals(transactions, accounts, LIC_ANNUITY_INCOME_LEDGER, `${activeFy.slice(0, 4)}-04-01`, `${Number(activeFy.slice(0, 4)) + 1}-03-31`)
+    : null;
+  const licAnnuityLedgerAmount = licAnnuityLedgerTotals ? Math.max(0, licAnnuityLedgerTotals.credit - licAnnuityLedgerTotals.debit) : null;
+  const licMaturityLedgerTotals = activeFy && transactions && accounts
+    ? ledgerPeriodTotals(transactions, accounts, LIC_MATURITY_LEDGER, `${activeFy.slice(0, 4)}-04-01`, `${Number(activeFy.slice(0, 4)) + 1}-03-31`)
+    : null;
+  const licMaturityLedgerAmount = licMaturityLedgerTotals ? Math.max(0, licMaturityLedgerTotals.credit - licMaturityLedgerTotals.debit) : null;
   const itrTaxesPaid = activeItrYear
     ? activeItrYear.advanceTax + activeItrYear.tds + activeItrYear.tcs + activeItrYear.selfAssessmentTax
     : 0;
@@ -1472,36 +1496,48 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
             </span>
           </div>
 
-          <details style={{ margin: "0 0 0.75rem" }}>
-            <summary style={{ fontSize: 12, opacity: 0.7, cursor: "pointer", listStyle: "none" }}>
-              ⚙️ Data entry tools (bulk-add, reconstruction, PDF re-import) →
-            </summary>
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-              <button onClick={openAddReconstructed}>✏️ Add Reconstructed Year</button>
-              <button onClick={openBulkAddReconstructed}>📋 Bulk Add Reconstructed Years</button>
-              <button onClick={openBulkAddMonths}>📆 Bulk Add Months (from ledger)</button>
-              <button onClick={openAddManualMonth}>📝 Add Real Month (Manual)</button>
-              {isReconstructedFy && (
-                <button onClick={() => activeFy && deleteReconstructedFy(activeFy)} title="Delete this reconstructed entry">
-                  🗑 Delete Reconstructed
+          {/* The "No payslip data" empty-state note used to render as its own block BELOW the
+              cards/table conditional further down -- on an empty FY (no cards/table to show
+              either) that left it as a third stacked row under the toolbar and this disclosure,
+              each on its own line for no reason. Sharing this one flex row with the disclosure
+              (space-between) saves that row entirely whenever there's no data; when there IS
+              data this note doesn't render at all, so the row is just the disclosure alone, same
+              as before. */}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", margin: "0 0 0.75rem" }}>
+            <details style={{ margin: 0 }}>
+              <summary style={{ fontSize: 12, opacity: 0.7, cursor: "pointer", listStyle: "none" }}>
+                ⚙️ Data entry tools (bulk-add, reconstruction, PDF re-import) →
+              </summary>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                <button onClick={openAddReconstructed}>✏️ Add Reconstructed Year</button>
+                <button onClick={openBulkAddReconstructed}>📋 Bulk Add Reconstructed Years</button>
+                <button onClick={openBulkAddMonths}>📆 Bulk Add Months (from ledger)</button>
+                <button onClick={openAddManualMonth}>📝 Add Real Month (Manual)</button>
+                {isReconstructedFy && (
+                  <button onClick={() => activeFy && deleteReconstructedFy(activeFy)} title="Delete this reconstructed entry">
+                    🗑 Delete Reconstructed
+                  </button>
+                )}
+                {activeFy && fyMonths.length > 0 && (
+                  <button onClick={() => activeFy && clearFy(activeFy)} title="Delete every entry for this FY, regardless of source — for recovering from duplicate/corrupted data">
+                    🗑 Clear FY {activeFy}
+                  </button>
+                )}
+                <input type="password" placeholder="ITR password" title="ITR PDF password (older years only)" value={itrPassword} onChange={(e) => setItrPassword(e.target.value)} className="india-tax-input" style={{ width: 110 }} />
+                <button onClick={() => itrFileInputRef.current?.click()} disabled={importingItr}>
+                  {importingItr ? `Importing… ${itrImportProgress ? `${itrImportProgress.done}/${itrImportProgress.total}` : ""}` : "📄 Import ITR PDFs"}
                 </button>
-              )}
-              {activeFy && fyMonths.length > 0 && (
-                <button onClick={() => activeFy && clearFy(activeFy)} title="Delete every entry for this FY, regardless of source — for recovering from duplicate/corrupted data">
-                  🗑 Clear FY {activeFy}
-                </button>
-              )}
-              <input type="password" placeholder="ITR password" title="ITR PDF password (older years only)" value={itrPassword} onChange={(e) => setItrPassword(e.target.value)} className="india-tax-input" style={{ width: 110 }} />
-              <button onClick={() => itrFileInputRef.current?.click()} disabled={importingItr}>
-                {importingItr ? `Importing… ${itrImportProgress ? `${itrImportProgress.done}/${itrImportProgress.total}` : ""}` : "📄 Import ITR PDFs"}
-              </button>
-            </div>
-            <p className="equity-seed-note" style={{ margin: "0.5rem 0 0" }}>
-              Bulk tools read Basic, HRA, PF, Professional Tax, Income Tax, Net Pay from real payslips or reconstruct
-              from a ledger/ITR total. ITR PDFs: most recent downloads aren&apos;t password-protected, older ones
-              (pre-~2016) usually need PAN + DOB. Re-importing a file for a year already on record replaces it.
-            </p>
-          </details>
+              </div>
+              <p className="equity-seed-note" style={{ margin: "0.5rem 0 0" }}>
+                Bulk tools read Basic, HRA, PF, Professional Tax, Income Tax, Net Pay from real payslips or reconstruct
+                from a ledger/ITR total. ITR PDFs: most recent downloads aren&apos;t password-protected, older ones
+                (pre-~2016) usually need PAN + DOB. Re-importing a file for a year already on record replaces it.
+              </p>
+            </details>
+            {fyMonths.length === 0 && (
+              <p className="equity-empty" style={{ margin: 0 }}>No payslip data for FY {activeFy}.</p>
+            )}
+          </div>
 
           {(payslipImportErrors.length > 0 || itrImportErrors.length > 0) && (
             <p className="equity-pdf-error" style={{ marginBottom: "0.5rem" }}>
@@ -1509,7 +1545,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
             </p>
           )}
 
-          {fyMonths.length > 0 ? (
+          {fyMonths.length > 0 && (
             <>
               <div className="equity-summary-row">
                 {fySummaryCards.map((c) => (
@@ -1573,8 +1609,6 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                 </tfoot>
               </table>
             </>
-          ) : (
-            <p className="equity-empty">No payslip data for FY {activeFy}.</p>
           )}
 
           <div className="equity-section-head" style={{ marginTop: "1.5rem" }}>
@@ -2126,7 +2160,28 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                 </>
               );
             })()}
-            <label>Income from Other Sources (interest, dividends, etc.)</label>
+            <label>
+              Income from Other Sources (interest, dividends, etc.)
+              {licAnnuityLedgerAmount != null && licAnnuityLedgerAmount > 0 && (
+                <span style={{ display: "block", fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+                  From ledger &quot;{LIC_ANNUITY_INCOME_LEDGER}&quot;, FY {activeFy}: <span className="india-tax-amt">{fmt(licAnnuityLedgerAmount)}</span>{" "}
+                  <button
+                    type="button"
+                    onClick={() => setGtiOtherSourcesIncome(String((Number(gtiOtherSourcesIncome) || 0) + licAnnuityLedgerAmount))}
+                    style={{ fontSize: 11, padding: "1px 6px" }}
+                  >
+                    Add this
+                  </button>
+                </span>
+              )}
+              {licMaturityLedgerAmount != null && licMaturityLedgerAmount > 0 && (
+                <span style={{ display: "block", fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+                  &quot;{LIC_MATURITY_LEDGER}&quot;, FY {activeFy}: <span className="india-tax-amt">{fmt(licMaturityLedgerAmount)}</span> — exempt under
+                  Section 10(10D) (no TDS under 194DA was deducted at maturity), not added here. Confirm this still
+                  holds if the policy or premium history changes.
+                </span>
+              )}
+            </label>
             <input type="number" value={gtiOtherSourcesIncome} onChange={(e) => setGtiOtherSourcesIncome(e.target.value)} className="india-tax-input" style={{ width: 140, textAlign: "right" }} placeholder="0" />
             <span style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>Gross Total Income</span>
             <strong className="india-tax-amt" style={{ borderTop: "1px solid #e2e8f0", paddingTop: 6 }}>
