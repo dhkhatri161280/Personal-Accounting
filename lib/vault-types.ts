@@ -348,6 +348,14 @@ export type IndiaItrYear = {
   // Income from Other Sources (Section 56) -- bank/FD interest, dividends, etc. Added to Gross
   // Total Income in full, no standard deduction or cap (unlike house property/80C).
   otherSourcesIncome?: number;
+  // Reference-only record of exempt income for this AY (e.g. LIC/insurance maturity proceeds
+  // exempt under Section 10(10D), PPF interest, agricultural income) -- NEVER added to
+  // grossTotalIncome/totalIncome/taxPayable anywhere in this app; purely a durable place to note
+  // "I earned this much but it's genuinely tax-free" for your own records. Real ITR filings still
+  // disclose exempt income separately (Schedule EI) even though it isn't taxed, since a large
+  // undeclared bank credit can otherwise trigger an AIS mismatch notice -- this field exists so
+  // that figure has a permanent home here instead of only living in a popup's own transient note.
+  exemptIncome?: number;
 };
 
 export type IndiaTaxData = {

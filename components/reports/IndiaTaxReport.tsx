@@ -173,6 +173,7 @@ const BLANK_ITR_FORM = {
   selfAssessmentTax: "",
   filingDate: "",
   notes: "",
+  exemptIncome: "",
 };
 
 interface IndiaTaxReportProps {
@@ -1000,7 +1001,9 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
     // Pre-filled with whichever AY the Financial Year selector is already on (same "pre-filled,
     // correct it if wrong" convention as every other field here) -- previously left blank, so
     // adding an ITR for the currently-selected FY meant re-typing its Assessment Year by hand.
-    setItrForm({ ...BLANK_ITR_FORM, assessmentYear: activeAy ?? "" });
+    // Exempt Income is pre-filled from the real "LIC Policy Matured" ledger the same way, when
+    // this FY has one.
+    setItrForm({ ...BLANK_ITR_FORM, assessmentYear: activeAy ?? "", exemptIncome: licMaturityLedgerAmount ? String(licMaturityLedgerAmount) : "" });
     setEditingItrId("new");
   }
   function openEditItr(y: IndiaItrYear) {
@@ -1015,6 +1018,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
       selfAssessmentTax: String(y.selfAssessmentTax),
       filingDate: y.filingDate ?? "",
       notes: y.notes ?? "",
+      exemptIncome: y.exemptIncome ? String(y.exemptIncome) : "",
     });
     setEditingItrId(y.id);
   }
@@ -1089,6 +1093,7 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
         refundOrDemand: n(itrForm.advanceTax) + n(itrForm.tds) + n(itrForm.tcs) + n(itrForm.selfAssessmentTax) - n(itrForm.taxPayable),
         filingDate: itrForm.filingDate || undefined,
         notes: itrForm.notes || undefined,
+        exemptIncome: n(itrForm.exemptIncome) || undefined,
         section80CItems,
       };
       const next = editingItrId === "new"
@@ -1651,6 +1656,11 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                   </div>
                 ))}
               </div>
+              {!!activeItrYear.exemptIncome && (
+                <p className="equity-seed-note" style={{ margin: "0.5rem 0 0" }}>
+                  Exempt Income (reference only, not taxed): <span className="india-tax-amt">{fmt(activeItrYear.exemptIncome)}</span>
+                </p>
+              )}
               {activeItrYear.notes && (
                 <p className="equity-seed-note" style={{ margin: "0.5rem 0 0" }}>
                   Notes: {activeItrYear.notes}
@@ -1770,6 +1780,31 @@ export function IndiaTaxReport({ indiaTax, onSave, fmt, transactions, accounts, 
                 {" "}= Advance + TDS + TCS + Self-Assessment − Tax Payable
               </div>
             </div>
+            <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
+              Exempt Income (reference only — never added to Gross Total Income or taxed)
+              <span style={{ display: "block", fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+                e.g. LIC/insurance maturity exempt under Section 10(10D), PPF interest, agricultural income. Real
+                ITR filings still disclose this separately (Schedule EI) even though it isn&apos;t taxed.
+                {licMaturityLedgerAmount != null && licMaturityLedgerAmount > 0 && (
+                  <>
+                    {" "}From ledger &quot;{LIC_MATURITY_LEDGER}&quot;, FY {activeFy}: <span className="india-tax-amt">{fmt(licMaturityLedgerAmount)}</span>
+                    {licMaturityLedgerAmount !== (Number(itrForm.exemptIncome) || 0) && (
+                      <>
+                        {" "}
+                        <button
+                          type="button"
+                          onClick={() => setItrForm({ ...itrForm, exemptIncome: String((Number(itrForm.exemptIncome) || 0) + licMaturityLedgerAmount) })}
+                          style={{ fontSize: 11, padding: "1px 6px" }}
+                        >
+                          Add this
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </span>
+              <input type="number" value={itrForm.exemptIncome} onChange={(e) => setItrForm({ ...itrForm, exemptIncome: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} placeholder="0" />
+            </label>
             <label style={{ fontSize: 12, gridColumn: "1 / -1" }}>
               Notes
               <input value={itrForm.notes} onChange={(e) => setItrForm({ ...itrForm, notes: e.target.value })} className="india-tax-input" style={{ display: "block", width: "100%" }} />
