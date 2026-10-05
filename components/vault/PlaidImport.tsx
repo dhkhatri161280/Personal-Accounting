@@ -1288,13 +1288,17 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
 // Plaid-side transaction (a real purchase or transfer the user hasn't recorded yet) was never
 // surfaced anywhere. Confirmed live: real Kaiser pharmacy / GoodRx HSA debit-card charges sat
 // fully visible in Plaid's own data with no way to ever import them. Scoped to type "cash" +
-// subtype "withdrawal"/"deposit" only -- excludes the buy/sell/dividend/fee entries Plaid also
-// reports for the same account (internal fund-shuffling, not real external cash movement).
-// "deposit" is only safe to surface this way because the user funds their HSA via a manual bank
-// transfer (confirmed directly, not a payroll deduction that some other import path already
-// records) -- the amount/date dedup below still catches the case where the transfer's BofA-side
-// leg was already imported and the user picked HSA as the other side by hand, so this can't
-// double-book that.
+// subtype "withdrawal"/"deposit"/"interest"/"dividend" only -- excludes the buy/sell/fee entries
+// Plaid also reports for the same account (internal fund-shuffling, not real external cash
+// movement). "deposit" is only safe to surface this way because the user funds their HSA via a
+// manual bank transfer (confirmed directly, not a payroll deduction that some other import path
+// already records) -- the amount/date dedup below still catches the case where the transfer's
+// BofA-side leg was already imported and the user picked HSA as the other side by hand, so this
+// can't double-book that. "dividend" is the HSA cash sweep's money-market fund yield (confirmed
+// live: Fidelity reports it as "Dividend Received" paired with a same-day "Reinvestment" that
+// buys more fund shares with it) -- the dividend itself really does grow the account's cash
+// value, exactly like "interest" below; the paired reinvestment is a type "buy", not "cash", so
+// it's already excluded here and never needs its own voucher.
 function buildInvestmentWithdrawalRows(
   investmentTxs: PlaidInvestmentTx[],
   plaidAcctMap: Map<string, PlaidAccount>,
@@ -1304,7 +1308,7 @@ function buildInvestmentWithdrawalRows(
   const accounts = ledger.accounts.filter((a) => a.active !== false);
 
   const candidates = investmentTxs
-    .filter((t) => t.type === "cash" && (t.subtype === "withdrawal" || t.subtype === "deposit" || t.subtype === "interest"))
+    .filter((t) => t.type === "cash" && (t.subtype === "withdrawal" || t.subtype === "deposit" || t.subtype === "interest" || t.subtype === "dividend"))
     .map((t) => {
       const plaidAcct = plaidAcctMap.get(t.account_id);
       const vaultAcct = plaidAcct
@@ -1324,25 +1328,27 @@ function buildInvestmentWithdrawalRows(
       // pre-fill the actual source instead of a generic guess -- Contra vouchers additionally
       // require every line to be a bank/cash account (see validateEntryRules), so a non-bank
       // fallback here would just make the row fail to save until the user fixes it anyway.
-      // Interest is real income earned IN the account, not a transfer -- its other side is
-      // "Interest Income" (same dedicated-ledger convention lib/tax-classify.ts already expects),
-      // posted as a Receipt, not a Contra (Contra requires every line to be bank/cash, and Income
-      // isn't). A withdrawal's other side is an unknowable expense category, so it stays a generic
-      // placeholder for a human (or AI Suggest, since confidence 0.3 below makes these rows
-      // eligible for it) to fill in. Either way, excludes vaultAcct itself -- confirmed live:
-      // when vaultAcct sorted first alphabetically among only 2 accounts, both entry lines
+      // Interest/dividend is real income earned IN the account, not a transfer -- its other side
+      // is "Interest Income" (same dedicated-ledger convention lib/tax-classify.ts already
+      // expects), posted as a Receipt, not a Contra (Contra requires every line to be bank/cash,
+      // and Income isn't). A withdrawal's other side is an unknowable expense category, so it
+      // stays a generic placeholder for a human (or AI Suggest, since confidence 0.3 below makes
+      // these rows eligible for it) to fill in. Either way, excludes vaultAcct itself -- confirmed
+      // live: when vaultAcct sorted first alphabetically among only 2 accounts, both entry lines
       // defaulted to the SAME account, which is nonsensical even as a placeholder.
       const bofaAcct = t.subtype === "deposit" ? findAcct(accounts, "Bank Of America", "Bank of America") : undefined;
-      const interestAcct = t.subtype === "interest" ? findAcct(accounts, "Interest Income") : undefined;
+      const isIncomeSubtype = t.subtype === "interest" || t.subtype === "dividend";
+      const interestAcct = isIncomeSubtype ? findAcct(accounts, "Interest Income") : undefined;
       const resolvedInterestAcct = interestAcct && interestAcct.id !== vaultAcct?.id ? interestAcct : undefined;
       const fallbackAcct =
         (bofaAcct && bofaAcct.id !== vaultAcct?.id ? bofaAcct : undefined) ??
         resolvedInterestAcct ??
         accounts.filter((a) => a.id !== vaultAcct?.id).sort((a, b) => a.name.localeCompare(b.name))[0];
-      // Unlike a withdrawal/deposit's generic placeholder, an interest row with a real "Interest
-      // Income" ledger found is an unambiguous, high-confidence pairing -- no human judgment call
-      // needed, same bar the payroll rows already use for "this is almost certainly right."
-      const highConfidence = t.subtype === "interest" && !!resolvedInterestAcct;
+      // Unlike a withdrawal/deposit's generic placeholder, an interest/dividend row with a real
+      // "Interest Income" ledger found is an unambiguous, high-confidence pairing -- no human
+      // judgment call needed, same bar the payroll rows already use for "this is almost certainly
+      // right."
+      const highConfidence = isIncomeSubtype && !!resolvedInterestAcct;
       return { t, vaultAcct, fallbackAcct, highConfidence };
     })
     // No known GL mapping for this Plaid account yet (see matchVaultAccount), or no other
@@ -1386,10 +1392,11 @@ function buildInvestmentWithdrawalRows(
       return v.entries.some((e) => e.accountId === vaultAcct.id && Math.abs(e.amount - t.amount) < 0.05);
     });
     // Plaid: positive amount = money OUT of the account (withdrawal), negative = money IN
-    // (deposit/interest) -- this app: Entry.amount negative = Dr, positive = Cr. A withdrawal
-    // credits (decreases) the HSA asset; a deposit or interest credit debits (increases) it.
+    // (deposit/interest/dividend) -- this app: Entry.amount negative = Dr, positive = Cr. A
+    // withdrawal credits (decreases) the HSA asset; a deposit, interest, or dividend credit
+    // debits (increases) it.
     const isDeposit = t.amount < 0;
-    const isInterest = t.subtype === "interest";
+    const isInterest = t.subtype === "interest" || t.subtype === "dividend";
     return {
       plaidTx: syntheticTxs[i],
       skip: imported,
