@@ -1487,6 +1487,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
     todayIso,
   });
   const taxPlanningTotalSavings = taxPlanningScenarios.reduce((s, sc) => s + sc.totalSavings, 0);
+  // Nothing left to project once every pay period for the year has already been paid and there
+  // are no shares still scheduled to vest -- the "1040 & [state] Preview" modal's own numbers
+  // collapse to the real YTD-actual ones in that case (same math either way), so it should read
+  // as the real figures, not keep calling itself "Projected" for a tax year that's fully done
+  // and filed. Confirmed live: for the real 2025 return, every period was already linked
+  // (24/24) and the "Projected" label on this still read as wrong/confusing.
+  const formPreviewYearComplete = taxPlanningProjection.periodsRemaining === 0 && taxPlanningProjection.futureVestShares === 0;
   // Positive = projected to owe more; negative = projected refund. FullYearProjection only
   // stores a one-sided federal balanceDue (0 when it'd actually be a refund) and no state
   // balance field at all -- computed directly here instead so both directions render correctly.
@@ -2252,7 +2259,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", color: "#2563eb" }}
             onClick={() => setShowFormPreviewModal(true)}
           >
-            📄 1040 &amp; {stateResidency.code} Preview (Projected)
+            📄 1040 &amp; {stateResidency.code} Preview{!formPreviewYearComplete && " (Projected)"}
           </label>
         </div>
       </div>
@@ -3563,15 +3570,20 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           </table>
         );
         return (
-          <Modal title={`1040 & ${stateResidency.code} ${yr.year} Preview (Projected Full Year)`} onClose={() => setShowFormPreviewModal(false)} wide>
+          <Modal title={`1040 & ${stateResidency.code} ${yr.year} Preview${formPreviewYearComplete ? "" : " (Projected Full Year)"}`} onClose={() => setShowFormPreviewModal(false)} wide>
             <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
-              A line-by-line preview of your PROJECTED full-year Form 1040 and {stateResidency.name} return —
-              wages, 401(k), AGI, and tax are projected through Dec 31 ({proj.periodsRemaining} paycheck(s) and any
-              scheduled vests still to come){proj.modeledOnLastPaystub ? ", modeled on your most recent paystub" : ""}.
+              {formPreviewYearComplete ? (
+                <>A line-by-line preview of your actual, fully-paid {yr.year} Form 1040 and {stateResidency.name} return — every
+                pay period for the year is already in (no more paychecks or scheduled vests left to project).</>
+              ) : (
+                <>A line-by-line preview of your PROJECTED full-year Form 1040 and {stateResidency.name} return —
+                wages, 401(k), AGI, and tax are projected through Dec 31 ({proj.periodsRemaining} paycheck(s) and any
+                scheduled vests still to come){proj.modeledOnLastPaystub ? ", modeled on your most recent paystub" : ""}.</>
+              )}{" "}
               Interest/dividends, capital gains, and itemized deductions stay YTD-actual — those don't follow a
               pay-period schedule, so there's nothing to extrapolate. Labeled by real IRS/{stateResidency.code} line
-              number so you can check each one against your actual filed return (e.g. FreeTaxUSA) once the year is
-              done. This is an estimate for cross-checking, not a filing — see "assumptions &amp; limitations" above
+              number so you can check each one against your actual filed return (e.g. FreeTaxUSA). This is an
+              estimate for cross-checking, not a filing — see "assumptions &amp; limitations" above
               for what isn't modeled (AMT, the $750k mortgage acquisition-debt limit, ESPP disqualifying-disposition
               ordinary income, and more).
             </p>
