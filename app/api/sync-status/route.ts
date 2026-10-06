@@ -102,6 +102,15 @@ export async function PUT(request: Request) {
   // write and the UI kept showing "pending" until the floor expired). Status
   // transitions are inherently infrequent (at most a couple per cycle), so this
   // still stays well under the 1000/day KV write quota.
+  //
+  // The `unchanged` skip below must ALSO respect this floor, not bypass it entirely --
+  // previously it had no age check at all, so a daemon reporting the exact same healthy
+  // "success, N matched, 0 pending" result every single cycle (the NORMAL case once
+  // everything's caught up) would never refresh lastCheckedAt again, ever. Confirmed live:
+  // a real sync ran clean tonight -- genuinely reached this PUT, genuinely succeeded -- and
+  // the timestamp still didn't move, because the content matched the prior (ancient) report
+  // byte for byte. The whole point of lastCheckedAt is proving the process is still alive;
+  // suppressing it specifically when the healthy case repeats defeats that purpose.
   const MIN_WRITE_INTERVAL_MS = 5 * 60 * 1000;
   try {
     const existingRaw = await bindings.VAULT.get(key(book));
@@ -114,7 +123,7 @@ export async function PUT(request: Request) {
       const existingAgeMs = existing.lastCheckedAt
         ? Date.now() - new Date(existing.lastCheckedAt).getTime()
         : Infinity;
-      if (unchanged || (!statusChanged && existingAgeMs < MIN_WRITE_INTERVAL_MS)) {
+      if (existingAgeMs < MIN_WRITE_INTERVAL_MS && (unchanged || !statusChanged)) {
         return Response.json({ ok: true, ...existing, lastCheckedAt: existing.lastCheckedAt });
       }
     }
