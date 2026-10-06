@@ -72,6 +72,19 @@ export interface FullYearProjection {
   projectedFederalTax: number;
   projectedStateTax: number;
   projectedFederalBalanceDue: number;
+  // Full federal/state breakdown behind the two headline numbers above -- for a form-shaped,
+  // line-by-line preview (TaxReport.tsx's "1040 & [state] Preview" modal) that needs the
+  // standard-vs-itemized split, the ordinary/LTCG tax split, NIIT, and Additional Medicare Tax
+  // individually, not just the single combined estimatedTax total.
+  projectedDeductionUsed: number;
+  projectedUsedItemized: boolean;
+  projectedTaxableOrdinary: number;
+  projectedOrdinaryTax: number;
+  projectedLtcgTax: number;
+  projectedNiit: number;
+  projectedAdditionalMedicareTax: number;
+  projectedAdditionalMedicareWithheld: number;
+  projectedState: StateTaxEstimateDetail;
   // ESPP -- post-tax payroll deduction, doesn't affect any of the tax figures above, tracked
   // here purely so the projection can surface it (NVIDIA ESPP is a recurring purchase cycle).
   perPeriodEspp: number;
@@ -136,6 +149,40 @@ export interface TaxPlanningResult {
   projection: FullYearProjection;
 }
 
+// CA/NJ/AZ's own result types are structurally identical (same fields) except for `rules`,
+// which differs by state and isn't needed by any caller here -- this shared shape lets
+// estimateStateDetail return the FULL breakdown (deductionUsed, taxableIncome, bracketTax, etc.)
+// regardless of which state actually ran, instead of just the single estimatedTax number
+// estimateState below used to throw everything else away.
+export interface StateTaxEstimateDetail {
+  deductionUsed: number;
+  usedItemized: boolean;
+  taxableIncome: number;
+  bracketTax: number;
+  mentalHealthTax: number;
+  estimatedTax: number;
+  stateWithheld: number;
+  balanceDue: number;
+  refund: number;
+}
+
+function estimateStateDetail(
+  stateCode: StateCode,
+  taxYear: string,
+  filingStatus: UsFilingStatus,
+  agi: number,
+  itemizedOrPropertyTax: number,
+  stateWithheld: number
+): StateTaxEstimateDetail {
+  if (stateCode === "NJ") {
+    return estimateNjStateTax({ taxYear, filingStatus, agi, propertyTax: itemizedOrPropertyTax, stateWithheld });
+  }
+  if (stateCode === "AZ") {
+    return estimateAzStateTax({ taxYear, filingStatus, agi, itemizedDeduction: itemizedOrPropertyTax, stateWithheld });
+  }
+  return estimateCaStateTax({ taxYear, filingStatus, agi, itemizedDeduction: itemizedOrPropertyTax, stateWithheld });
+}
+
 function estimateState(
   stateCode: StateCode,
   taxYear: string,
@@ -144,13 +191,7 @@ function estimateState(
   itemizedOrPropertyTax: number,
   stateWithheld: number
 ): number {
-  if (stateCode === "NJ") {
-    return estimateNjStateTax({ taxYear, filingStatus, agi, propertyTax: itemizedOrPropertyTax, stateWithheld }).estimatedTax;
-  }
-  if (stateCode === "AZ") {
-    return estimateAzStateTax({ taxYear, filingStatus, agi, itemizedDeduction: itemizedOrPropertyTax, stateWithheld }).estimatedTax;
-  }
-  return estimateCaStateTax({ taxYear, filingStatus, agi, itemizedDeduction: itemizedOrPropertyTax, stateWithheld }).estimatedTax;
+  return estimateStateDetail(stateCode, taxYear, filingStatus, agi, itemizedOrPropertyTax, stateWithheld).estimatedTax;
 }
 
 function daysBetween(isoDate: string, todayIso: string): number {
@@ -256,7 +297,7 @@ export function computeFullYearProjection(input: TaxPlanningInput): FullYearProj
     aboveLineDeduction: hsaDeduction, itemizedDeduction: federalItemizedTotal,
   });
   const stateAgi = stateHsaConforms ? fed.agi : fed.agi + fed.aboveLineDeduction;
-  const projectedStateTax = estimateState(stateCode, taxYear, filingStatus, stateAgi, stateItemizedTotal, fullYearStateWithheld);
+  const stateDetail = estimateStateDetail(stateCode, taxYear, filingStatus, stateAgi, stateItemizedTotal, fullYearStateWithheld);
 
   return {
     periodsPerYear: PERIODS_PER_YEAR, periodsElapsed, periodsRemaining, modeledOnLastPaystub,
@@ -266,7 +307,12 @@ export function computeFullYearProjection(input: TaxPlanningInput): FullYearProj
     fullYearMedicareWages, fullYearMedicareWithheld, fullYearK401,
     projectedTaxableWages: projTaxableWages, projectedHsaDeduction: hsaDeduction,
     projectedOrdinaryIncome: fed.ordinaryIncome, projectedLongTermGain: fed.longTermGain, projectedAgi: fed.agi,
-    projectedFederalTax: fed.estimatedTax, projectedStateTax, projectedFederalBalanceDue: fed.balanceDue,
+    projectedFederalTax: fed.estimatedTax, projectedStateTax: stateDetail.estimatedTax, projectedFederalBalanceDue: fed.balanceDue,
+    projectedDeductionUsed: fed.deductionUsed, projectedUsedItemized: fed.usedItemized,
+    projectedTaxableOrdinary: fed.taxableOrdinary, projectedOrdinaryTax: fed.ordinaryTax, projectedLtcgTax: fed.ltcgTax,
+    projectedNiit: fed.niit, projectedAdditionalMedicareTax: fed.additionalMedicareTax,
+    projectedAdditionalMedicareWithheld: fed.additionalMedicareWithheld,
+    projectedState: stateDetail,
     perPeriodEspp, totalEsppYtd, projectedRemainingEspp, fullYearEspp,
     nextEsppPurchaseDate, projectedEsppByNextPurchase,
   };
