@@ -5618,6 +5618,7 @@ button.group-heading:hover {
 .sync-status-dot.pending { background: #eab308; }
 .sync-status-dot.error { background: #ef4444; }
 .sync-status-dot.backlog { background: #fb923c; }
+.sync-status-dot.stale { background: #ef4444; }
 /* Opposite corner from .sync-status-dot (top-right) on the same .header-settings-wrap
    positioning context -- an overdue-backup reminder is a separate concern from Tally sync
    health, so it gets its own small dot rather than overloading/conflating the existing one. */
@@ -5645,6 +5646,7 @@ button.group-heading:hover {
 }
 .header-actions .header-settings-row.sync-lock-row.error .sync-lock-row-status { color: #b91c1c; }
 .header-actions .header-settings-row.sync-lock-row.backlog .sync-lock-row-status { color: #c2410c; }
+.header-actions .header-settings-row.sync-lock-row.stale .sync-lock-row-status { color: #b91c1c; }
 .header-actions button::before {
   width: 0 !important;
   height: 0 !important;

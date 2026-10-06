@@ -32,28 +32,42 @@ function useSyncHealth(book: "us" | "india") {
   // "nothing urgent yet".
   const LARGE_BACKLOG_THRESHOLD = 6;
   const hasLargeBacklog = pendingCount >= LARGE_BACKLOG_THRESHOLD;
-  const tone: "error" | "pending" | "success" | "backlog" = fetchError
+  // The home laptop only ever reports in when a sync cycle actually runs -- if that process has
+  // stopped (laptop off/asleep, Tally closed, the script crashed), the LAST report it ever
+  // published just sits in KV unchanged forever, and until this check existed it was almost
+  // always a calm "success" from whatever the last good cycle was. Confirmed live: this showed a
+  // plain green "Sync successful" for 5 days (US) and 13 days (India) while nothing was actually
+  // syncing -- same 120-minute/4x-normal-cycle threshold VaultApp.tsx's Needs Attention bell uses
+  // for its own matching check, so the two surfaces agree.
+  const STALE_SUCCESS_MINUTES = 120;
+  const ageMinutes = health?.lastCheckedAt ? (Date.now() - new Date(health.lastCheckedAt).getTime()) / 60000 : null;
+  const isStale = health?.status === "success" && ageMinutes !== null && ageMinutes > STALE_SUCCESS_MINUTES;
+  const tone: "error" | "pending" | "success" | "backlog" | "stale" = fetchError
     ? "error"
     : health === undefined
       ? "pending"
       : health.status === "error" || issueCount > 0
         ? "error"
-        : health.status === "success" && pendingCount === 0
-          ? "success"
-          : hasLargeBacklog
-            ? "backlog"
-            : "pending";
+        : isStale
+          ? "stale"
+          : health.status === "success" && pendingCount === 0
+            ? "success"
+            : hasLargeBacklog
+              ? "backlog"
+              : "pending";
   const label = fetchError
     ? "Sync status unavailable"
     : tone === "error"
       ? `${issueCount || 1} sync issue${(issueCount || 1) === 1 ? "" : "s"}`
-      : tone === "backlog"
-        ? `${pendingCount} items pending — sync in small batches to avoid a stuck backlog`
-        : tone === "pending"
-          ? health === undefined
-            ? "Checking sync status…"
-            : `${pendingCount || 1} item${(pendingCount || 1) === 1 ? "" : "s"} pending sync`
-          : "Sync successful";
+      : tone === "stale"
+        ? "Sync hasn't run recently — check the home laptop"
+        : tone === "backlog"
+          ? `${pendingCount} items pending — sync in small batches to avoid a stuck backlog`
+          : tone === "pending"
+            ? health === undefined
+              ? "Checking sync status…"
+              : `${pendingCount || 1} item${(pendingCount || 1) === 1 ? "" : "s"} pending sync`
+            : "Sync successful";
   // The home laptop only reports in when a sync cycle actually runs (every 30 min, or right after
   // "Sync Now") -- this is also the only signal this app has for whether that laptop is even on,
   // so surface it here rather than adding a separate heartbeat mechanism.

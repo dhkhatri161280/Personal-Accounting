@@ -2021,8 +2021,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   }
   // Tally sync problems are easy to miss (the lock icon is small and easy to not notice) -- a real
   // 401 auth regression sat unnoticed for a while before it was found this way. Cycles run every
-  // 30 min automatically, so a "pending" that's sat for over 2 hours (4x normal) means either the
-  // home laptop is off/unreachable or a cycle is genuinely stuck, not just mid-progress.
+  // 30 min automatically, so anything sitting over 2 hours (4x normal) without a fresh report
+  // means the home-laptop daemon is off/unreachable, not just mid-progress.
+  //
+  // Confirmed live: a STALE "success" status was never flagged at all -- this block previously
+  // only checked "error" and "pending", so a daemon that quietly stopped running right after its
+  // last clean report (laptop asleep, Tally closed, the trigger-check.mjs process crashed/killed)
+  // left the lock showing a calm green "success" for DAYS with zero notification, even though no
+  // transactions were actually syncing. The US book sat 5 days stale and India 13 days stale
+  // before this was noticed by chance, not by anything the app surfaced.
   if (tallySyncHealth?.lastCheckedAt) {
     const STUCK_PENDING_MINUTES = 120;
     const ageMinutes = (Date.now() - new Date(tallySyncHealth.lastCheckedAt).getTime()) / 60000;
@@ -2036,6 +2043,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       attentionItems.push({
         label: "Tally sync may be stuck",
         detail: `Still shows "in progress" as of ${timeAgoLabel(tallySyncHealth.lastCheckedAt)} — normal cycles run every 30 min. Check that the home laptop is on and Tally is open.`,
+        action: { label: "Retry sync", onClick: () => { apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {}); } },
+      });
+    } else if (tallySyncHealth.status === "success" && ageMinutes > STUCK_PENDING_MINUTES) {
+      attentionItems.push({
+        label: "Tally sync hasn't run recently",
+        detail: `Last successful sync was ${timeAgoLabel(tallySyncHealth.lastCheckedAt)} — normal cycles run every 30 min, so this likely means the sync process on the home laptop has stopped (laptop off/asleep, Tally closed, or the sync script crashed). Nothing posted since then is in Tally yet.`,
         action: { label: "Retry sync", onClick: () => { apiFetch(`/api/sync-trigger?book=${book}`, { method: "POST", cache: "no-store" }).catch(() => {}); } },
       });
     }
