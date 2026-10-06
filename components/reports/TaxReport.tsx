@@ -22,6 +22,7 @@ import { estimateNjStateTax, computeNjPropertyTaxDeduction } from "@/lib/tax-nj-
 import { estimateAzStateTax, computeAzItemizedDeduction } from "@/lib/tax-az-engine";
 import { resolveStateResidency } from "@/lib/tax-state-residency";
 import { computeTaxPlanningScenarios } from "@/lib/tax-planning";
+import { averageMortgageBalanceForYear, deductibleMortgageInterest, CA_MORTGAGE_ACQUISITION_DEBT_CAP } from "@/lib/mortgage-amortization";
 import { compute401kByYear } from "@/lib/payroll-401k";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
@@ -315,11 +316,20 @@ function computeYearTaxEstimate(
       gainTotals.ordinaryLossDeduction -
       hsaDeduction
   );
+  // Acquisition-debt cap (IRS Pub 936) -- the ledger-matched mortgage interest is the real,
+  // uncapped amount actually paid (confirmed directly against the real 2025 Form 1098: box 1
+  // $23,955.38 matches exactly). Federal caps at $750k (this loan's $900k original principal is
+  // above it); CA never conformed to that TCJA reduction and still allows the older $1M cap
+  // (confirmed against the real Schedule CA (540)'s $2,369 addition). NJ/AZ left uncapped --
+  // their own conformity to this isn't independently verified.
+  const rawMortgageInterest = deductionTotal(deductionMatches, "mortgageInterest");
+  const avgMortgageBalance = averageMortgageBalanceForYear({ accounts, transactions }, taxEstimateYear);
+  const federalMortgageInterest = deductibleMortgageInterest(avgMortgageBalance, rawMortgageInterest).deductible;
   const federalItemized = computeItemizedDeduction(taxEstimateYear, preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
     stateIncomeTaxPaid: deductionTotal(deductionMatches, "stateIncomeTax"),
-    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    mortgageInterest: federalMortgageInterest,
     charitable: deductionTotal(deductionMatches, "charitable"),
   });
   const taxEstimate = estimateUsFederalTax({
@@ -339,10 +349,14 @@ function computeYearTaxEstimate(
 
   const stateResidency = resolveStateResidency(taxEstimateYear);
   const stateAgi = stateResidency.code === "AZ" ? taxEstimate.agi : taxEstimate.agi + taxEstimate.aboveLineDeduction;
+  const stateMortgageInterest =
+    stateResidency.code === "CA"
+      ? deductibleMortgageInterest(avgMortgageBalance, rawMortgageInterest, CA_MORTGAGE_ACQUISITION_DEBT_CAP).deductible
+      : rawMortgageInterest;
   const stateItemizedInputs = {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
-    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    mortgageInterest: stateMortgageInterest,
     charitable: deductionTotal(deductionMatches, "charitable"),
   };
   const stateItemized =
@@ -1394,11 +1408,18 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       gainTotals.ordinaryLossDeduction -
       hsaDeduction
   );
+  // Acquisition-debt cap (IRS Pub 936) -- see the matching comment in computeYearTaxEstimate
+  // above for the real-return evidence (2025 Form 1098 box 1 $23,955.38, Schedule CA (540)'s
+  // $2,369 addition). Federal caps at $750k; CA never conformed to the TCJA reduction and still
+  // allows $1M. NJ/AZ left uncapped -- not independently verified.
+  const rawMortgageInterest = deductionTotal(deductionMatches, "mortgageInterest");
+  const avgMortgageBalance = averageMortgageBalanceForYear({ accounts, transactions }, taxEstimateYear);
+  const federalMortgageInterest = deductibleMortgageInterest(avgMortgageBalance, rawMortgageInterest).deductible;
   const federalItemized = computeItemizedDeduction(taxEstimateYear, preliminaryAgi, {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
     stateIncomeTaxPaid: deductionTotal(deductionMatches, "stateIncomeTax"),
-    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    mortgageInterest: federalMortgageInterest,
     charitable: deductionTotal(deductionMatches, "charitable"),
   });
   const taxEstimate = estimateUsFederalTax({
@@ -1423,10 +1444,14 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   // CA and NJ don't, so the HSA deduction is added back to approximate state AGI for those two.
   const stateResidency = resolveStateResidency(taxEstimateYear);
   const stateAgi = stateResidency.code === "AZ" ? taxEstimate.agi : taxEstimate.agi + taxEstimate.aboveLineDeduction;
+  const stateMortgageInterest =
+    stateResidency.code === "CA"
+      ? deductibleMortgageInterest(avgMortgageBalance, rawMortgageInterest, CA_MORTGAGE_ACQUISITION_DEBT_CAP).deductible
+      : rawMortgageInterest;
   const stateItemizedInputs = {
     medicalExpenses: deductionTotal(deductionMatches, "medical"),
     propertyTax: deductionTotal(deductionMatches, "propertyTax"),
-    mortgageInterest: deductionTotal(deductionMatches, "mortgageInterest"),
+    mortgageInterest: stateMortgageInterest,
     charitable: deductionTotal(deductionMatches, "charitable"),
   };
   const stateItemized =
@@ -2280,8 +2305,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           (treated as capital gain). {stateResidency.code}: uses federal AGI as a proxy for {stateResidency.code} AGI
           {stateResidency.code !== "AZ" && <> , adding the HSA deduction back since {stateResidency.name} doesn&apos;t
           conform to federal HSA treatment</>}; no other {stateResidency.code}-specific addback/subtraction items
-          modeled. Mortgage interest isn&apos;t capped to the $750k acquisition-debt limit (can&apos;t be checked
-          from ledger data alone). State of residence for {yr.year} is assumed to be {stateResidency.name}. Based on
+          modeled. Mortgage interest is capped to the $750k federal acquisition-debt limit ($1M for CA, which never
+          conformed to the TCJA reduction) using the real average balance from the CCU Home Loan ledger account
+          (IRS Pub 936&apos;s average-balance method) — confirmed against a real Form 1098 and Schedule CA (540); NJ/AZ
+          are left uncapped since their own conformity to this isn&apos;t independently verified. State of residence
+          for {yr.year} is assumed to be {stateResidency.name}. Based on
           {" "}{taxEstimate.rules.ruleVersion} / {stateTaxEstimate.rules.ruleVersion}.
         </p>
       </details>

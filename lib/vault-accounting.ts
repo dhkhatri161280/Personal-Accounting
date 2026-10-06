@@ -435,7 +435,7 @@ export function displayLedgerBalance(
 // in the voucher entry form (Tally-style "current balance" next to the ledger picker), reflecting
 // everything already posted up to and including that date. Excludes deleted/cancelled vouchers,
 // same as every other balance calculation in this app.
-export function ledgerBalanceAsOf(data: Ledger, accountId: number, asOfDate: string): number {
+export function ledgerBalanceAsOf(data: Pick<Ledger, "accounts" | "transactions">, accountId: number, asOfDate: string): number {
   const account = data.accounts.find((a) => a.id === accountId);
   let raw = account?.openingBalance || 0;
   for (const t of data.transactions) {
