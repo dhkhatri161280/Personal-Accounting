@@ -619,6 +619,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   const [showGainEventsModal, setShowGainEventsModal] = useState(false);
   const [showDeductionsModal, setShowDeductionsModal] = useState(false);
   const [showTaxPlanningModal, setShowTaxPlanningModal] = useState(false);
+  const [showFormPreviewModal, setShowFormPreviewModal] = useState(false);
   // `total` is always the SAME value already shown on the triggering card (totalGross,
   // totalTaxAll, etc.) -- passed through rather than recomputed, so the modal's footer can
   // never drift from the card that opened it. `field`/`isGross` (optional) make the per-period
@@ -2247,6 +2248,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               💡 Tax Planning{taxPlanningTotalSavings > 0 && <span className="tp-trigger-amt"> (up to {fmt(taxPlanningTotalSavings)})</span>}
             </label>
           )}
+          <label
+            style={{ fontSize: 12, display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", color: "#2563eb" }}
+            onClick={() => setShowFormPreviewModal(true)}
+          >
+            📄 1040 &amp; {stateResidency.code} Preview
+          </label>
         </div>
       </div>
       <details style={{ margin: "0 0 0.75rem" }}>
@@ -3485,6 +3492,90 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           </div>
         </Modal>
       )}
+
+      {showFormPreviewModal && (() => {
+        const totalIncome = taxEstimate.agi + taxEstimate.aboveLineDeduction;
+        const taxableIncomeLine15 = taxEstimate.taxableOrdinary + taxEstimate.longTermGain;
+        const fed1040: { label: string; value: number; bold?: boolean }[] = [
+          { label: "Line 1z — Wages (W-2 box 1, net of 401(k))", value: taxableWages },
+          { label: "Line 2b + 3b — Taxable interest + ordinary dividends", value: interestDividendIncome },
+          { label: "Line 7a — Capital gain (Schedule D)", value: gainTotals.shortTermGainTaxable + gainTotals.longTermGainTaxable - gainTotals.ordinaryLossDeduction },
+          { label: "Line 9 — Total income", value: totalIncome, bold: true },
+          { label: "Line 10 — Adjustments to income (HSA deduction, Schedule 1)", value: -hsaDeduction },
+          { label: "Line 11 — Adjusted gross income", value: taxEstimate.agi, bold: true },
+          { label: `Line 12e — ${taxEstimate.usedItemized ? "Itemized" : "Standard"} deduction`, value: -taxEstimate.deductionUsed },
+          { label: "Line 15 — Taxable income", value: taxableIncomeLine15, bold: true },
+          { label: "Line 16 — Tax (ordinary + LTCG brackets)", value: taxEstimate.ordinaryTax + taxEstimate.ltcgTax },
+          { label: "Line 23 — Other taxes (NIIT + Additional Medicare Tax, Schedule 2)", value: taxEstimate.niit + taxEstimate.additionalMedicareTax },
+          { label: "Line 24 — Total tax", value: taxEstimate.estimatedTax, bold: true },
+          { label: "Line 25d — Federal tax withheld", value: -(taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld) },
+          taxEstimate.refund > 0
+            ? { label: "Line 34 — Overpaid (refund)", value: -taxEstimate.refund, bold: true }
+            : { label: "Line 37 — Amount you owe", value: taxEstimate.balanceDue, bold: true },
+        ];
+        const schedA: { label: string; value: number; bold?: boolean }[] = [
+          { label: "Line 4 — Medical (above 7.5% of AGI floor)", value: federalItemized.medicalDeductible },
+          { label: `Line 7 — SALT (${fmt(federalItemized.saltPaid)} paid, capped at ${fmt(federalItemized.saltCap)})`, value: federalItemized.saltDeductible },
+          { label: "Line 10 — Mortgage interest", value: federalItemized.mortgageInterestDeductible },
+          { label: "Line 14 — Gifts to charity", value: federalItemized.charitableDeductible },
+          { label: "Line 17 — Total itemized deductions", value: federalItemized.total, bold: true },
+          { label: `vs. ${taxEstimateYear} standard deduction`, value: taxEstimate.rules.standardDeduction },
+        ];
+        const stateForm: { label: string; value: number; bold?: boolean }[] = [
+          { label: "Federal AGI (starting point)", value: taxEstimate.agi },
+          ...(stateResidency.code !== "AZ"
+            ? [{ label: `${stateResidency.name} addition — HSA deduction not conformed`, value: taxEstimate.aboveLineDeduction }]
+            : []),
+          { label: `${stateResidency.name} AGI`, value: stateAgi, bold: true },
+          { label: `${stateResidency.name} ${stateTaxEstimate.usedItemized ? "itemized" : "standard"} deduction`, value: -stateTaxEstimate.deductionUsed },
+          { label: `${stateResidency.name} taxable income`, value: stateTaxEstimate.taxableIncome, bold: true },
+          { label: `${stateResidency.name} tax (bracket schedule)`, value: stateTaxEstimate.bracketTax },
+          ...(stateTaxEstimate.mentalHealthTax > 0
+            ? [{ label: "Mental Health Services Tax (1% over $1M)", value: stateTaxEstimate.mentalHealthTax }]
+            : []),
+          { label: `${stateResidency.name} total tax`, value: stateTaxEstimate.estimatedTax, bold: true },
+          { label: `${stateResidency.name} tax withheld`, value: -stateTaxEstimate.stateWithheld },
+          stateTaxEstimate.refund > 0
+            ? { label: `${stateResidency.name} overpaid (refund)`, value: -stateTaxEstimate.refund, bold: true }
+            : { label: `${stateResidency.name} amount you owe`, value: stateTaxEstimate.balanceDue, bold: true },
+        ];
+        const lineTable = (rows: { label: string; value: number; bold?: boolean }[]) => (
+          <table className="equity-table" style={{ width: "100%", marginBottom: "1rem" }}>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.label}>
+                  <td style={{ fontWeight: r.bold ? 600 : 400 }}>{r.label}</td>
+                  <td className="right equity-amt" style={{ fontWeight: r.bold ? 600 : 400, whiteSpace: "nowrap" }}>{fmt(r.value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+        return (
+          <Modal title={`1040 & ${stateResidency.code} ${yr.year} Preview`} onClose={() => setShowFormPreviewModal(false)} wide>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
+              A line-by-line preview of your estimated Form 1040 and {stateResidency.name} return, built from this
+              report's own figures above — labeled by real IRS/{stateResidency.code} line number so you can check
+              each one against your actual filed return (e.g. FreeTaxUSA). This is an estimate for cross-checking,
+              not a filing — see "assumptions &amp; limitations" above for what isn't modeled (AMT, the $750k
+              mortgage acquisition-debt limit, ESPP disqualifying-disposition ordinary income, and more).
+            </p>
+            <h5 className="tp-cat-label">Form 1040</h5>
+            {lineTable(fed1040)}
+            {taxEstimate.usedItemized && (
+              <>
+                <h5 className="tp-cat-label">Schedule A — Itemized Deductions</h5>
+                {lineTable(schedA)}
+              </>
+            )}
+            <h5 className="tp-cat-label">{stateResidency.name} Return</h5>
+            {lineTable(stateForm)}
+            <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowFormPreviewModal(false)}>Close</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {periodEsppModal && (
         <Modal title={`ESPP Purchases — ${periodEsppModal.label}`} onClose={() => setPeriodEsppModal(null)} wide>
