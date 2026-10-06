@@ -31,6 +31,53 @@ function change5d(price: number | null, prevClose: number | null) {
   return price !== null && prevClose !== null && prevClose !== 0 ? ((price - prevClose) / prevClose) * 100 : null;
 }
 
+// Real technical reference levels for a picked ticker's buy/sell band -- replaces the earlier
+// flat live-price +/-8% (which was pure cosmetic math: since buyBelow/sellAbove were DERIVED
+// from live itself, live sat in the middle of the band by construction, every single cycle, for
+// every ticker regardless of its actual trend or volatility -- a $3 stock and a $525 stock got
+// literally the same percentage width, and "Buy below" could essentially never trigger without
+// an 8%+ single-day move; confirmed live via the Oct 2026 Watchlist: every one of 18 names had
+// live sitting squarely between its band, which read as fake, not as an actual signal). The
+// 50-day moving average (a standard trend-following support reference) and the 52-week high (a
+// standard resistance/profit-take reference) are both real history for the specific stock, and
+// -- unlike the old band -- CAN already be triggered relative to today's live price (e.g. a stock
+// trading below its own 50-day average is a real "already in the dip zone" signal, not
+// algebraically impossible the way it was before).
+async function fetchPriceLevels(symbol: string) {
+  try {
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=3mo&interval=1d`,
+      { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" } }
+    );
+    const json = (await res.json()) as {
+      chart?: {
+        result?: Array<{
+          meta?: { regularMarketPrice?: number; chartPreviousClose?: number; fiftyTwoWeekHigh?: number; fiftyTwoWeekLow?: number };
+          indicators?: { quote?: Array<{ close?: Array<number | null> }> };
+        }>;
+      };
+    };
+    const result = json?.chart?.result?.[0];
+    const meta = result?.meta;
+    const closes = (result?.indicators?.quote?.[0]?.close ?? []).filter((c): c is number => typeof c === "number");
+    // Need a reasonable sample before trusting a "50-day" average as meaningful (e.g. a stock
+    // that IPO'd recently won't have 3 months of history yet) -- falls back to the 52-week low
+    // as the buy reference in that case instead of a thin/misleading average.
+    const last50 = closes.slice(-50);
+    const fiftyDayMA = last50.length >= 20 ? last50.reduce((s, c) => s + c, 0) / last50.length : null;
+    return {
+      symbol,
+      price: meta?.regularMarketPrice ?? null,
+      prevClose: meta?.chartPreviousClose ?? null,
+      fiftyTwoWeekHigh: typeof meta?.fiftyTwoWeekHigh === "number" ? meta.fiftyTwoWeekHigh : null,
+      fiftyTwoWeekLow: typeof meta?.fiftyTwoWeekLow === "number" ? meta.fiftyTwoWeekLow : null,
+      fiftyDayMA,
+    };
+  } catch {
+    return { symbol, price: null, prevClose: null, fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null, fiftyDayMA: null };
+  }
+}
+
 // Only the fields the AI actually has a basis to know: which tickers are in the news and why.
 // Price levels are NOT requested from the AI -- see the live-price pass below for why.
 type AiPick = { symbol: string; company: string; horizon: WatchlistEntry["horizon"]; thesis: string; buyMonths?: number[]; sellMonths?: number[]; seasonNote?: string };
@@ -156,24 +203,31 @@ No markdown. No explanation. Just the JSON array.`;
     return Response.json({ error: `Parse error: ${String(e)}`, raw: rawText.slice(0, 500) }, { status: 502 });
   }
 
-  // 5. Look up REAL live prices for the AI's chosen tickers, then derive buy/sell bands from
-  // that live price (+/-8%) -- deterministic math anchored to reality, not another AI guess.
-  // No analystTarget: this app has no reliable source for actual Wall Street consensus figures,
-  // and showing a fabricated one next to a real live price is exactly the kind of mismatch that
-  // made the AI-invented price levels look broken (e.g. "Live $480" next to "Target $140").
-  const pickPrices = await Promise.all(picks.map((p) => fetchPrice5d(p.symbol)));
-  const pickPriceMap = Object.fromEntries(pickPrices.map((p) => [p.symbol, p.price]));
+  // 5. Look up REAL technical levels for the AI's chosen tickers (52-week high/low, 50-day
+  // moving average) and derive buy/sell bands from those -- real per-stock history, not another
+  // AI guess and not the old flat live +/-8% (see fetchPriceLevels above for why that read as
+  // fake). No analystTarget: this app has no reliable source for actual Wall Street consensus
+  // figures, and showing a fabricated one next to a real live price is exactly the kind of
+  // mismatch that made the AI-invented price levels look broken (e.g. "Live $480" next to
+  // "Target $140").
+  const pickLevels = await Promise.all(picks.map((p) => fetchPriceLevels(p.symbol)));
+  const pickLevelMap = Object.fromEntries(pickLevels.map((p) => [p.symbol, p]));
   const updatedItems: WatchlistEntry[] = picks.map((p) => {
-    const live = pickPriceMap[p.symbol];
+    const lvl = pickLevelMap[p.symbol];
     const entry: WatchlistEntry = { symbol: p.symbol, company: p.company, horizon: p.horizon, thesis: p.thesis };
     if (p.horizon === "cyclical") {
       entry.buyMonths = p.buyMonths;
       entry.sellMonths = p.sellMonths;
       entry.seasonNote = p.seasonNote;
     }
-    if (live && live > 0) {
-      entry.buyBelow = Math.round(live * 0.92 * 100) / 100;
-      entry.sellAbove = Math.round(live * 1.08 * 100) / 100;
+    const buyBelow = lvl?.fiftyDayMA ?? lvl?.fiftyTwoWeekLow ?? null;
+    const sellAbove = lvl?.fiftyTwoWeekHigh ?? null;
+    // Sanity guard, not expected in practice: the 52-week high is the max of a full year's
+    // closes including the last 50 days, so it should essentially always sit at or above their
+    // average -- but never show an inverted or degenerate band if the data ever disagrees.
+    if (buyBelow != null && sellAbove != null && buyBelow > 0 && buyBelow < sellAbove) {
+      entry.buyBelow = Math.round(buyBelow * 100) / 100;
+      entry.sellAbove = Math.round(sellAbove * 100) / 100;
     }
     return entry;
   });
