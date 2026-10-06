@@ -37,30 +37,58 @@ async function fetchSchwabQuote(ticker: string): Promise<QuoteResult | null> {
 
 interface YahooQuote {
   regularMarketPrice: number | null;
-  // Yahoo's own all-sessions price (pre + regular + post/overnight combined) -- confirmed live
-  // against a real quote (2026-10) to be the same number Yahoo's own UI prominently shows as
-  // "Overnight: $X" outside regular hours, distinct from and more current than
-  // regularMarketPrice once the regular session has closed. Absent (or equal to
-  // regularMarketPrice) during/before regular hours, when there's nothing "extra" to reflect yet.
-  fulldayPrice: number | null;
+  // The most current price Yahoo's chart endpoint actually has. Originally this used meta's own
+  // `fulldayPrice` field, on the assumption it was Yahoo's all-sessions price -- confirmed WRONG
+  // live (2026-10): fulldayPrice sat frozen at the regular-session close (238.90) while the
+  // response's own 1-minute intraday series kept printing real post-market ticks past it (last
+  // bar 240.20), and meta's own fulldayChange (+6.26 on a 233.95 previous close = ~240.21)
+  // independently confirmed 240-ish was the real number -- fulldayPrice itself just isn't
+  // reliably kept current. The intraday series' own last non-null close is a direct observation,
+  // not a derived summary field, so it's preferred; fulldayPrice is only a fallback for when the
+  // series is empty. Note neither source ever reflects the newer separate "Overnight" (8pm-4am
+  // ET) session Yahoo's own UI now shows -- this chart endpoint has no feed for that at all, so
+  // the freshest price achievable here is "through the end of the post-market session."
+  latestPrice: number | null;
   previousClose: number | null;
 }
 
 async function fetchYahooQuote(ticker: string): Promise<YahooQuote> {
   const res = await fetch(
-    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1d&interval=1m`,
+    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1d&interval=1m&includePrePost=true`,
     { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" } }
   );
   if (!res.ok) throw new Error(`Yahoo ${res.status}`);
   const json = (await res.json()) as {
-    chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; fulldayPrice?: number; chartPreviousClose?: number } }> };
+    chart?: {
+      result?: Array<{
+        meta?: { regularMarketPrice?: number; fulldayPrice?: number; chartPreviousClose?: number };
+        timestamp?: number[];
+        indicators?: { quote?: Array<{ close?: Array<number | null> }> };
+      }>;
+    };
   };
-  const meta = json?.chart?.result?.[0]?.meta;
+  const result = json?.chart?.result?.[0];
+  const meta = result?.meta;
   const regularMarketPrice = typeof meta?.regularMarketPrice === "number" ? meta.regularMarketPrice : null;
   const fulldayPrice = typeof meta?.fulldayPrice === "number" ? meta.fulldayPrice : null;
   const previousClose = meta?.chartPreviousClose ?? null;
-  if (regularMarketPrice == null && fulldayPrice == null) throw new Error("No price");
-  return { regularMarketPrice, fulldayPrice, previousClose };
+
+  // The latest minute bar can end in a trailing null if it hasn't fully printed yet -- scan
+  // backward from the end for the last real tick instead of just reading the final array slot.
+  const closes = result?.indicators?.quote?.[0]?.close;
+  let lastIntradayClose: number | null = null;
+  if (closes) {
+    for (let i = closes.length - 1; i >= 0; i--) {
+      if (typeof closes[i] === "number") {
+        lastIntradayClose = closes[i] as number;
+        break;
+      }
+    }
+  }
+  const latestPrice = lastIntradayClose ?? fulldayPrice;
+
+  if (regularMarketPrice == null && latestPrice == null) throw new Error("No price");
+  return { regularMarketPrice, latestPrice, previousClose };
 }
 
 export async function GET(request: Request) {
@@ -68,14 +96,14 @@ export async function GET(request: Request) {
   const ticker = (searchParams.get("ticker") || "NVDA").toUpperCase().replace(/[^A-Z]/g, "");
 
   // Always fetch Yahoo (not only as a Schwab-down fallback) -- it's the only source here that
-  // ever has a more-current-than-regular-hours price at all. Priority: Yahoo's fulldayPrice
-  // (freshest -- captures post-market/overnight movement Schwab's plain quote never does) >
-  // Schwab's real-time regular-session quote (when connected, and Yahoo had nothing extra to
-  // offer) > Yahoo's regularMarketPrice (last resort, e.g. Schwab not connected and no
-  // extended-hours activity yet).
+  // ever has a more-current-than-regular-hours price at all. Priority: Yahoo's latestPrice
+  // (freshest -- captures post-market movement Schwab's plain quote never does) > Schwab's
+  // real-time regular-session quote (when connected, and Yahoo had nothing extra to offer) >
+  // Yahoo's regularMarketPrice (last resort, e.g. Schwab not connected and no extended-hours
+  // activity yet).
   const yahoo = await fetchYahooQuote(ticker).catch(() => null);
-  if (yahoo?.fulldayPrice != null) {
-    return Response.json({ ticker, price: yahoo.fulldayPrice, previousClose: yahoo.previousClose, source: "yahoo-fullday" });
+  if (yahoo?.latestPrice != null) {
+    return Response.json({ ticker, price: yahoo.latestPrice, previousClose: yahoo.previousClose, source: "yahoo-intraday" });
   }
 
   const schwab = await fetchSchwabQuote(ticker);
