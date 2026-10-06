@@ -18,11 +18,17 @@ function periodLabelFor(template: RecurringTemplate, periodKey: string): string 
   return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
 }
 
-// Active templates not yet posted for the current period -- due from the start of the period
-// until posted, no day-of-month gating (a simple, predictable rule beats a fiddly one).
+// Active templates not yet posted for the current period. A MONTHLY template with a dayOfMonth
+// set is due starting that day of the month, not from the 1st -- flagging "HOA due" on the 1st
+// when the bill isn't actually due until the 6th defeats the point of the reminder (confirmed
+// live: the user wants it to show up ON the due day, not two-plus weeks early). No dayOfMonth
+// set, or a YEARLY template (whose period has no stored month to anchor a day against -- see
+// dayOfMonth's comment in vault-types.ts), keeps the old whole-period behavior.
 export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string): DueTemplate[] {
+  const todayOfMonth = Number(asOfDate.slice(8, 10));
   return (templates ?? [])
     .filter((t) => t.active)
+    .filter((t) => t.frequency !== "monthly" || t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth)
     .map((t) => {
       const periodKey = currentPeriodKey(t, asOfDate);
       return { template: t, periodKey, periodLabel: periodLabelFor(t, periodKey) };

@@ -46,6 +46,24 @@ test("dueTemplates is due again once a new period starts", () => {
   assert.equal(due.length, 1);
 });
 
+test("dueTemplates withholds a MONTHLY template with a dayOfMonth until that day arrives -- not due from the 1st", () => {
+  const t = template({ dayOfMonth: 6 });
+  assert.equal(dueTemplates([t], "2026-10-01").length, 0, "day 1 -- bill isn't due until the 6th");
+  assert.equal(dueTemplates([t], "2026-10-05").length, 0, "day before due -- still not due");
+  assert.equal(dueTemplates([t], "2026-10-06").length, 1, "due day itself -- now flagged");
+  assert.equal(dueTemplates([t], "2026-10-20").length, 1, "still unposted past the due day -- stays flagged");
+});
+
+test("dueTemplates keeps the whole-period behavior for a MONTHLY template with no dayOfMonth set", () => {
+  const t = template({ dayOfMonth: undefined });
+  assert.equal(dueTemplates([t], "2026-10-01").length, 1);
+});
+
+test("dueTemplates does NOT gate a YEARLY template by dayOfMonth -- its period has no stored month to anchor a day against", () => {
+  const t = template({ frequency: "yearly", dayOfMonth: 20 });
+  assert.equal(dueTemplates([t], "2026-01-01").length, 1, "yearly stays due for the whole year, even day 1");
+});
+
 test("buildVoucherFromTemplate interpolates {month}/{year} and resolves account names", () => {
   const accountById = new Map<number, Account>([
     [9, { id: 9, name: "Subscriptions", parent: "Indirect Expenses", category: "Expense", currency: "USD", openingBalance: 0 }],

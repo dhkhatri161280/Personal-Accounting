@@ -372,7 +372,11 @@ export type RecurringTemplate = {
   label: string;
   active: boolean;
   frequency: "monthly" | "yearly";
-  dayOfMonth?: number; // informational "usually due on the Nth" -- not used to gate visibility
+  // "Usually due on the Nth" -- for a MONTHLY template, this gates when dueTemplates() starts
+  // flagging it (see lib/recurring.ts): due from this day of the month onward, not from the
+  // 1st. Purely informational for a YEARLY template (its period has no stored month to anchor a
+  // day against), so it stays due for the whole year once unposted, same as before.
+  dayOfMonth?: number;
   voucherType: string;
   narrationTemplate: string; // e.g. "{month} rent" -- {month}/{year} interpolated at post time
   entries: { accountId: number; amount: number }[]; // fixed amount, signed like Entry (negative = debit)
