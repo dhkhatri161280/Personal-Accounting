@@ -1,6 +1,6 @@
-import { applyBrackets, round2 } from "./tax-usa-engine";
-import { resolveAzTaxRules, type AzTaxRules } from "./tax-az-rules";
-import type { UsFilingStatus } from "./tax-usa-rules";
+import { applyBrackets, round2 } from "./tax-usa-engine.ts";
+import { resolveAzTaxRules, type AzTaxRules } from "./tax-az-rules.ts";
+import type { UsFilingStatus } from "./tax-usa-rules.ts";
 
 export interface AzItemizedInputs {
   medicalExpenses: number;

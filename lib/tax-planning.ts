@@ -1,10 +1,10 @@
-import { estimateUsFederalTax, computeHsaDeduction, get401kLimit, getHsaLimit, type HsaCoverage } from "./tax-usa-engine";
-import { type UsFilingStatus } from "./tax-usa-rules";
-import { estimateCaStateTax } from "./tax-ca-engine";
-import { estimateNjStateTax } from "./tax-nj-engine";
-import { estimateAzStateTax } from "./tax-az-engine";
-import type { StateCode } from "./tax-state-residency";
-import type { RsuGrant, EsppPurchase } from "./vault-types";
+import { estimateUsFederalTax, computeHsaDeduction, get401kLimit, getHsaLimit, type HsaCoverage } from "./tax-usa-engine.ts";
+import { type UsFilingStatus } from "./tax-usa-rules.ts";
+import { estimateCaStateTax } from "./tax-ca-engine.ts";
+import { estimateNjStateTax } from "./tax-nj-engine.ts";
+import { estimateAzStateTax } from "./tax-az-engine.ts";
+import type { StateCode } from "./tax-state-residency.ts";
+import type { RsuGrant, EsppPurchase } from "./vault-types.ts";
 
 /** Estimated-tax-only "what if" scenarios computed by this app's own deterministic tax engines
  * -- no external AI/LLM call, no data leaves the app. Every number here is a projection built
@@ -380,6 +380,35 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
         title: "HSA already maxed out",
         description: `You've contributed $${Math.round(hsaContributionTotal).toLocaleString()} of the $${limit.toLocaleString()} ${taxYear} limit — no additional room this year.`,
         fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
+      });
+    }
+  }
+
+  // ── 3b. Backdoor Roth IRA (informational -- no current-year deduction, so no $ savings
+  // figure; the benefit is years of future tax-free growth, not a number this app can project).
+  // Only surfaced once a direct Roth contribution is actually phased out at this income --
+  // otherwise a household under the ceiling should just contribute directly, no "backdoor" step
+  // needed. Uses projected AGI as a MAGI proxy (close enough here -- the actual MAGI addbacks,
+  // e.g. foreign earned income exclusion, essentially never apply to this app's household).
+  {
+    // 2025 Roth IRA MAGI ceiling (contribution fully phased out above this) -- not independently
+    // verified for other years; this app has no filing-status-aware historical table for it the
+    // way HSA/401(k) limits do, so every year falls back to the 2025 published figure.
+    const ROTH_PHASEOUT_CEILING: Record<UsFilingStatus, number> = { mfj: 246_000, single: 165_000 };
+    const IRA_CONTRIBUTION_LIMIT_2025 = 7_000; // per person; doesn't model the age-50+ $1,000 catch-up
+    const magi = projection.projectedAgi;
+    if (magi > ROTH_PHASEOUT_CEILING[filingStatus]) {
+      const people = filingStatus === "mfj" ? 2 : 1;
+      const totalRoom = IRA_CONTRIBUTION_LIMIT_2025 * people;
+      scenarios.push({
+        id: "backdoor-roth",
+        category: "Contribution Room",
+        title: `Backdoor Roth IRA: $${totalRoom.toLocaleString()} of unclaimed tax-advantaged room`,
+        description: `Your projected income is well above the $${ROTH_PHASEOUT_CEILING[filingStatus].toLocaleString()} MAGI ceiling where a direct Roth IRA contribution is allowed${filingStatus === "mfj" ? " for either spouse" : ""}, and a deductible Traditional IRA contribution is also phased out once you're covered by a workplace retirement plan. A non-deductible Traditional IRA contribution has no income limit, though — contribute up to $${IRA_CONTRIBUTION_LIMIT_2025.toLocaleString()}${filingStatus === "mfj" ? " per spouse ($" + totalRoom.toLocaleString() + " total)" : ""}, then convert it to Roth shortly after ("backdoor Roth"). There's no deduction today — the benefit is tax-free growth and withdrawals in retirement, which this app can't put a dollar figure on.`,
+        fedSavings: 0, stateSavings: 0, totalSavings: 0,
+        deadline: `${Number(taxYear) + 1}-04-15`,
+        caveat: "Real pitfall, not modeled here: the IRS \"pro-rata rule\" taxes part of the conversion if you (or your spouse, for their own IRA) already hold OTHER pre-tax Traditional/SEP/SIMPLE IRA balances anywhere -- this app doesn't track IRA balances outside this vault, so it can't check that for you. Confirm with a CPA/EA before doing this if you have any pre-tax IRA balance elsewhere.",
+        actionable: true, hypothetical: true,
       });
     }
   }

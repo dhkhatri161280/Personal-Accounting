@@ -1,6 +1,6 @@
-import { applyBrackets, round2 } from "./tax-usa-engine";
-import { resolveNjTaxRules, type NjTaxRules } from "./tax-nj-rules";
-import type { UsFilingStatus } from "./tax-usa-rules";
+import { applyBrackets, round2 } from "./tax-usa-engine.ts";
+import { resolveNjTaxRules, type NjTaxRules } from "./tax-nj-rules.ts";
+import type { UsFilingStatus } from "./tax-usa-rules.ts";
 
 const NJ_PROPERTY_TAX_DEDUCTION_CAP = 15_000;
 
