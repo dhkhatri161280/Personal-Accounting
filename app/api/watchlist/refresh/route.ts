@@ -220,7 +220,18 @@ No markdown. No explanation. Just the JSON array.`;
       entry.sellMonths = p.sellMonths;
       entry.seasonNote = p.seasonNote;
     }
-    const buyBelow = lvl?.fiftyDayMA ?? lvl?.fiftyTwoWeekLow ?? null;
+    const live = lvl?.price ?? null;
+    // The UI's "Entry range" badge (TradingReport.tsx) fires whenever live < buyBelow -- a
+    // contract the old flat live x0.92 band always satisfied by construction. The 50-day MA can
+    // legitimately sit ABOVE live for a stock currently trading below its own average, which
+    // would fire that badge on roughly half the list immediately on every refresh, not only once
+    // price genuinely dropped into range -- confirmed live: exactly this on the actual watchlist.
+    // Only use the MA when it's a real target BELOW today's price; otherwise fall back to the
+    // 52-week low, which (being the trailing year's minimum, today included) can never exceed
+    // live, so it always keeps the "buyBelow <= live" contract the UI depends on. The 52-week
+    // high needs no equivalent guard the other way -- as the trailing year's maximum it can never
+    // sit below live either, so sellAbove >= live always holds already.
+    const buyBelow = lvl?.fiftyDayMA != null && live != null && lvl.fiftyDayMA < live ? lvl.fiftyDayMA : (lvl?.fiftyTwoWeekLow ?? null);
     const sellAbove = lvl?.fiftyTwoWeekHigh ?? null;
     // Sanity guard, not expected in practice: the 52-week high is the max of a full year's
     // closes including the last 50 days, so it should essentially always sit at or above their
