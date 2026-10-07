@@ -15,6 +15,19 @@ export function isCashBankGroup(a: { parent?: string }): boolean {
   return /^(bank accounts|cash-in-hand)$/.test((a.parent || "").toLowerCase());
 }
 
+// A loan account (e.g. "CCU Home Loan", filed under "Loans (Liability)" -- see
+// lib/loans-ledger.ts's LOANS_LIABILITY_GROUP_NAME) is, for reconciliation purposes, exactly the
+// same situation as isCashBankGroup's own HSA/Schwab case: Plaid was never connected to it (a
+// mortgage/auto-loan servicer isn't a Plaid institution this app links), so every voucher
+// touching it -- typically a monthly principal/interest-split Journal entry -- can NEVER get a
+// per-transaction Plaid match and would otherwise sit permanently flagged "unreconciled" in Day
+// Book. Kept separate from isCashBankGroup itself (a loan is a liability, not cash/bank) so each
+// name stays accurate to what it actually tests; callers that want "either reason a per-
+// transaction match will never arrive" check both.
+export function isLoanLiabilityGroup(a: { parent?: string }): boolean {
+  return /^(loans \(liability\)|secured loans|unsecured loans|bank od a\/c)$/i.test((a.parent || "").trim());
+}
+
 export function isCcAcct(a: { name: string; parent?: string }): boolean {
   // The account's own group is authoritative when it says so -- falls back to requiring the
   // literal words "credit card" in the name (avoids false matches on "credit union", "income

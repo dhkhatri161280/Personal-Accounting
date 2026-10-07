@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isCcAcct, isBankAcct, enforceContraType, inferReversalVoucherType } from "../lib/plaid-classify.ts";
+import { isCcAcct, isBankAcct, isCashBankGroup, isLoanLiabilityGroup, enforceContraType, inferReversalVoucherType } from "../lib/plaid-classify.ts";
 
 const BOFA = { id: 1, name: "Bank Of America", parent: "Bank Accounts" };
 const CITI_CARD = { id: 2, name: "Citi Credit Card", parent: "Credit Card" };
@@ -19,6 +19,15 @@ test("isBankAcct matches known bank patterns and excludes expense/income names",
   assert.equal(isBankAcct(BOFA), true);
   assert.equal(isBankAcct({ name: "Bank Charges Expense" }), false);
   assert.equal(isBankAcct({ name: "Salary Income" }), false);
+});
+
+test("isLoanLiabilityGroup matches a loan account (e.g. CCU Home Loan) and nothing else", () => {
+  assert.equal(isLoanLiabilityGroup({ parent: "Loans (Liability)" }), true);
+  assert.equal(isLoanLiabilityGroup({ parent: "Secured Loans" }), true);
+  assert.equal(isLoanLiabilityGroup({ parent: "Unsecured Loans" }), true);
+  assert.equal(isLoanLiabilityGroup(BOFA), false);
+  assert.equal(isLoanLiabilityGroup({ parent: "Current Liabilities" }), false);
+  assert.equal(isCashBankGroup({ parent: "Loans (Liability)" }), false, "a loan isn't cash/bank -- the two classifiers are disjoint");
 });
 
 test("enforceContraType promotes a bank<->card payment to Contra with a clean narration when the raw text is unhelpful", () => {

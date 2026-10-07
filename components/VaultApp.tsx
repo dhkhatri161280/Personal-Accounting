@@ -60,6 +60,7 @@ import {
 } from "@/lib/vault-accounting";
 import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel, formatPacificTimestamp } from "@/lib/format-date";
 import { isCashBankGroup } from "@/lib/plaid-classify";
+import { vaultExceptionKey } from "@/lib/plaid-recon";
 import { SyncNowButton, SyncStatusDot, SyncLockMenuRow } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
@@ -1053,6 +1054,29 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     () => new Set((data?.bankReconExceptions ?? []).filter((e) => e.key.startsWith("v:")).map((e) => e.key.slice(2))),
     [data?.bankReconExceptions]
   );
+  // Toggles the same manual-reconciliation exception, directly from the voucher view modal --
+  // not every voucher that will never get a Plaid match actually shows up in Bank Reconciliation's
+  // own "In vault, no Plaid match" list (that list is a LOOSE date+amount proximity check against
+  // whatever Plaid currently returns, used only to explain account-level balance diffs; a voucher
+  // that happens to land near some unrelated Plaid transaction in date/amount passes that check
+  // and never appears there at all, even though it was never actually linked via plaidTxId or a
+  // confirmed match). This gives a way to mark/unmark ANY voucher directly, regardless of whether
+  // Bank Reconciliation currently considers it "matched."
+  async function toggleVoucherManualReconciled(t: Tx) {
+    if (!data) return;
+    const key = vaultExceptionKey(t.guid);
+    const already = manuallyReconciledVoucherGuids.has(t.guid);
+    const next: Ledger = already
+      ? { ...data, bankReconExceptions: (data.bankReconExceptions ?? []).filter((e) => e.key !== key) }
+      : {
+          ...data,
+          bankReconExceptions: [
+            ...(data.bankReconExceptions ?? []),
+            { key, label: `${t.date} — ${t.narration || t.type}`, markedAt: new Date().toISOString() },
+          ],
+        };
+    await save(next, "daybook");
+  }
 
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
   // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
@@ -5653,17 +5677,39 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Hidden entirely when createdAt is missing (vouchers from before this field
                 existed, or synced in from Tally, which never sets it). */}
             {(() => {
-              const reconciled =
+              // "Auto" = a real Plaid-derived signal (or an always-reconciled account) -- the
+              // manual exception toggle below only makes sense when NONE of these already apply,
+              // since toggling it wouldn't change what's displayed otherwise (confusing to offer).
+              const autoReconciled =
                 !!selectedVoucher.plaidTxId ||
                 selectedVoucher.syncStatus === "bank-pending" ||
                 matchedVoucherIds.has(selectedVoucher.id) ||
-                selectedVoucher.entries.some((e) => alwaysReconciledAccountIds.has(e.accountId)) ||
-                manuallyReconciledVoucherGuids.has(selectedVoucher.guid);
+                selectedVoucher.entries.some((e) => alwaysReconciledAccountIds.has(e.accountId));
+              const manuallyReconciled = manuallyReconciledVoucherGuids.has(selectedVoucher.guid);
+              const reconciled = autoReconciled || manuallyReconciled;
               const entered = formatPacificTimestamp(selectedVoucher.createdAt);
-              return (reconciled || entered) && (
-                <p className="voucher-entered-at">
+              return (reconciled || entered || !autoReconciled) && (
+                <p className="voucher-entered-at" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   {reconciled && <span className="voucher-detail-reconciled">✓ Reconciled </span>}
                   {entered && `Entered ${entered}`}
+                  {/* Manual override -- for a voucher a real bank event touched but Plaid will
+                      never durably record (e.g. a pending hold that vanished instead of posting).
+                      Hidden once a real Plaid-derived signal already covers it -- see
+                      autoReconciled above. */}
+                  {!autoReconciled && (
+                    <button
+                      type="button"
+                      className="tr-refresh-btn"
+                      title={
+                        manuallyReconciled
+                          ? "Removes this manual override -- back to unreconciled unless a real Plaid match covers it"
+                          : "Use when a real bank event touched this voucher but Plaid will never durably record it (e.g. a pending hold that vanished instead of posting)"
+                      }
+                      onClick={() => toggleVoucherManualReconciled(selectedVoucher)}
+                    >
+                      {manuallyReconciled ? "Unmark reconciled" : "Mark reconciled"}
+                    </button>
+                  )}
                 </p>
               );
             })()}

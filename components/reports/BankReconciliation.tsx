@@ -12,7 +12,7 @@ import {
   type PlaidTxSummary,
   type ReconAccountStatus,
 } from "@/lib/plaid-recon";
-import { isCashBankGroup } from "@/lib/plaid-classify";
+import { isCashBankGroup, isLoanLiabilityGroup } from "@/lib/plaid-classify";
 import { exportWorkbook } from "@/lib/export-excel";
 import { apiFetch } from "@/lib/api-fetch";
 import { ExportButton } from "@/components/ExportButton";
@@ -231,13 +231,14 @@ export function BankReconciliation({
         <div style={{ padding: "8px 4px", fontSize: 13 }}>
           <p style={{ margin: "0 0 8px", opacity: 0.7 }}>
             For accounts Plaid can never give a per-transaction match for (HSA/401k-type accounts that only expose a
-            balance, or Schwab, which isn't Plaid-connected at all) -- check an account here and every voucher
-            touching it shows "Reconciled" based on its balance agreeing, without waiting on a transaction match that
-            will never arrive.
+            balance, Schwab, which isn't Plaid-connected at all, or a loan like a mortgage, which no Plaid
+            institution feeds transaction-by-transaction) -- check an account here and every voucher touching it
+            shows "Reconciled" based on its balance agreeing, without waiting on a transaction match that will
+            never arrive.
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px" }}>
             {data.accounts
-              .filter((a) => a.active !== false && isCashBankGroup(a))
+              .filter((a) => a.active !== false && (isCashBankGroup(a) || isLoanLiabilityGroup(a)))
               .map((a) => (
                 <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input
