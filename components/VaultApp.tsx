@@ -217,6 +217,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // exists -- a bare ref wouldn't be ready on TransactionTable's own first render.
     [ledgerDrillTotalEl, setLedgerDrillTotalEl] = useState<HTMLElement | null>(null),
     [ledgerDrillActionsEl, setLedgerDrillActionsEl] = useState<HTMLElement | null>(null),
+    // Same portal-target pattern as ledgerDrillTotalEl/ledgerDrillActionsEl above, for the Cash
+    // Flow drilldown's own toolbar row (see cashFlowDetail below).
+    [cfDrillTotalEl, setCfDrillTotalEl] = useState<HTMLElement | null>(null),
+    [cfDrillActionsEl, setCfDrillActionsEl] = useState<HTMLElement | null>(null),
+    // Same, for the columnar-report (Balance Sheet/P&L/Cash Flow) group-cell drilldown (see
+    // columnarDrilldown below) -- no totalSlot there since a multi-account drilldown has no single
+    // coherent running balance to fold the total into a summary card alongside.
+    [ddDrillActionsEl, setDdDrillActionsEl] = useState<HTMLElement | null>(null),
     // Deep-link targets for report components with their own internal sub-tabs, set by the
     // search palette so e.g. "watchlist" or "pending transactions" lands on the right sub-view
     // instead of just the report's default. Read once on each component's mount (see each
@@ -5402,12 +5410,42 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         const cfAccount = cfAccountId !== undefined ? accountById.get(cfAccountId) : undefined;
         const cfTitle = cashFlowDetail?.ledger ?? cashFlowDetail?.group ?? "";
         const cfGroupLabel = cfAccount ? `${cfAccount.parent || cashFlowDetail.group} — ${natureFor(cfAccount)}` : cashFlowDetail.group;
+        // Single ledger: reuse the exact same per-account opening/debit/credit/closing the
+        // dashboard-card drilldown (selectedRow below) already computes for the current financial
+        // period, keyed by account id -- same period, same numbers, so this stays consistent with
+        // that drilldown instead of recomputing its own balance. A group click (no specific
+        // ledger) has no single row to key off, so cfRow stays undefined there.
+        const cfRow = cashFlowDetail.ledger && cfAccountId !== undefined ? rows.find((a) => a.id === cfAccountId) : undefined;
         return (
         <FloatingWindow title={cfGroupLabel ? `${cfTitle} (${cfGroupLabel})` : cfTitle} onClose={() => setCashFlowDetail(null)} wide initialWidth={1300} initialHeight={700}>
           <div className="ledger-drill-panel">
-            <p>
-              Cash Flow | <PeriodSelect />
+            <p style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <span>
+                Cash Flow | <PeriodSelect />
+              </span>
+              {/* Portal target for TransactionTable's action toolbar -- see cfDrillActionsEl above. */}
+              <span ref={setCfDrillActionsEl} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} />
             </p>
+            {cfRow && (
+              <section className="drill-summary drill-summary--5">
+                <span>
+                  Opening
+                  <strong>{fmt(displayLedgerBalance(cfRow, cfRow.opening))}</strong>
+                </span>
+                <span>
+                  Period debit<strong>{fmt(cfRow.debit)}</strong>
+                </span>
+                <span>
+                  Period credit<strong>{fmt(cfRow.credit)}</strong>
+                </span>
+                <span>
+                  Closing
+                  <strong>{fmt(displayLedgerBalance(cfRow, cfRow.closing))}</strong>
+                </span>
+                {/* Portal target for TransactionTable's "Displayed total" -- see cfDrillTotalEl above. */}
+                <span ref={setCfDrillTotalEl} />
+              </section>
+            )}
             <TransactionTable
               transactions={cashFlowItems
                 .filter((x) =>
@@ -5425,7 +5463,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDelete={(t) => deleteVoucher(t as Tx)}
               closedPeriods={data.closedPeriods}
               selectedLedgerName={cashFlowDetail?.ledger}
+              openingBalance={cfRow ? -cfRow.opening : undefined}
+              enableGrouping={!cfRow}
               virtualized
+              mobileCards={!!cfRow}
+              totalSlot={cfRow ? cfDrillTotalEl : undefined}
+              actionsSlot={cfDrillActionsEl}
             />
           </div>
         </FloatingWindow>
@@ -5451,8 +5494,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           initialHeight={700}
         >
           <div className="ledger-drill-panel">
-            <p>
-              {fmtDate(columnarDrilldown.start)} – {fmtDate(columnarDrilldown.end)}
+            <p style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <span>
+                {fmtDate(columnarDrilldown.start)} – {fmtDate(columnarDrilldown.end)}
+              </span>
+              {/* Portal target for TransactionTable's action toolbar -- see ddDrillActionsEl
+                  above. No totalSlot here: this drilldown can span multiple accounts (a collapsed
+                  group row or the grand-total row), which has no single coherent running balance
+                  to fold the total into a summary card alongside -- the Displayed total stays
+                  inline in TransactionTable's own row instead. */}
+              <span ref={setDdDrillActionsEl} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} />
             </p>
             <TransactionTable
               transactions={vouchersForAccountsInRange(data, columnarDrilldown.accountIds, columnarDrilldown.start, columnarDrilldown.end)}
@@ -5462,7 +5513,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onCopy={(t) => copyVoucher(t as Tx)}
               onDelete={(t) => deleteVoucher(t as Tx)}
               closedPeriods={data.closedPeriods}
+              enableGrouping
               virtualized
+              actionsSlot={ddDrillActionsEl}
             />
           </div>
         </FloatingWindow>

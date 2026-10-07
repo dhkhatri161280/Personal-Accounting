@@ -362,6 +362,7 @@ export function TransactionTable({
   mobileCards,
   totalSlot,
   actionsSlot,
+  enableGrouping,
 }: {
   transactions: VoucherRow[];
   formatAmount: (n: number) => string;
@@ -411,6 +412,14 @@ export function TransactionTable({
   // Expand all splits, the View/Sub-total dropdown) -- portaled together as one group since they
   // read as a single toolbar wherever they land, not meant to be split further.
   actionsSlot?: HTMLElement | null;
+  // Opt-in for the Monthly/Day Book/... period grouping (collapsible period headers + the View
+  // dropdown) on a multi-account drilldown (Cash Flow group, or a columnar-report group/total
+  // cell) that has no single ledger to key a running balance off of -- normally that grouping is
+  // gated on balanceMap (openingBalance + selectedLedgerName), since the group header's own
+  // "closing balance" column only makes sense for one ledger's running total. This opts into the
+  // period bucketing and View dropdown WITHOUT a running balance column: each period header still
+  // sums the period's own Amount column (same figure the flat rows already show), just collapsed.
+  enableGrouping?: boolean;
 }) {
   const isNarrow = useIsNarrowViewport();
   const useCards = !!mobileCards && isNarrow;
@@ -461,7 +470,7 @@ export function TransactionTable({
   // single time to get Tally's own default view. Day Book itself never passes those two props, so
   // it's untouched and still opens flat, same as always.
   const [subtotalPeriod, setSubtotalPeriod] = useState<SubtotalPeriod>(
-    openingBalance !== undefined && selectedLedgerName ? "month" : "none"
+    (openingBalance !== undefined && selectedLedgerName) || enableGrouping ? "month" : "none"
   );
   // "Reconciled" status filter -- same three signals the inline expand's "✓ Reconciled" badge
   // itself checks (plaidTxId, the original "bank-pending" import marker, or an explicit
@@ -623,6 +632,12 @@ export function TransactionTable({
     return map;
   }, [rows, transactions, openingBalance, selectedLedgerName, sort]);
 
+  // Whether period grouping (collapsible headers + the View dropdown) is available at all --
+  // either a real running balance (balanceMap) or an explicit multi-account opt-in (enableGrouping,
+  // see its doc comment above). Separate from balanceMap itself since the latter also gates the
+  // Balance column, which only ever makes sense for the single-ledger case.
+  const groupingActive = !!balanceMap || !!enableGrouping;
+
   const plainFixedWidth =
     PLAIN_COLUMN_KEYS.filter((k) => k !== "narration").reduce((s, k) => s + colWidths[k], 0) +
     (balanceMap ? BALANCE_COL_WIDTH : 0) +
@@ -658,7 +673,7 @@ export function TransactionTable({
   // period is active. Only available once there's a real running balance to report as the
   // period's closing figure.
   const displayRows: Row[] = useMemo(() => {
-    if (subtotalPeriod === "none" || !balanceMap) return gridRows;
+    if (subtotalPeriod === "none" || !groupingActive) return gridRows;
     const isAsc = sort.direction === "asc";
     const out: Row[] = [];
     let i = 0;
@@ -701,7 +716,7 @@ export function TransactionTable({
       i = j;
     }
     return out;
-  }, [gridRows, subtotalPeriod, sort.direction, balanceMap, expandedPeriods]);
+  }, [gridRows, subtotalPeriod, sort.direction, balanceMap, groupingActive, expandedPeriods]);
 
   const filterField = (key: SortKey, label: string, placeholder: string) => (
     <label key={key}>
@@ -893,7 +908,7 @@ export function TransactionTable({
           {allExpanded ? "Collapse all" : `Expand all splits (${expandableGuids.length})`}
         </button>
       )}
-      {balanceMap && (
+      {groupingActive && (
         <label style={{ marginLeft: actionsSlot ? 0 : "auto", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
           View
           <select value={subtotalPeriod} onChange={(e) => changeSubtotal(e.target.value as SubtotalPeriod)}>
