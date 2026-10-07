@@ -846,7 +846,19 @@ export function TransactionTable({
   // toolbar row -- e.g. a ledger drilldown folding the total into its Opening/Closing summary
   // cards and the actions into its FY-selector row, to reclaim the vertical space this row used
   // to take on its own. Both fall back to the original inline row when no slot is given.
-  const totalBlock = (
+  // When portaled into a ledger drilldown's Opening/Period/Closing summary grid, this needs to
+  // match its siblings' exact "short label, then one bold value" shape -- the grid row's height
+  // is driven by all 5 cells together, so the original 3-line version (label + amount on one
+  // line, voucher count on a second) got clipped/overflowed against the shorter cards next to it
+  // (confirmed live: text visibly cut off, "12 of 12 vouchers" rendering outside the card
+  // background entirely). Only the inline-toolbar fallback (every other caller) keeps the richer
+  // version with the voucher count, where there's no shared-row-height constraint to fit.
+  const totalBlock = totalSlot ? (
+    <>
+      Displayed total
+      <strong>{formatAmount(filteredTotal)}</strong>
+    </>
+  ) : (
     <>
       <strong>Displayed total: {formatAmount(filteredTotal)}</strong>
       <span>
@@ -1007,10 +1019,15 @@ export function TransactionTable({
               </div>
             )
           )}
-          <div className="voucher-card-total">
-            <span>Displayed voucher total</span>
-            <b>{formatAmount(filteredTotal)}</b>
-          </div>
+          {/* Skipped when totalSlot is provided -- the caller is already showing this total
+              elsewhere in its own layout (see the portal above), so this would just duplicate
+              it at the bottom of the card list on mobile. */}
+          {!totalSlot && (
+            <div className="voucher-card-total">
+              <span>Displayed voucher total</span>
+              <b>{formatAmount(filteredTotal)}</b>
+            </div>
+          )}
         </div>
       ) : virtualized ? (
         // A large standalone list (Day Book) wants genuine "scroll to see everything," not
