@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport";
 import { ThemeProvider } from "@mui/material/styles";
 import Menu from "@mui/material/Menu";
@@ -359,6 +360,8 @@ export function TransactionTable({
   alwaysReconciledAccountIds,
   virtualized,
   mobileCards,
+  totalSlot,
+  actionsSlot,
 }: {
   transactions: VoucherRow[];
   formatAmount: (n: number) => string;
@@ -399,6 +402,15 @@ export function TransactionTable({
   // columnar drilldowns (also `virtualized`) keep their existing table rendering unless a caller
   // opts them in too.
   mobileCards?: boolean;
+  // Opt-in: render the "Displayed total / N of M vouchers" text into this DOM node (via a React
+  // portal) instead of this component's own inline toolbar row -- lets a caller place it inside
+  // its own layout (e.g. alongside a ledger drilldown's Opening/Closing summary cards) to reclaim
+  // vertical space. Omit to keep the current inline placement (every caller but one, unchanged).
+  totalSlot?: HTMLElement | null;
+  // Same idea as totalSlot, for the action controls (Clear filters, Reconciled filter, Export,
+  // Expand all splits, the View/Sub-total dropdown) -- portaled together as one group since they
+  // read as a single toolbar wherever they land, not meant to be split further.
+  actionsSlot?: HTMLElement | null;
 }) {
   const isNarrow = useIsNarrowViewport();
   const useCards = !!mobileCards && isNarrow;
@@ -829,51 +841,71 @@ export function TransactionTable({
     await exportWorkbook(`${selectedLedgerName || "Day Book"}.xlsx`, [{ name: (selectedLedgerName || "Vouchers").slice(0, 31), rows: [header, ...body] }]);
   }
 
+  // Split so a caller can opt in to placing either (or both) into its own layout via
+  // totalSlot/actionsSlot (see their doc comments above) instead of this component's own inline
+  // toolbar row -- e.g. a ledger drilldown folding the total into its Opening/Closing summary
+  // cards and the actions into its FY-selector row, to reclaim the vertical space this row used
+  // to take on its own. Both fall back to the original inline row when no slot is given.
+  const totalBlock = (
+    <>
+      <strong>Displayed total: {formatAmount(filteredTotal)}</strong>
+      <span>
+        {rows.length} of {transactions.length} vouchers
+      </span>
+    </>
+  );
+  const actionsBlock = (
+    <>
+      <button
+        onClick={() => {
+          setFilters({ date: "", type: "", number: "", debit: "", credit: "", narration: "", amount: "", debitAmount: "", creditAmount: "" });
+          setReconciledFilter("all");
+          onClearSearch?.();
+        }}
+      >
+        Clear all filters
+      </button>
+      {matchedVoucherIds && (
+        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+          Reconciled
+          <select value={reconciledFilter} onChange={(e) => setReconciledFilter(e.target.value as typeof reconciledFilter)}>
+            <option value="all">All</option>
+            <option value="reconciled">Reconciled only</option>
+            <option value="unreconciled">Unreconciled only</option>
+          </select>
+        </label>
+      )}
+      <ExportButton onExport={exportRows} />
+      {expandableGuids.length > 0 && (
+        <button onClick={toggleAllExpanded}>
+          {allExpanded ? "Collapse all" : `Expand all splits (${expandableGuids.length})`}
+        </button>
+      )}
+      {balanceMap && (
+        <label style={{ marginLeft: actionsSlot ? 0 : "auto", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+          View
+          <select value={subtotalPeriod} onChange={(e) => changeSubtotal(e.target.value as SubtotalPeriod)}>
+            <option value="month">Monthly</option>
+            <option value="none">Day Book</option>
+            <option value="date">Daily</option>
+            <option value="quarter">Quarterly</option>
+            <option value="year">Yearly</option>
+          </select>
+        </label>
+      )}
+    </>
+  );
+
   return (
     <div className="excel-table">
-      <div className="excel-toolbar">
-        <strong>Displayed total: {formatAmount(filteredTotal)}</strong>
-        <span>
-          {rows.length} of {transactions.length} vouchers
-        </span>
-        <button
-          onClick={() => {
-            setFilters({ date: "", type: "", number: "", debit: "", credit: "", narration: "", amount: "", debitAmount: "", creditAmount: "" });
-            setReconciledFilter("all");
-            onClearSearch?.();
-          }}
-        >
-          Clear all filters
-        </button>
-        {matchedVoucherIds && (
-          <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-            Reconciled
-            <select value={reconciledFilter} onChange={(e) => setReconciledFilter(e.target.value as typeof reconciledFilter)}>
-              <option value="all">All</option>
-              <option value="reconciled">Reconciled only</option>
-              <option value="unreconciled">Unreconciled only</option>
-            </select>
-          </label>
-        )}
-        <ExportButton onExport={exportRows} />
-        {expandableGuids.length > 0 && (
-          <button onClick={toggleAllExpanded}>
-            {allExpanded ? "Collapse all" : `Expand all splits (${expandableGuids.length})`}
-          </button>
-        )}
-        {balanceMap && (
-          <label style={{ marginLeft: "auto", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-            View
-            <select value={subtotalPeriod} onChange={(e) => changeSubtotal(e.target.value as SubtotalPeriod)}>
-              <option value="month">Monthly</option>
-              <option value="none">Day Book</option>
-              <option value="date">Daily</option>
-              <option value="quarter">Quarterly</option>
-              <option value="year">Yearly</option>
-            </select>
-          </label>
-        )}
-      </div>
+      {(!totalSlot || !actionsSlot) && (
+        <div className="excel-toolbar">
+          {!totalSlot && totalBlock}
+          {!actionsSlot && actionsBlock}
+        </div>
+      )}
+      {totalSlot && createPortal(totalBlock, totalSlot)}
+      {actionsSlot && createPortal(<div className="excel-toolbar excel-toolbar--portal">{actionsBlock}</div>, actionsSlot)}
       {/* In `virtualized` mode the table itself uses `colWidths` (user drag-resizable, see
           ColResizeHandle below), not the static DataGrid-derived FILTER_GRID_TEMPLATE -- pinning
           the filter row to that same static template let it silently fall out of sync the moment

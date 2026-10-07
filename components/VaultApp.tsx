@@ -209,6 +209,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // marked satisfied without Post creating a duplicate voucher. null = closed.
     [linkTemplateDue, setLinkTemplateDue] = useState<DueTemplate | null>(null),
     [linkTemplateQuery, setLinkTemplateQuery] = useState(""),
+    // DOM targets the ledger drilldown modal (selectedRow below) portals TransactionTable's own
+    // "Displayed total" and action-button toolbar into (see TransactionTable's totalSlot/
+    // actionsSlot props) -- folds that row into the FY-selector row and the Opening/Closing
+    // summary cards instead of its own separate row, to reclaim vertical space. State (not a
+    // plain ref) because a portal target must trigger a re-render once the DOM node actually
+    // exists -- a bare ref wouldn't be ready on TransactionTable's own first render.
+    [ledgerDrillTotalEl, setLedgerDrillTotalEl] = useState<HTMLElement | null>(null),
+    [ledgerDrillActionsEl, setLedgerDrillActionsEl] = useState<HTMLElement | null>(null),
     // Deep-link targets for report components with their own internal sub-tabs, set by the
     // search palette so e.g. "watchlist" or "pending transactions" lands on the right sub-view
     // instead of just the report's default. Read once on each component's mount (see each
@@ -5480,8 +5488,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           initialHeight={700}
         >
           <div className="ledger-drill-panel">
-            <p>
+            <p style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
               <PeriodSelect />
+              {/* Portal target for TransactionTable's action buttons (Clear filters, Export,
+                  Expand splits, View) -- see ledgerDrillActionsEl above. */}
+              <span ref={setLedgerDrillActionsEl} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} />
             </p>
             {selectedAssetTag === UNTAGGED_ASSET_FILTER ? (
               <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
@@ -5497,7 +5508,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 </p>
               )
             )}
-            <section className="drill-summary">
+            <section className="drill-summary drill-summary--5">
               <span>
                 Opening
                 <strong>{fmt(displayLedgerBalance(selectedRow, selectedRow.opening))}</strong>
@@ -5512,6 +5523,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 Closing
                 <strong>{fmt(displayLedgerBalance(selectedRow, selectedRow.closing))}</strong>
               </span>
+              {/* Portal target for TransactionTable's "Displayed total / N of M vouchers" --
+                  see ledgerDrillTotalEl above. */}
+              <span ref={setLedgerDrillTotalEl} />
             </section>
             <TransactionTable
               transactions={selectedTx}
@@ -5525,6 +5539,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               closedPeriods={data.closedPeriods}
               virtualized
               mobileCards
+              totalSlot={ledgerDrillTotalEl}
+              actionsSlot={ledgerDrillActionsEl}
             />
           </div>
         </FloatingWindow>

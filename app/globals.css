@@ -1882,8 +1882,16 @@ tfoot th {
 .drill-panel table {
   margin-top: 18px;
 }
+/* One ledger-drilldown instance folds TransactionTable's "Displayed total" card in as a 5th
+   card (see VaultApp.tsx's selectedRow modal) -- every other .drill-summary caller stays 4. */
+.drill-summary--5 {
+  grid-template-columns: repeat(5, 1fr);
+}
 @media (max-width: 700px) {
   .drill-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+  .drill-summary--5 {
     grid-template-columns: 1fr 1fr;
   }
   .drill-panel {
@@ -3398,6 +3406,13 @@ tfoot th {
   padding: 6px 9px;
   margin: 0;
   font-size: var(--fs-sm);
+}
+/* Portaled into a caller's own row (see TransactionTable's totalSlot/actionsSlot) -- that row
+   already owns its own margin/justification, so this just needs to not fight it. */
+.excel-toolbar--portal {
+  margin: 0;
+  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 .table-scroll {
   overflow-x: auto;
