@@ -318,6 +318,47 @@ export function computeFullYearProjection(input: TaxPlanningInput): FullYearProj
   };
 }
 
+// Real prior-year filed-return figures -- powers the actual IRS/FTB safe-harbor underpayment
+// test below (no penalty if paid-in, i.e. withholding plus timely estimated payments, covers the
+// SMALLER of 90% of this year's actual tax or a percentage of last year's tax) instead of the
+// flat $1,000/$500 rule-of-thumb this used to fall back to. Keyed by the YEAR THE RETURN COVERS,
+// so "2025" is the real filed 2025 Form 1040 (MFJ) / CA Form 540 this app's own golden-return
+// tests already validate against (tests/tax-federal-golden-return.test.ts line 24-78,
+// tests/tax-ca-itemized-phaseout.test.ts line 46-63) -- the same return a real $473.78 federal
+// underpayment penalty came out of, which is what this table exists to stop from recurring.
+// Needs a new entry once each year's return is actually filed (same annual-maintenance pattern
+// as the HSA/401(k)/bracket tables elsewhere in this app) -- a taxYear with no prior-year entry
+// falls back to the old flat-dollar rule-of-thumb below rather than silently computing nothing.
+const FEDERAL_PRIOR_YEAR_RETURNS: Record<string, { totalTax: number; agi: number }> = {
+  "2025": { totalTax: 277_992, agi: 969_319 }, // real Form 1040 line 24 / line 11
+};
+// CA's own prior-year actuals, for the CA-specific safe-harbor check (Rev & Tax Code §19136,
+// FTB Form 5805) -- only populated for CA since that's the only state this app has a real filed
+// return to validate against; NJ/AZ keep the rule-of-thumb fallback.
+const CA_PRIOR_YEAR_RETURNS: Record<string, { totalTax: number; agi: number }> = {
+  "2025": { totalTax: 85_348, agi: 974_489 }, // real CA 540 total tax / CA AGI
+};
+// 110% of last year's tax once last year's AGI topped $150,000 (the federal MFJ/single
+// threshold; $75,000 filing separately, not reachable here since this app only models
+// single/mfj -- see UsFilingStatus), 100% below that. California's Form 5805 mirrors this same
+// structure and threshold.
+const SAFE_HARBOR_PRIOR_YEAR_AGI_THRESHOLD = 150_000;
+
+// The real safe-harbor dollar amount: the smaller of 90% of THIS year's projected tax, or the
+// prior-year percentage (100%/110%, see above) of LAST year's actual tax. Returns null when no
+// prior-year actual is on hand for this taxYear (see the tables' own doc comment) -- callers fall
+// back to the old flat-dollar heads-up in that case rather than computing a wrong number.
+function safeHarborRequirement(
+  priorYearReturn: { totalTax: number; agi: number } | undefined,
+  projectedCurrentYearTax: number
+): { required: number; priorYearPct: number; priorYearTax: number } | null {
+  if (!priorYearReturn) return null;
+  const priorYearPct = priorYearReturn.agi > SAFE_HARBOR_PRIOR_YEAR_AGI_THRESHOLD ? 1.1 : 1.0;
+  const fromPriorYear = priorYearReturn.totalTax * priorYearPct;
+  const fromCurrentYear = projectedCurrentYearTax * 0.9;
+  return { required: Math.min(fromPriorYear, fromCurrentYear), priorYearPct, priorYearTax: priorYearReturn.totalTax };
+}
+
 export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlanningResult {
   const scenarios: TaxPlanningScenario[] = [];
   const {
@@ -595,56 +636,113 @@ export function computeTaxPlanningScenarios(input: TaxPlanningInput): TaxPlannin
     }
   }
 
-  // ── 7. Withholding / underpayment check ─────────────────────────────────────────────────
+  // ── 7. Withholding / underpayment check (real IRS safe-harbor test when last year's filed
+  //      return is on hand, see FEDERAL_PRIOR_YEAR_RETURNS above; otherwise the old flat-dollar
+  //      rule-of-thumb) ─────────────────────────────────────────────────────────────────────
   {
-    const UNDERPAYMENT_FLAG_THRESHOLD = 1_000; // IRS's own rule-of-thumb threshold for a penalty
-    if (baselineFederalBalanceDue > UNDERPAYMENT_FLAG_THRESHOLD) {
-      scenarios.push({
-        id: "withholding-check",
-        category: "Withholding",
-        title: `Projected to owe about $${Math.round(baselineFederalBalanceDue).toLocaleString()} at filing`,
-        description: `Based on your pay so far plus what's projected for the rest of ${taxYear} (remaining paychecks and any shares still scheduled to vest), you're on track to owe roughly $${Math.round(baselineFederalBalanceDue).toLocaleString()} in federal tax beyond what's being withheld. The IRS can charge an underpayment penalty if you owe more than $1,000 at filing and didn't pay enough in during the year. Increasing your W-4 withholding for your remaining paychecks, or making an estimated tax payment before year-end, can close this gap.`,
-        fedSavings: 0, stateSavings: 0, totalSavings: 0,
-        deadline: `${taxYear}-12-31`,
-        caveat: "This isn't the full IRS safe-harbor rule (90% of this year's tax or 110% of last year's, whichever is smaller) — this app doesn't have your prior-year filed tax on hand to check that precisely. Treat this as a heads-up, not a penalty calculation.",
-        actionable: true,
-      });
+    const federalSafeHarbor = safeHarborRequirement(FEDERAL_PRIOR_YEAR_RETURNS[String(Number(taxYear) - 1)], baselineFederalTax);
+    if (federalSafeHarbor) {
+      const shortfall = federalSafeHarbor.required - projection.fullYearFederalWithheld;
+      const pctLabel = federalSafeHarbor.priorYearPct === 1.1 ? "110%" : "100%";
+      if (shortfall > 1) {
+        scenarios.push({
+          id: "withholding-check",
+          category: "Withholding",
+          title: `On track for an underpayment penalty — pay in about $${Math.round(shortfall).toLocaleString()} more`,
+          description: `The IRS won't charge an underpayment penalty as long as what's paid in (withholding plus any estimated payments) covers the SMALLER of 90% of this year's actual tax, or ${pctLabel} of last year's ($${Math.round(federalSafeHarbor.priorYearTax).toLocaleString()}) — in your case that safe-harbor amount is about $${Math.round(federalSafeHarbor.required).toLocaleString()}. Projected withholding for ${taxYear} is about $${Math.round(projection.fullYearFederalWithheld).toLocaleString()}, roughly $${Math.round(shortfall).toLocaleString()} short. This is exactly the kind of gap that cost a real $473.78 penalty on the 2025 return. Withholding (unlike an estimated payment made late in the year) is treated by the IRS as paid evenly across all four quarters regardless of when it's actually withheld — so raising your W-4 withholding now for your remaining ${taxYear} paychecks closes this gap for the WHOLE year, not just from today forward, and is the most effective fix this late in the year.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0,
+          deadline: `${taxYear}-12-31`,
+          caveat: "This is the real safe-harbor test (IRC §6654(d)(1)(C)), not a rule-of-thumb — but it still doesn't reproduce the IRS's exact per-quarter penalty-dollar calculation (Form 2210's annualized short-term interest-rate math), which depends on exactly when each dollar was paid in during the year.",
+          actionable: true,
+        });
+      } else {
+        scenarios.push({
+          id: "withholding-check",
+          category: "Withholding",
+          title: "Withholding on track to clear the safe harbor",
+          description: `Projected ${taxYear} withholding of about $${Math.round(projection.fullYearFederalWithheld).toLocaleString()} already covers the real IRS safe-harbor amount of about $${Math.round(federalSafeHarbor.required).toLocaleString()} (the smaller of 90% of this year's tax or ${pctLabel} of last year's $${Math.round(federalSafeHarbor.priorYearTax).toLocaleString()}) — no underpayment penalty expected, even though your projected balance due at filing is about $${Math.round(Math.max(0, baselineFederalBalanceDue)).toLocaleString()}.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
+        });
+      }
     } else {
-      scenarios.push({
-        id: "withholding-check",
-        category: "Withholding",
-        title: "Withholding looks on track",
-        description: `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected federal balance due is about $${Math.round(Math.max(0, baselineFederalBalanceDue)).toLocaleString()}, under the $1,000 rule-of-thumb threshold for an underpayment penalty.`,
-        fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
-      });
+      const UNDERPAYMENT_FLAG_THRESHOLD = 1_000; // IRS's own rule-of-thumb threshold for a penalty
+      if (baselineFederalBalanceDue > UNDERPAYMENT_FLAG_THRESHOLD) {
+        scenarios.push({
+          id: "withholding-check",
+          category: "Withholding",
+          title: `Projected to owe about $${Math.round(baselineFederalBalanceDue).toLocaleString()} at filing`,
+          description: `Based on your pay so far plus what's projected for the rest of ${taxYear} (remaining paychecks and any shares still scheduled to vest), you're on track to owe roughly $${Math.round(baselineFederalBalanceDue).toLocaleString()} in federal tax beyond what's being withheld. The IRS can charge an underpayment penalty if you owe more than $1,000 at filing and didn't pay enough in during the year. Increasing your W-4 withholding for your remaining paychecks, or making an estimated tax payment before year-end, can close this gap.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0,
+          deadline: `${taxYear}-12-31`,
+          caveat: `This isn't the full IRS safe-harbor rule (90% of this year's tax or 110%/100% of last year's, whichever is smaller) — this app doesn't yet have ${Number(taxYear) - 1}'s filed tax on hand to check that precisely.`,
+          actionable: true,
+        });
+      } else {
+        scenarios.push({
+          id: "withholding-check",
+          category: "Withholding",
+          title: "Withholding looks on track",
+          description: `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected federal balance due is about $${Math.round(Math.max(0, baselineFederalBalanceDue)).toLocaleString()}, under the $1,000 rule-of-thumb threshold for an underpayment penalty.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
+        });
+      }
     }
   }
 
-  // ── 8. State withholding / underpayment check ───────────────────────────────────────────
+  // ── 8. State withholding / underpayment check (real CA FTB safe-harbor test when last year's
+  //      filed CA return is on hand, see CA_PRIOR_YEAR_RETURNS above; otherwise the old
+  //      flat-dollar rule-of-thumb -- NJ/AZ always use the rule-of-thumb) ───────────────────
   {
     const stateBalanceDue = baselineStateTax - projection.fullYearStateWithheld;
-    const STATE_UNDERPAYMENT_FLAG_THRESHOLD = 500; // rough rule-of-thumb, states vary
-    if (stateBalanceDue > STATE_UNDERPAYMENT_FLAG_THRESHOLD) {
-      scenarios.push({
-        id: "state-withholding-check",
-        category: "State Tax",
-        title: `Projected to owe about $${Math.round(stateBalanceDue).toLocaleString()} to ${stateName} at filing`,
-        description: `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected ${stateName} tax is about $${Math.round(baselineStateTax).toLocaleString()} against about $${Math.round(projection.fullYearStateWithheld).toLocaleString()} withheld — a projected balance due of roughly $${Math.round(stateBalanceDue).toLocaleString()}. Most states, including ${stateName}, can also charge an underpayment penalty if too little was paid in during the year. Adjusting your state withholding (a separate election from federal, usually its own form with your employer) or making a state estimated payment before year-end can close this gap.`,
-        fedSavings: 0, stateSavings: 0, totalSavings: 0,
-        deadline: `${taxYear}-12-31`,
-        caveat: `$${STATE_UNDERPAYMENT_FLAG_THRESHOLD.toLocaleString()} is a rough rule-of-thumb, not ${stateName}'s actual underpayment-penalty formula, which this app doesn't model. Treat this as a heads-up, not a penalty calculation.`,
-        actionable: true,
-      });
+    const stateSafeHarbor =
+      stateCode === "CA" ? safeHarborRequirement(CA_PRIOR_YEAR_RETURNS[String(Number(taxYear) - 1)], baselineStateTax) : null;
+    if (stateSafeHarbor) {
+      const shortfall = stateSafeHarbor.required - projection.fullYearStateWithheld;
+      const pctLabel = stateSafeHarbor.priorYearPct === 1.1 ? "110%" : "100%";
+      if (shortfall > 1) {
+        scenarios.push({
+          id: "state-withholding-check",
+          category: "State Tax",
+          title: `On track for a ${stateName} underpayment penalty — pay in about $${Math.round(shortfall).toLocaleString()} more`,
+          description: `${stateName} won't charge an underpayment penalty as long as what's paid in covers the SMALLER of 90% of this year's actual ${stateName} tax, or ${pctLabel} of last year's ($${Math.round(stateSafeHarbor.priorYearTax).toLocaleString()}) — in your case about $${Math.round(stateSafeHarbor.required).toLocaleString()}. Projected ${stateName} withholding for ${taxYear} is about $${Math.round(projection.fullYearStateWithheld).toLocaleString()}, roughly $${Math.round(shortfall).toLocaleString()} short. Same as federal, withholding is treated as paid evenly across the year regardless of when it's actually withheld, so raising your state withholding now for your remaining ${taxYear} paychecks is the most effective fix this late in the year.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0,
+          deadline: `${taxYear}-12-31`,
+          caveat: `This is ${stateName}'s real safe-harbor test (Rev & Tax Code §19136, FTB Form 5805), not a rule-of-thumb — but it still doesn't reproduce the FTB's exact per-quarter penalty-dollar calculation, which depends on exactly when each dollar was paid in during the year.`,
+          actionable: true,
+        });
+      } else {
+        scenarios.push({
+          id: "state-withholding-check",
+          category: "State Tax",
+          title: `${stateName} withholding on track to clear the safe harbor`,
+          description: `Projected ${stateName} withholding of about $${Math.round(projection.fullYearStateWithheld).toLocaleString()} already covers the real safe-harbor amount of about $${Math.round(stateSafeHarbor.required).toLocaleString()} (the smaller of 90% of this year's tax or ${pctLabel} of last year's $${Math.round(stateSafeHarbor.priorYearTax).toLocaleString()}) — no underpayment penalty expected, even though your projected ${stateName} balance due at filing is about $${Math.round(Math.max(0, stateBalanceDue)).toLocaleString()}.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
+        });
+      }
     } else {
-      scenarios.push({
-        id: "state-withholding-check",
-        category: "State Tax",
-        title: `${stateName} withholding looks on track`,
-        description: stateBalanceDue > 0
-          ? `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected ${stateName} balance due is about $${Math.round(stateBalanceDue).toLocaleString()}, a small enough gap that it's unlikely to trigger an underpayment penalty.`
-          : `Based on your pay so far plus what's projected for the rest of ${taxYear}, your ${stateName} withholding is on track to cover your projected ${stateName} tax, with an estimated refund of about $${Math.round(-stateBalanceDue).toLocaleString()}.`,
-        fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
-      });
+      const STATE_UNDERPAYMENT_FLAG_THRESHOLD = 500; // rough rule-of-thumb, states vary
+      if (stateBalanceDue > STATE_UNDERPAYMENT_FLAG_THRESHOLD) {
+        scenarios.push({
+          id: "state-withholding-check",
+          category: "State Tax",
+          title: `Projected to owe about $${Math.round(stateBalanceDue).toLocaleString()} to ${stateName} at filing`,
+          description: `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected ${stateName} tax is about $${Math.round(baselineStateTax).toLocaleString()} against about $${Math.round(projection.fullYearStateWithheld).toLocaleString()} withheld — a projected balance due of roughly $${Math.round(stateBalanceDue).toLocaleString()}. Most states, including ${stateName}, can also charge an underpayment penalty if too little was paid in during the year. Adjusting your state withholding (a separate election from federal, usually its own form with your employer) or making a state estimated payment before year-end can close this gap.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0,
+          deadline: `${taxYear}-12-31`,
+          caveat: `$${STATE_UNDERPAYMENT_FLAG_THRESHOLD.toLocaleString()} is a rough rule-of-thumb, not ${stateName}'s actual underpayment-penalty formula, which this app doesn't model${stateCode === "CA" ? ` for ${Number(taxYear) - 1}` : ""}.`,
+          actionable: true,
+        });
+      } else {
+        scenarios.push({
+          id: "state-withholding-check",
+          category: "State Tax",
+          title: `${stateName} withholding looks on track`,
+          description: stateBalanceDue > 0
+            ? `Based on your pay so far plus what's projected for the rest of ${taxYear}, your projected ${stateName} balance due is about $${Math.round(stateBalanceDue).toLocaleString()}, a small enough gap that it's unlikely to trigger an underpayment penalty.`
+            : `Based on your pay so far plus what's projected for the rest of ${taxYear}, your ${stateName} withholding is on track to cover your projected ${stateName} tax, with an estimated refund of about $${Math.round(-stateBalanceDue).toLocaleString()}.`,
+          fedSavings: 0, stateSavings: 0, totalSavings: 0, actionable: false,
+        });
+      }
     }
   }
 
