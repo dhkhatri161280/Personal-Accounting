@@ -442,7 +442,15 @@ export function TransactionTable({
   // other than "None" forces the sort to Date (keeping whichever direction was already active) so
   // each period's rows land contiguously; sorting by any other column while sub-totaled would
   // scatter one period's rows across the table and break the grouping.
-  const [subtotalPeriod, setSubtotalPeriod] = useState<SubtotalPeriod>("none");
+  //
+  // Defaults to "month" (Tally-style collapsed monthly view) whenever there's a real ledger
+  // drilldown to group (openingBalance + selectedLedgerName -- same gate balanceMap itself uses
+  // below) -- a day-book-style flat list was the default before, requiring an extra click every
+  // single time to get Tally's own default view. Day Book itself never passes those two props, so
+  // it's untouched and still opens flat, same as always.
+  const [subtotalPeriod, setSubtotalPeriod] = useState<SubtotalPeriod>(
+    openingBalance !== undefined && selectedLedgerName ? "month" : "none"
+  );
   // "Reconciled" status filter -- same three signals the inline expand's "✓ Reconciled" badge
   // itself checks (plaidTxId, the original "bank-pending" import marker, or an explicit
   // confirmed-matches entry), so this filter always agrees with what the badge shows rather than
@@ -855,11 +863,11 @@ export function TransactionTable({
         )}
         {balanceMap && (
           <label style={{ marginLeft: "auto", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-            Sub-total
+            View
             <select value={subtotalPeriod} onChange={(e) => changeSubtotal(e.target.value as SubtotalPeriod)}>
-              <option value="none">None</option>
-              <option value="date">Date</option>
               <option value="month">Monthly</option>
+              <option value="none">Day Book</option>
+              <option value="date">Daily</option>
               <option value="quarter">Quarterly</option>
               <option value="year">Yearly</option>
             </select>
