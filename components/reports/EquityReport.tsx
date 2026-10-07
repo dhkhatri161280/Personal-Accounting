@@ -2024,6 +2024,58 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
                       {!readOnly && <td />}
                     </tr>
                   )}
+                  {/* Totals across every row above (vested, pending, and the Unvested rollup) --
+                      only for the summable share-count/dollar columns (Total/Tax/Sold/Kept/Sale
+                      Value/Mkt Value/Gain); Award $/sh, Vest $/sh, and Sale $/sh are per-share
+                      prices across different dates, so summing them would be meaningless. A plain
+                      <td> row (not <tfoot>) -- the mobile card CSS (.equity-vest-table td, see
+                      globals.css) only blockifies tbody rows, not tfoot, so a tfoot row would stay
+                      laid out as a table row and break on narrow screens. */}
+                  {(() => {
+                    let totShares = 0, totTax = 0, totSold = 0, totKept = 0, totSaleVal = 0, totMktVal = 0, totGain = 0;
+                    for (const v of g.vests) {
+                      totShares += v.shares;
+                      if (v.pending) {
+                        if (cur > 0) {
+                          totMktVal += v.shares * cur;
+                          totGain += v.shares * (cur - g.grantPrice);
+                        }
+                        continue;
+                      }
+                      const sp = v.salePrice ?? v.vestPrice;
+                      const mktVal = v.sharesHeld * cur;
+                      const tax = v.taxShares ?? 0;
+                      const userSold = Math.max(0, v.shares - tax - v.sharesHeld);
+                      const userSaleVal = userSold * sp;
+                      totTax += tax;
+                      totSold += userSold;
+                      totKept += v.sharesHeld;
+                      totSaleVal += userSaleVal;
+                      totMktVal += mktVal;
+                      totGain += userSaleVal + mktVal - v.shares * g.grantPrice;
+                    }
+                    if (g.unvestedShares > 0) {
+                      totShares += g.unvestedShares;
+                      totMktVal += g.unvestedShares * cur;
+                      totGain += g.unvestedShares * (cur - g.grantPrice);
+                    }
+                    return (
+                      <tr className="equity-vest-total-row">
+                        <td data-label="Vest Date">Total</td>
+                        <td className="right" data-label="Award $/sh"></td>
+                        <td className="right" data-label="Vest $/sh"></td>
+                        <td className="right" data-label="Total">{totShares.toLocaleString()}</td>
+                        <td className="right" data-label="Tax">{totTax > 0 ? totTax.toLocaleString() : <span className="equity-neutral">—</span>}</td>
+                        <td className="right" data-label="Sold">{totSold > 0 ? totSold.toLocaleString() : <span className="equity-neutral">—</span>}</td>
+                        <td className="right" data-label="Sale $/sh"></td>
+                        <td className="right" data-label="Kept">{totKept > 0 ? totKept.toLocaleString() : <span className="equity-neutral">—</span>}</td>
+                        <td className="right" data-label="Sale Value">{totSaleVal > 0 ? fmt(totSaleVal) : <span className="equity-neutral">—</span>}</td>
+                        <td className="right" data-label="Mkt Value">{totMktVal > 0 ? fmt(totMktVal) : <span className="equity-neutral">—</span>}</td>
+                        <td className={`right ${totGain >= 0 ? "equity-gain-pos" : "equity-gain-neg"}`} data-label="Gain">{fmt(totGain)}</td>
+                        {!readOnly && <td />}
+                      </tr>
+                    );
+                  })()}
                 </tbody>
               </table>
 
