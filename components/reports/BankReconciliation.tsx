@@ -558,7 +558,7 @@ function BankReconDetail({
                     <button
                       type="button"
                       className="tr-refresh-btn"
-                      title="This will never have a matching Plaid transaction (e.g. cash) -- stop flagging it"
+                      title="Stops flagging this here, and also marks it Reconciled in Day Book -- use when a real bank event touched this voucher but Plaid will never durably record it (e.g. cash, or a pending hold that vanished instead of posting)"
                       onClick={() => onMark(vaultExceptionKey(t.guid), `${t.date} — ${t.narration || t.type}`)}
                     >
                       Mark reconciled

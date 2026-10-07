@@ -358,6 +358,7 @@ export function TransactionTable({
   closedPeriods,
   matchedVoucherIds,
   alwaysReconciledAccountIds,
+  manuallyReconciledGuids,
   virtualized,
   mobileCards,
   totalSlot,
@@ -384,6 +385,13 @@ export function TransactionTable({
   // per-transaction match for in the first place (balance-only feeds like HSA, or non-Plaid
   // integrations like Schwab).
   alwaysReconciledAccountIds?: Set<number>;
+  // Voucher guids with a manual "Mark reconciled" exception from Bank Reconciliation's own
+  // unmatched-vault list (see vaultExceptionKey in lib/plaid-recon.ts) -- for a voucher a real
+  // bank event touched but Plaid never durably recorded (e.g. a pending credit-card hold that
+  // vanished instead of posting), so it could otherwise never earn a "Reconciled" badge through
+  // any of the Plaid-derived signals above. Optional/omitted outside Day Book, same as
+  // matchedVoucherIds.
+  manuallyReconciledGuids?: Set<string>;
   // Edit/Delete are hidden (not just blocked at save time) for a voucher dated in one of these
   // "YYYY-MM" periods -- see isPeriodClosed in lib/vault-accounting.ts, same source of truth
   // the actual save-time enforcement uses.
@@ -496,7 +504,8 @@ export function TransactionTable({
     t.syncStatus === "bank-pending" ||
     (t.id != null && !!matchedVoucherIds?.has(t.id)) ||
     (!!alwaysReconciledAccountIds?.size && t.entries.some((e) => e.accountId != null && alwaysReconciledAccountIds.has(e.accountId))) ||
-    (t.id != null && reversalPairIds.has(t.id));
+    (t.id != null && reversalPairIds.has(t.id)) ||
+    !!manuallyReconciledGuids?.has(t.guid);
   // Collapsed by default -- a period only expands into its individual vouchers once its own
   // header row is clicked. Keyed by periodKey, so switching between e.g. Monthly and Quarterly
   // starts every group fresh rather than carrying over stale keys from a different bucketing.

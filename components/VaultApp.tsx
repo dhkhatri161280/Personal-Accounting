@@ -1041,6 +1041,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     () => new Set(data?.alwaysReconciledAccountIds ?? []),
     [data?.alwaysReconciledAccountIds]
   );
+  // Vault-side entries in Bank Reconciliation's "Mark reconciled" exceptions (see
+  // vaultExceptionKey in lib/plaid-recon.ts -- "v:<guid>", vs a Plaid-side "p:<accountId>:
+  // <transactionId>" entry, which isn't about a vault voucher at all) -- previously only
+  // suppressed that one voucher from the Bank Reconciliation report's own "unmatched" list, with
+  // no effect on the Day Book/voucher-view "Reconciled" badge. A voucher a real bank event
+  // touched but Plaid never durably recorded (e.g. a pending credit-card hold that later vanished
+  // instead of posting) had no way to ever show Reconciled -- this closes that gap by feeding the
+  // same manual confirmation into isReconciled too, right alongside the Plaid-derived signals.
+  const manuallyReconciledVoucherGuids = useMemo(
+    () => new Set((data?.bankReconExceptions ?? []).filter((e) => e.key.startsWith("v:")).map((e) => e.key.slice(2))),
+    [data?.bankReconExceptions]
+  );
 
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
   // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
@@ -3797,6 +3809,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             closedPeriods={data.closedPeriods}
             matchedVoucherIds={matchedVoucherIds}
             alwaysReconciledAccountIds={alwaysReconciledAccountIds}
+            manuallyReconciledGuids={manuallyReconciledVoucherGuids}
             virtualized
             mobileCards
           />
@@ -5644,7 +5657,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 !!selectedVoucher.plaidTxId ||
                 selectedVoucher.syncStatus === "bank-pending" ||
                 matchedVoucherIds.has(selectedVoucher.id) ||
-                selectedVoucher.entries.some((e) => alwaysReconciledAccountIds.has(e.accountId));
+                selectedVoucher.entries.some((e) => alwaysReconciledAccountIds.has(e.accountId)) ||
+                manuallyReconciledVoucherGuids.has(selectedVoucher.guid);
               const entered = formatPacificTimestamp(selectedVoucher.createdAt);
               return (reconciled || entered) && (
                 <p className="voucher-entered-at">
