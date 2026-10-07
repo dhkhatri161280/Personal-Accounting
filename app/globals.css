@@ -3353,6 +3353,14 @@ tfoot th {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  /* A long group label (e.g. Yearly's "FY 2026 (Apr 2026 - Mar 2027) (12 vouchers)") plus the
+     amount no longer fit on one line on a phone-width card -- confirmed live, the row forced
+     nowrap and the amount pushed off the right edge, triggering horizontal scroll on the whole
+     card list. Wraps the amount onto its own line instead when needed; margin-left:auto on the
+     <b> (below) keeps it pinned to the right whether it's sharing the first line or alone on a
+     second one. */
+  flex-wrap: wrap;
+  row-gap: 4px;
   width: 100%;
   border: 1px solid #dce2eb;
   border-radius: 10px;
@@ -3362,6 +3370,9 @@ tfoot th {
   font-weight: 600;
   color: #33415c;
   cursor: pointer;
+}
+.voucher-card-group-header b {
+  margin-left: auto;
 }
 .voucher-card-total {
   display: flex;
