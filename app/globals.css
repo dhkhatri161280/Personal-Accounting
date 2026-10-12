@@ -8303,8 +8303,8 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .plaid-recon-section { display: grid; gap: 12px; }
 .plaid-recon-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .plaid-recon-table thead tr:last-child { border-bottom: 2px solid #dbeafe; }
-.plaid-recon-table th { text-align: left; padding: 8px 12px; font-size: var(--fs-base); font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
-.plaid-recon-group-head { text-align: center; border-bottom: 1px solid #dbeafe; }
+.plaid-recon-table th { text-align: center; padding: 8px 12px; font-size: var(--fs-base); font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.plaid-recon-group-head { border-bottom: 1px solid #dbeafe; }
 .plaid-recon-table td { padding: 9px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b; }
 .plaid-recon-row:hover td { background: #f8faff; }
 .plaid-recon-type { color: #64748b; font-size: var(--fs-base); }
