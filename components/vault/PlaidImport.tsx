@@ -3455,7 +3455,12 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       const matchedTxIds = new Set(
                         matchedPairs.map(({ pi }) => plaidTxsForGroup[pi].plaidTx.transaction_id)
                       );
-                      type UnclearedItem = { date: string; name: string; amount: number; matched: boolean };
+                      // kind: "payment" = a bill payment against this card (balance-reducing, always
+                      // originates from a bank/checking account on the other side) vs "charge" = a new
+                      // purchase, refund, or anything else -- only meaningful for g.plaidType === "credit"
+                      // (see the render split below); investment/depository items default to "charge"
+                      // since those rows never split the breakdown by kind.
+                      type UnclearedItem = { date: string; name: string; amount: number; matched: boolean; kind: "payment" | "charge" };
                       const unclearedItems: UnclearedItem[] =
                         g.plaidType === "credit"
                           ? [
@@ -3479,6 +3484,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                     name: plaidTxsForGroup[pi].plaidTx.name,
                                     amount: recentVaultEntries[vi].amount,
                                     matched: true,
+                                    kind: "charge" as const,
                                   }));
                                 const paymentCandidates = pendingMatches.filter(
                                   ({ vi, pi }) => isCardPayment(plaidTxsForGroup[pi].plaidTx) && recentVaultEntries[vi].amount < 0
@@ -3492,6 +3498,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                     name: plaidTxsForGroup[pi].plaidTx.name,
                                     amount: recentVaultEntries[vi].amount,
                                     matched: true,
+                                    kind: "payment" as const,
                                   }));
                                 return [...chargeItems, ...includedPayments];
                               })(),
@@ -3501,7 +3508,13 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                   !matchedTxIds.has(tx.transaction_id) &&
                                   (tx.amount > 0 || !isCardPayment(tx))
                                 )
-                                .map((tx) => ({ date: tx.date, name: tx.name, amount: tx.amount, matched: false })),
+                                .map((tx) => ({
+                                  date: tx.date,
+                                  name: tx.name,
+                                  amount: tx.amount,
+                                  matched: false,
+                                  kind: (isCardPayment(tx) ? "payment" : "charge") as "payment" | "charge",
+                                })),
                             ]
                           : g.plaidType === "investment"
                             ? recentVaultEntries
@@ -3521,7 +3534,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                 // alone already shows the full gap -- subtracting it back out here (a
                                 // negative Uncleared contribution) is what brings diff to ~0 once Plaid
                                 // catches up, instead of double-counting it.
-                                .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true }))
+                                .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true, kind: "charge" as const }))
                             : g.plaidType === "depository"
                               ? (() => {
                                   // A bank→credit-card payment isn't instant -- the bank doesn't actually
@@ -3559,7 +3572,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                       );
                                       return !alreadySettled;
                                     })
-                                    .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true }));
+                                    .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: -ve.amount, matched: true, kind: "payment" as const }));
                                 })()
                               : [];
                       // Investment entries the amount/date heuristic auto-matched to a settled Plaid
@@ -3669,21 +3682,51 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                         </span>
                                       )}
                                     </div>
-                                    {unclearedItems.length === 0
-                                      ? <div className="plaid-recon-detail-empty">No uncleared charges for this account.</div>
-                                      : [...unclearedItems]
-                                          .sort((a, b) => b.date.localeCompare(a.date))
-                                          .map((u, j) => (
-                                            <div key={j} className="plaid-recon-detail-item di-missing">
-                                              <span className="di-date">{fmtDate(u.date)}</span>
-                                              <span className="di-name">{u.name}</span>
-                                              <span className={`di-amt ${u.amount < 0 ? "credit" : "debit"}`}>
-                                                {u.amount < 0 ? "+" : "−"}${Math.abs(u.amount).toFixed(2)}
+                                    {unclearedItems.length === 0 ? (
+                                      <div className="plaid-recon-detail-empty">No uncleared charges for this account.</div>
+                                    ) : g.plaidType === "credit" ? (
+                                      // Split by kind for a credit card -- a pending bill payment (always
+                                      // from a bank account) and a pending new charge are different things
+                                      // to act on, and were previously interleaved in one chronological list.
+                                      (["payment", "charge"] as const).map((kind) => {
+                                        const items = unclearedItems.filter((u) => u.kind === kind).sort((a, b) => b.date.localeCompare(a.date));
+                                        if (items.length === 0) return null;
+                                        const subtotal = items.reduce((s, u) => s + u.amount, 0);
+                                        return (
+                                          <div key={kind} className="plaid-recon-detail-subgroup">
+                                            <div className="plaid-recon-detail-subtitle">
+                                              {kind === "payment" ? "Payments pending" : "Charges pending"} ({items.length})
+                                              <span className={`plaid-recon-detail-total ${subtotal < 0 ? "credit" : "debit"}`}>
+                                                {" "}· {subtotal < 0 ? "+" : "−"}${Math.abs(subtotal).toFixed(2)}
                                               </span>
-                                              <span className="di-status">⏳ {u.matched ? "in vault, awaiting Plaid" : "not yet posted"}</span>
                                             </div>
-                                          ))
-                                    }
+                                            {items.map((u, j) => (
+                                              <div key={j} className="plaid-recon-detail-item di-missing">
+                                                <span className="di-date">{fmtDate(u.date)}</span>
+                                                <span className="di-name">{u.name}</span>
+                                                <span className={`di-amt ${u.amount < 0 ? "credit" : "debit"}`}>
+                                                  {u.amount < 0 ? "+" : "−"}${Math.abs(u.amount).toFixed(2)}
+                                                </span>
+                                                <span className="di-status">⏳ {u.matched ? "in vault, awaiting Plaid" : "not yet posted"}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      [...unclearedItems]
+                                        .sort((a, b) => b.date.localeCompare(a.date))
+                                        .map((u, j) => (
+                                          <div key={j} className="plaid-recon-detail-item di-missing">
+                                            <span className="di-date">{fmtDate(u.date)}</span>
+                                            <span className="di-name">{u.name}</span>
+                                            <span className={`di-amt ${u.amount < 0 ? "credit" : "debit"}`}>
+                                              {u.amount < 0 ? "+" : "−"}${Math.abs(u.amount).toFixed(2)}
+                                            </span>
+                                            <span className="di-status">⏳ {u.matched ? "in vault, awaiting Plaid" : "not yet posted"}</span>
+                                          </div>
+                                        ))
+                                    )}
                                   </div>
                                   {investmentMatchedEntries.length > 0 && (
                                     <div className="plaid-recon-detail-col">
