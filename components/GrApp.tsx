@@ -1955,14 +1955,16 @@ export function GrApp() {
           }
           onClose={() => setSelectedLedgerName(null)}
           wide
-          initialWidth={1100}
+          initialWidth={1300}
           initialHeight={700}
         >
           <div className="ledger-drill-panel">
             <div className="drill-header-row">
               <p className="gr-drill-group" style={{ margin: 0 }}>{selectedAccount.parent || "—"}</p>
-              <div className="drill-period-bar">
-                <span>Period</span>
+              {/* Same compact select US/India's own ledger-drilldown period picker uses
+                  (.period-select-inline, see VaultApp.tsx's PeriodSelect) instead of the old
+                  boxed/labeled control -- same control, same size, everywhere in the app. */}
+              <span className="period-select-inline">
                 <select value={overlayYear} onChange={(e) => setOverlayYear(e.target.value)}>
                   <option value="all">All periods</option>
                   <optgroup label="Fiscal years">
@@ -1978,7 +1980,7 @@ export function GrApp() {
                     ))}
                   </optgroup>
                 </select>
-              </div>
+              </span>
               {/* Portal target for TransactionTable's action toolbar (Clear filters, Export,
                   Expand splits, View) -- see grDrillActionsEl above. */}
               <span ref={setGrDrillActionsEl} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} />
