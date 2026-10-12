@@ -40,6 +40,7 @@ import { TabBarButton } from "@/components/TabBarButton";
 import { PWAInstallButtons } from "@/components/PWARegister";
 import { useDashboardDetail } from "@/hooks/useDashboardDetail";
 import { DashboardCard } from "@/components/DashboardCard";
+import { TransactionTable, type VoucherRow } from "@/components/TransactionTable";
 
 type Phase = "init" | "loading" | "ready" | "error";
 type Tab = "dashboard" | "daybook" | "ledgers" | "reports" | "fxrates";
@@ -51,6 +52,26 @@ const fmtUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "US
 const fmt = (n: number, currency: "INR" | "USD" = "INR") =>
   (currency === "INR" ? fmtInr : fmtUsd).format(Math.abs(n) < 0.005 ? 0 : n);
 const tol = 0.005;
+
+// Maps a consolidated GrTx (US + India merged, FX-translated to INR) onto the shared
+// TransactionTable's VoucherRow shape -- same component the US/India ledger drilldowns already
+// use, for the same Monthly/Day Book grouping, filtering, sorting, and export. amountInr already
+// follows the same Dr=negative/Cr=positive convention VoucherRow expects (confirmed directly:
+// the existing summary math above treats e.amountInr < 0 as the Dr side), so no sign flip is
+// needed. No accountId (GR has no single numeric id spanning both books), no plaidTxId/syncStatus
+// (GR vouchers are a derived view, never Plaid-matched on their own). The originating book isn't
+// a VoucherRow field, so it's folded into the narration instead of silently dropped.
+function grTxToVoucherRow(t: GrTx): VoucherRow {
+  return {
+    guid: t.guid,
+    date: t.date,
+    type: t.type,
+    number: t.number,
+    narration: t.narration ? `${t.narration} — ${t.source}` : `(${t.source})`,
+    cancelled: t.cancelled,
+    entries: t.entries.map((e) => ({ accountName: e.accountName, amount: e.amountInr })),
+  };
+}
 const fmtL = (n: number) => `₹${(Math.abs(n) / 1e5).toFixed(2)}L`;
 
 // Curated short labels for GR dashboard chips — mirrors US/India compact() approach
@@ -202,6 +223,11 @@ export function GrApp() {
   const { dashboardDetail, setDashboardDetail, toggleDashboardDetail } = useDashboardDetail<DashKind>();
   const [selectedLedgerName, setSelectedLedgerName] = useState<string | null>(null);
   const [showAllVouchers, setShowAllVouchers] = useState(false);
+  // Portal targets for TransactionTable's own "Displayed total" and action-button toolbar --
+  // same pattern as VaultApp.tsx's ledger drilldown (selectedRow), folding that row into this
+  // modal's own period-selector row and summary cards instead of a separate row of its own.
+  const [grDrillTotalEl, setGrDrillTotalEl] = useState<HTMLElement | null>(null);
+  const [grDrillActionsEl, setGrDrillActionsEl] = useState<HTMLElement | null>(null);
   const [overlayYear, setOverlayYear] = useState<string>(() => {
     const now = new Date();
     return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
@@ -1953,6 +1979,9 @@ export function GrApp() {
                   </optgroup>
                 </select>
               </div>
+              {/* Portal target for TransactionTable's action toolbar (Clear filters, Export,
+                  Expand splits, View) -- see grDrillActionsEl above. */}
+              <span ref={setGrDrillActionsEl} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} />
             </div>
             {(() => {
               const ps = overlayLedgerTxns.reduce(
@@ -1972,72 +2001,56 @@ export function GrApp() {
               );
               const periodNet = ps.totalDrInr - ps.totalCrInr;
               const isIE = ["Income", "Expense"].includes(grNature(selectedAccount.parent, groupNatures));
+              // No running per-voucher balance here (unlike US/India's own ledger drilldown) --
+              // a consolidated, FX-translated account has no single meaningful "opening balance"
+              // independent of which exchange rate applied to which historical period, so this
+              // intentionally shows only what's already soundly computable: period totals and the
+              // real all-time closing, same figures the original panel always showed, just
+              // restyled to match the US/India card look (see .drill-summary/.drill-summary--5).
               return (
-                <section className="drill-summary">
-                  <div className="drill-summary-row">
-                    <span>Period Dr (INR)</span>
-                    <strong>{ps.totalDrInr > tol ? fmt(ps.totalDrInr) : "—"}</strong>
-                  </div>
-                  <div className="drill-summary-row">
-                    <span>Period Cr (INR)</span>
-                    <strong>{ps.totalCrInr > tol ? fmt(ps.totalCrInr) : "—"}</strong>
-                  </div>
+                <>
+                  <section className={`drill-summary${isIE ? "" : " drill-summary--5"}`}>
+                    <span>
+                      Period Dr (INR)
+                      <strong>{ps.totalDrInr > tol ? fmt(ps.totalDrInr) : "—"}</strong>
+                    </span>
+                    <span>
+                      Period Cr (INR)
+                      <strong>{ps.totalCrInr > tol ? fmt(ps.totalCrInr) : "—"}</strong>
+                    </span>
+                    <span>
+                      Period net Dr–Cr (INR)
+                      <strong>{fmt(periodNet)}</strong>
+                    </span>
+                    {!isIE && (
+                      <span>
+                        All-time closing (INR)
+                        <strong>{fmt(selectedAccount.closingInr)}</strong>
+                      </span>
+                    )}
+                    {/* Portal target for TransactionTable's "Displayed total" -- see
+                        grDrillTotalEl above. */}
+                    <span ref={setGrDrillTotalEl} />
+                  </section>
                   {selectedAccount.sources.includes("US") && (ps.usDrUsd > tol || ps.usCrUsd > tol) && (
-                    <div className="drill-summary-row">
-                      <span>US Dr/Cr (USD)</span>
-                      <strong>
-                        {ps.usDrUsd > tol ? fmt(ps.usDrUsd, "USD") : "—"}
-                        {" / "}
-                        {ps.usCrUsd > tol ? fmt(ps.usCrUsd, "USD") : "—"}
-                      </strong>
-                    </div>
+                    <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                      US-book leg, in its own currency: {ps.usDrUsd > tol ? fmt(ps.usDrUsd, "USD") : "—"} Dr / {ps.usCrUsd > tol ? fmt(ps.usCrUsd, "USD") : "—"} Cr.
+                    </p>
                   )}
-                  <div className="drill-summary-row drill-summary-total">
-                    <span>Period net Dr–Cr (INR)</span>
-                    <strong>{fmt(periodNet)}</strong>
-                  </div>
-                  {!isIE && (
-                    <div className="drill-summary-row drill-summary-alltime">
-                      <span>All-time closing (INR)</span>
-                      <strong>{fmt(selectedAccount.closingInr)}</strong>
-                    </div>
-                  )}
-                </section>
+                </>
               );
             })()}
             {overlayLedgerTxns.length > 0 ? (
-              <div className="drill-txns">
-                <h4>Vouchers — {overlayLabel} ({overlayLedgerTxns.length})</h4>
-                <table className="gr-modal-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Src</th>
-                      <th>Type</th>
-                      <th>Counterpart</th>
-                      <th className="right">Dr (INR)</th>
-                      <th className="right">Cr (INR)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {overlayLedgerTxns.map((t) => {
-                      const myEntry = t.entries.find((e) => normKey(e.accountName) === normKey(selectedAccount.name));
-                      const others = t.entries.filter((e) => normKey(e.accountName) !== normKey(selectedAccount.name));
-                      const counterpart = others.map((e) => e.accountName).join(" / ") || "-";
-                      return (
-                        <tr key={t.guid} className={t.source === "US" ? "gr-row-us" : "gr-row-in"} style={{ cursor: "pointer" }} onClick={() => { setSelectedLedgerName(null); setExpandedGuid(t.guid); }}>
-                          <td>{fmtDate(t.date)}</td>
-                          <td><span className={`source-badge source-${t.source.toLowerCase()}`}>{t.source}</span></td>
-                          <td>{t.type}</td>
-                          <td>{counterpart}</td>
-                          <td className="right">{myEntry && myEntry.amountInr < 0 ? fmt(-myEntry.amountInr) : "—"}</td>
-                          <td className="right">{myEntry && myEntry.amountInr > 0 ? fmt(myEntry.amountInr) : "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <TransactionTable
+                transactions={overlayLedgerTxns.map(grTxToVoucherRow)}
+                formatAmount={fmt}
+                onView={(row) => { setSelectedLedgerName(null); setExpandedGuid(row.guid); }}
+                selectedLedgerName={selectedAccount.name}
+                enableGrouping
+                virtualized
+                totalSlot={grDrillTotalEl}
+                actionsSlot={grDrillActionsEl}
+              />
             ) : (
               <p className="gr-drill-nodata">No transactions in {overlayLabel}.</p>
             )}

@@ -289,12 +289,16 @@ function ActionMenuCell({
 }: {
   t: VoucherRow;
   closed: boolean;
-  onEdit: (t: VoucherRow) => void;
-  onCopy: (t: VoucherRow) => void;
-  onDelete: (t: VoucherRow) => void;
+  // Optional -- a fully read-only caller (e.g. GR Books' consolidated, derived view, which has no
+  // save-back path at all) can omit all three, in which case this renders nothing rather than a
+  // menu button that does nothing when clicked.
+  onEdit?: (t: VoucherRow) => void;
+  onCopy?: (t: VoucherRow) => void;
+  onDelete?: (t: VoucherRow) => void;
 }) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const close = () => setAnchorEl(null);
+  if (!onEdit && !onCopy && !onDelete) return null;
   return (
     <>
       <button
@@ -308,7 +312,7 @@ function ActionMenuCell({
         <i className="dot delete-dot" />
       </button>
       <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={close}>
-        {!t.cancelled && !closed && (
+        {onEdit && !t.cancelled && !closed && (
           <MenuItem
             className="edit-voucher"
             onClick={() => {
@@ -319,16 +323,18 @@ function ActionMenuCell({
             Edit
           </MenuItem>
         )}
-        <MenuItem
-          className="copy-voucher"
-          onClick={() => {
-            onCopy(t);
-            close();
-          }}
-        >
-          Copy
-        </MenuItem>
-        {!closed && (
+        {onCopy && (
+          <MenuItem
+            className="copy-voucher"
+            onClick={() => {
+              onCopy(t);
+              close();
+            }}
+          >
+            Copy
+          </MenuItem>
+        )}
+        {onDelete && !closed && (
           <MenuItem
             className="delete-voucher"
             onClick={() => {
@@ -368,9 +374,11 @@ export function TransactionTable({
   transactions: VoucherRow[];
   formatAmount: (n: number) => string;
   onView: (t: VoucherRow) => void;
-  onEdit: (t: VoucherRow) => void;
-  onCopy: (t: VoucherRow) => void;
-  onDelete: (t: VoucherRow) => void;
+  // Optional -- a fully read-only caller (GR Books) omits all three; see ActionMenuCell's own
+  // doc comment for what that renders instead of a non-functional menu.
+  onEdit?: (t: VoucherRow) => void;
+  onCopy?: (t: VoucherRow) => void;
+  onDelete?: (t: VoucherRow) => void;
   selectedLedgerName?: string;
   openingBalance?: number;
   onClearSearch?: () => void;
