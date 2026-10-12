@@ -3208,8 +3208,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                     <th rowSpan={2}>Difference</th>
                   </tr>
                   <tr>
-                    <th>Payment</th>
                     <th>Charges</th>
+                    <th>Payment</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3679,15 +3679,6 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                   <td
                                     className={`plaid-recon-pending${expandable ? " plaid-recon-clickable" : ""}`}
                                     onClick={toggle}
-                                    title={unclearedPayments !== 0 ? `${unclearedItems.filter((u) => u.kind === "payment").length} pending payment(s)` : undefined}
-                                  >
-                                    {unclearedPayments !== 0
-                                      ? <>{`${unclearedPayments >= 0 ? "+" : ""}$${unclearedPayments.toFixed(2)}`}{chevron}</>
-                                      : <span className="plaid-recon-zero">—</span>}
-                                  </td>
-                                  <td
-                                    className={`plaid-recon-pending${expandable ? " plaid-recon-clickable" : ""}`}
-                                    onClick={toggle}
                                     title={unclearedCharges !== 0 ? `${unclearedItems.filter((u) => u.kind === "charge").length} pending charge(s) — $${pendingClearingTotal.toFixed(2)} gross before refunds/credits` : undefined}
                                   >
                                     {unclearedCharges !== 0
@@ -3695,6 +3686,15 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                       : investmentMatchedEntries.length > 0
                                         ? <><span className="plaid-recon-zero">$0.00</span>{chevron}</>
                                         : <span className="plaid-recon-zero">—</span>}
+                                  </td>
+                                  <td
+                                    className={`plaid-recon-pending${expandable ? " plaid-recon-clickable" : ""}`}
+                                    onClick={toggle}
+                                    title={unclearedPayments !== 0 ? `${unclearedItems.filter((u) => u.kind === "payment").length} pending payment(s)` : undefined}
+                                  >
+                                    {unclearedPayments !== 0
+                                      ? <>{`${unclearedPayments >= 0 ? "+" : ""}$${unclearedPayments.toFixed(2)}`}{chevron}</>
+                                      : <span className="plaid-recon-zero">—</span>}
                                   </td>
                                 </>
                               );
@@ -3921,8 +3921,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                           <td colSpan={2}><strong>Total — {vName}</strong></td>
                           <td className="plaid-recon-type">—</td>
                           <td className="plaid-recon-amt"><strong>{totalPlaidBal !== null ? `$${totalPlaidBal.toFixed(2)}` : "—"}</strong></td>
-                          <td className="plaid-recon-amt"><strong>{totalPayments >= 0 ? "+" : ""}${totalPayments.toFixed(2)}</strong></td>
                           <td className="plaid-recon-amt"><strong>{totalCharges >= 0 ? "+" : ""}${totalCharges.toFixed(2)}</strong></td>
+                          <td className="plaid-recon-amt"><strong>{totalPayments >= 0 ? "+" : ""}${totalPayments.toFixed(2)}</strong></td>
                           <td className="plaid-recon-amt"><strong>${totalVaultBal.toFixed(2)}</strong></td>
                           <td className={`plaid-recon-diff${totalDiff !== null ? (totalBalanced ? " good" : " bad") : ""}`}>
                             <strong>{totalDiff !== null ? `${totalDiff >= 0 ? "+" : ""}$${totalDiff.toFixed(2)}` : "—"}</strong>
@@ -3938,8 +3938,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       <tr key="grand-total" className="plaid-recon-row plaid-recon-total-row plaid-recon-grand-total">
                         <td colSpan={3}><strong>Total liquidity (Plaid)</strong></td>
                         <td className="plaid-recon-amt"><strong>${columnTotals.plaid.toFixed(2)}</strong></td>
-                        <td className="plaid-recon-amt"><strong>{columnTotals.payments >= 0 ? "+" : ""}${columnTotals.payments.toFixed(2)}</strong></td>
                         <td className="plaid-recon-amt"><strong>{columnTotals.charges >= 0 ? "+" : ""}${columnTotals.charges.toFixed(2)}</strong></td>
+                        <td className="plaid-recon-amt"><strong>{columnTotals.payments >= 0 ? "+" : ""}${columnTotals.payments.toFixed(2)}</strong></td>
                         <td className="plaid-recon-amt"><strong>${columnTotals.vault.toFixed(2)}</strong></td>
                         <td className={`plaid-recon-diff${grandTotalBalanced ? " good" : " bad"}`}>
                           <strong>{grandTotalDiff >= 0 ? "+" : ""}${grandTotalDiff.toFixed(2)}</strong>
@@ -3951,7 +3951,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                 </tbody>
               </table>
               <div className="plaid-recon-note">
-                <strong>Payments Pending</strong> / <strong>Charges Pending</strong> split the same underlying figure
+                <strong>Charges Pending</strong> / <strong>Payments Pending</strong> split the same underlying figure
                 by kind: pending items at the bank that Plaid's current balance doesn't reflect yet but the vault
                 already does. Payments Pending is a bill payment against the card (always from a bank account on the
                 other side); Charges Pending is everything else (new charges, refunds, credits — netted together, not
