@@ -3192,7 +3192,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                     <th>Account</th>
                     <th>Type</th>
                     <th>Plaid Balance</th>
-                    <th>Uncleared</th>
+                    <th>Payments Pending</th>
+                    <th>Charges Pending</th>
                     <th>Vault Balance</th>
                     <th>Difference</th>
                   </tr>
@@ -3300,13 +3301,13 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                     // Captured per-row so a "Total" row can sum the ALREADY correctly-signed
                     // per-card figures (refunds/credits netted against charges exactly the same
                     // way every other card's own row already computes it) for shared GL accounts.
-                    const rowSummaries: Array<{ vaultAcctId: number | undefined; plaidBal: number | null; uncleared: number }> = [];
+                    const rowSummaries: Array<{ vaultAcctId: number | undefined; plaidBal: number | null; payments: number; charges: number }> = [];
                     // Column totals for the footer row -- "liquidity coming through Plaid" at a
                     // glance. Vault Balance mirrors the Plaid balance for accounts with no vault
                     // ledger match (401k/IRA tracked live via Plaid only, never booked as vault
                     // vouchers) so the total isn't silently missing real liquidity just because
                     // there's nothing to reconcile it against.
-                    const columnTotals = { plaid: 0, uncleared: 0, vault: 0 };
+                    const columnTotals = { plaid: 0, payments: 0, charges: 0, vault: 0 };
                     const realRows = groups.map((g, i) => {
                       // Shared: >1 physical Plaid account posts to this same GL account. There's
                       // no per-transaction attribution (see the comment on plaidBalSumByVaultId
@@ -3587,10 +3588,16 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                               .map(({ ve, vi }) => ({ ve, plaidTxId: matchedInvestmentTxId.get(vi)! }))
                           : [];
                       const uncleared = unclearedItems.reduce((s, u) => s + u.amount, 0);
+                      // Same split as the expanded breakdown (see UnclearedItem.kind) surfaced
+                      // directly in their own columns, not just inside the expand -- a pending bill
+                      // payment and a pending new charge are different things to act on, and
+                      // shouldn't require a click to tell apart.
+                      const unclearedPayments = unclearedItems.filter((u) => u.kind === "payment").reduce((s, u) => s + u.amount, 0);
+                      const unclearedCharges = unclearedItems.filter((u) => u.kind === "charge").reduce((s, u) => s + u.amount, 0);
                       const diff = g.plaidBal !== null && vaultBal !== null
                         ? g.plaidBal - vaultBal + uncleared
                         : null;
-                      rowSummaries.push({ vaultAcctId: g.vaultAcct?.id, plaidBal: g.plaidBal, uncleared });
+                      rowSummaries.push({ vaultAcctId: g.vaultAcct?.id, plaidBal: g.plaidBal, payments: unclearedPayments, charges: unclearedCharges });
                       const pendingClearingTotal = unclearedItems.reduce((s, u) => s + Math.abs(u.amount), 0);
                       const balanced = diff !== null && Math.abs(diff) < 1;
                       const isExpanded = expandedReconIdx === i;
@@ -3610,7 +3617,10 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       // and still correctly treats this as "nothing to reconcile", not a match.
                       const displayVaultBal = vaultBal !== null ? vaultBal : g.plaidBal;
                       if (g.plaidBal !== null) columnTotals.plaid += g.plaidBal;
-                      if (unclearedItems.length > 0) columnTotals.uncleared += uncleared;
+                      if (unclearedItems.length > 0) {
+                        columnTotals.payments += unclearedPayments;
+                        columnTotals.charges += unclearedCharges;
+                      }
                       if (displayVaultBal !== null) columnTotals.vault += displayVaultBal;
 
                       return (
@@ -3635,24 +3645,46 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                             </td>
                             <td className="plaid-recon-type">{g.types.map(formatAcctSubtype).join(" / ")}</td>
                             <td className="plaid-recon-amt">{g.plaidBal !== null ? `$${g.plaidBal.toFixed(2)}` : "—"}</td>
-                            <td
-                              className={`plaid-recon-pending${unclearedItems.length > 0 || investmentMatchedEntries.length > 0 ? " plaid-recon-clickable" : ""}`}
-                              onClick={(e) => {
+                            {(() => {
+                              // Shared by both split columns below -- either one opens the same
+                              // combined breakdown (still grouped by kind inside, see the expand
+                              // panel), so a payment-only or charge-only row still has somewhere to
+                              // click even though its OTHER column shows "—".
+                              const expandable = unclearedItems.length > 0 || investmentMatchedEntries.length > 0;
+                              const toggle = (e: React.MouseEvent) => {
                                 // Without this, the click also bubbles up to the row's own onClick
                                 // (below), which toggles the unrelated Difference breakdown at the
                                 // same time -- so clicking this cell could open/close BOTH panels in
                                 // one click instead of just this one, looking like nothing happened.
                                 e.stopPropagation();
-                                if (unclearedItems.length > 0 || investmentMatchedEntries.length > 0) setExpandedUnclearedIdx(isUnclearedExpanded ? null : i);
-                              }}
-                              title={pendingClearingTotal > 0 ? `Net of ${unclearedItems.length} pending transaction(s) — $${pendingClearingTotal.toFixed(2)} gross before refunds/credits` : undefined}
-                            >
-                              {unclearedItems.length > 0
-                                ? <>{`${uncleared >= 0 ? "+" : ""}$${uncleared.toFixed(2)}`}<span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
-                                : investmentMatchedEntries.length > 0
-                                  ? <><span className="plaid-recon-zero">$0.00</span><span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span></>
-                                  : <span className="plaid-recon-zero">—</span>}
-                            </td>
+                                if (expandable) setExpandedUnclearedIdx(isUnclearedExpanded ? null : i);
+                              };
+                              const chevron = <span className="plaid-recon-expand-icon">{isUnclearedExpanded ? " ▲" : " ▼"}</span>;
+                              return (
+                                <>
+                                  <td
+                                    className={`plaid-recon-pending${expandable ? " plaid-recon-clickable" : ""}`}
+                                    onClick={toggle}
+                                    title={unclearedPayments !== 0 ? `${unclearedItems.filter((u) => u.kind === "payment").length} pending payment(s)` : undefined}
+                                  >
+                                    {unclearedPayments !== 0
+                                      ? <>{`${unclearedPayments >= 0 ? "+" : ""}$${unclearedPayments.toFixed(2)}`}{chevron}</>
+                                      : <span className="plaid-recon-zero">—</span>}
+                                  </td>
+                                  <td
+                                    className={`plaid-recon-pending${expandable ? " plaid-recon-clickable" : ""}`}
+                                    onClick={toggle}
+                                    title={unclearedCharges !== 0 ? `${unclearedItems.filter((u) => u.kind === "charge").length} pending charge(s) — $${pendingClearingTotal.toFixed(2)} gross before refunds/credits` : undefined}
+                                  >
+                                    {unclearedCharges !== 0
+                                      ? <>{`${unclearedCharges >= 0 ? "+" : ""}$${unclearedCharges.toFixed(2)}`}{chevron}</>
+                                      : investmentMatchedEntries.length > 0
+                                        ? <><span className="plaid-recon-zero">$0.00</span>{chevron}</>
+                                        : <span className="plaid-recon-zero">—</span>}
+                                  </td>
+                                </>
+                              );
+                            })()}
                             <td className="plaid-recon-amt">
                               {vaultBal !== null ? (
                                 `$${vaultBal.toFixed(2)}`
@@ -3671,7 +3703,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                           </tr>
                           {isUnclearedExpanded && (
                             <tr className="plaid-recon-detail-row">
-                              <td colSpan={7}>
+                              <td colSpan={8}>
                                 <div className="plaid-recon-detail">
                                   <div className="plaid-recon-detail-col">
                                     <div className="plaid-recon-detail-title">
@@ -3763,7 +3795,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                           )}
                           {isExpanded && (
                             <tr className="plaid-recon-detail-row">
-                              <td colSpan={7}>
+                              <td colSpan={8}>
                                 <div className="plaid-recon-detail">
                                   <div className="plaid-recon-detail-col">
                                     <div className="plaid-recon-detail-title">
@@ -3866,15 +3898,17 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       const totalPlaidBal = memberSummaries.every((m) => m.plaidBal !== null)
                         ? memberSummaries.reduce((s, m) => s + (m.plaidBal ?? 0), 0)
                         : null;
-                      const totalUncleared = memberSummaries.reduce((s, m) => s + m.uncleared, 0);
-                      const totalDiff = totalPlaidBal !== null ? totalPlaidBal - totalVaultBal + totalUncleared : null;
+                      const totalPayments = memberSummaries.reduce((s, m) => s + m.payments, 0);
+                      const totalCharges = memberSummaries.reduce((s, m) => s + m.charges, 0);
+                      const totalDiff = totalPlaidBal !== null ? totalPlaidBal - totalVaultBal + totalPayments + totalCharges : null;
                       const totalBalanced = totalDiff !== null && Math.abs(totalDiff) < 1;
                       finalRows.push(
                         <tr key={`total-${vid}`} className="plaid-recon-row plaid-recon-total-row">
                           <td colSpan={2}><strong>Total — {vName}</strong></td>
                           <td className="plaid-recon-type">—</td>
                           <td className="plaid-recon-amt"><strong>{totalPlaidBal !== null ? `$${totalPlaidBal.toFixed(2)}` : "—"}</strong></td>
-                          <td className="plaid-recon-amt"><strong>{totalUncleared >= 0 ? "+" : ""}${totalUncleared.toFixed(2)}</strong></td>
+                          <td className="plaid-recon-amt"><strong>{totalPayments >= 0 ? "+" : ""}${totalPayments.toFixed(2)}</strong></td>
+                          <td className="plaid-recon-amt"><strong>{totalCharges >= 0 ? "+" : ""}${totalCharges.toFixed(2)}</strong></td>
                           <td className="plaid-recon-amt"><strong>${totalVaultBal.toFixed(2)}</strong></td>
                           <td className={`plaid-recon-diff${totalDiff !== null ? (totalBalanced ? " good" : " bad") : ""}`}>
                             <strong>{totalDiff !== null ? `${totalDiff >= 0 ? "+" : ""}$${totalDiff.toFixed(2)}` : "—"}</strong>
@@ -3886,7 +3920,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       <tr key="grand-total" className="plaid-recon-row plaid-recon-total-row plaid-recon-grand-total">
                         <td colSpan={3}><strong>Total liquidity (Plaid)</strong></td>
                         <td className="plaid-recon-amt"><strong>${columnTotals.plaid.toFixed(2)}</strong></td>
-                        <td className="plaid-recon-amt"><strong>{columnTotals.uncleared >= 0 ? "+" : ""}${columnTotals.uncleared.toFixed(2)}</strong></td>
+                        <td className="plaid-recon-amt"><strong>{columnTotals.payments >= 0 ? "+" : ""}${columnTotals.payments.toFixed(2)}</strong></td>
+                        <td className="plaid-recon-amt"><strong>{columnTotals.charges >= 0 ? "+" : ""}${columnTotals.charges.toFixed(2)}</strong></td>
                         <td className="plaid-recon-amt"><strong>${columnTotals.vault.toFixed(2)}</strong></td>
                         <td></td>
                       </tr>
@@ -3896,12 +3931,13 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                 </tbody>
               </table>
               <div className="plaid-recon-note">
-                <strong>Uncleared</strong> = the NET of pending charges and credits at the bank that Plaid's current
-                balance doesn't reflect yet but the vault already does (a refund reduces this figure, it isn't just
-                added up as if everything were a charge). Pending payments are excluded — they're already applied in
-                both Plaid and vault. Click (▼) to see the individual transactions, including the gross total before
-                netting refunds/credits.
-                <strong>Difference = Plaid − Vault + Uncleared</strong>; when $0.00, vault matches Plaid's settled position.
+                <strong>Payments Pending</strong> / <strong>Charges Pending</strong> split the same underlying figure
+                by kind: pending items at the bank that Plaid's current balance doesn't reflect yet but the vault
+                already does. Payments Pending is a bill payment against the card (always from a bank account on the
+                other side); Charges Pending is everything else (new charges, refunds, credits — netted together, not
+                just added up as if everything were a charge). Click either (▼) to see the individual transactions,
+                including the gross total before netting refunds/credits.
+                <strong>Difference = Plaid − Vault + Payments Pending + Charges Pending</strong>; when $0.00, vault matches Plaid's settled position.
                 Click any non-zero row (▼) to drill down into which transactions explain the remaining gap.
                 {" "}<strong>Note:</strong> Plaid credit card balances can lag 1–2 days for settled transactions — the drill-down "Remaining gap" will show whether it's a sync lag or missing entries.
               </div>
