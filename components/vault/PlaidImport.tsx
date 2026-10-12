@@ -3188,14 +3188,17 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
               <table className="plaid-recon-table">
                 <thead>
                   <tr>
-                    <th>Institution</th>
-                    <th>Account</th>
-                    <th>Type</th>
-                    <th>Plaid Balance</th>
-                    <th>Payments Pending</th>
-                    <th>Charges Pending</th>
-                    <th>Vault Balance</th>
-                    <th>Difference</th>
+                    <th rowSpan={2}>Institution</th>
+                    <th rowSpan={2}>Account</th>
+                    <th rowSpan={2}>Type</th>
+                    <th rowSpan={2}>Plaid Balance</th>
+                    <th colSpan={2} className="plaid-recon-group-head">Pending</th>
+                    <th rowSpan={2}>Vault Balance</th>
+                    <th rowSpan={2}>Difference</th>
+                  </tr>
+                  <tr>
+                    <th>Payment</th>
+                    <th>Charges</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3916,6 +3919,10 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                         </tr>
                       );
                     });
+                    // Same Plaid − Vault + Payments + Charges formula every row's own Difference
+                    // cell already uses, just against the column totals -- not a re-derivation.
+                    const grandTotalDiff = columnTotals.plaid - columnTotals.vault + columnTotals.payments + columnTotals.charges;
+                    const grandTotalBalanced = Math.abs(grandTotalDiff) < 1;
                     finalRows.push(
                       <tr key="grand-total" className="plaid-recon-row plaid-recon-total-row plaid-recon-grand-total">
                         <td colSpan={3}><strong>Total liquidity (Plaid)</strong></td>
@@ -3923,7 +3930,9 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                         <td className="plaid-recon-amt"><strong>{columnTotals.payments >= 0 ? "+" : ""}${columnTotals.payments.toFixed(2)}</strong></td>
                         <td className="plaid-recon-amt"><strong>{columnTotals.charges >= 0 ? "+" : ""}${columnTotals.charges.toFixed(2)}</strong></td>
                         <td className="plaid-recon-amt"><strong>${columnTotals.vault.toFixed(2)}</strong></td>
-                        <td></td>
+                        <td className={`plaid-recon-diff${grandTotalBalanced ? " good" : " bad"}`}>
+                          <strong>{grandTotalDiff >= 0 ? "+" : ""}${grandTotalDiff.toFixed(2)}</strong>
+                        </td>
                       </tr>
                     );
                     return finalRows;
