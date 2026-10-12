@@ -356,3 +356,35 @@ export function consolidateLedger(
 
   return { accounts, transactions, fxRates, missingRateMonths, latestRate };
 }
+
+const normKeyForBalance = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+
+// Balance-sheet-account closing balance as of an arbitrary period-end date, in INR -- same
+// fair-value method consolidateLedger itself uses for the ALL-TIME closing (GrAccount.closingInr:
+// native-currency closing balance x ONE consistent rate), generalized to any cutoff date instead
+// of always "today". Each leg accumulates in its OWN native currency (India: INR, always rate 1;
+// US: real USD, via GrTx.entries[].originalAmount) up to periodEndDate, and only the US leg gets
+// converted, at the rate applicable AS OF periodEndDate -- not by summing each transaction's own
+// already-converted amountInr. Confirmed live: summing amountInr directly and adding it to an
+// opening balance pre-converted at latestRate mixed two different conversion bases into one
+// number, producing a real, visibly wrong closing balance that didn't match this same account's
+// own (correctly computed) GrAccount.closingInr. When periodEndDate covers every transaction
+// (e.g. today or later), this reduces to exactly GrAccount.closingInr -- getApplicableRate falls
+// back to the latest available rate once periodEndDate is beyond the fxRates table, same value as
+// `latestRate`.
+export function closingBalanceAsOf(gr: GrLedger, accountName: string, periodEndDate: string): number {
+  const key = normKeyForBalance(accountName);
+  const account = gr.accounts.find((a) => normKeyForBalance(a.name) === key);
+  if (!account) return 0;
+  let inBal = account.inOpeningInr;
+  let usBalUsd = account.usOpeningUsd;
+  for (const t of gr.transactions) {
+    if (t.cancelled || t.date > periodEndDate) continue;
+    for (const e of t.entries) {
+      if (normKeyForBalance(e.accountName) !== key) continue;
+      if (t.source === "US") usBalUsd += e.originalAmount;
+      else inBal += e.originalAmount;
+    }
+  }
+  return inBal + usBalUsd * getApplicableRate(gr.fxRates, periodEndDate);
+}

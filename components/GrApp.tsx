@@ -8,6 +8,7 @@ import {
   prevMonthKey,
   getApplicableRate,
   computeFxRevaluation,
+  closingBalanceAsOf,
   type FxRates,
   type GrLedger,
   type GrTx,
@@ -555,22 +556,6 @@ export function GrApp() {
     return { dr, cr };
   }, [gr, periodRange]);
 
-  // Cumulative Dr/Cr from beginning of data UP TO period end (for TB closing balance)
-  const cumulativeAtPeriodEnd = useMemo(() => {
-    const dr = new Map<string, number>();
-    const cr = new Map<string, number>();
-    if (!gr) return { dr, cr };
-    const { end } = periodRange;
-    for (const t of gr.transactions) {
-      if (t.cancelled || t.date > end) continue;
-      for (const e of t.entries) {
-        const k = normKey(e.accountName);
-        if (e.amountInr < 0) dr.set(k, (dr.get(k) || 0) + -e.amountInr);
-        else cr.set(k, (cr.get(k) || 0) + e.amountInr);
-      }
-    }
-    return { dr, cr };
-  }, [gr, periodRange]);
 
   const sortedAccounts = useMemo(() => {
     if (!gr) return [];
@@ -1618,10 +1603,12 @@ export function GrApp() {
                   dr = net > tol ? net : 0;
                   cr = net < -tol ? -net : 0;
                 } else {
-                  // Balance as of period end: opening + all transactions up to period end
-                  const cumDr = cumulativeAtPeriodEnd.dr.get(normKey(a.name)) || 0;
-                  const cumCr = cumulativeAtPeriodEnd.cr.get(normKey(a.name)) || 0;
-                  const bal = a.openingInr - cumDr + cumCr;
+                  // Balance as of period end -- see closingBalanceAsOf's own doc comment for why
+                  // this can't just sum e.amountInr (each entry already converted at its OWN
+                  // transaction-date rate) against an opening balance converted at a DIFFERENT
+                  // rate; that mismatch was a real, confirmed bug here, producing a closing
+                  // balance that didn't match this same account's own ledger drilldown.
+                  const bal = closingBalanceAsOf(gr, a.name, periodRange.end);
                   dr = bal < -tol ? -bal : 0;
                   cr = bal > tol ? bal : 0;
                 }
