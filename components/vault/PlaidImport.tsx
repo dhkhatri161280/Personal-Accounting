@@ -1088,7 +1088,14 @@ function buildDraft(
   if (tx.amount > 0) {
     const hhName = houseHoldMonthName(tx.date);
     const hhAcct = allAccounts.find((a) => a.name.toLowerCase() === hhName.toLowerCase());
-    const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "Chase");
+    // Prefer the real Plaid account's own subtype-aware match (matchVaultAccount already tells
+    // a savings account from checking at the same institution -- see its own isSavings branch)
+    // over the institution-name guess below, which can't: tx.institution_name is the same
+    // "Bank of America" for every BofA account, so an exact-name findAcct always lands on
+    // whichever vault ledger is literally named "Bank Of America" regardless of which physical
+    // account the money actually moved through. Falls back to the old guess only when
+    // matchVaultAccount doesn't recognize this institution at all.
+    const bankAcc = (plaidAcct && matchVaultAccount(plaidAcct, accounts)) || findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "Chase");
 
     if (hhAcct && bankAcc) {
       return {
@@ -1105,12 +1112,16 @@ function buildDraft(
   }
 
   // ── No match — deposit landed in a known bank account, default Dr to that account ──
-  // Plaid already tells us which institution/account the money hit (tx.institution_name); no
-  // reason to leave this blank and make the user pick it manually when that much is knowable.
-  // Credit side (what the deposit was FOR) is genuinely unknown, so it defaults to a generic
-  // income account pending user review -- deliberately low confidence, no "auto" badge.
+  // Plaid already tells us which institution/account the money hit; no reason to leave this
+  // blank and make the user pick it manually when that much is knowable. Credit side (what the
+  // deposit was FOR) is genuinely unknown, so it defaults to a generic income account pending
+  // user review -- deliberately low confidence, no "auto" badge.
   if (tx.amount < 0) {
-    const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "Chase Bank", "Chase");
+    // Same matchVaultAccount-first fix as the expense fallback above -- confirmed live: a $0.79
+    // "Interest Earned" credit from the Advantage Savings account posted to Bank Of America
+    // (checking) instead, because tx.institution_name ("Bank of America") exact-matched the
+    // checking ledger's own name before the savings-specific match ever got a chance.
+    const bankAcc = (plaidAcct && matchVaultAccount(plaidAcct, accounts)) || findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "Chase Bank", "Chase");
     const incomeAcc = findAcct(accounts, "Other Income", "Misc Income");
     if (bankAcc && incomeAcc) {
       return {
