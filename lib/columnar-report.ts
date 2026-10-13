@@ -380,7 +380,13 @@ export function buildBalanceSheetColumns(
 // parameterized across N periods instead of one selected range.
 export function buildCashFlowColumns(
   data: Ledger,
-  periods: PeriodBoundary[]
+  periods: PeriodBoundary[],
+  // Narrows to only vouchers whose cash leg touched this one specific cash/bank account id --
+  // "" or omitted = every cash/bank account combined, the original behavior. Mirrors
+  // VaultApp.tsx's own cashFlowAccountFilter, kept as a SEPARATE parameter (not baked into
+  // `data`) so the caller doesn't need to pre-filter the whole ledger just to scope this one
+  // report.
+  accountFilter: number | "" = ""
 ): { inflowRows: ColumnarRow[]; outflowRows: ColumnarRow[]; closingByPeriod: Record<string, number> } {
   const isCashBank = (a: { parent: string }) => /^(bank accounts|cash-in-hand)$/i.test((a.parent || "").toLowerCase());
   const cashAccounts = data.accounts.filter(isCashBank);
@@ -396,6 +402,7 @@ export function buildCashFlowColumns(
     const cashEntries = t.entries.filter((e) => cashIds.has(e.accountId));
     const cashMovement = -cashEntries.reduce((s, e) => s + e.amount, 0);
     if (!cashEntries.length || Math.abs(cashMovement) <= TOL) continue;
+    if (accountFilter !== "" && !cashEntries.some((e) => e.accountId === accountFilter)) continue;
     for (const e of t.entries) {
       if (cashIds.has(e.accountId) || Math.abs(e.amount) <= TOL) continue;
       const map = e.amount > 0 ? inflowValues : outflowValues;
@@ -423,11 +430,14 @@ export function buildCashFlowColumns(
 
   // Closing cash & bank balance as of each period-end -- cumulative like Balance Sheet's asset
   // closings (same -closing sign flip used by VaultApp.tsx's cashBank), not a flow, so callers
-  // should show the LAST period's value as the "Total", not a sum across periods.
+  // should show the LAST period's value as the "Total", not a sum across periods. Scoped to the
+  // filtered account too when one is active, so it stays reconciled against the filtered
+  // Inflows/Outflows above (same reasoning as VaultApp.tsx's own cashFlowOpening/cashFlowBank).
   const cellMap = calcColumnar(data, periods);
+  const closingAccounts = accountFilter === "" ? cashAccounts : cashAccounts.filter((a) => a.id === accountFilter);
   const closingByPeriod: Record<string, number> = {};
   for (const p of periods) {
-    closingByPeriod[p.key] = cashAccounts.reduce((s, a) => s - (cellMap.get(a.id)?.get(p.key)?.closing || 0), 0);
+    closingByPeriod[p.key] = closingAccounts.reduce((s, a) => s - (cellMap.get(a.id)?.get(p.key)?.closing || 0), 0);
   }
 
   return { inflowRows: buildRows(inflowValues), outflowRows: buildRows(outflowValues), closingByPeriod };

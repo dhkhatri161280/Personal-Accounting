@@ -244,6 +244,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [exportingBalanceSheet, setExportingBalanceSheet] = useState(false),
     [columnarCFData, setColumnarCFData] = useState<{ periods: PeriodBoundary[]; inflowRows: ColumnarRow[]; outflowRows: ColumnarRow[] } | null>(null),
     [exportingCashFlow, setExportingCashFlow] = useState(false),
+    // Narrows the Cash Flow report (Single Period and Monthly/Quarterly/Yearly alike) to only
+    // vouchers that moved cash through this one specific bank/card account -- "" = every cash/
+    // bank account combined, the original behavior. A pure transfer between two cash accounts
+    // (e.g. a credit-card payment from checking) never shows up as a cash-flow line at all
+    // (confirmed in the existing computation: its net cash movement is ~0, filtered out before
+    // reaching this point), so there's no double-counting question to resolve for that case.
+    [cashFlowAccountFilter, setCashFlowAccountFilter] = useState<number | "">(""),
     [budgetData, setBudgetData] = useState<{ periods: PeriodBoundary[]; incomeRows: BudgetRow[]; expenseRows: BudgetRow[] } | null>(null),
     [exportingBudget, setExportingBudget] = useState(false),
     [year, setYear] = useState("all"),
@@ -1296,6 +1303,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         const cashEntries = t.entries.filter((e) => cashIds.has(e.accountId)),
           cashMovement = -cashEntries.reduce((s, e) => s + e.amount, 0);
         if (!cashEntries.length || Math.abs(cashMovement) <= tol) return [];
+        // Which specific cash/bank account(s) this voucher's cash leg actually touched -- usually
+        // one, but a split voucher can touch more than one (e.g. a bill paid partly from two
+        // cards at once). Lets the Account filter below narrow to "only vouchers that moved
+        // through THIS account" without discarding the identity the way the original computation
+        // did (it only ever checked "did some cash account move", never which one).
+        const cashAccountIds = cashEntries.map((e) => e.accountId);
         return t.entries
           .filter((e) => !cashIds.has(e.accountId) && Math.abs(e.amount) > tol)
           .map((e, i) => {
@@ -1304,11 +1317,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               ledger = account?.name || e.accountName || "Unknown Ledger",
               amount = Math.abs(e.amount),
               kind = e.amount > 0 ? "inflow" : "outflow";
-            return { t, entry: e, entryIndex: i, group, ledger, amount, kind, movement: kind === "inflow" ? amount : -amount };
+            return { t, entry: e, entryIndex: i, group, ledger, amount, kind, movement: kind === "inflow" ? amount : -amount, cashAccountIds };
           });
       });
+    const filteredItems = cashFlowAccountFilter === "" ? items : items.filter((x) => x.cashAccountIds.includes(cashFlowAccountFilter));
     const groups = [
-      ...items
+      ...filteredItems
         .reduce(
           (m, x) => {
             const v = m.get(x.group) || { group: x.group, inflow: 0, outflow: 0, inflowLedgers: new Map<string, number>(), outflowLedgers: new Map<string, number>() };
@@ -1328,7 +1342,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       }))
       .sort((a, b) => a.group.localeCompare(b.group));
     return { cashFlowItems: items, cashFlowGroups: groups };
-  }, [data, calc]);
+  }, [data, calc, cashFlowAccountFilter]);
 
   const adjustedFilteredRows = useMemo(() => {
     if (!data) return [];
@@ -1525,13 +1539,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const cashBank = rows.filter(isCashBank).reduce((s, a) => s - a.closing, 0),
     cashIds = new Set(rows.filter(isCashBank).map((a) => a.id)),
     cashOpening = -rows.filter(isCashBank).reduce((s, a) => s + a.opening, 0);
+  // When the Cash Flow Account filter is active, Opening/the real-closing cross-check below both
+  // scope to that ONE account too (not the whole cash/bank pool) -- otherwise the filtered
+  // Inflows/Outflows wouldn't reconcile against an unfiltered Opening+Net=Closing (a single
+  // account's own period net isn't generally the whole pool's period net).
+  const cashFlowAccountRows = cashFlowAccountFilter === "" ? rows.filter(isCashBank) : rows.filter((a) => a.id === cashFlowAccountFilter);
+  const cashFlowOpening = -cashFlowAccountRows.reduce((s, a) => s + a.opening, 0);
+  const cashFlowBank = cashFlowAccountRows.reduce((s, a) => s - a.closing, 0);
 
 
   const
     cashInflows = cashFlowGroups.reduce((s, g) => s + g.inflow, 0),
     cashOutflows = cashFlowGroups.reduce((s, g) => s + g.outflow, 0),
     cashNet = cashInflows - cashOutflows,
-    cashFlowClosing = cashOpening + cashNet,
+    cashFlowClosing = cashFlowOpening + cashNet,
     investmentRows = rows.filter(
       (a) => /^investments$/i.test(a.parent || "") && Math.abs(a.closing) > tol
     ),
@@ -4576,13 +4597,35 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}{" "}
           {report === "cashflow" && (
             <>
-              <ReportViewToggle title="Cash Flow" exporting={exportingCashFlow} onExport={exportCashFlow} />
+              <ReportViewToggle
+                title="Cash Flow"
+                exporting={exportingCashFlow}
+                onExport={exportCashFlow}
+                extra={
+                  <span className="period-select-inline">
+                    Account
+                    <select
+                      value={cashFlowAccountFilter}
+                      onChange={(e) => setCashFlowAccountFilter(e.target.value ? Number(e.target.value) : "")}
+                    >
+                      <option value="">All</option>
+                      {data.accounts
+                        .filter((a) => a.active !== false && isCashBankGroup(a))
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                    </select>
+                  </span>
+                }
+              />
               {columnarGranularityActive && (
                 <ColumnarCashFlow
                   data={data}
                   start={yearlyColumnarStart}
                   end={yearlyColumnarEnd}
                   granularity={reportView}
+                  accountFilter={cashFlowAccountFilter}
                   fmt={fmt}
                   onComputed={(periods, inflowRows, outflowRows) => setColumnarCFData({ periods, inflowRows, outflowRows })}
                   onDrilldown={setColumnarDrilldown}
@@ -4593,12 +4636,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               {!columnarGranularityActive && (
               <CashFlowReport
                 periodLabel={periodLabel}
-                cashOpening={cashOpening}
+                cashOpening={cashFlowOpening}
                 cashInflows={cashInflows}
                 cashOutflows={cashOutflows}
                 cashNet={cashNet}
                 cashFlowClosing={cashFlowClosing}
-                cashBank={cashBank}
+                cashBank={cashFlowBank}
                 cashFlowGroups={cashFlowGroups}
                 tol={tol}
                 fmt={fmt}
@@ -5486,9 +5529,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <TransactionTable
               transactions={cashFlowItems
                 .filter((x) =>
-                  cashFlowDetail?.ledger
+                  (cashFlowDetail?.ledger
                     ? x.group === cashFlowDetail.group && x.ledger === cashFlowDetail.ledger
-                    : x.group === cashFlowDetail?.group
+                    : x.group === cashFlowDetail?.group) &&
+                  (cashFlowAccountFilter === "" || x.cashAccountIds.includes(cashFlowAccountFilter))
                 )
                 .slice()
                 .reverse()

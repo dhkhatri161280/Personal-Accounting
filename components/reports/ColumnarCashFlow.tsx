@@ -13,6 +13,7 @@ export function ColumnarCashFlow({
   start,
   end,
   granularity,
+  accountFilter = "",
   fmt,
   onComputed,
   onDrilldown,
@@ -23,6 +24,8 @@ export function ColumnarCashFlow({
   start: string;
   end: string;
   granularity: "monthly" | "quarterly" | "yearly";
+  // See buildCashFlowColumns' own doc comment -- narrows to one specific cash/bank account.
+  accountFilter?: number | "";
   fmt: (n: number) => string;
   onComputed?: (periods: PeriodBoundary[], inflowRows: ColumnarRow[], outflowRows: ColumnarRow[]) => void;
   onDrilldown?: (req: DrilldownRequest) => void;
@@ -32,7 +35,7 @@ export function ColumnarCashFlow({
   collapseSignal?: number;
 }) {
   const periods = useMemo(() => trimToLatestActivity(periodBoundariesForRange(start, end, granularity), data), [start, end, granularity, data]);
-  const { inflowRows, outflowRows, closingByPeriod } = useMemo(() => buildCashFlowColumns(data, periods), [data, periods]);
+  const { inflowRows, outflowRows, closingByPeriod } = useMemo(() => buildCashFlowColumns(data, periods, accountFilter), [data, periods, accountFilter]);
 
   useEffect(() => {
     onComputed?.(periods, inflowRows, outflowRows);

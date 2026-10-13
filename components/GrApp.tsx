@@ -229,6 +229,12 @@ export function GrApp() {
   // modal's own period-selector row and summary cards instead of a separate row of its own.
   const [grDrillTotalEl, setGrDrillTotalEl] = useState<HTMLElement | null>(null);
   const [grDrillActionsEl, setGrDrillActionsEl] = useState<HTMLElement | null>(null);
+  // Narrows the Cash Flow report to only vouchers that moved cash through this one specific
+  // cash/bank account -- "" = every cash/bank account combined, the original behavior. GR has no
+  // single numeric account id spanning both books (see grTxToVoucherRow's own comment), so this
+  // filters by the consolidated account's own name, same key normKey() already uses throughout
+  // this file.
+  const [cashFlowAccountFilter, setCashFlowAccountFilter] = useState("");
   const [overlayYear, setOverlayYear] = useState<string>(() => {
     const now = new Date();
     return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
@@ -749,6 +755,7 @@ export function GrApp() {
 
   const cfGroupMap = new Map<string, { inflow: number; outflow: number; inflowLedgers: Map<string, number>; outflowLedgers: Map<string, number> }>();
 
+  const cashFlowAccountFilterKey = cashFlowAccountFilter ? normKey(cashFlowAccountFilter) : "";
   for (const t of filteredTxns) {
     if (t.cancelled) continue;
     const cashEntries = t.entries.filter((e) => bankCashNameSet.has(normKey(e.accountName)));
@@ -756,6 +763,7 @@ export function GrApp() {
     // Positive netCash = money received into bank (bank debit = amountInr < 0 in our sign convention)
     const netCash = cashEntries.reduce((s, e) => s - e.amountInr, 0);
     if (Math.abs(netCash) < tol) continue;
+    if (cashFlowAccountFilterKey && !cashEntries.some((e) => normKey(e.accountName) === cashFlowAccountFilterKey)) continue;
     const isInflow = netCash > 0;
 
     for (const e of t.entries) {
@@ -789,8 +797,16 @@ export function GrApp() {
   const cashNet = cashInflows - cashOutflows;
   // Opening: sum of bank/cash closing from period start (approximated as all-time minus period activity)
   const cashBank = bankCashAccounts.reduce((s, a) => s - a.closingInr, 0);
-  const cashOpening = cashBank - cashNet;
-  const cashFlowClosing = cashOpening + cashNet;
+  // Cash-Flow-report-specific versions of the two figures above, scoped to the filtered account
+  // when one is active -- kept SEPARATE from cashBank itself, which the Dashboard's own "Cash and
+  // Bank (INR)" card also reads and must always show the full, unfiltered total regardless of
+  // what the Cash Flow report's own filter is set to.
+  const cashFlowAccounts = cashFlowAccountFilterKey
+    ? bankCashAccounts.filter((a) => normKey(a.name) === cashFlowAccountFilterKey)
+    : bankCashAccounts;
+  const cashFlowBank = cashFlowAccounts.reduce((s, a) => s - a.closingInr, 0);
+  const cashFlowOpening = cashFlowBank - cashNet;
+  const cashFlowClosing = cashFlowOpening + cashNet;
 
   const totalClosingInr = activeAccounts.reduce(
     (s, a) => s + (a.closingInr > 0 ? a.closingInr : 0), 0
@@ -1784,20 +1800,36 @@ export function GrApp() {
 
           {/* Cash Flow — uses CashFlowReport for collapsible groups */}
           {report === "cashflow" && (
+            <>
+              <div className="drill-header-row" style={{ marginBottom: 0 }}>
+                <span className="period-select-inline">
+                  Account
+                  <select value={cashFlowAccountFilter} onChange={(e) => setCashFlowAccountFilter(e.target.value)}>
+                    <option value="">All</option>
+                    {bankCashAccounts
+                      .slice()
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((a) => (
+                        <option key={a.name} value={a.name}>{a.name}</option>
+                      ))}
+                  </select>
+                </span>
+              </div>
             <CashFlowReport
               periodLabel={periodLabel}
-              cashOpening={cashOpening}
+              cashOpening={cashFlowOpening}
               cashInflows={cashInflows}
               cashOutflows={cashOutflows}
               cashNet={cashNet}
               cashFlowClosing={cashFlowClosing}
-              cashBank={cashBank}
+              cashBank={cashFlowBank}
               cashFlowGroups={cashFlowGroups}
               tol={tol}
               fmt={(n) => fmt(n)}
               onGroup={() => {}}
               onLedger={() => {}}
             />
+            </>
           )}
 
           {report === "fundsummary" && (
