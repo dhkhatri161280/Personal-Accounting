@@ -9,7 +9,7 @@ import {
   computeCostcoRewardWindow,
   computeCostcoRewardEstimate,
   isQualifyingCostcoNarration,
-  addMonthsIso,
+  listPastCostcoRewardCycles,
   type CostcoRewardWindow,
 } from "@/lib/costco-reward";
 
@@ -86,6 +86,9 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   const [showCostcoInfo, setShowCostcoInfo] = useState(false);
   const [showCostcoDrilldown, setShowCostcoDrilldown] = useState(false);
   const [showPrevCostcoDrilldown, setShowPrevCostcoDrilldown] = useState(false);
+  // Index into pastCycles below -- 0 = the cycle immediately before the current one (the default,
+  // same as before this became a dropdown), higher = further back.
+  const [selectedPastCycleIndex, setSelectedPastCycleIndex] = useState(0);
 
   // Costco Executive Membership's 2% Reward estimate -- independent of this report's own
   // start/endDate range above (a fixed window Costco itself defines, not a date range the user
@@ -97,17 +100,14 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     return { window, estimate };
   }, [data.costcoMembershipRenewalMonthDay, data.transactions]);
 
-  // The cycle immediately before the current one -- same 12-month window, just shifted back one
-  // full cycle. Reward windows are contiguous (each one ends exactly where the next starts), so
-  // any date within [currentStart - 12mo, currentStart) resolves computeCostcoRewardWindow to
-  // that prior window; 1 month back is always safely inside that range regardless of which
-  // calendar month the renewal date itself falls in.
-  const prevCostcoReward = useMemo(() => {
-    if (!data.costcoMembershipRenewalMonthDay || !costcoReward) return null;
-    const window = computeCostcoRewardWindow(data.costcoMembershipRenewalMonthDay, addMonthsIso(costcoReward.window.start, -1));
-    const estimate = computeCostcoRewardEstimate(data.transactions, window.start, window.end);
-    return { window, estimate };
+  // Every past cycle that actually has qualifying Costco spend -- the dropdown's option list, so
+  // it can never land on a meaningless all-zero pre-membership year. Most-recent-first; index 0
+  // is the cycle immediately before the current one.
+  const pastCycles = useMemo(() => {
+    if (!data.costcoMembershipRenewalMonthDay || !costcoReward) return [];
+    return listPastCostcoRewardCycles(data.costcoMembershipRenewalMonthDay, costcoReward.window.start, data.transactions);
   }, [data.costcoMembershipRenewalMonthDay, data.transactions, costcoReward]);
+  const prevCostcoReward = pastCycles[selectedPastCycleIndex] ?? null;
 
   const expenseAccountIds = useMemo(
     () => new Set(data.accounts.filter((a) => a.category === "Expense").map((a) => a.id)),
@@ -324,61 +324,80 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                 )}
               </span>
             </h4>
-            <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-              Current cycle: {fmtDate(costcoReward.window.start)} – {fmtDate(costcoReward.window.end)}
-            </p>
-            <button
-              type="button"
-              className="spend-category-chip"
-              style={{ display: "flex", gap: 24, flexWrap: "wrap", width: "auto", textAlign: "left" }}
-              disabled={costcoLines.length === 0}
-              title={costcoLines.length > 0 ? `Click to see the ${costcoLines.length} voucher(s) behind this total` : "No qualifying vouchers in this cycle"}
-              onClick={() => setShowCostcoDrilldown(true)}
-            >
-              <span>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {costcoLines.length > 0 && `(${costcoLines.length} voucher${costcoLines.length !== 1 ? "s" : ""})`}</div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(costcoReward.estimate.qualifyingSpend)}</div>
-              </span>
-              <span>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{costcoReward.estimate.capped ? " (capped)" : ""}</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(costcoReward.estimate.estimatedReward)}</div>
-              </span>
-            </button>
-            {showCostcoDrilldown && (
-              <FloatingWindow title={`Costco Executive — ${fmt(costcoLinesTotal)}`} onClose={() => setShowCostcoDrilldown(false)} wide>
-                <SpendVoucherTable lines={costcoLines} total={costcoLinesTotal} fmt={fmt} color="#1d4ed8" />
-              </FloatingWindow>
-            )}
-
-            {prevCostcoReward && (
-              <>
-                <p style={{ fontSize: 12, opacity: 0.7, margin: "16px 0 8px" }}>
-                  Previous cycle: {fmtDate(prevCostcoReward.window.start)} – {fmtDate(prevCostcoReward.window.end)}
+            <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+              <div>
+                <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+                  Current cycle: {fmtDate(costcoReward.window.start)} – {fmtDate(costcoReward.window.end)}
                 </p>
                 <button
                   type="button"
                   className="spend-category-chip"
                   style={{ display: "flex", gap: 24, flexWrap: "wrap", width: "auto", textAlign: "left" }}
-                  disabled={prevCostcoLines.length === 0}
-                  title={prevCostcoLines.length > 0 ? `Click to see the ${prevCostcoLines.length} voucher(s) behind this total` : "No qualifying vouchers in this cycle"}
-                  onClick={() => setShowPrevCostcoDrilldown(true)}
+                  disabled={costcoLines.length === 0}
+                  title={costcoLines.length > 0 ? `Click to see the ${costcoLines.length} voucher(s) behind this total` : "No qualifying vouchers in this cycle"}
+                  onClick={() => setShowCostcoDrilldown(true)}
                 >
                   <span>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {prevCostcoLines.length > 0 && `(${prevCostcoLines.length} voucher${prevCostcoLines.length !== 1 ? "s" : ""})`}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(prevCostcoReward.estimate.qualifyingSpend)}</div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {costcoLines.length > 0 && `(${costcoLines.length} voucher${costcoLines.length !== 1 ? "s" : ""})`}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(costcoReward.estimate.qualifyingSpend)}</div>
                   </span>
                   <span>
-                    <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{prevCostcoReward.estimate.capped ? " (capped)" : ""}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(prevCostcoReward.estimate.estimatedReward)}</div>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{costcoReward.estimate.capped ? " (capped)" : ""}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(costcoReward.estimate.estimatedReward)}</div>
                   </span>
                 </button>
-                {showPrevCostcoDrilldown && (
-                  <FloatingWindow title={`Costco Executive (previous cycle) — ${fmt(prevCostcoLinesTotal)}`} onClose={() => setShowPrevCostcoDrilldown(false)} wide>
-                    <SpendVoucherTable lines={prevCostcoLines} total={prevCostcoLinesTotal} fmt={fmt} color="#1d4ed8" />
+                {showCostcoDrilldown && (
+                  <FloatingWindow title={`Costco Executive — ${fmt(costcoLinesTotal)}`} onClose={() => setShowCostcoDrilldown(false)} wide>
+                    <SpendVoucherTable lines={costcoLines} total={costcoLinesTotal} fmt={fmt} color="#1d4ed8" />
                   </FloatingWindow>
                 )}
-              </>
-            )}
+              </div>
+
+              {pastCycles.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 6 }}>
+                    Cycle
+                    <select
+                      className="period-select-inline"
+                      value={selectedPastCycleIndex}
+                      onChange={(e) => setSelectedPastCycleIndex(Number(e.target.value))}
+                    >
+                      {pastCycles.map((c, i) => (
+                        <option key={c.window.start} value={i}>
+                          {fmtDate(c.window.start)} – {fmtDate(c.window.end)}
+                        </option>
+                      ))}
+                    </select>
+                  </p>
+                  {prevCostcoReward && (
+                    <>
+                      <button
+                        type="button"
+                        className="spend-category-chip"
+                        style={{ display: "flex", gap: 24, flexWrap: "wrap", width: "auto", textAlign: "left" }}
+                        disabled={prevCostcoLines.length === 0}
+                        title={prevCostcoLines.length > 0 ? `Click to see the ${prevCostcoLines.length} voucher(s) behind this total` : "No qualifying vouchers in this cycle"}
+                        onClick={() => setShowPrevCostcoDrilldown(true)}
+                      >
+                        <span>
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {prevCostcoLines.length > 0 && `(${prevCostcoLines.length} voucher${prevCostcoLines.length !== 1 ? "s" : ""})`}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(prevCostcoReward.estimate.qualifyingSpend)}</div>
+                        </span>
+                        <span>
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{prevCostcoReward.estimate.capped ? " (capped)" : ""}</div>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(prevCostcoReward.estimate.estimatedReward)}</div>
+                        </span>
+                      </button>
+                      {showPrevCostcoDrilldown && (
+                        <FloatingWindow title={`Costco Executive (${fmtDate(prevCostcoReward.window.start)} – ${fmtDate(prevCostcoReward.window.end)}) — ${fmt(prevCostcoLinesTotal)}`} onClose={() => setShowPrevCostcoDrilldown(false)} wide>
+                          <SpendVoucherTable lines={prevCostcoLines} total={prevCostcoLinesTotal} fmt={fmt} color="#1d4ed8" />
+                        </FloatingWindow>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

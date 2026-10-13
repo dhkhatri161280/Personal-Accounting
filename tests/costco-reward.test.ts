@@ -5,6 +5,7 @@ import {
   computeCostcoRewardWindow,
   isQualifyingCostcoNarration,
   computeCostcoRewardEstimate,
+  listPastCostcoRewardCycles,
   COSTCO_REWARD_CAP,
 } from "../lib/costco-reward.ts";
 import type { Tx } from "../lib/vault-types.ts";
@@ -76,4 +77,33 @@ test("computeCostcoRewardEstimate: caps the estimate at $1,250 even when 2% of s
   const result = computeCostcoRewardEstimate(transactions, "2026-05-31", "2027-05-31");
   assert.equal(result.estimatedReward, COSTCO_REWARD_CAP);
   assert.equal(result.capped, true);
+});
+
+test("listPastCostcoRewardCycles: only lists cycles with real qualifying spend, most-recent-first", () => {
+  const transactions: Tx[] = [
+    tx(1, "2024-06-01", "Shopping @ Costco", 1000), // cycle 2024-05-31..2025-05-31 (2 cycles back)
+    tx(2, "2025-06-01", "Shopping @ Costco", 2000), // cycle 2025-05-31..2026-05-31 (1 cycle back)
+    tx(3, "2026-12-01", "Safeway", 300), // unrelated merchant -- in the CURRENT cycle, excluded either way
+  ];
+  // currentWindowStart "2026-05-31" means the current (in-progress) cycle is 2026-05-31..2027-05-31
+  // -- listPastCostcoRewardCycles should never include that one, only cycles before it.
+  const cycles = listPastCostcoRewardCycles("08-31", "2026-05-31", transactions);
+  assert.equal(cycles.length, 2);
+  // Most-recent-first.
+  assert.equal(cycles[0].window.start, "2025-05-31");
+  assert.equal(cycles[0].estimate.qualifyingSpend, 2000);
+  assert.equal(cycles[1].window.start, "2024-05-31");
+  assert.equal(cycles[1].estimate.qualifyingSpend, 1000);
+});
+
+test("listPastCostcoRewardCycles: skips a cycle with no qualifying spend, and returns [] when there's no transaction history at all", () => {
+  const transactions: Tx[] = [
+    tx(1, "2025-06-01", "Shopping @ Costco", 2000), // cycle 2025-05-31..2026-05-31 -- real spend
+    // Nothing in the cycle before that (2024-05-31..2025-05-31) -- must not appear.
+  ];
+  const cycles = listPastCostcoRewardCycles("08-31", "2026-05-31", transactions);
+  assert.equal(cycles.length, 1);
+  assert.equal(cycles[0].window.start, "2025-05-31");
+
+  assert.deepEqual(listPastCostcoRewardCycles("08-31", "2026-05-31", []), []);
 });

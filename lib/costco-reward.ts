@@ -94,3 +94,37 @@ export function computeCostcoRewardEstimate(
   const estimatedReward = Math.min(rawReward, COSTCO_REWARD_CAP);
   return { qualifyingSpend, estimatedReward, capped: rawReward > COSTCO_REWARD_CAP, voucherCount };
 }
+
+export type CostcoRewardCycle = { window: CostcoRewardWindow; estimate: CostcoRewardEstimate };
+
+// Every past Costco reward cycle (most-recent-first, NOT including the current/in-progress one)
+// that actually has at least one qualifying Costco voucher -- so a "pick a past cycle" dropdown
+// built from this list never lands on a meaningless all-zero pre-membership year. Walks backward
+// one 12-month cycle at a time from the cycle immediately before `currentWindowStart` (reward
+// cycles are contiguous, so that's always the start of the prior one), stopping once a cycle no
+// longer overlaps the earliest transaction on file -- nothing further back could have any
+// qualifying spend either.
+export function listPastCostcoRewardCycles(
+  renewalMonthDay: string,
+  currentWindowStart: string,
+  transactions: Tx[]
+): CostcoRewardCycle[] {
+  let earliestTx = "";
+  for (const t of transactions) {
+    if (t.deleted || t.cancelled) continue;
+    if (!earliestTx || t.date < earliestTx) earliestTx = t.date;
+  }
+  if (!earliestTx) return [];
+
+  const cycles: CostcoRewardCycle[] = [];
+  let anchor = addMonthsIso(currentWindowStart, -1);
+  for (let guard = 0; guard < 500; guard++) {
+    const window = computeCostcoRewardWindow(renewalMonthDay, anchor);
+    if (window.end <= earliestTx) break;
+    const estimate = computeCostcoRewardEstimate(transactions, window.start, window.end);
+    if (estimate.voucherCount > 0) cycles.push({ window, estimate });
+    if (window.start <= earliestTx) break;
+    anchor = addMonthsIso(window.start, -1);
+  }
+  return cycles;
+}
