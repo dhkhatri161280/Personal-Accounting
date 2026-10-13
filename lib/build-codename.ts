@@ -29,7 +29,7 @@ export const CODENAMES: string[] = [
   "mithu-shrikhand", "malai-shrikhand",
   "tikha-bhajiya", "garmagaram-bhajiya",
   "namkeen-sev", "kadak-sev",
-  "taazi-chaas", "thanda-chaas",
+  "taazi-chaas", "thandi-chaas",
   "garmagaram-rotlo", "jordar-rotlo",
   "khatmithi-dabeli", "mazedar-dabeli",
   "taazu-farsaan", "namkeen-farsaan",
