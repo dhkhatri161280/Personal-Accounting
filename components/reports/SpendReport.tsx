@@ -5,7 +5,7 @@ import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { FloatingWindow } from "@/components/FloatingWindow";
-import { computeCostcoRewardWindow, computeCostcoRewardEstimate } from "@/lib/costco-reward";
+import { computeCostcoRewardWindow, computeCostcoRewardEstimate, isQualifyingCostcoNarration } from "@/lib/costco-reward";
 
 export type SpendLine = {
   key: string;
@@ -45,6 +45,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   const [endDate, setEndDate] = useState(todayLocalIso);
   const [showInfo, setShowInfo] = useState(false);
   const [showCostcoInfo, setShowCostcoInfo] = useState(false);
+  const [showCostcoDrilldown, setShowCostcoDrilldown] = useState(false);
 
   // Costco Executive Membership's 2% Reward estimate -- independent of this report's own
   // start/endDate range above (a fixed window Costco itself defines, not a date range the user
@@ -65,6 +66,38 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     [data.accounts]
   );
   const accountName = useMemo(() => new Map(data.accounts.map((a) => [a.id, a.name])), [data.accounts]);
+
+  // Drill-down detail behind the Costco card's totals -- same per-entry Expense/Income netting as
+  // expenseLines/incomeLines below (not computeCostcoRewardEstimate's own whole-voucher sum),
+  // scoped to the reward window instead of startDate/endDate, and to only the qualifying Costco
+  // narration. For an ordinary 2-leg Costco voucher (Household Exps vs. the card/bank) these two
+  // ways of summing agree exactly; this just lists it at line level so "what adds up to this
+  // total" has a real, clickable answer instead of only the headline number.
+  const costcoLines = useMemo(() => {
+    if (!costcoReward) return [];
+    const lines: SpendLine[] = [];
+    for (const t of data.transactions) {
+      if (t.deleted || t.cancelled) continue;
+      if (t.date < costcoReward.window.start || t.date >= costcoReward.window.end) continue;
+      if (!isQualifyingCostcoNarration(t.narration)) continue;
+      for (const e of t.entries) {
+        const isExpense = expenseAccountIds.has(e.accountId);
+        const isIncome = incomeAccountIds.has(e.accountId);
+        if (!isExpense && !isIncome) continue;
+        lines.push({
+          key: `${t.guid}-${e.accountId}`,
+          date: t.date,
+          voucherType: t.type,
+          voucherNumber: t.number,
+          narration: t.narration,
+          accountName: accountName.get(e.accountId) ?? "Unknown",
+          amount: isExpense ? -e.amount : e.amount,
+        });
+      }
+    }
+    return lines.sort((a, b) => b.date.localeCompare(a.date));
+  }, [data.transactions, costcoReward, expenseAccountIds, incomeAccountIds, accountName]);
+  const costcoLinesTotal = costcoLines.reduce((s, l) => s + l.amount, 0);
 
   const { expenseLines, incomeLines } = useMemo(() => {
     const expense: SpendLine[] = [];
@@ -215,56 +248,73 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
         </div>
       </div>
 
-      {costcoReward && (
-        <div className="data-panel" style={{ margin: "0 0 20px", padding: 12 }}>
-          <h4 style={{ margin: "0 0 8px", display: "flex", alignItems: "center", gap: 8 }}>
-            Costco Executive 2% Reward (estimate)
-            <span
-              className="info-icon-wrap"
-              onMouseEnter={() => setShowCostcoInfo(true)}
-              onMouseLeave={() => setShowCostcoInfo(false)}
-            >
-              <button
-                type="button"
-                className="info-icon-btn"
-                aria-label="How this estimate works"
-                onClick={() => setShowCostcoInfo((v) => !v)}
-              >
-                ⓘ
-              </button>
-              {showCostcoInfo && (
-                <div className="info-icon-popover">
-                  Costco calculates the Executive 2% Reward on a window ending ~3 months before your membership's
-                  renewal date, not the membership year itself -- confirmed against Costco's own Executive 2% Reward
-                  FAQ. Counts Costco household purchases tagged by narration (same pattern the Plaid import itself
-                  uses to post them); Costco Gasoline is excluded (Costco's own terms exclude it, and the
-                  certificate can't be redeemed at the pump), and a refund against a prior Costco purchase subtracts
-                  from the total. This is an estimate only -- the real number always comes from Costco's own
-                  coupon/certificate once issued. Capped at $1,250.
-                </div>
-              )}
-            </span>
-          </h4>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
-            Current cycle: {fmtDate(costcoReward.window.start)} – {fmtDate(costcoReward.window.end)}
-            {costcoReward.estimate.voucherCount > 0 &&
-              ` (${costcoReward.estimate.voucherCount} qualifying voucher${costcoReward.estimate.voucherCount !== 1 ? "s" : ""})`}
-          </p>
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend</div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(costcoReward.estimate.qualifyingSpend)}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{costcoReward.estimate.capped ? " (capped)" : ""}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(costcoReward.estimate.estimatedReward)}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <SpendSection title="Expense" lines={expenseLines} byCategory={expenseByCategory} total={totalExpense} fmt={fmt} color="#dc2626" emptyLabel="expense" />
       <SpendSection title="Income" lines={incomeLines} byCategory={incomeByCategory} total={totalIncome} fmt={fmt} color="#16a34a" emptyLabel="income" />
+
+      {costcoReward && (
+        <>
+          {/* Its own fixed Costco-renewal-driven window, not this report's From/To range above --
+              kept visually separate (divider + its own heading) at the bottom, not sandwiched
+              between the date-range summary and the Expense/Income sections it has nothing to do
+              with, so it doesn't read as part of that same date-range-driven flow. */}
+          <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e5e7eb" }} />
+          <div className="data-panel" style={{ padding: 12 }}>
+            <h4 style={{ margin: "0 0 8px", display: "flex", alignItems: "center", gap: 8 }}>
+              Costco Executive 2% Reward (estimate)
+              <span
+                className="info-icon-wrap"
+                onMouseEnter={() => setShowCostcoInfo(true)}
+                onMouseLeave={() => setShowCostcoInfo(false)}
+              >
+                <button
+                  type="button"
+                  className="info-icon-btn"
+                  aria-label="How this estimate works"
+                  onClick={() => setShowCostcoInfo((v) => !v)}
+                >
+                  ⓘ
+                </button>
+                {showCostcoInfo && (
+                  <div className="info-icon-popover">
+                    Costco calculates the Executive 2% Reward on a window ending ~3 months before your membership's
+                    renewal date, not the membership year itself -- confirmed against Costco's own Executive 2% Reward
+                    FAQ. Counts Costco household purchases tagged by narration (same pattern the Plaid import itself
+                    uses to post them); Costco Gasoline is excluded (Costco's own terms exclude it, and the
+                    certificate can't be redeemed at the pump), and a refund against a prior Costco purchase subtracts
+                    from the total. This is an estimate only -- the real number always comes from Costco's own
+                    coupon/certificate once issued. Capped at $1,250.
+                  </div>
+                )}
+              </span>
+            </h4>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 8px" }}>
+              Current cycle: {fmtDate(costcoReward.window.start)} – {fmtDate(costcoReward.window.end)}
+            </p>
+            <button
+              type="button"
+              className="spend-category-chip"
+              style={{ display: "flex", gap: 24, flexWrap: "wrap", width: "auto", textAlign: "left" }}
+              disabled={costcoLines.length === 0}
+              title={costcoLines.length > 0 ? `Click to see the ${costcoLines.length} voucher(s) behind this total` : "No qualifying vouchers in this cycle"}
+              onClick={() => setShowCostcoDrilldown(true)}
+            >
+              <span>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {costcoLines.length > 0 && `(${costcoLines.length} voucher${costcoLines.length !== 1 ? "s" : ""})`}</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(costcoReward.estimate.qualifyingSpend)}</div>
+              </span>
+              <span>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{costcoReward.estimate.capped ? " (capped)" : ""}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(costcoReward.estimate.estimatedReward)}</div>
+              </span>
+            </button>
+            {showCostcoDrilldown && (
+              <FloatingWindow title={`Costco Executive — ${fmt(costcoLinesTotal)}`} onClose={() => setShowCostcoDrilldown(false)} wide>
+                <SpendVoucherTable lines={costcoLines} total={costcoLinesTotal} fmt={fmt} color="#1d4ed8" />
+              </FloatingWindow>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
