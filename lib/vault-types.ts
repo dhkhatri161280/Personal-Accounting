@@ -517,6 +517,14 @@ export type Ledger = {
   companyAddress?: string;
   companyPhone?: string;
   companyEmail?: string;
+  // Costco Executive Membership's renewal month/day ("MM-DD", e.g. "08-31", Masters > Settings)
+  // -- powers the Costco Executive 2% Reward estimate on the Spend report (see
+  // lib/costco-reward.ts). Deliberately no year: under normal renewal the month/day is fixed
+  // year over year, so this is meant to be set once, not bumped every renewal. Costco calculates
+  // that reward on a window ending ~3 months BEFORE this date each year, not the membership year
+  // itself (confirmed against Costco's own Executive 2% Reward FAQ and the member's own renewal
+  // notice, which opens exactly 3 months early).
+  costcoMembershipRenewalMonthDay?: string;
   currency: string;
   createdAt: string;
   accounts: Account[];

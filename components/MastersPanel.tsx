@@ -62,6 +62,7 @@ export type MasterLedger = {
   companyAddress?: string;
   companyPhone?: string;
   companyEmail?: string;
+  costcoMembershipRenewalMonthDay?: string;
   currency: string;
   accounts: MasterAccount[];
   groups?: MasterGroup[];
@@ -103,6 +104,7 @@ const standard: MasterGroup[] = [
   { name: "Sundry Debtors", nature: "Asset" },
 ];
 const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 // Standard ERP-style period control: each calendar month can be closed/reopened independently
 // (not a single rolling cutoff) -- see closedPeriods on Ledger (lib/vault-types.ts) and
@@ -1843,7 +1845,9 @@ export function MastersPanel({
               company = String(f.get("company") || "").trim(),
               companyAddress = String(f.get("companyAddress") || "").trim(),
               companyPhone = String(f.get("companyPhone") || "").trim(),
-              companyEmail = String(f.get("companyEmail") || "").trim();
+              companyEmail = String(f.get("companyEmail") || "").trim(),
+              costcoMonth = String(f.get("costcoMembershipMonth") || "").trim(),
+              costcoDay = String(f.get("costcoMembershipDay") || "").trim();
             onSave(
               {
                 ...data,
@@ -1854,6 +1858,7 @@ export function MastersPanel({
                 companyAddress,
                 companyPhone,
                 companyEmail,
+                costcoMembershipRenewalMonthDay: costcoMonth && costcoDay ? `${costcoMonth}-${costcoDay}` : undefined,
               },
               "Other masters updated."
             );
@@ -1881,6 +1886,28 @@ export function MastersPanel({
           <label>
             Email
             <input type="email" name="companyEmail" defaultValue={data.companyEmail || ""} placeholder="you@example.com" autoComplete="off" />
+          </label>
+          <label>
+            Costco Executive Membership renewal (month/day)
+            <span style={{ display: "flex", gap: 6 }}>
+              <select name="costcoMembershipMonth" defaultValue={data.costcoMembershipRenewalMonthDay?.slice(0, 2) || ""}>
+                <option value="">Month</option>
+                {MONTH_NAMES.map((name, i) => (
+                  <option key={name} value={String(i + 1).padStart(2, "0")}>{name}</option>
+                ))}
+              </select>
+              <select name="costcoMembershipDay" defaultValue={data.costcoMembershipRenewalMonthDay?.slice(3, 5) || ""}>
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0")).map((d) => (
+                  <option key={d} value={d}>{Number(d)}</option>
+                ))}
+              </select>
+            </span>
+            <span className="field-hint">
+              Powers the Costco Executive 2% Reward estimate on the Spend report. Costco calculates that reward on a
+              window ending ~3 months before this date each year, not the membership year itself. No year needed --
+              under normal renewal this stays the same every year, so it's set once, not updated annually.
+            </span>
           </label>
 
           <h3>Company accounting settings</h3>
