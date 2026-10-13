@@ -32,6 +32,8 @@ export function HoldingsReport({
   nvdaPrevClose: number | null;
   fmt: (n: number) => string;
 }) {
+  const [showInfo, setShowInfo] = useState(false);
+
   // ── NVDA equity compensation, RSU vs. ESPP kept separate ──────────────────────────────────
   // Cost basis: RSU uses the FMV at vest (vestPrice) -- that's the amount already taxed as
   // ordinary income, the real cost basis for a future capital gain/loss on sale. ESPP uses the
@@ -137,12 +139,30 @@ export function HoldingsReport({
 
   return (
     <div className="data-panel">
-      <h3>Holdings — Everything in One Place</h3>
-      <p className="gr-report-note">
-        NVDA equity compensation (RSU and ESPP, kept separate), Schwab Trading's open positions, and
-        Schwab's live uninvested cash balance, combined into one real total. Live market values, same
-        as the Equity and Trading reports themselves show -- not a ledger balance.
-      </p>
+      <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        Holdings — Everything in One Place
+        <span
+          className="info-icon-wrap"
+          onMouseEnter={() => setShowInfo(true)}
+          onMouseLeave={() => setShowInfo(false)}
+        >
+          <button
+            type="button"
+            className="info-icon-btn"
+            aria-label="How this report works"
+            onClick={() => setShowInfo((v) => !v)}
+          >
+            ⓘ
+          </button>
+          {showInfo && (
+            <div className="info-icon-popover">
+              NVDA equity compensation (RSU and ESPP, kept separate), Schwab Trading's open positions, and
+              Schwab's live uninvested cash balance, combined into one real total. Live market values, same
+              as the Equity and Trading reports themselves show -- not a ledger balance.
+            </div>
+          )}
+        </span>
+      </h3>
 
       <section className="equity-summary-row" style={{ marginBottom: 18 }}>
         <div className="equity-summary-col">
