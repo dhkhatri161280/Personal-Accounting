@@ -4632,7 +4632,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   accountFilter={cashFlowAccountFilter}
                   fmt={fmt}
                   onComputed={(periods, inflowRows, outflowRows) => setColumnarCFData({ periods, inflowRows, outflowRows })}
-                  onDrilldown={setColumnarDrilldown}
+                  // The clicked cell's own $ value only counted vouchers whose cash leg touched
+                  // the selected Account filter -- carry that same constraint into the drilldown
+                  // so it shows exactly those vouchers, not every voucher against that ledger
+                  // regardless of which cash/bank account paid it.
+                  onDrilldown={(req) => setColumnarDrilldown(cashFlowAccountFilter !== "" ? { ...req, requireAccountId: cashFlowAccountFilter } : req)}
                   expandSignal={reportExpandAll.expandSignal}
                   collapseSignal={reportExpandAll.collapseSignal}
                 />
@@ -5580,6 +5584,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             : ddParents.size === 1
               ? `${[...ddParents][0]} — ${natureFor(ddAccounts[0])}`
               : "Multiple groups";
+        const ddTransactions = vouchersForAccountsInRange(data, columnarDrilldown.accountIds, columnarDrilldown.start, columnarDrilldown.end);
+        const ddRequireAccountId = columnarDrilldown.requireAccountId;
+        const ddFilteredTransactions =
+          ddRequireAccountId === undefined
+            ? ddTransactions
+            : ddTransactions.filter((t) => t.entries.some((e) => e.accountId === ddRequireAccountId));
         return (
         <FloatingWindow
           title={ddGroupLabel ? `${columnarDrilldown.label} (${ddGroupLabel})` : columnarDrilldown.label}
@@ -5601,7 +5611,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               <span ref={setDdDrillActionsEl} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} />
             </p>
             <TransactionTable
-              transactions={vouchersForAccountsInRange(data, columnarDrilldown.accountIds, columnarDrilldown.start, columnarDrilldown.end)}
+              transactions={ddFilteredTransactions}
               formatAmount={fmt}
               onView={(t) => setSelectedVoucher(t as Tx)}
               onEdit={(t) => editVoucher(t as Tx)}

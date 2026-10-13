@@ -124,7 +124,21 @@ function cell(v: number, fmt: (n: number) => string): string {
 // What a clicked cell drills down to: the account(s) behind it, a human label for the modal
 // title, and the date range that cell covers (a single period, or the whole displayed range for
 // a Total/Closing column click).
-export type DrilldownRequest = { label: string; accountIds: number[]; start: string; end: string };
+export type DrilldownRequest = {
+  label: string;
+  accountIds: number[];
+  start: string;
+  end: string;
+  // Cash Flow-only: when the report's own Account filter is active, a clicked cell's $ value is
+  // already scoped to vouchers whose cash leg touched this one account (see
+  // buildCashFlowColumns' own accountFilter param) -- but accountIds above only names the OTHER
+  // (non-cash) ledger, so re-querying by accountIds alone would pull in every voucher against
+  // that ledger regardless of which cash/bank account paid it, silently ignoring the filter the
+  // user is looking at. The caller rendering the drilldown must additionally require this
+  // specific account also appear among the voucher's entries. Not used by any other columnar
+  // report (Income & Expenditure / Balance Sheet have no comparable per-cell account filter).
+  requireAccountId?: number;
+};
 
 // Shared by every columnar (monthly/quarterly) report -- Income & Expenditure, Balance Sheet,
 // Cash Flow -- one collapsible group-by-parent table with a period column per header + Total.
