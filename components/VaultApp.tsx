@@ -123,6 +123,7 @@ const BalanceSheetReport = lazy(() => import("@/components/reports/BalanceSheetR
 const NetWorthReport = lazy(() => import("@/components/reports/NetWorthReport").then((m) => ({ default: m.NetWorthReport })));
 const EquityReport = lazy(() => import("@/components/reports/EquityReport").then((m) => ({ default: m.EquityReport })));
 const TradingReport = lazy(() => import("@/components/reports/TradingReport").then((m) => ({ default: m.TradingReport })));
+const HoldingsReport = lazy(() => import("@/components/reports/HoldingsReport").then((m) => ({ default: m.HoldingsReport })));
 const RetirementReport = lazy(() => import("@/components/reports/RetirementReport").then((m) => ({ default: m.RetirementReport })));
 const TaxReport = lazy(() => import("@/components/reports/TaxReport").then((m) => ({ default: m.TaxReport })));
 const IndiaTaxReport = lazy(() => import("@/components/reports/IndiaTaxReport").then((m) => ({ default: m.IndiaTaxReport })));
@@ -2202,6 +2203,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           { id: "report-trading", label: "Trading", group: "Reports", keywords: ["stocks", "broker", "trades", "portfolio", "open positions"], go: () => { setTradingTab("open"); setReport("trading"); setTab("reports"); } },
           { id: "report-trading-closed", label: "Trading — Closed Positions", group: "Reports", keywords: ["closed positions", "sold trades", "realized"], go: () => { setTradingTab("closed"); setReport("trading"); setTab("reports"); } },
           { id: "report-trading-watchlist", label: "Trading — Watchlist", group: "Reports", keywords: ["watchlist", "stocks to buy", "buy list"], go: () => { setTradingTab("watchlist"); setReport("trading"); setTab("reports"); } },
+          { id: "report-holdings", label: "Holdings", group: "Reports", keywords: ["holdings", "total", "everything", "rsu", "espp", "cash balance", "net worth"], go: () => { setReport("holdings"); setTab("reports"); } },
         ]
       : []),
     { id: "report-tax", label: "Tax", group: "Reports", keywords: ["paystub", "payroll", "w2", "withholding", "bracket"], go: () => { setTaxViewMode("yearly"); setReport("tax"); setTab("reports"); } },
@@ -4107,6 +4109,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   ...(book !== "india"
                     ? [{ id: "trading", label: "Trading", onClick: () => { setTradingTab("open"); setReport("trading"); } }]
                     : []),
+                  ...(book !== "india" ? [{ id: "holdings", label: "Holdings", onClick: () => setReport("holdings") }] : []),
                   { id: "tax", label: "Tax", onClick: () => { setTaxViewMode("yearly"); setReport("tax"); } },
                 ],
               },
@@ -4855,6 +4858,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               data={data}
               onSaveLedger={(next) => save(next, "reports")}
               initialTab={tradingTab}
+            />
+          )}
+          {report === "holdings" && data && (
+            <HoldingsReport
+              grants={data.equity?.grants ?? []}
+              esppPurchases={data.equity?.esppPurchases ?? []}
+              trades={data.trades ?? []}
+              nvdaPrice={nvdaPrice}
+              fmt={fmt}
             />
           )}
           {report === "tax" && data && book === "india" && (
