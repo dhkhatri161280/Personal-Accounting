@@ -109,6 +109,7 @@ const BudgetVsActual = lazy(() => import("@/components/reports/BudgetVsActual").
 const BankReconciliation = lazy(() => import("@/components/reports/BankReconciliation").then((m) => ({ default: m.BankReconciliation })));
 const MultiYearTrend = lazy(() => import("@/components/reports/MultiYearTrend").then((m) => ({ default: m.MultiYearTrend })));
 const AuditLog = lazy(() => import("@/components/reports/AuditLog").then((m) => ({ default: m.AuditLog })));
+const CategorizationReview = lazy(() => import("@/components/reports/CategorizationReview").then((m) => ({ default: m.CategorizationReview })));
 const FixedAssetRegister = lazy(() => import("@/components/reports/FixedAssetRegister").then((m) => ({ default: m.FixedAssetRegister })));
 const PrepaidExpenseRegister = lazy(() => import("@/components/reports/PrepaidExpenseRegister").then((m) => ({ default: m.PrepaidExpenseRegister })));
 const LoanRegister = lazy(() => import("@/components/reports/LoanRegister").then((m) => ({ default: m.LoanRegister })));
@@ -321,6 +322,60 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // a row of its own.
   const reportExpandAll = useExpandCollapseAll();
 
+  // What to come back to once the voucher currently being edited/copied/reversed (opened from
+  // inside a Cash Flow report drilldown) is saved -- captured by closeDrilldownsAndSetTab right
+  // before it closes that drilldown, and replayed by restoreReturnTarget once the save actually
+  // goes through. Null for every other case (a voucher opened from Day Book, Ledgers, etc.),
+  // which just leaves the user on the New Voucher tab afterward as before.
+  const [returnTarget, setReturnTarget] = useState<{
+    tab: string;
+    report: string;
+    columnarDrilldown: DrilldownRequest | null;
+    cashFlowDetail: { group: string; ledger?: string } | null;
+  } | null>(null);
+
+  // editVoucher/copyVoucher/reverseVoucher (via the hook below) switch to the New Voucher tab to
+  // show the form -- but if the voucher being acted on was opened from inside a Cash Flow report
+  // drilldown's own floating window (columnarDrilldown / cashFlowDetail), that overlay has no
+  // idea the tab just changed underneath it and stays open, visually burying the New Voucher
+  // form the user switched to. Confirmed live: clicking Edit on a voucher opened via the
+  // columnar Cash Flow drilldown left that drilldown's modal on screen with no apparent change,
+  // even though the tab switch and edit-state setup both actually succeeded underneath it.
+  const closeDrilldownsAndSetTab = (next: string) => {
+    if (columnarDrilldown || cashFlowDetail) {
+      setReturnTarget({ tab, report, columnarDrilldown, cashFlowDetail });
+    }
+    setColumnarDrilldown(null);
+    setCashFlowDetail(null);
+    setTab(next);
+  };
+
+  // Fires once the voucher save actually succeeds (see useVoucherForm's onSaved) -- puts the user
+  // right back in the same Cash Flow drilldown they edited this voucher from, instead of leaving
+  // them on a blank New Voucher form. A no-op when returnTarget is null (every non-Cash-Flow-
+  // drilldown edit path).
+  const restoreReturnTarget = () => {
+    if (!returnTarget) return;
+    setTab(returnTarget.tab);
+    setReport(returnTarget.report);
+    setColumnarDrilldown(returnTarget.columnarDrilldown);
+    setCashFlowDetail(returnTarget.cashFlowDetail);
+    setReturnTarget(null);
+  };
+
+  // Drops a returnTarget the user never followed through on -- e.g. they started editing a
+  // voucher from a Cash Flow drilldown, then clicked away to a different top-level tab without
+  // saving. Without this, that stale target would wrongly fire the NEXT time any unrelated
+  // voucher gets saved (restoreReturnTarget runs on every successful save), yanking the user into
+  // a Cash Flow drilldown they have nothing to do with anymore. Harmless no-op while genuinely
+  // mid-edit (closeDrilldownsAndSetTab sets returnTarget and switches to "new" in the same tick,
+  // so this effect never sees a stale target while tab is still "new") and while
+  // restoreReturnTarget itself is switching back to the captured tab (returnTarget is already
+  // cleared by the time this effect re-runs).
+  useEffect(() => {
+    if (tab !== "new") setReturnTarget(null);
+  }, [tab]);
+
   const {
     copyTx,
     setCopyTx,
@@ -351,7 +406,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     attachmentUploading: pendingAttachmentUploading,
     uploadPendingAttachment,
     removePendingAttachment,
-  } = useVoucherForm({ data, book, save, setTab, setStatus, setSelected, setSelectedVoucher });
+  } = useVoucherForm({ data, book, save, setTab: closeDrilldownsAndSetTab, setStatus, setSelected, setSelectedVoucher, onSaved: restoreReturnTarget });
 
   async function cacheUnifiedVaultPassword(pw: string) {
     const secret = sessionStorage.getItem(unifiedSecretKey);
@@ -2189,6 +2244,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { id: "report-networth", label: "Net Worth", group: "Reports", keywords: ["networth"], go: () => { setReport("networth"); setTab("reports"); } },
     { id: "report-trends", label: "Trends", group: "Reports", keywords: ["multi year", "yoy", "year over year", "growth", "savings rate", "trend"], go: () => { setReport("trends"); setTab("reports"); } },
     { id: "report-auditlog", label: "Audit Log", group: "Reports", keywords: ["audit", "history", "change log", "who changed"], go: () => { setReport("auditlog"); setTab("reports"); } },
+    { id: "report-categorization", label: "Categorization Review", group: "Reports", keywords: ["categorization", "miscategorized", "wrong ledger", "plaid", "auto import", "vehicle maintenance"], go: () => { setReport("categorization"); setTab("reports"); } },
     { id: "report-fixedassets", label: "Fixed Asset Register", group: "Reports", keywords: ["depreciation", "asset register", "fixed asset", "straight-line"], go: () => { setReport("fixedassets"); setTab("reports"); } },
     { id: "report-prepaid", label: "Prepaid Expenses", group: "Reports", keywords: ["prepaid", "amortization", "insurance", "subscription"], go: () => { setReport("prepaid"); setTab("reports"); } },
     { id: "report-loans", label: "Loan / Debt Register", group: "Reports", keywords: ["loan", "debt", "amortization", "car loan", "personal loan"], go: () => { setReport("loans"); setTab("reports"); } },
@@ -4097,6 +4153,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   { id: "fyclose", label: "FY Close", onClick: () => setReport("fyclose") },
                   { id: "closechecklist", label: "Close Checklist", onClick: () => setReport("closechecklist") },
                   { id: "auditlog", label: "Audit Log", onClick: () => setReport("auditlog") },
+                  { id: "categorization", label: "Categorization Review", onClick: () => setReport("categorization") },
                   { id: "balconfirm", label: "Balance Confirmation", onClick: () => setReport("balconfirm") },
                   { id: "trash", label: "Trash", onClick: () => setReport("trash") },
                 ],
@@ -5013,6 +5070,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "auditlog" && data && (
             <AuditLog data={data} onViewVoucher={(t) => setSelectedVoucher(t)} />
+          )}
+          {report === "categorization" && data && (
+            <CategorizationReview data={data} onViewVoucher={(t) => setSelectedVoucher(t)} />
           )}
           {report === "balconfirm" && data && <BalanceConfirmationLetter data={data} fmt={fmt} />}
           {report === "fixedassets" && data && (

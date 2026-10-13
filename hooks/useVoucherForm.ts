@@ -60,6 +60,7 @@ export function useVoucherForm({
   setStatus,
   setSelected,
   setSelectedVoucher,
+  onSaved,
 }: {
   data: Ledger | null;
   book: string;
@@ -68,6 +69,11 @@ export function useVoucherForm({
   setStatus: (s: string) => void;
   setSelected: (n: number | null) => void;
   setSelectedVoucher: (t: Tx | null) => void;
+  // Fired after a successful save (create or edit) -- lets the caller return to wherever this
+  // voucher was opened FROM (e.g. a report drilldown that editVoucher's own setTab call had to
+  // close to show this form -- see VaultApp.tsx's closeDrilldownsAndSetTab) instead of always
+  // landing on a blank New Voucher form. A no-op for callers that don't need this.
+  onSaved?: () => void;
 }) {
   const [copyTx, setCopyTx] = useState<Tx | null>(null),
     [editTx, setEditTx] = useState<Tx | null>(null),
@@ -384,6 +390,7 @@ export function useVoucherForm({
       setVoucherLines(blankVoucherLines());
       setPendingAttachments([]);
       setDraftGuid(crypto.randomUUID());
+      onSaved?.();
     }
   }
 
