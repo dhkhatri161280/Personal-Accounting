@@ -1,11 +1,50 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { Ledger } from "@/lib/vault-types";
+import type { Ledger, Tx } from "@/lib/vault-types";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { FloatingWindow } from "@/components/FloatingWindow";
-import { computeCostcoRewardWindow, computeCostcoRewardEstimate, isQualifyingCostcoNarration } from "@/lib/costco-reward";
+import {
+  computeCostcoRewardWindow,
+  computeCostcoRewardEstimate,
+  isQualifyingCostcoNarration,
+  addMonthsIso,
+  type CostcoRewardWindow,
+} from "@/lib/costco-reward";
+
+// Shared by the current- and previous-cycle drill-downs below -- same per-entry Expense/Income
+// netting as the report's own expenseLines/incomeLines (not computeCostcoRewardEstimate's whole-
+// voucher sum), scoped to one reward window and only qualifying Costco narration.
+function costcoLinesForWindow(
+  transactions: Tx[],
+  window: CostcoRewardWindow,
+  expenseAccountIds: Set<number>,
+  incomeAccountIds: Set<number>,
+  accountName: Map<number, string>
+): SpendLine[] {
+  const lines: SpendLine[] = [];
+  for (const t of transactions) {
+    if (t.deleted || t.cancelled) continue;
+    if (t.date < window.start || t.date >= window.end) continue;
+    if (!isQualifyingCostcoNarration(t.narration)) continue;
+    for (const e of t.entries) {
+      const isExpense = expenseAccountIds.has(e.accountId);
+      const isIncome = incomeAccountIds.has(e.accountId);
+      if (!isExpense && !isIncome) continue;
+      lines.push({
+        key: `${t.guid}-${e.accountId}`,
+        date: t.date,
+        voucherType: t.type,
+        voucherNumber: t.number,
+        narration: t.narration,
+        accountName: accountName.get(e.accountId) ?? "Unknown",
+        amount: isExpense ? -e.amount : e.amount,
+      });
+    }
+  }
+  return lines.sort((a, b) => b.date.localeCompare(a.date));
+}
 
 export type SpendLine = {
   key: string;
@@ -46,6 +85,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   const [showInfo, setShowInfo] = useState(false);
   const [showCostcoInfo, setShowCostcoInfo] = useState(false);
   const [showCostcoDrilldown, setShowCostcoDrilldown] = useState(false);
+  const [showPrevCostcoDrilldown, setShowPrevCostcoDrilldown] = useState(false);
 
   // Costco Executive Membership's 2% Reward estimate -- independent of this report's own
   // start/endDate range above (a fixed window Costco itself defines, not a date range the user
@@ -56,6 +96,18 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     const estimate = computeCostcoRewardEstimate(data.transactions, window.start, window.end);
     return { window, estimate };
   }, [data.costcoMembershipRenewalMonthDay, data.transactions]);
+
+  // The cycle immediately before the current one -- same 12-month window, just shifted back one
+  // full cycle. Reward windows are contiguous (each one ends exactly where the next starts), so
+  // any date within [currentStart - 12mo, currentStart) resolves computeCostcoRewardWindow to
+  // that prior window; 1 month back is always safely inside that range regardless of which
+  // calendar month the renewal date itself falls in.
+  const prevCostcoReward = useMemo(() => {
+    if (!data.costcoMembershipRenewalMonthDay || !costcoReward) return null;
+    const window = computeCostcoRewardWindow(data.costcoMembershipRenewalMonthDay, addMonthsIso(costcoReward.window.start, -1));
+    const estimate = computeCostcoRewardEstimate(data.transactions, window.start, window.end);
+    return { window, estimate };
+  }, [data.costcoMembershipRenewalMonthDay, data.transactions, costcoReward]);
 
   const expenseAccountIds = useMemo(
     () => new Set(data.accounts.filter((a) => a.category === "Expense").map((a) => a.id)),
@@ -73,31 +125,16 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   // narration. For an ordinary 2-leg Costco voucher (Household Exps vs. the card/bank) these two
   // ways of summing agree exactly; this just lists it at line level so "what adds up to this
   // total" has a real, clickable answer instead of only the headline number.
-  const costcoLines = useMemo(() => {
-    if (!costcoReward) return [];
-    const lines: SpendLine[] = [];
-    for (const t of data.transactions) {
-      if (t.deleted || t.cancelled) continue;
-      if (t.date < costcoReward.window.start || t.date >= costcoReward.window.end) continue;
-      if (!isQualifyingCostcoNarration(t.narration)) continue;
-      for (const e of t.entries) {
-        const isExpense = expenseAccountIds.has(e.accountId);
-        const isIncome = incomeAccountIds.has(e.accountId);
-        if (!isExpense && !isIncome) continue;
-        lines.push({
-          key: `${t.guid}-${e.accountId}`,
-          date: t.date,
-          voucherType: t.type,
-          voucherNumber: t.number,
-          narration: t.narration,
-          accountName: accountName.get(e.accountId) ?? "Unknown",
-          amount: isExpense ? -e.amount : e.amount,
-        });
-      }
-    }
-    return lines.sort((a, b) => b.date.localeCompare(a.date));
-  }, [data.transactions, costcoReward, expenseAccountIds, incomeAccountIds, accountName]);
+  const costcoLines = useMemo(
+    () => (costcoReward ? costcoLinesForWindow(data.transactions, costcoReward.window, expenseAccountIds, incomeAccountIds, accountName) : []),
+    [data.transactions, costcoReward, expenseAccountIds, incomeAccountIds, accountName]
+  );
   const costcoLinesTotal = costcoLines.reduce((s, l) => s + l.amount, 0);
+  const prevCostcoLines = useMemo(
+    () => (prevCostcoReward ? costcoLinesForWindow(data.transactions, prevCostcoReward.window, expenseAccountIds, incomeAccountIds, accountName) : []),
+    [data.transactions, prevCostcoReward, expenseAccountIds, incomeAccountIds, accountName]
+  );
+  const prevCostcoLinesTotal = prevCostcoLines.reduce((s, l) => s + l.amount, 0);
 
   const { expenseLines, incomeLines } = useMemo(() => {
     const expense: SpendLine[] = [];
@@ -311,6 +348,36 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
               <FloatingWindow title={`Costco Executive — ${fmt(costcoLinesTotal)}`} onClose={() => setShowCostcoDrilldown(false)} wide>
                 <SpendVoucherTable lines={costcoLines} total={costcoLinesTotal} fmt={fmt} color="#1d4ed8" />
               </FloatingWindow>
+            )}
+
+            {prevCostcoReward && (
+              <>
+                <p style={{ fontSize: 12, opacity: 0.7, margin: "16px 0 8px" }}>
+                  Previous cycle: {fmtDate(prevCostcoReward.window.start)} – {fmtDate(prevCostcoReward.window.end)}
+                </p>
+                <button
+                  type="button"
+                  className="spend-category-chip"
+                  style={{ display: "flex", gap: 24, flexWrap: "wrap", width: "auto", textAlign: "left" }}
+                  disabled={prevCostcoLines.length === 0}
+                  title={prevCostcoLines.length > 0 ? `Click to see the ${prevCostcoLines.length} voucher(s) behind this total` : "No qualifying vouchers in this cycle"}
+                  onClick={() => setShowPrevCostcoDrilldown(true)}
+                >
+                  <span>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {prevCostcoLines.length > 0 && `(${prevCostcoLines.length} voucher${prevCostcoLines.length !== 1 ? "s" : ""})`}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(prevCostcoReward.estimate.qualifyingSpend)}</div>
+                  </span>
+                  <span>
+                    <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{prevCostcoReward.estimate.capped ? " (capped)" : ""}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(prevCostcoReward.estimate.estimatedReward)}</div>
+                  </span>
+                </button>
+                {showPrevCostcoDrilldown && (
+                  <FloatingWindow title={`Costco Executive (previous cycle) — ${fmt(prevCostcoLinesTotal)}`} onClose={() => setShowPrevCostcoDrilldown(false)} wide>
+                    <SpendVoucherTable lines={prevCostcoLines} total={prevCostcoLinesTotal} fmt={fmt} color="#1d4ed8" />
+                  </FloatingWindow>
+                )}
+              </>
             )}
           </div>
         </>
