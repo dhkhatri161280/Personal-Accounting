@@ -8,6 +8,8 @@ import { apiFetch } from "@/lib/api-fetch";
 // an already-large component just to share three strings.
 const BROKER_LABEL: Record<string, string> = { CST: "Charles Schwab (CST)", CSS: "Charles Schwab (CSS)", RBS: "Robinhood (RBS)" };
 
+const glColor = (n: number) => (n >= 0 ? "#16a34a" : "#dc2626");
+
 // One place combining the three pieces that otherwise only exist on separate report screens:
 // NVDA equity compensation (RSU vs. ESPP, split -- unlike Net Worth's single blended line),
 // Schwab Trading's open positions, and Schwab's live uninvested cash balance. Deliberately a
@@ -20,12 +22,14 @@ export function HoldingsReport({
   esppPurchases,
   trades,
   nvdaPrice,
+  nvdaPrevClose,
   fmt,
 }: {
   grants: RsuGrant[];
   esppPurchases: EsppPurchase[];
   trades: Trade[];
   nvdaPrice: number | null;
+  nvdaPrevClose: number | null;
   fmt: (n: number) => string;
 }) {
   // ── NVDA equity compensation, RSU vs. ESPP kept separate ──────────────────────────────────
@@ -53,12 +57,17 @@ export function HoldingsReport({
   const esppValue = nvdaPrice != null ? esppHeldShares * nvdaPrice : null;
   const nvdaCostBasis = rsuCostBasis + esppCostBasis;
   const nvdaTotalValue = rsuValue != null && esppValue != null ? rsuValue + esppValue : null;
+  // Daily gain: today's live price vs. yesterday's close, same two figures VaultApp.tsx's own
+  // equityDailyGL already uses for the Dashboard's NVDA card -- same formula, applied per source.
+  const nvdaDailyDelta = nvdaPrice != null && nvdaPrevClose != null ? nvdaPrice - nvdaPrevClose : null;
+  const rsuDailyGL = nvdaDailyDelta != null ? rsuHeldShares * nvdaDailyDelta : null;
+  const esppDailyGL = nvdaDailyDelta != null ? esppHeldShares * nvdaDailyDelta : null;
 
   // ── Schwab Trading open positions ─────────────────────────────────────────────────────────
   const openTrades = useMemo(() => trades.filter((t) => !t.saleDate), [trades]);
   const symbols = useMemo(() => [...new Set(openTrades.map((t) => t.symbol))], [openTrades]);
   const symbolsKey = symbols.join(",");
-  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [prices, setPrices] = useState<Record<string, { price: number; prevClose: number | null }>>({});
   useEffect(() => {
     let cancelled = false;
     if (!symbolsKey) return;
@@ -67,15 +76,19 @@ export function HoldingsReport({
         fetch(`/api/equity-price?ticker=${sym}`)
           .then((r) => r.json())
           .then((d: unknown) => {
-            const j = d as { price?: number | null };
-            return { sym, price: typeof j.price === "number" ? j.price : null };
+            const j = d as { price?: number | null; previousClose?: number | null };
+            return {
+              sym,
+              price: typeof j.price === "number" ? j.price : null,
+              prevClose: typeof j.previousClose === "number" ? j.previousClose : null,
+            };
           })
-          .catch(() => ({ sym, price: null }))
+          .catch(() => ({ sym, price: null, prevClose: null }))
       )
     ).then((results) => {
       if (cancelled) return;
-      const p: Record<string, number> = {};
-      for (const r of results) if (r.price != null) p[r.sym] = r.price;
+      const p: Record<string, { price: number; prevClose: number | null }> = {};
+      for (const r of results) if (r.price != null) p[r.sym] = { price: r.price, prevClose: r.prevClose };
       setPrices(p);
     });
     return () => { cancelled = true; };
@@ -86,14 +99,18 @@ export function HoldingsReport({
     // Falls back to the trade's own last-known price (not a blank/zero) when the live fetch
     // hasn't returned yet or failed -- same "stay honest, don't silently vanish" principle as the
     // Schwab cash balance fix, flagged with a visible marker rather than pretending it's live.
-    const cur = prices[t.symbol] ?? t.marketOrSalePrice;
+    const cur = prices[t.symbol]?.price ?? t.marketOrSalePrice;
+    // Same fallback for yesterday's close, and the same per-position daily G/L formula
+    // TradingReport.tsx's own vsToday()/dailyGL use (units x (current - previous close)).
+    const prevClose = prices[t.symbol]?.prevClose ?? t.yesterday;
     const cost = t.units * t.costPerSh;
     const mv = t.units * cur;
-    return { t, cur, cost, mv, gl: mv - cost, hasLivePrice };
+    return { t, cur, cost, mv, gl: mv - cost, dailyGL: t.units * (cur - prevClose), hasLivePrice };
   });
   const tradingTotalCost = positionRows.reduce((s, r) => s + r.cost, 0);
   const tradingTotalValue = positionRows.reduce((s, r) => s + r.mv, 0);
   const tradingTotalGL = tradingTotalValue - tradingTotalCost;
+  const tradingTotalDailyGL = positionRows.reduce((s, r) => s + r.dailyGL, 0);
 
   // ── Schwab live cash balance ──────────────────────────────────────────────────────────────
   // Same fetch + visible-error pattern as TradingReport.tsx/SchwabImport.tsx's own cash balance
@@ -115,6 +132,8 @@ export function HoldingsReport({
 
   const grandTotalComplete = nvdaTotalValue != null && schwabCash != null;
   const grandTotal = (nvdaTotalValue ?? 0) + tradingTotalValue + (schwabCash ?? 0);
+  const totalGL = nvdaTotalValue != null ? nvdaTotalValue - nvdaCostBasis + tradingTotalGL : null;
+  const totalDailyGL = rsuDailyGL != null && esppDailyGL != null ? rsuDailyGL + esppDailyGL + tradingTotalDailyGL : null;
 
   return (
     <div className="data-panel">
@@ -129,8 +148,52 @@ export function HoldingsReport({
         <div className="equity-summary-col">
           <div className="equity-summary-card">
             <div className="equity-summary-card-body">
-              <span>Total Holdings{!grandTotalComplete && " (partial — some figures unavailable below)"}</span>
+              <span>Total Holdings{!grandTotalComplete && " (partial)"}</span>
               <strong className="equity-amt">{fmt(grandTotal)}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="equity-summary-col">
+          <div className="equity-summary-card">
+            <div className="equity-summary-card-body">
+              <span>NVDA Equity (RSU + ESPP)</span>
+              <strong className="equity-amt">{nvdaTotalValue != null ? fmt(nvdaTotalValue) : "—"}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="equity-summary-col">
+          <div className="equity-summary-card">
+            <div className="equity-summary-card-body">
+              <span>Trading Positions</span>
+              <strong className="equity-amt">{fmt(tradingTotalValue)}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="equity-summary-col">
+          <div className="equity-summary-card">
+            <div className="equity-summary-card-body">
+              <span>Schwab Cash</span>
+              <strong className="equity-amt">{schwabCash != null ? fmt(schwabCash) : "—"}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="equity-summary-col">
+          <div className="equity-summary-card">
+            <div className="equity-summary-card-body">
+              <span>Total Gain/(Loss)</span>
+              <strong className="equity-amt" style={{ color: totalGL != null ? glColor(totalGL) : undefined }}>
+                {totalGL != null ? fmt(totalGL) : "—"}
+              </strong>
+            </div>
+          </div>
+        </div>
+        <div className="equity-summary-col">
+          <div className="equity-summary-card">
+            <div className="equity-summary-card-body">
+              <span>Today's Gain/(Loss)</span>
+              <strong className="equity-amt" style={{ color: totalDailyGL != null ? glColor(totalDailyGL) : undefined }}>
+                {totalDailyGL != null ? fmt(totalDailyGL) : "—"}
+              </strong>
             </div>
           </div>
         </div>
@@ -146,6 +209,7 @@ export function HoldingsReport({
             <th className="right">Current Price</th>
             <th className="right">Market Value</th>
             <th className="right">Gain/(Loss)</th>
+            <th className="right">Today's Gain/(Loss)</th>
           </tr>
         </thead>
         <tbody>
@@ -156,8 +220,11 @@ export function HoldingsReport({
             <td className="right">{fmt(rsuCostBasis)}</td>
             <td className="right">{nvdaPrice != null ? fmt(nvdaPrice) : "—"}</td>
             <td className="right">{rsuValue != null ? fmt(rsuValue) : "—"}</td>
-            <td className="right" style={{ color: rsuValue != null && rsuValue - rsuCostBasis < 0 ? "#dc2626" : "#16a34a" }}>
+            <td className="right" style={{ color: rsuValue != null ? glColor(rsuValue - rsuCostBasis) : undefined }}>
               {rsuValue != null ? fmt(rsuValue - rsuCostBasis) : "—"}
+            </td>
+            <td className="right" style={{ color: rsuDailyGL != null ? glColor(rsuDailyGL) : undefined }}>
+              {rsuDailyGL != null ? fmt(rsuDailyGL) : "—"}
             </td>
           </tr>
           <tr>
@@ -167,8 +234,11 @@ export function HoldingsReport({
             <td className="right">{fmt(esppCostBasis)}</td>
             <td className="right">{nvdaPrice != null ? fmt(nvdaPrice) : "—"}</td>
             <td className="right">{esppValue != null ? fmt(esppValue) : "—"}</td>
-            <td className="right" style={{ color: esppValue != null && esppValue - esppCostBasis < 0 ? "#dc2626" : "#16a34a" }}>
+            <td className="right" style={{ color: esppValue != null ? glColor(esppValue - esppCostBasis) : undefined }}>
               {esppValue != null ? fmt(esppValue - esppCostBasis) : "—"}
+            </td>
+            <td className="right" style={{ color: esppDailyGL != null ? glColor(esppDailyGL) : undefined }}>
+              {esppDailyGL != null ? fmt(esppDailyGL) : "—"}
             </td>
           </tr>
           {positionRows.map((r) => (
@@ -184,7 +254,8 @@ export function HoldingsReport({
                 )}
               </td>
               <td className="right">{fmt(r.mv)}</td>
-              <td className="right" style={{ color: r.gl >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(r.gl)}</td>
+              <td className="right" style={{ color: glColor(r.gl) }}>{fmt(r.gl)}</td>
+              <td className="right" style={{ color: glColor(r.dailyGL) }}>{fmt(r.dailyGL)}</td>
             </tr>
           ))}
           <tr>
@@ -201,6 +272,7 @@ export function HoldingsReport({
               )}
             </td>
             <td className="right">—</td>
+            <td className="right">—</td>
           </tr>
         </tbody>
         <tfoot>
@@ -209,8 +281,11 @@ export function HoldingsReport({
             <th className="right">{fmt(nvdaCostBasis + tradingTotalCost)}</th>
             <th></th>
             <th className="right">{fmt(grandTotal)}</th>
-            <th className="right" style={{ color: nvdaTotalValue != null ? ((nvdaTotalValue - nvdaCostBasis + tradingTotalGL) >= 0 ? "#16a34a" : "#dc2626") : undefined }}>
-              {nvdaTotalValue != null ? fmt(nvdaTotalValue - nvdaCostBasis + tradingTotalGL) : "—"}
+            <th className="right" style={{ color: totalGL != null ? glColor(totalGL) : undefined }}>
+              {totalGL != null ? fmt(totalGL) : "—"}
+            </th>
+            <th className="right" style={{ color: totalDailyGL != null ? glColor(totalDailyGL) : undefined }}>
+              {totalDailyGL != null ? fmt(totalDailyGL) : "—"}
             </th>
           </tr>
         </tfoot>

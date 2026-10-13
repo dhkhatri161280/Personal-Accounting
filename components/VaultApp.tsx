@@ -4866,6 +4866,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               esppPurchases={data.equity?.esppPurchases ?? []}
               trades={data.trades ?? []}
               nvdaPrice={nvdaPrice}
+              nvdaPrevClose={nvdaPrevClose}
               fmt={fmt}
             />
           )}
