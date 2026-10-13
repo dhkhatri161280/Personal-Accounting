@@ -51,7 +51,6 @@ export function HoldingsReport({
   );
   const rsuValue = nvdaPrice != null ? rsuHeldShares * nvdaPrice : null;
   const esppValue = nvdaPrice != null ? esppHeldShares * nvdaPrice : null;
-  const nvdaTotalShares = rsuHeldShares + esppHeldShares;
   const nvdaCostBasis = rsuCostBasis + esppCostBasis;
   const nvdaTotalValue = rsuValue != null && esppValue != null ? rsuValue + esppValue : null;
 
@@ -137,98 +136,85 @@ export function HoldingsReport({
         </div>
       </section>
 
-      <h4>NVDA Equity Compensation</h4>
       <table className="fx-ledger-table">
         <thead>
           <tr>
-            <th>Source</th>
-            <th className="right">Shares Held</th>
+            <th>Item</th>
+            <th>Detail</th>
+            <th className="right">Units</th>
             <th className="right">Cost Basis</th>
+            <th className="right">Current Price</th>
             <th className="right">Market Value</th>
             <th className="right">Gain/(Loss)</th>
           </tr>
         </thead>
         <tbody>
           <tr>
+            <td>NVDA</td>
             <td>RSU</td>
             <td className="right">{rsuHeldShares.toLocaleString()}</td>
             <td className="right">{fmt(rsuCostBasis)}</td>
+            <td className="right">{nvdaPrice != null ? fmt(nvdaPrice) : "—"}</td>
             <td className="right">{rsuValue != null ? fmt(rsuValue) : "—"}</td>
-            <td className="right">{rsuValue != null ? fmt(rsuValue - rsuCostBasis) : "—"}</td>
+            <td className="right" style={{ color: rsuValue != null && rsuValue - rsuCostBasis < 0 ? "#dc2626" : "#16a34a" }}>
+              {rsuValue != null ? fmt(rsuValue - rsuCostBasis) : "—"}
+            </td>
           </tr>
           <tr>
+            <td>NVDA</td>
             <td>ESPP</td>
             <td className="right">{esppHeldShares.toLocaleString()}</td>
             <td className="right">{fmt(esppCostBasis)}</td>
+            <td className="right">{nvdaPrice != null ? fmt(nvdaPrice) : "—"}</td>
             <td className="right">{esppValue != null ? fmt(esppValue) : "—"}</td>
-            <td className="right">{esppValue != null ? fmt(esppValue - esppCostBasis) : "—"}</td>
+            <td className="right" style={{ color: esppValue != null && esppValue - esppCostBasis < 0 ? "#dc2626" : "#16a34a" }}>
+              {esppValue != null ? fmt(esppValue - esppCostBasis) : "—"}
+            </td>
+          </tr>
+          {positionRows.map((r) => (
+            <tr key={r.t.id}>
+              <td>{r.t.symbol}</td>
+              <td>{BROKER_LABEL[r.t.broker] || r.t.broker}</td>
+              <td className="right">{r.t.units}</td>
+              <td className="right">{fmt(r.cost)}</td>
+              <td className="right">
+                {fmt(r.cur)}
+                {!r.hasLivePrice && (
+                  <span style={{ color: "#dc2626" }} title="Live price unavailable right now -- showing the last known price instead"> *</span>
+                )}
+              </td>
+              <td className="right">{fmt(r.mv)}</td>
+              <td className="right" style={{ color: r.gl >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(r.gl)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td>Schwab Cash</td>
+            <td>Uninvested cash</td>
+            <td className="right">—</td>
+            <td className="right">—</td>
+            <td className="right">—</td>
+            <td className="right">
+              {schwabCash != null ? (
+                fmt(schwabCash)
+              ) : (
+                <span style={{ color: "#dc2626" }} title={schwabCashError ?? undefined}>Unavailable</span>
+              )}
+            </td>
+            <td className="right">—</td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <th>Total NVDA</th>
-            <th className="right">{nvdaTotalShares.toLocaleString()}</th>
-            <th className="right">{fmt(nvdaCostBasis)}</th>
-            <th className="right">{nvdaTotalValue != null ? fmt(nvdaTotalValue) : "—"}</th>
-            <th className="right">{nvdaTotalValue != null ? fmt(nvdaTotalValue - nvdaCostBasis) : "—"}</th>
+            <th colSpan={3}>Total{!grandTotalComplete && " (partial)"}</th>
+            <th className="right">{fmt(nvdaCostBasis + tradingTotalCost)}</th>
+            <th></th>
+            <th className="right">{fmt(grandTotal)}</th>
+            <th className="right" style={{ color: nvdaTotalValue != null ? ((nvdaTotalValue - nvdaCostBasis + tradingTotalGL) >= 0 ? "#16a34a" : "#dc2626") : undefined }}>
+              {nvdaTotalValue != null ? fmt(nvdaTotalValue - nvdaCostBasis + tradingTotalGL) : "—"}
+            </th>
           </tr>
         </tfoot>
       </table>
-
-      <h4 style={{ marginTop: 22 }}>Schwab Trading — Open Positions</h4>
-      {positionRows.length === 0 ? (
-        <p style={{ fontSize: 12, opacity: 0.6 }}>No open trading positions.</p>
-      ) : (
-        <table className="fx-ledger-table">
-          <thead>
-            <tr>
-              <th>Stock</th>
-              <th>Broker</th>
-              <th className="right">Units</th>
-              <th className="right">Cost</th>
-              <th className="right">Current Price</th>
-              <th className="right">Market Value</th>
-              <th className="right">Gain/(Loss)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {positionRows.map((r) => (
-              <tr key={r.t.id}>
-                <td>{r.t.symbol}</td>
-                <td>{BROKER_LABEL[r.t.broker] || r.t.broker}</td>
-                <td className="right">{r.t.units}</td>
-                <td className="right">{fmt(r.cost)}</td>
-                <td className="right">
-                  {fmt(r.cur)}
-                  {!r.hasLivePrice && (
-                    <span style={{ color: "#dc2626" }} title="Live price unavailable right now -- showing the last known price instead"> *</span>
-                  )}
-                </td>
-                <td className="right">{fmt(r.mv)}</td>
-                <td className="right" style={{ color: r.gl >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(r.gl)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th colSpan={3}>Total Open</th>
-              <th className="right">{fmt(tradingTotalCost)}</th>
-              <th></th>
-              <th className="right">{fmt(tradingTotalValue)}</th>
-              <th className="right" style={{ color: tradingTotalGL >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(tradingTotalGL)}</th>
-            </tr>
-          </tfoot>
-        </table>
-      )}
-
-      <h4 style={{ marginTop: 22 }}>Schwab Cash Balance</h4>
-      <p style={{ fontSize: 14, margin: 0 }}>
-        {schwabCash != null ? (
-          <strong>{fmt(schwabCash)}</strong>
-        ) : (
-          <span style={{ color: "#dc2626" }}>Unavailable{schwabCashError ? ` — ${schwabCashError}` : ""}</span>
-        )}
-      </p>
     </div>
   );
 }
