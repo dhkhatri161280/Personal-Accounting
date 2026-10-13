@@ -225,6 +225,7 @@ export function HoldingsReport({
             <th>Item</th>
             <th>Detail</th>
             <th className="right">Units</th>
+            <th className="right">Cost / Sh</th>
             <th className="right">Cost Basis</th>
             <th className="right">Current Price</th>
             <th className="right">Market Value</th>
@@ -237,6 +238,7 @@ export function HoldingsReport({
             <td>NVDA</td>
             <td>RSU</td>
             <td className="right">{rsuHeldShares.toLocaleString()}</td>
+            <td className="right">{rsuHeldShares > 0 ? fmt(rsuCostBasis / rsuHeldShares) : "—"}</td>
             <td className="right">{fmt(rsuCostBasis)}</td>
             <td className="right">{nvdaPrice != null ? fmt(nvdaPrice) : "—"}</td>
             <td className="right">{rsuValue != null ? fmt(rsuValue) : "—"}</td>
@@ -251,6 +253,7 @@ export function HoldingsReport({
             <td>NVDA</td>
             <td>ESPP</td>
             <td className="right">{esppHeldShares.toLocaleString()}</td>
+            <td className="right">{esppHeldShares > 0 ? fmt(esppCostBasis / esppHeldShares) : "—"}</td>
             <td className="right">{fmt(esppCostBasis)}</td>
             <td className="right">{nvdaPrice != null ? fmt(nvdaPrice) : "—"}</td>
             <td className="right">{esppValue != null ? fmt(esppValue) : "—"}</td>
@@ -266,6 +269,7 @@ export function HoldingsReport({
               <td>{r.t.symbol}</td>
               <td>{BROKER_LABEL[r.t.broker] || r.t.broker}</td>
               <td className="right">{r.t.units}</td>
+              <td className="right">{fmt(r.t.costPerSh)}</td>
               <td className="right">{fmt(r.cost)}</td>
               <td className="right">
                 {fmt(r.cur)}
@@ -284,6 +288,7 @@ export function HoldingsReport({
             <td className="right">—</td>
             <td className="right">—</td>
             <td className="right">—</td>
+            <td className="right">—</td>
             <td className="right">
               {schwabCash != null ? (
                 fmt(schwabCash)
@@ -297,7 +302,7 @@ export function HoldingsReport({
         </tbody>
         <tfoot>
           <tr>
-            <th colSpan={3}>Total{!grandTotalComplete && " (partial)"}</th>
+            <th colSpan={4}>Total{!grandTotalComplete && " (partial)"}</th>
             <th className="right">{fmt(nvdaCostBasis + tradingTotalCost)}</th>
             <th></th>
             <th className="right">{fmt(grandTotal)}</th>
