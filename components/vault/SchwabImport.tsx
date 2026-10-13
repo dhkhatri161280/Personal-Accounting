@@ -439,14 +439,26 @@ export function SchwabImport({ data, onSave }: Props) {
   // CSS, excl. NVDA) plus Schwab's live uninvested cash balance -- just sourced from live data
   // here instead of a manually uploaded CSV.
   const [schwabCashBalance, setSchwabCashBalance] = useState<number | null>(null);
+  // Previously swallowed every fetch failure silently -- the "Live cash" figure below just showed
+  // "—" forever with no indication of why (an expired Schwab connection, a real network error,
+  // anything). Now keeps the reason so it can be shown instead of a bare dash.
+  const [schwabCashError, setSchwabCashError] = useState<string | null>(null);
   useEffect(() => {
     apiFetch("/api/schwab/positions")
-      .then((r) => r.json())
-      .then((d: unknown) => {
-        const j = d as { accounts?: { cashBalance?: number }[] };
-        if (j.accounts?.length) setSchwabCashBalance(j.accounts.reduce((s, a) => s + (a.cashBalance ?? 0), 0));
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as { accounts?: { cashBalance?: number }[]; error?: string } | null;
+        if (!r.ok) {
+          setSchwabCashError(d?.error || `fetch failed (HTTP ${r.status})`);
+          return;
+        }
+        const accounts = d?.accounts ?? [];
+        if (!accounts.length) {
+          setSchwabCashError("no connected accounts");
+          return;
+        }
+        setSchwabCashBalance(accounts.reduce((s, a) => s + (a.cashBalance ?? 0), 0));
       })
-      .catch(() => {});
+      .catch((e: unknown) => setSchwabCashError(e instanceof Error ? e.message : "network error"));
   }, []);
   const openCostBasis = useMemo(
     () => effectiveTrades
@@ -685,7 +697,10 @@ export function SchwabImport({ data, onSave }: Props) {
             <h4 style={{ margin: "0 0 6px" }}>Schwab (cost basis + cash) vs. Vault</h4>
             <div style={{ display: "flex", gap: "1.4rem", fontSize: 13, flexWrap: "wrap" }}>
               <span>Open cost basis (CST+CSS, excl. NVDA): <strong>{fmtMoney(openCostBasis)}</strong></span>
-              <span>+ Live cash: <strong>{schwabCashBalance !== null ? fmtMoney(schwabCashBalance) : "—"}</strong></span>
+              <span>
+                + Live cash: <strong>{schwabCashBalance !== null ? fmtMoney(schwabCashBalance) : "—"}</strong>
+                {schwabCashError && <span style={{ color: "#dc2626" }} title={schwabCashError}> (unavailable — {schwabCashError})</span>}
+              </span>
               <span>= Expected: <strong>{expectedVaultBalance !== null ? fmtMoney(expectedVaultBalance) : "—"}</strong></span>
               <span>Vault balance: <strong>{vaultSchwabBalance !== null ? fmtMoney(vaultSchwabBalance) : "select an account below"}</strong></span>
               <span>

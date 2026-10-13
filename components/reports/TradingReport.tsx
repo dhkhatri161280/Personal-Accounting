@@ -214,19 +214,29 @@ export function TradingReport({
 
   // Real uninvested cash sitting in the Schwab account -- distinct from the "Charles Schwab" GL
   // ledger (which tracks cumulative dividends/interest received, not current cash; see the
-  // reconciliation discussion this was built for). Fetched once, silently -- errors are ignored
-  // rather than shown, since this is a supplementary line, not something that should block the
-  // rest of the report if Schwab is briefly unreachable.
+  // reconciliation discussion this was built for). Fetched once. Previously swallowed every
+  // failure silently (a blank `.catch(() => {})`) -- confirmed live: the whole "Cash Balance"
+  // row just disappeared with zero indication anything was wrong, whether the cause was an
+  // expired Schwab connection, a real network error, or anything else. Now surfaces WHY, as a
+  // row in the same spot the cash line itself would have shown, instead of silent disappearance.
   const [schwabCash, setSchwabCash] = useState<number | null>(null);
+  const [schwabCashError, setSchwabCashError] = useState<string | null>(null);
   useEffect(() => {
     apiFetch("/api/schwab/positions")
-      .then((r) => r.json())
-      .then((d: unknown) => {
-        const j = d as { accounts?: { cashBalance?: number }[] };
-        const total = (j.accounts ?? []).reduce((s, a) => s + (a.cashBalance ?? 0), 0);
-        if (j.accounts?.length) setSchwabCash(total);
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as { accounts?: { cashBalance?: number }[]; error?: string } | null;
+        if (!r.ok) {
+          setSchwabCashError(d?.error || `Schwab fetch failed (HTTP ${r.status}) -- check Import → Schwab.`);
+          return;
+        }
+        const accounts = d?.accounts ?? [];
+        if (!accounts.length) {
+          setSchwabCashError("Schwab returned no connected accounts -- check Import → Schwab.");
+          return;
+        }
+        setSchwabCash(accounts.reduce((s, a) => s + (a.cashBalance ?? 0), 0));
       })
-      .catch(() => {});
+      .catch((e: unknown) => setSchwabCashError(e instanceof Error ? e.message : "Network error fetching the Schwab cash balance."));
   }, []);
 
   // ── Layer 1: Live prices with auto-refresh ───────────────────────────────
@@ -1144,6 +1154,13 @@ export function TradingReport({
                   <th />
                   <th />
                   <th />
+                </tr>
+              )}
+              {schwabCashError && (
+                <tr style={{ fontWeight: 400 }}>
+                  <th colSpan={7} style={{ textAlign: "left", opacity: 0.75, color: "#dc2626" }}>
+                    Cash Balance (Schwab, live) unavailable: {schwabCashError}
+                  </th>
                 </tr>
               )}
               {schwabCash !== null && (
