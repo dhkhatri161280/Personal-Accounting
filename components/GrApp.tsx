@@ -19,6 +19,8 @@ import { BalanceSheetReport } from "@/components/reports/BalanceSheetReport";
 import { NetWorthReport, equityHoldingsRow, retirementLiveRow } from "@/components/reports/NetWorthReport";
 import { GroupedReport } from "@/components/reports/GroupedReport";
 import { CashFlowReport } from "@/components/reports/CashFlowReport";
+import { ColumnarCashFlowGr } from "@/components/reports/ColumnarCashFlowGr";
+import { useExpandCollapseAll } from "@/components/reports/ColumnarSection";
 import { GrFundSummary } from "@/components/reports/GrFundSummary";
 import { computeGrFundSummary } from "@/lib/gr-fund-summary";
 import { EquityReport } from "@/components/reports/EquityReport";
@@ -32,6 +34,7 @@ import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
+import { lastMonthEndCutoff } from "@/lib/dashboard-trend";
 import { apiFetch } from "@/lib/api-fetch";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
 import { HeaderToggles } from "@/components/HeaderToggles";
@@ -235,6 +238,11 @@ export function GrApp() {
   // filters by the consolidated account's own name, same key normKey() already uses throughout
   // this file.
   const [cashFlowAccountFilter, setCashFlowAccountFilter] = useState("");
+  // Cash Flow's own Single Period/Monthly/Quarterly/Yearly toggle -- same idea as VaultApp.tsx's
+  // reportView, scoped to just this one report (the only GR report this was worth building for;
+  // see the comment above the toolbar row below for why the other reports aren't getting this).
+  const [cfReportView, setCfReportView] = useState<"single" | "monthly" | "quarterly" | "yearly">("single");
+  const cfExpandAll = useExpandCollapseAll();
   const [overlayYear, setOverlayYear] = useState<string>(() => {
     const now = new Date();
     return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
@@ -808,6 +816,23 @@ export function GrApp() {
   const cashFlowOpening = cashFlowBank - cashNet;
   const cashFlowClosing = cashFlowOpening + cashNet;
 
+  // Cash Flow's Monthly/Quarterly columns follow whatever period is currently selected; Yearly
+  // works even with "All periods" selected, same rule as VaultApp.tsx's own
+  // columnarViewAvailable/columnarGranularityActive -- see that file's comment for why Yearly is
+  // the one exception (a year-over-year comparison is the whole point, not just one FY sliced up).
+  const cfColumnarAvailable = year !== "all";
+  const cfGranularityActive = cfReportView !== "single" && (cfColumnarAvailable || cfReportView === "yearly");
+  const grEarliestTxDate = (() => {
+    let earliest = "";
+    for (const t of gr.transactions) {
+      if (t.cancelled) continue;
+      if (!earliest || t.date < earliest) earliest = t.date;
+    }
+    return earliest || todayLocalIso();
+  })();
+  const cfColumnarStart = year === "all" ? grEarliestTxDate : periodRange.start;
+  const cfColumnarEnd = year === "all" ? todayLocalIso() : periodRange.end;
+
   const totalClosingInr = activeAccounts.reduce(
     (s, a) => s + (a.closingInr > 0 ? a.closingInr : 0), 0
   );
@@ -826,6 +851,22 @@ export function GrApp() {
   const dashInvestmentsTotal = investmentAccounts.reduce((s, a) => s - a.closingInr, 0);
   const dashFixedAssetsTotal = fixedAssetAccounts.reduce((s, a) => s - a.closingInr, 0);
   const dashCapitalTotal = capitalAccounts.reduce((s, a) => s + a.closingInr, 0);
+
+  // Dashboard hero-card "vs last month" trend (Cash and Capital only) -- same idea and copy as
+  // the US/India book's own trend (lib/dashboard-trend.ts), re-derived here against closingInr's
+  // own convention via closingBalanceAsOf (already used for the Trial Balance fix) since GR's
+  // consolidated accounts have no equivalent to VaultApp's per-FY capitalTransfer branching --
+  // dashCapitalTotal here is always just "capital-nature accounts, as of now," so the prior-month
+  // figure is the same accounts at an earlier cutoff, nothing fiscal-year-aware needed.
+  const grLastMonthEnd = lastMonthEndCutoff(todayLocalIso());
+  const cashBankPrior = bankCashAccounts.reduce((s, a) => s - closingBalanceAsOf(gr, a.name, grLastMonthEnd), 0);
+  const cashTrend = cashBank - cashBankPrior;
+  const capitalTotalPrior = capitalAccounts.reduce((s, a) => s + closingBalanceAsOf(gr, a.name, grLastMonthEnd), 0);
+  const capitalTrend = dashCapitalTotal - capitalTotalPrior;
+  const trendFor = (delta: number): { positive: boolean; text: string } => ({
+    positive: delta >= 0,
+    text: `${delta >= 0 ? "+" : "-"}${fmt(Math.abs(delta))} vs last month`,
+  });
 
   // Equity (NVDA) — USD then converted to INR via most recent available FX rate
   const cur = nvdaPrice ?? 0;
@@ -1026,6 +1067,7 @@ export function GrApp() {
             open={dashboardDetail === "cash"}
             onClick={() => toggleDashboardDetail("cash")}
             hero
+            trend={trendFor(cashTrend)}
             highlights={bankCashAccounts
               .slice()
               .sort((a, b) => Math.abs(b.closingInr) - Math.abs(a.closingInr))
@@ -1176,6 +1218,7 @@ export function GrApp() {
             open={dashboardDetail === "capital"}
             onClick={() => toggleDashboardDetail("capital")}
             hero
+            trend={trendFor(capitalTrend)}
             highlights={
               <>
                 {capitalAccounts
@@ -1798,37 +1841,100 @@ export function GrApp() {
             );
           })()}
 
-          {/* Cash Flow — uses CashFlowReport for collapsible groups */}
+          {/* Cash Flow — single-period uses CashFlowReport for collapsible groups; Monthly/
+             Quarterly/Yearly uses ColumnarCashFlowGr, same toggle/toolbar shape as the US/India
+             book's own Cash Flow (components/VaultApp.tsx's ReportViewToggle). GR's other reports
+             (Balance Sheet, Trial Balance, P&L) don't get this -- the periodic columns there would
+             mean re-running the whole US+India FX consolidation per column instead of once, a much
+             bigger lift for less everyday value than Cash Flow trended month-to-month. */}
           {report === "cashflow" && (
             <>
-              <div className="drill-header-row" style={{ marginBottom: 0 }}>
-                <span className="period-select-inline">
-                  Account
-                  <select value={cashFlowAccountFilter} onChange={(e) => setCashFlowAccountFilter(e.target.value)}>
-                    <option value="">All</option>
-                    {bankCashAccounts
-                      .slice()
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .map((a) => (
-                        <option key={a.name} value={a.name}>{a.name}</option>
-                      ))}
-                  </select>
+              <div className="report-view-toggle-row">
+                <span style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <span className="report-view-toggle" role="group" aria-label="Report view">
+                    <button type="button" className={cfReportView === "single" ? "selected" : ""} onClick={() => setCfReportView("single")}>
+                      Single Period
+                    </button>
+                    <button
+                      type="button"
+                      className={cfReportView === "monthly" ? "selected" : ""}
+                      disabled={!cfColumnarAvailable}
+                      title={!cfColumnarAvailable ? "Select a specific period (not \"All periods\") to view monthly columns" : undefined}
+                      onClick={() => setCfReportView("monthly")}
+                    >
+                      Monthly
+                    </button>
+                    <button
+                      type="button"
+                      className={cfReportView === "quarterly" ? "selected" : ""}
+                      disabled={!cfColumnarAvailable}
+                      title={!cfColumnarAvailable ? "Select a specific period (not \"All periods\") to view quarterly columns" : undefined}
+                      onClick={() => setCfReportView("quarterly")}
+                    >
+                      Quarterly
+                    </button>
+                    <button
+                      type="button"
+                      className={cfReportView === "yearly" ? "selected" : ""}
+                      onClick={() => setCfReportView("yearly")}
+                      title={"One column per fiscal year -- works with a specific period selected or \"All periods\", for a year-over-year comparison"}
+                    >
+                      Yearly
+                    </button>
+                  </span>
+                  <span className="period-select-inline">
+                    Account
+                    <select value={cashFlowAccountFilter} onChange={(e) => setCashFlowAccountFilter(e.target.value)}>
+                      <option value="">All</option>
+                      {bankCashAccounts
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((a) => (
+                          <option key={a.name} value={a.name}>{a.name}</option>
+                        ))}
+                    </select>
+                  </span>
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button type="button" className="report-expand-all-btn" onClick={cfExpandAll.expandAll}>
+                    Expand All
+                  </button>
+                  <button type="button" className="report-expand-all-btn" onClick={cfExpandAll.collapseAll}>
+                    Collapse All
+                  </button>
                 </span>
               </div>
-            <CashFlowReport
-              periodLabel={periodLabel}
-              cashOpening={cashFlowOpening}
-              cashInflows={cashInflows}
-              cashOutflows={cashOutflows}
-              cashNet={cashNet}
-              cashFlowClosing={cashFlowClosing}
-              cashBank={cashFlowBank}
-              cashFlowGroups={cashFlowGroups}
-              tol={tol}
-              fmt={(n) => fmt(n)}
-              onGroup={() => {}}
-              onLedger={() => {}}
-            />
+              {cfGranularityActive && (
+                <ColumnarCashFlowGr
+                  gr={gr}
+                  bankCashAccounts={bankCashAccounts}
+                  start={cfColumnarStart}
+                  end={cfColumnarEnd}
+                  granularity={cfReportView}
+                  accountFilter={cashFlowAccountFilter}
+                  fmt={(n) => fmt(n)}
+                  expandSignal={cfExpandAll.expandSignal}
+                  collapseSignal={cfExpandAll.collapseSignal}
+                />
+              )}
+              {!cfGranularityActive && (
+                <CashFlowReport
+                  periodLabel={periodLabel}
+                  cashOpening={cashFlowOpening}
+                  cashInflows={cashInflows}
+                  cashOutflows={cashOutflows}
+                  cashNet={cashNet}
+                  cashFlowClosing={cashFlowClosing}
+                  cashBank={cashFlowBank}
+                  cashFlowGroups={cashFlowGroups}
+                  tol={tol}
+                  fmt={(n) => fmt(n)}
+                  expandSignal={cfExpandAll.expandSignal}
+                  collapseSignal={cfExpandAll.collapseSignal}
+                  onGroup={() => {}}
+                  onLedger={() => {}}
+                />
+              )}
             </>
           )}
 

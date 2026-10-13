@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { consolidateLedger, closingBalanceAsOf } from "../lib/gr-consolidation.ts";
+import { consolidateLedger, closingBalanceAsOf, buildGrCashFlowColumns, trimGrToLatestActivity } from "../lib/gr-consolidation.ts";
+import { periodBoundariesForRange } from "../lib/columnar-report.ts";
 import type { Account, Tx, Ledger } from "../lib/vault-types.ts";
 
 function account(id: number, name: string, parent: string): Account {
@@ -115,4 +116,105 @@ test("closingBalanceAsOf: a mid-period cutoff uses the rate applicable as of THA
   // rate for that date (prevMonthKey "2026-04", not itself in the table) falls back to the
   // nearest earlier month, "2026-03" = 83 -- not latestRate (85).
   assert.equal(closingBalanceAsOf(gr, "AMEX Credit Card", "2026-05-01"), 100 * 83);
+});
+
+test("buildGrCashFlowColumns: buckets a cash-affecting voucher into the right period, inflow vs. outflow by the OTHER leg's own sign", () => {
+  const usAccounts = [
+    account(1, "Checking", "Bank Accounts"),
+    account(2, "Salary", "Direct Incomes"),
+    account(3, "Rent", "Indirect Expenses"),
+  ];
+  const usTxns = [
+    // April: salary deposit -- bank debited (amount < 0, money received), income credited (> 0).
+    tx(1, "2026-04-05", [
+      { accountId: 1, accountName: "Checking", amount: -1000 },
+      { accountId: 2, accountName: "Salary", amount: 1000 },
+    ]),
+    // May: rent paid -- bank credited (amount > 0, money leaving), expense debited (< 0).
+    tx(2, "2026-05-10", [
+      { accountId: 1, accountName: "Checking", amount: 500 },
+      { accountId: 3, accountName: "Rent", amount: -500 },
+    ]),
+  ];
+  const usData = ledger(usAccounts, usTxns);
+  const indiaData = ledger([], []);
+  // Flat 1:1 rate for every month this test touches, so USD amounts and their converted INR
+  // amounts are numerically identical -- keeps the assertions about bucketing/sign readable
+  // without also re-deriving an FX multiplication (that's already covered by the
+  // closingBalanceAsOf tests above).
+  const gr = consolidateLedger(usData, indiaData, { "2026-03": 1, "2026-04": 1 });
+  const bankCashAccounts = gr.accounts.filter((a) => a.parent === "Bank Accounts");
+  const periods = periodBoundariesForRange("2026-04-01", "2026-06-30", "monthly");
+
+  const { inflowRows, outflowRows, closingByPeriod } = buildGrCashFlowColumns(gr, periods, bankCashAccounts);
+
+  assert.equal(inflowRows.length, 1);
+  assert.equal(inflowRows[0].name, "Salary");
+  assert.equal(inflowRows[0].values["2026-04"], 1000);
+  assert.equal(inflowRows[0].values["2026-05"] ?? 0, 0);
+  assert.equal(inflowRows[0].total, 1000);
+
+  assert.equal(outflowRows.length, 1);
+  assert.equal(outflowRows[0].name, "Rent");
+  assert.equal(outflowRows[0].values["2026-05"], 500);
+  assert.equal(outflowRows[0].total, 500);
+
+  // Closing cash balance as of each period-end -- sign-flipped from closingBalanceAsOf's own
+  // credit-positive storage convention (same -closing flip buildCashFlowColumns itself uses for
+  // display), not a flow sum.
+  assert.equal(closingByPeriod["2026-04"], -closingBalanceAsOf(gr, "Checking", periods[0].end));
+  assert.equal(closingByPeriod["2026-05"], -closingBalanceAsOf(gr, "Checking", periods[1].end));
+  assert.equal(closingByPeriod["2026-04"], 1000); // $1000 received into the bank
+  assert.equal(closingByPeriod["2026-05"], 500); // net of the +1000 receipt and -500 payment
+});
+
+test("buildGrCashFlowColumns: accountFilter narrows to vouchers whose cash leg touched that one account", () => {
+  const usAccounts = [
+    account(1, "Checking", "Bank Accounts"),
+    account(2, "Savings", "Bank Accounts"),
+    account(3, "Salary", "Direct Incomes"),
+    account(4, "Interest", "Direct Incomes"),
+  ];
+  const usTxns = [
+    tx(1, "2026-04-05", [
+      { accountId: 1, accountName: "Checking", amount: -1000 },
+      { accountId: 3, accountName: "Salary", amount: 1000 },
+    ]),
+    tx(2, "2026-04-06", [
+      { accountId: 2, accountName: "Savings", amount: -50 },
+      { accountId: 4, accountName: "Interest", amount: 50 },
+    ]),
+  ];
+  const usData = ledger(usAccounts, usTxns);
+  const indiaData = ledger([], []);
+  const gr = consolidateLedger(usData, indiaData, {});
+  const bankCashAccounts = gr.accounts.filter((a) => a.parent === "Bank Accounts");
+  const periods = periodBoundariesForRange("2026-04-01", "2026-04-30", "monthly");
+
+  const all = buildGrCashFlowColumns(gr, periods, bankCashAccounts);
+  assert.equal(all.inflowRows.length, 2);
+
+  const filtered = buildGrCashFlowColumns(gr, periods, bankCashAccounts, "Checking");
+  assert.equal(filtered.inflowRows.length, 1);
+  assert.equal(filtered.inflowRows[0].name, "Salary");
+  // Closing is also scoped to just the filtered account, same reasoning as the US/India book's
+  // own cashFlowBank/cashFlowOpening filtering.
+  assert.equal(filtered.closingByPeriod["2026-04"], -closingBalanceAsOf(gr, "Checking", periods[0].end));
+});
+
+test("trimGrToLatestActivity: drops periods that haven't started yet as of the latest posted voucher", () => {
+  const usAccounts = [account(1, "Checking", "Bank Accounts"), account(2, "Salary", "Direct Incomes")];
+  const usTxns = [
+    tx(1, "2026-04-05", [
+      { accountId: 1, accountName: "Checking", amount: -1000 },
+      { accountId: 2, accountName: "Salary", amount: 1000 },
+    ]),
+  ];
+  const gr = consolidateLedger(ledger(usAccounts, usTxns), ledger([], []), {});
+  const periods = periodBoundariesForRange("2026-04-01", "2026-09-30", "monthly");
+  assert.equal(periods.length, 6);
+
+  const trimmed = trimGrToLatestActivity(periods, gr);
+  assert.equal(trimmed.length, 1);
+  assert.equal(trimmed[0].key, "2026-04");
 });

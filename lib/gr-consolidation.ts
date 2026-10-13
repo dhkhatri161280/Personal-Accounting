@@ -1,4 +1,5 @@
 import type { Ledger, Tx } from "@/lib/vault-types";
+import type { ColumnarRow, PeriodBoundary } from "./columnar-report";
 
 export type FxRates = Record<string, number>;
 
@@ -387,4 +388,94 @@ export function closingBalanceAsOf(gr: GrLedger, accountName: string, periodEndD
     }
   }
   return inBal + usBalUsd * getApplicableRate(gr.fxRates, periodEndDate);
+}
+
+// GR's own sibling of lib/columnar-report.ts's trimToLatestActivity -- same "drop columns that
+// haven't started yet as of the latest posted voucher" trimming, just walking GrTx (which has no
+// `.deleted` field, only `.cancelled`) instead of the US/India Ledger's Tx.
+export function trimGrToLatestActivity(periods: PeriodBoundary[], gr: GrLedger): PeriodBoundary[] {
+  let latest = "";
+  for (const t of gr.transactions) {
+    if (t.cancelled) continue;
+    if (t.date > latest) latest = t.date;
+  }
+  if (!latest) return periods.slice(0, 1);
+  const trimmed = periods.filter((p) => p.start <= latest);
+  return trimmed.length ? trimmed : periods.slice(0, 1);
+}
+
+const CASHFLOW_TOL = 0.005;
+
+// GR's own sibling of lib/columnar-report.ts's buildCashFlowColumns -- same bucketing idea (every
+// cash-affecting voucher's OTHER leg attributed as an inflow or outflow, by the period it falls
+// in), but reworked for GrLedger's shape: entries are keyed by account NAME, not a numeric
+// accountId shared across both source books, and each entry's `amountInr` is already converted at
+// that specific transaction's own applied rate (so inflow/outflow totals need no further FX work)
+// -- only the closing-balance row needs an as-of-date conversion, via closingBalanceAsOf, since a
+// period's closing must value the US leg at the rate applicable on THAT period's own end date, not
+// one rate for the whole ledger (the same fair-value bug already fixed once for Trial Balance).
+// `buildCashFlowColumns` itself can't be called directly against GrLedger -- it's keyed throughout
+// by `Account.id: number`, which GR accounts don't have.
+export function buildGrCashFlowColumns(
+  gr: GrLedger,
+  periods: PeriodBoundary[],
+  bankCashAccounts: GrAccount[],
+  // Narrows to one specific cash/bank account by name -- "" = every cash/bank account combined.
+  // Mirrors buildCashFlowColumns' own numeric accountFilter, just name-keyed like the rest of GR.
+  accountFilter: string = ""
+): { inflowRows: ColumnarRow[]; outflowRows: ColumnarRow[]; closingByPeriod: Record<string, number> } {
+  const cashKeySet = new Set(bankCashAccounts.map((a) => normKeyForBalance(a.name)));
+  const accountFilterKey = accountFilter ? normKeyForBalance(accountFilter) : "";
+  const accountByKey = new Map(gr.accounts.map((a) => [normKeyForBalance(a.name), a]));
+  const inflowValues = new Map<string, Record<string, number>>();
+  const outflowValues = new Map<string, Record<string, number>>();
+
+  for (const t of gr.transactions) {
+    if (t.cancelled) continue;
+    const period = periods.find((p) => t.date >= p.start && t.date <= p.end);
+    if (!period) continue;
+    const cashEntries = t.entries.filter((e) => cashKeySet.has(normKeyForBalance(e.accountName)));
+    const cashMovement = -cashEntries.reduce((s, e) => s + e.amountInr, 0);
+    if (!cashEntries.length || Math.abs(cashMovement) <= CASHFLOW_TOL) continue;
+    if (accountFilterKey && !cashEntries.some((e) => normKeyForBalance(e.accountName) === accountFilterKey)) continue;
+    for (const e of t.entries) {
+      const key = normKeyForBalance(e.accountName);
+      if (cashKeySet.has(key) || Math.abs(e.amountInr) <= CASHFLOW_TOL) continue;
+      const map = e.amountInr > 0 ? inflowValues : outflowValues;
+      const rec = map.get(key) || (map.set(key, {}).get(key) as Record<string, number>);
+      rec[period.key] = (rec[period.key] || 0) + Math.abs(e.amountInr);
+    }
+  }
+
+  const buildRows = (map: Map<string, Record<string, number>>): ColumnarRow[] => {
+    const rows: ColumnarRow[] = [];
+    let idx = 0;
+    for (const [key, raw] of map) {
+      const a = accountByKey.get(key);
+      if (!a) continue;
+      const values: Record<string, number> = {};
+      let total = 0;
+      for (const p of periods) {
+        const v = raw[p.key] || 0;
+        values[p.key] = v;
+        total += v;
+      }
+      if (total > CASHFLOW_TOL) rows.push({ id: idx++, name: a.name, parent: a.parent, category: "", values, total });
+    }
+    return rows;
+  };
+
+  // Closing cash & bank balance as of each period-end -- see closingBalanceAsOf's own doc comment
+  // for why this needs a dedicated as-of-date conversion instead of reusing the inflow/outflow
+  // amounts above. Cumulative like Balance Sheet's asset closings, not a flow -- callers should
+  // show the LAST period's value as the "Total", not a sum across periods.
+  const closingAccounts = accountFilterKey
+    ? bankCashAccounts.filter((a) => normKeyForBalance(a.name) === accountFilterKey)
+    : bankCashAccounts;
+  const closingByPeriod: Record<string, number> = {};
+  for (const p of periods) {
+    closingByPeriod[p.key] = closingAccounts.reduce((s, a) => s - closingBalanceAsOf(gr, a.name, p.end), 0);
+  }
+
+  return { inflowRows: buildRows(inflowValues), outflowRows: buildRows(outflowValues), closingByPeriod };
 }
