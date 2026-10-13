@@ -202,7 +202,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
         </label>
         <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
           To
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate} max={todayLocalIso()} />
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate} />
         </label>
         <button type="button" className="tr-refresh-btn" onClick={() => applyDay(0)}>
           Today
