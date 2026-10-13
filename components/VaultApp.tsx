@@ -2147,15 +2147,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // Schwab's refresh token is HARD-CAPPED at exactly 7 days by Schwab itself (see
   // lib/schwab-oauth.ts's REFRESH_TOKEN_LIFETIME_MS) and resets back to a fresh 7-day window on
   // every successful refresh -- so "N days left" can never exceed 7, and showing exactly 7 right
-  // after a normal refresh is the everyday steady state, not a warning. A threshold anywhere near
-  // or above 7 (the original 14 here was a real bug, confirmed live: it fired permanently, every
-  // time, regardless of actual staleness) would always be true. Only flag once it's gotten
-  // genuinely close to the hard wall -- meaning the app hasn't successfully talked to Schwab in
-  // days, which is the actual "about to lose this connection" signal.
-  if (book !== "india" && schwabStatus?.connected && typeof schwabStatus.daysUntilReauth === "number" && schwabStatus.daysUntilReauth <= 2) {
+  // after a normal refresh is the everyday steady state, not a warning. Counting down toward 0
+  // every week is itself normal, expected behavior, not an anomaly -- flagging it a day or two
+  // early just trained the user to distrust a routine weekly cycle. Fires only on the actual day
+  // re-auth is needed (daysUntilReauth <= 1), matching the Import > Schwab page's own badge,
+  // which turns red/urgent at that same threshold -- previously this fired two days earlier than
+  // that badge did, so the bell and the badge visibly disagreed with each other.
+  if (book !== "india" && schwabStatus?.connected && typeof schwabStatus.daysUntilReauth === "number" && schwabStatus.daysUntilReauth <= 1) {
     attentionItems.push({
-      label: "Schwab connection needs re-authentication soon",
-      detail: `Re-auth required within ${schwabStatus.daysUntilReauth} day${schwabStatus.daysUntilReauth === 1 ? "" : "s"} or the connection will stop working — reconnect it in Import → Schwab.`,
+      label: "Schwab connection needs re-authentication today",
+      detail: "The connection will stop working after today unless you reconnect it — reconnect it in Import → Schwab.",
       action: { label: "Reconnect", onClick: () => { setImportSource("schwab"); setTab("bank-import"); } },
     });
   }
