@@ -7,7 +7,7 @@
 //
 // A hand-curated list, not a free cross-product of every adjective against every noun -- the
 // earlier version (any of ~30 adjectives x any of ~30 nouns) produced grammatically-correct but
-// semantically random pairings like "tikha pendha" ("spicy pendha" -- pendha is a plain milk
+// semantically random pairings like "tikha penda" ("spicy penda" -- penda is a plain milk
 // sweet, never spicy, so the combo just reads as a mistake, not a joke). Every entry below was
 // picked because the pairing itself is funny or satisfying: either genuinely true to the real
 // food ("kadak khakhra" -- khakhra really is hard/crisp; "khatmithi dabeli" -- dabeli really is
@@ -40,7 +40,7 @@ export const CODENAMES: string[] = [
   "garmagaram-khichdi", "swadisht-khichdi",
   "khatti-kadhi", "garmagaram-kadhi",
   "garmagaram-bhakhri", "dabang-bhakhri",
-  "mitha-pendha", "malai-pendha",
+  "mitha-penda", "malai-penda",
   "mithi-ghari", "khaas-ghari",
   "malai-basundi", "mithi-basundi",
   "chatpata-chakri", "kadak-chakri",

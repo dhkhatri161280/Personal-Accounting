@@ -218,9 +218,8 @@ export function FbarReport({
             <div className="equity-summary-col">
               <div className="equity-summary-card">
                 <div className="equity-summary-card-body">
-                  <span>Exchange rate used</span>
+                  <span>Exchange rate used{summary.rate ? ` (as of ${fmtDate(summary.rate.asOf)})` : ""}</span>
                   <strong className="equity-amt">{summary.rate ? `${summary.rate.rate} INR/USD` : "—"}</strong>
-                  {summary.rate && <small style={{ fontSize: 11, opacity: 0.6 }}>Treasury rate as of {fmtDate(summary.rate.asOf)}</small>}
                 </div>
               </div>
             </div>
