@@ -202,6 +202,40 @@ test("buildGrCashFlowColumns: accountFilter narrows to vouchers whose cash leg t
   assert.equal(filtered.closingByPeriod["2026-04"], -closingBalanceAsOf(gr, "Checking", periods[0].end));
 });
 
+test("buildGrCashFlowColumns: a voucher split across two cash accounts apportions each account's own share, not the full amount", () => {
+  const usAccounts = [
+    account(1, "Bank Of America", "Bank Accounts"),
+    account(2, "Chase Bank", "Bank Accounts"),
+    account(3, "Salary Income - Nvidia", "Direct Incomes"),
+  ];
+  const usTxns = [
+    tx(1, "2026-07-15", [
+      { accountId: 3, accountName: "Salary Income - Nvidia", amount: 10666.67 },
+      { accountId: 1, accountName: "Bank Of America", amount: -10166.67 },
+      { accountId: 2, accountName: "Chase Bank", amount: -500 },
+    ]),
+  ];
+  const usData = ledger(usAccounts, usTxns);
+  const indiaData = ledger([], []);
+  const gr = consolidateLedger(usData, indiaData, { "2026-06": 1 });
+  const bankCashAccounts = gr.accounts.filter((a) => a.parent === "Bank Accounts");
+  const periods = periodBoundariesForRange("2026-07-01", "2026-07-31", "monthly");
+
+  const chaseOnly = buildGrCashFlowColumns(gr, periods, bankCashAccounts, "Chase Bank");
+  const chaseSalary = chaseOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(chaseSalary);
+  assert.ok(Math.abs(chaseSalary!.total - 500) < 0.01, `expected ~500, got ${chaseSalary!.total}`);
+
+  const bofaOnly = buildGrCashFlowColumns(gr, periods, bankCashAccounts, "Bank Of America");
+  const bofaSalary = bofaOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(bofaSalary);
+  assert.ok(Math.abs(bofaSalary!.total - 10166.67) < 0.01, `expected ~10166.67, got ${bofaSalary!.total}`);
+
+  const all = buildGrCashFlowColumns(gr, periods, bankCashAccounts);
+  const allSalary = all.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(Math.abs(chaseSalary!.total + bofaSalary!.total - allSalary!.total) < 0.01);
+});
+
 test("trimGrToLatestActivity: drops periods that haven't started yet as of the latest posted voucher", () => {
   const usAccounts = [account(1, "Checking", "Bank Accounts"), account(2, "Salary", "Direct Incomes")];
   const usTxns = [

@@ -1389,13 +1389,26 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         // through THIS account" without discarding the identity the way the original computation
         // did (it only ever checked "did some cash account move", never which one).
         const cashAccountIds = cashEntries.map((e) => e.accountId);
+        // A voucher can move money through MULTIPLE cash/bank accounts at once (e.g. a payroll
+        // deposit split across two banks from one Salary Income credit) -- confirmed live as a
+        // real bug: filtering to one account still showed each non-cash entry's FULL amount
+        // against that account, not just its own share of the split. When filtered, each entry's
+        // amount is scaled by the filtered account's own share of this voucher's total cash
+        // movement; unfiltered ("" / every account) keeps the original full amount.
+        const totalCashAbs = cashEntries.reduce((s, e) => s + Math.abs(e.amount), 0);
+        const filteredShare =
+          cashFlowAccountFilter === ""
+            ? 1
+            : totalCashAbs > tol
+              ? Math.abs(cashEntries.find((e) => e.accountId === cashFlowAccountFilter)?.amount ?? 0) / totalCashAbs
+              : 0;
         return t.entries
-          .filter((e) => !cashIds.has(e.accountId) && Math.abs(e.amount) > tol)
+          .filter((e) => !cashIds.has(e.accountId) && Math.abs(e.amount) * filteredShare > tol)
           .map((e, i) => {
             const account = accountById.get(e.accountId),
               group = account?.parent || "Other",
               ledger = account?.name || e.accountName || "Unknown Ledger",
-              amount = Math.abs(e.amount),
+              amount = Math.abs(e.amount) * filteredShare,
               kind = e.amount > 0 ? "inflow" : "outflow";
             return { t, entry: e, entryIndex: i, group, ledger, amount, kind, movement: kind === "inflow" ? amount : -amount, cashAccountIds };
           });

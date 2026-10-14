@@ -773,15 +773,29 @@ export function GrApp() {
     if (Math.abs(netCash) < tol) continue;
     if (cashFlowAccountFilterKey && !cashEntries.some((e) => normKey(e.accountName) === cashFlowAccountFilterKey)) continue;
     const isInflow = netCash > 0;
+    // A voucher can move money through MULTIPLE cash/bank accounts at once (e.g. a payroll
+    // deposit split across two banks from one Salary Income credit) -- confirmed live as a real
+    // bug: filtering to one account still attributed each non-cash entry's FULL amount to that
+    // account, not just its own share of the split. When filtered, each entry is scaled by the
+    // filtered account's own share of this voucher's total cash movement; unfiltered ("" / every
+    // account) keeps the original full amount.
+    const totalCashAbs = cashEntries.reduce((s, e) => s + Math.abs(e.amountInr), 0);
+    const filteredShare =
+      cashFlowAccountFilterKey === ""
+        ? 1
+        : totalCashAbs > tol
+          ? Math.abs(cashEntries.find((e) => normKey(e.accountName) === cashFlowAccountFilterKey)?.amountInr ?? 0) / totalCashAbs
+          : 0;
 
     for (const e of t.entries) {
       if (bankCashNameSet.has(normKey(e.accountName))) continue;
+      const amt = Math.abs(e.amountInr) * filteredShare;
+      if (amt <= tol) continue;
       const parent = accountParentMap.get(normKey(e.accountName)) || "Other";
       if (!cfGroupMap.has(parent)) {
         cfGroupMap.set(parent, { inflow: 0, outflow: 0, inflowLedgers: new Map(), outflowLedgers: new Map() });
       }
       const g = cfGroupMap.get(parent)!;
-      const amt = Math.abs(e.amountInr);
       if (isInflow) {
         g.inflow += amt;
         g.inflowLedgers.set(e.accountName, (g.inflowLedgers.get(e.accountName) || 0) + amt);

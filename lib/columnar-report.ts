@@ -403,11 +403,29 @@ export function buildCashFlowColumns(
     const cashMovement = -cashEntries.reduce((s, e) => s + e.amount, 0);
     if (!cashEntries.length || Math.abs(cashMovement) <= TOL) continue;
     if (accountFilter !== "" && !cashEntries.some((e) => e.accountId === accountFilter)) continue;
+    // A voucher can move money through MULTIPLE cash/bank accounts at once (e.g. a payroll
+    // deposit split across two banks from one Salary Income credit) -- confirmed live as a real
+    // bug: filtering Cash Flow to one account still attributed each non-cash entry's FULL amount
+    // to that account, so a $10,666.67 salary credit split $10,166.67/$500 between two banks
+    // showed the entire $10,666.67 against EITHER bank once filtered, not just its own share.
+    // When filtered, each non-cash entry is apportioned by the filtered account's own share of
+    // this voucher's total cash movement -- for the common case of exactly one cash leg, that
+    // share is 1 (no change from before); unfiltered ("" / every account) is also unaffected,
+    // since every account's shares sum back to the original full amount.
+    const totalCashAbs = cashEntries.reduce((s, e) => s + Math.abs(e.amount), 0);
+    const filteredShare =
+      accountFilter === ""
+        ? 1
+        : totalCashAbs > TOL
+          ? Math.abs(cashEntries.find((e) => e.accountId === accountFilter)?.amount ?? 0) / totalCashAbs
+          : 0;
     for (const e of t.entries) {
       if (cashIds.has(e.accountId) || Math.abs(e.amount) <= TOL) continue;
+      const amt = Math.abs(e.amount) * filteredShare;
+      if (amt <= TOL) continue;
       const map = e.amount > 0 ? inflowValues : outflowValues;
       const rec = map.get(e.accountId) || (map.set(e.accountId, {}).get(e.accountId) as Record<string, number>);
-      rec[period.key] = (rec[period.key] || 0) + Math.abs(e.amount);
+      rec[period.key] = (rec[period.key] || 0) + amt;
     }
   }
 

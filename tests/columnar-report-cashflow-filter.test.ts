@@ -92,6 +92,52 @@ test("buildCashFlowColumns: a pure transfer between two cash accounts never appe
   }
 });
 
+test("buildCashFlowColumns: a voucher split across two cash accounts (e.g. payroll deposited to two banks) apportions each account's own share, not the full amount", () => {
+  // Real confirmed bug: a $10,666.67 Salary Income credit split $10,166.67 to BofA + $500 to
+  // Chase showed the FULL $10,666.67 against EITHER bank once filtered to just one of them.
+  const data: Ledger = {
+    currency: "USD",
+    accounts: [
+      { id: 1, name: "Bank Of America", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0, active: true },
+      { id: 2, name: "Chase Bank", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0, active: true },
+      { id: 3, name: "Salary Income - Nvidia", parent: "Direct Incomes", category: "Income", currency: "USD", openingBalance: 0, active: true },
+    ],
+    transactions: [
+      {
+        id: 1,
+        guid: "t1",
+        date: "2026-07-15",
+        number: "1",
+        type: "Receipt",
+        narration: "Salary Income - Semi Monthly",
+        entries: [
+          { accountId: 3, accountName: "Salary Income - Nvidia", amount: 10666.67 },
+          { accountId: 1, accountName: "Bank Of America", amount: -10166.67 },
+          { accountId: 2, accountName: "Chase Bank", amount: -500 },
+        ],
+      },
+    ],
+    groups: [],
+  } as unknown as Ledger;
+  const periods = periodBoundariesForRange("2026-07-01", "2026-07-31", "monthly");
+
+  const chaseOnly = buildCashFlowColumns(data, periods, 2);
+  const chaseSalary = chaseOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(chaseSalary);
+  assert.ok(Math.abs(chaseSalary!.total - 500) < 0.01, `expected ~500, got ${chaseSalary!.total}`);
+
+  const bofaOnly = buildCashFlowColumns(data, periods, 1);
+  const bofaSalary = bofaOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(bofaSalary);
+  assert.ok(Math.abs(bofaSalary!.total - 10166.67) < 0.01, `expected ~10166.67, got ${bofaSalary!.total}`);
+
+  // The two accounts' shares must add back up to the unfiltered total -- apportionment, not
+  // double-counting or under-counting.
+  const all = buildCashFlowColumns(data, periods);
+  const allSalary = all.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(Math.abs(chaseSalary!.total + bofaSalary!.total - allSalary!.total) < 0.01);
+});
+
 test("buildCashFlowColumns: closingByPeriod scopes to the filtered account's own balance", () => {
   const data = ledger();
   const periods = periodBoundariesForRange("2026-04-01", "2026-04-30", "monthly");

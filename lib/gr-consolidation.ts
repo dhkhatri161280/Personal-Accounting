@@ -438,12 +438,26 @@ export function buildGrCashFlowColumns(
     const cashMovement = -cashEntries.reduce((s, e) => s + e.amountInr, 0);
     if (!cashEntries.length || Math.abs(cashMovement) <= CASHFLOW_TOL) continue;
     if (accountFilterKey && !cashEntries.some((e) => normKeyForBalance(e.accountName) === accountFilterKey)) continue;
+    // Same apportionment as buildCashFlowColumns (US/India) -- a voucher can move money through
+    // multiple cash/bank accounts at once (e.g. a payroll deposit split across two banks), so
+    // when filtered to one account, each non-cash entry is scaled by that account's own share of
+    // the voucher's total cash movement instead of attributing the full amount to every account
+    // the voucher happens to touch.
+    const totalCashAbs = cashEntries.reduce((s, e) => s + Math.abs(e.amountInr), 0);
+    const filteredShare =
+      accountFilterKey === ""
+        ? 1
+        : totalCashAbs > CASHFLOW_TOL
+          ? Math.abs(cashEntries.find((e) => normKeyForBalance(e.accountName) === accountFilterKey)?.amountInr ?? 0) / totalCashAbs
+          : 0;
     for (const e of t.entries) {
       const key = normKeyForBalance(e.accountName);
       if (cashKeySet.has(key) || Math.abs(e.amountInr) <= CASHFLOW_TOL) continue;
+      const amt = Math.abs(e.amountInr) * filteredShare;
+      if (amt <= CASHFLOW_TOL) continue;
       const map = e.amountInr > 0 ? inflowValues : outflowValues;
       const rec = map.get(key) || (map.set(key, {}).get(key) as Record<string, number>);
-      rec[period.key] = (rec[period.key] || 0) + Math.abs(e.amountInr);
+      rec[period.key] = (rec[period.key] || 0) + amt;
     }
   }
 
