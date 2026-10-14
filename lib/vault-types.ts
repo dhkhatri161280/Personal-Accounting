@@ -630,6 +630,28 @@ export type Ledger = {
   // downloadVaultBackup) -- purely informational, drives the overdue-backup reminder dot on the
   // settings gear icon. Never set any other way; undefined means "never backed up".
   lastBackupAt?: string;
+  // Filer's own identity details for FinCEN Form 114 (FBAR) Part I -- has nothing to do with
+  // ledger accounts, entered once in Masters > Settings so the FBAR Worksheet's pre-filled PDF
+  // export (see components/reports/FbarReport.tsx, lib/fbar-pdf.ts) doesn't need these re-typed
+  // every filing year. Lives in the same encrypted vault blob as everything else here (e.g. bank
+  // account numbers on Account), same protection level, nothing extra.
+  // Name/address are split into the form's own fields (not one free-text blob) deliberately --
+  // the FBAR XFA data model needs FirstName/LastName/etc and Address/City/State/ZIP as separate
+  // XML elements, and parsing a free-text name or address back into those parts reliably isn't
+  // possible, which on an actual government filing is a real-accuracy risk, not just cosmetic.
+  fbarFilerProfile?: {
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    suffix?: string;
+    ssnOrItin?: string; // digits only, no dashes -- FinCEN's own form strips formatting anyway
+    dateOfBirth?: string; // "YYYY-MM-DD"
+    street?: string;
+    city?: string;
+    state?: string; // 2-letter USPS code
+    zip?: string;
+    country?: string; // defaults to "United States" in the UI
+  };
 };
 
 // One archived personal document (pay stub, RSU grant agreement/award notice, offer letter, ...).

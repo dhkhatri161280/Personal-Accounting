@@ -69,6 +69,19 @@ export type MasterLedger = {
   companyPhone?: string;
   companyEmail?: string;
   costcoMembershipRenewalMonthDay?: string;
+  fbarFilerProfile?: {
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    suffix?: string;
+    ssnOrItin?: string;
+    dateOfBirth?: string;
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    country?: string;
+  };
   currency: string;
   accounts: MasterAccount[];
   groups?: MasterGroup[];
@@ -1911,7 +1924,34 @@ export function MastersPanel({
               companyPhone = String(f.get("companyPhone") || "").trim(),
               companyEmail = String(f.get("companyEmail") || "").trim(),
               costcoMonth = String(f.get("costcoMembershipMonth") || "").trim(),
-              costcoDay = String(f.get("costcoMembershipDay") || "").trim();
+              costcoDay = String(f.get("costcoMembershipDay") || "").trim(),
+              fbarFirstName = String(f.get("fbarFirstName") || "").trim(),
+              fbarMiddleName = String(f.get("fbarMiddleName") || "").trim(),
+              fbarLastName = String(f.get("fbarLastName") || "").trim(),
+              fbarSuffix = String(f.get("fbarSuffix") || "").trim(),
+              fbarSsnOrItin = String(f.get("fbarSsnOrItin") || "").replace(/[^0-9]/g, ""),
+              fbarDob = String(f.get("fbarDob") || "").trim(),
+              fbarStreet = String(f.get("fbarStreet") || "").trim(),
+              fbarCity = String(f.get("fbarCity") || "").trim(),
+              fbarState = String(f.get("fbarState") || "").trim().toUpperCase(),
+              fbarZip = String(f.get("fbarZip") || "").trim(),
+              fbarCountry = String(f.get("fbarCountry") || "").trim();
+            const fbarFilerProfile =
+              fbarFirstName || fbarLastName || fbarSsnOrItin || fbarDob || fbarStreet || fbarCity || fbarState || fbarZip
+                ? {
+                    firstName: fbarFirstName || undefined,
+                    middleName: fbarMiddleName || undefined,
+                    lastName: fbarLastName || undefined,
+                    suffix: fbarSuffix || undefined,
+                    ssnOrItin: fbarSsnOrItin || undefined,
+                    dateOfBirth: fbarDob || undefined,
+                    street: fbarStreet || undefined,
+                    city: fbarCity || undefined,
+                    state: fbarState || undefined,
+                    zip: fbarZip || undefined,
+                    country: fbarCountry || "United States",
+                  }
+                : undefined;
             onSave(
               {
                 ...data,
@@ -1923,6 +1963,7 @@ export function MastersPanel({
                 companyPhone,
                 companyEmail,
                 costcoMembershipRenewalMonthDay: costcoMonth && costcoDay ? `${costcoMonth}-${costcoDay}` : undefined,
+                fbarFilerProfile,
               },
               "Other masters updated."
             );
@@ -1972,6 +2013,59 @@ export function MastersPanel({
               window ending ~3 months before this date each year, not the membership year itself. No year needed --
               under normal renewal this stays the same every year, so it's set once, not updated annually.
             </span>
+          </label>
+
+          <h3>FBAR filer profile</h3>
+          <p className="field-hint" style={{ marginTop: -4, marginBottom: 10 }}>
+            Your own identity details for FinCEN Form 114 (FBAR) Part I -- nothing to do with ledger accounts, entered
+            once so the FBAR Worksheet's pre-filled PDF export doesn't need these re-typed every filing year. Stored
+            in the same encrypted vault blob as everything else here. Name/address are split to match the form's own
+            fields exactly, since guessing how to split a single free-text name or address back apart isn't safe on
+            an actual government filing.
+          </p>
+          <label>
+            First name
+            <input name="fbarFirstName" defaultValue={data.fbarFilerProfile?.firstName || ""} autoComplete="off" />
+          </label>
+          <label>
+            Middle name (optional)
+            <input name="fbarMiddleName" defaultValue={data.fbarFilerProfile?.middleName || ""} autoComplete="off" />
+          </label>
+          <label>
+            Last name
+            <input name="fbarLastName" defaultValue={data.fbarFilerProfile?.lastName || ""} autoComplete="off" />
+          </label>
+          <label>
+            Suffix (optional)
+            <input name="fbarSuffix" defaultValue={data.fbarFilerProfile?.suffix || ""} placeholder="Jr., Sr., III" autoComplete="off" />
+          </label>
+          <label>
+            SSN / ITIN
+            <input name="fbarSsnOrItin" defaultValue={data.fbarFilerProfile?.ssnOrItin || ""} placeholder="123456789 (digits only)" autoComplete="off" />
+          </label>
+          <label>
+            Date of birth
+            <input type="date" name="fbarDob" defaultValue={data.fbarFilerProfile?.dateOfBirth || ""} autoComplete="off" />
+          </label>
+          <label>
+            Street address
+            <input name="fbarStreet" defaultValue={data.fbarFilerProfile?.street || ""} autoComplete="off" />
+          </label>
+          <label>
+            City
+            <input name="fbarCity" defaultValue={data.fbarFilerProfile?.city || ""} autoComplete="off" />
+          </label>
+          <label>
+            State
+            <input name="fbarState" defaultValue={data.fbarFilerProfile?.state || ""} placeholder="CA" maxLength={2} autoComplete="off" />
+          </label>
+          <label>
+            ZIP
+            <input name="fbarZip" defaultValue={data.fbarFilerProfile?.zip || ""} autoComplete="off" />
+          </label>
+          <label>
+            Country
+            <input name="fbarCountry" defaultValue={data.fbarFilerProfile?.country || "United States"} autoComplete="off" />
           </label>
 
           <h3>Company accounting settings</h3>

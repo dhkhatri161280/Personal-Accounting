@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { computeFbarSummary, TREASURY_YEAR_END_RATE_INR, FBAR_THRESHOLD_USD, type FbarAccountRow } from "@/lib/fbar";
+import { buildFbarXfaDatasets, fillFbarPdf, downloadFbarPdf, fbarFilerProfileComplete } from "@/lib/fbar-pdf";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
@@ -68,6 +69,8 @@ export function FbarReport({
   // freely (including clearing it to type a new number) without committing on every keystroke;
   // only saved on blur/Enter.
   const [manualDrafts, setManualDrafts] = useState<Record<number, string>>({});
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const summary = useMemo(() => computeFbarSummary(data, year), [data, year]);
   const deadline = `April 15, ${year + 1} (automatically extended to October 15, ${year + 1} -- no request needed)`;
@@ -120,6 +123,35 @@ export function FbarReport({
     await exportWorkbook(`FBAR Worksheet CY${year}.xlsx`, [{ name: `FBAR CY${year}`, rows: [header, ...rows] }]);
   }
 
+  const filerProfile = data.fbarFilerProfile;
+  const filerProfileReady = fbarFilerProfileComplete(filerProfile);
+  const pdfDisabledReason = !summary.rate
+    ? `No Treasury rate on file for ${year} yet.`
+    : needsAttentionCount > 0
+      ? "Enter the missing manual value(s) below first."
+      : !filerProfileReady
+        ? "Complete your FBAR filer profile in Masters > Settings first (name, SSN/ITIN, DOB, address)."
+        : null;
+
+  async function generatePdf() {
+    if (!filerProfile || !filerProfileReady || !summary.rate) return;
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      // Only reportable rows go on the actual form -- "exclude" is explicitly marked as having no
+      // reportable value, and a "manual" row still missing its figure for this year can't be put
+      // on a government filing as $0 (see needsAttentionCount's own guard above).
+      const reportableRows = summary.rows.filter((r) => r.treatment !== "exclude" && !r.needsManualValue);
+      const xml = buildFbarXfaDatasets({ year, filer: filerProfile, rows: reportableRows, accountById });
+      const bytes = await fillFbarPdf(xml);
+      downloadFbarPdf(bytes, `FinCEN Form 114 - CY${year} (pre-filled draft).pdf`);
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : "Could not generate the PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   return (
     <div className="data-panel">
       <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -142,6 +174,10 @@ export function FbarReport({
               are remembered on the account for next year automatically. This is a computational aid only, not tax
               or legal advice -- verify every figure yourself before filing. FBARs are filed electronically through
               FinCEN's own BSA E-Filing System at bsaefiling.fincen.gov -- this app cannot file on your behalf.
+              "Generate FinCEN PDF" downloads a pre-filled DRAFT of the actual Form 114 PDF (using your FBAR filer
+              profile from Masters &gt; Settings plus the rows below) -- it's a dynamic Adobe form, so it only opens
+              correctly in Adobe Reader, not a browser or Preview. Review every field yourself before signing and
+              submitting it on FinCEN's site.
             </div>
           )}
         </span>
@@ -156,7 +192,21 @@ export function FbarReport({
           ))}
         </select>
         <ExportButton onExport={exportFbar} disabled={summary.rows.length === 0} />
+        <button
+          type="button"
+          className="tr-refresh-btn"
+          onClick={generatePdf}
+          disabled={!!pdfDisabledReason || pdfBusy}
+          title={pdfDisabledReason || "Downloads a pre-filled draft of the real FinCEN Form 114 PDF -- open it in Adobe Reader, review every field, then submit at bsaefiling.fincen.gov."}
+        >
+          {pdfBusy ? "Generating…" : "Generate FinCEN PDF"}
+        </button>
       </div>
+      {pdfError && (
+        <p style={{ margin: "0 0 14px", padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" }}>
+          {pdfError}
+        </p>
+      )}
 
       <p
         style={{
@@ -175,6 +225,26 @@ export function FbarReport({
           : `CY${year} FBAR is due ${deadline}.`}{" "}
         File electronically at bsaefiling.fincen.gov -- this report is only a worksheet to help you fill it out.
       </p>
+
+      {summary.rate && (
+        <p
+          style={{
+            margin: "0 0 14px",
+            padding: "10px 14px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            background: summary.thresholdExceeded ? "#fee2e2" : "#dcfce7",
+            color: summary.thresholdExceeded ? "#991b1b" : "#166534",
+            border: `1px solid ${summary.thresholdExceeded ? "#fecaca" : "#bbf7d0"}`,
+          }}
+        >
+          {summary.thresholdExceeded
+            ? `You DO need to file an FBAR for CY${year} -- combined peak value ${fmtUsd(summary.totalUsd)} exceeds the ${fmtUsd(FBAR_THRESHOLD_USD)} threshold.`
+            : `You do NOT need to file an FBAR for CY${year} -- combined peak value ${fmtUsd(summary.totalUsd)} is under the ${fmtUsd(FBAR_THRESHOLD_USD)} threshold.`}
+          {needsAttentionCount > 0 ? " (Still missing manual values below -- this determination may change once those are entered.)" : ""}
+        </p>
+      )}
 
       {needsAttentionCount > 0 && (
         <p style={{ margin: "0 0 14px", padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" }}>
