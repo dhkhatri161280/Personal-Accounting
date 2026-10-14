@@ -110,6 +110,7 @@ const BankReconciliation = lazy(() => import("@/components/reports/BankReconcili
 const MultiYearTrend = lazy(() => import("@/components/reports/MultiYearTrend").then((m) => ({ default: m.MultiYearTrend })));
 const AuditLog = lazy(() => import("@/components/reports/AuditLog").then((m) => ({ default: m.AuditLog })));
 const CategorizationReview = lazy(() => import("@/components/reports/CategorizationReview").then((m) => ({ default: m.CategorizationReview })));
+const FbarReport = lazy(() => import("@/components/reports/FbarReport").then((m) => ({ default: m.FbarReport })));
 const FixedAssetRegister = lazy(() => import("@/components/reports/FixedAssetRegister").then((m) => ({ default: m.FixedAssetRegister })));
 const PrepaidExpenseRegister = lazy(() => import("@/components/reports/PrepaidExpenseRegister").then((m) => ({ default: m.PrepaidExpenseRegister })));
 const LoanRegister = lazy(() => import("@/components/reports/LoanRegister").then((m) => ({ default: m.LoanRegister })));
@@ -2321,6 +2322,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     ...(book === "india"
       ? [
           { id: "report-tax-all-years", label: "Tax — All Years", group: "Reports", keywords: ["all years", "multi year", "history", "payroll history"], go: () => { setTaxViewMode("all"); setReport("tax"); setTab("reports"); } },
+          { id: "report-fbar", label: "FBAR Worksheet", group: "Reports", keywords: ["fbar", "fincen", "114", "foreign account", "treasury", "exchange rate"], go: () => { setReport("fbar"); setTab("reports"); } },
         ]
       : []),
     { id: "report-recon", label: "Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
@@ -4223,6 +4225,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     : []),
                   ...(book !== "india" ? [{ id: "holdings", label: "Holdings", onClick: () => setReport("holdings") }] : []),
                   { id: "tax", label: "Tax", onClick: () => { setTaxViewMode("yearly"); setReport("tax"); } },
+                  ...(book === "india" ? [{ id: "fbar", label: "FBAR Worksheet", onClick: () => setReport("fbar") }] : []),
                 ],
               },
             ];
@@ -5129,6 +5132,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "categorization" && data && (
             <CategorizationReview data={data} onViewVoucher={(t) => setSelectedVoucher(t)} onToggleDismissed={toggleCategorizationDismissed} />
           )}
+          {report === "fbar" && data && book === "india" && <FbarReport data={data} />}
           {report === "balconfirm" && data && <BalanceConfirmationLetter data={data} fmt={fmt} />}
           {report === "fixedassets" && data && (
             <FixedAssetRegister
