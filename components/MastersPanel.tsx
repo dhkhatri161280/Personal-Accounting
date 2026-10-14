@@ -56,6 +56,12 @@ export type MasterAccount = {
   masterDeletePending?: boolean;
   address?: string;
   email?: string;
+  bankAccountNumber?: string;
+  bankIfscOrRouting?: string;
+  bankSwiftCode?: string;
+  bankBranch?: string;
+  fbarTreatment?: "include" | "exclude" | "manual";
+  fbarManualValuesInr?: Record<string, number>;
 };
 export type MasterLedger = {
   company?: string;
@@ -390,6 +396,10 @@ function AccountForm({
       active: account?.active !== false,
       address: account?.address || "",
       email: account?.email || "",
+      bankAccountNumber: account?.bankAccountNumber || "",
+      bankIfscOrRouting: account?.bankIfscOrRouting || "",
+      bankSwiftCode: account?.bankSwiftCode || "",
+      bankBranch: account?.bankBranch || "",
     },
   });
   return (
@@ -445,6 +455,28 @@ function AccountForm({
         Email (optional)
         <input {...register("email")} type="email" placeholder="name@example.com" />
         {errors.email && <span className="field-error">{errors.email.message}</span>}
+      </label>
+      {/* Bank/card reference details -- not required for every ledger, but the actual fields
+         FinCEN Form 114 Part III asks for per foreign account (Financial Institution name via the
+         ledger name itself, Account Number, Mailing Address via the field above), plus IFSC/
+         routing and SWIFT for everyday banking reference. Shown for every account (not just
+         Bank-nature ones) rather than hidden behind the group picker, so it's never missing just
+         because an account was filed under an unexpected group. */}
+      <label>
+        Account number (optional)
+        <input {...register("bankAccountNumber")} placeholder="Last 4 digits, or full number" />
+      </label>
+      <label>
+        IFSC / Routing number (optional)
+        <input {...register("bankIfscOrRouting")} placeholder="e.g. SBIN0001234 or a US routing number" />
+      </label>
+      <label>
+        SWIFT / BIC code (optional)
+        <input {...register("bankSwiftCode")} placeholder="e.g. SBININBB123" />
+      </label>
+      <label>
+        Branch (optional)
+        <input {...register("bankBranch")} placeholder="Branch name/location" />
       </label>
       <div>
         <button type="button" onClick={onCancel}>
@@ -629,7 +661,11 @@ export function MastersPanel({
       side = values.side,
       active = values.active,
       address = values.address?.trim() || undefined,
-      email = values.email?.trim() || undefined;
+      email = values.email?.trim() || undefined,
+      bankAccountNumber = values.bankAccountNumber?.trim() || undefined,
+      bankIfscOrRouting = values.bankIfscOrRouting?.trim() || undefined,
+      bankSwiftCode = values.bankSwiftCode?.trim() || undefined,
+      bankBranch = values.bankBranch?.trim() || undefined;
     const existing = data.accounts.find((a) => a.id === accountId),
       account: MasterAccount = {
         id: existing?.id || Math.max(0, ...data.accounts.map((a) => a.id)) + 1,
@@ -641,10 +677,19 @@ export function MastersPanel({
         active,
         address,
         email,
+        bankAccountNumber,
+        bankIfscOrRouting,
+        bankSwiftCode,
+        bankBranch,
         masterSyncStatus: "pending",
         masterOriginalName: existing?.masterOriginalName || existing?.name,
         tallyGuid: existing?.tallyGuid,
         masterFingerprint: "app-change-" + Date.now(),
+        // This form never edits FBAR treatment -- preserve whatever was already set via the FBAR
+        // Worksheet (components/reports/FbarReport.tsx), or it would silently vanish the next
+        // time this account's name/currency/etc. gets edited here.
+        fbarTreatment: existing?.fbarTreatment,
+        fbarManualValuesInr: existing?.fbarManualValuesInr,
       };
     // `active` defaults to undefined on legacy accounts but the form always writes an explicit
     // boolean -- normalize both sides to the app's own "active !== false" convention first, or

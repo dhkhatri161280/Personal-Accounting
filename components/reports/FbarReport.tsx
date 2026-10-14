@@ -41,9 +41,29 @@ export function FbarReport({
   onSetTreatment: (accountId: number, treatment: FbarAccountRow["treatment"]) => void;
   onSetManualValue: (accountId: number, year: number, valueInr: number | null) => void;
 }) {
-  const availableYears = Object.keys(TREASURY_YEAR_END_RATE_INR).map(Number).sort((a, b) => b - a);
-  const [year, setYear] = useState(availableYears[0] ?? new Date().getFullYear() - 1);
+  const rateYears = Object.keys(TREASURY_YEAR_END_RATE_INR).map(Number);
+  const [year, setYear] = useState(rateYears.length ? Math.max(...rateYears) : new Date().getFullYear() - 1);
   const [showInfo, setShowInfo] = useState(false);
+
+  // Every calendar year worth reviewing -- not just the ones with a published Treasury rate on
+  // file, so a prior year can still be browsed (rate-less years just show "—" for USD, same as
+  // the existing "no rate on file" handling) and the dropdown doesn't silently hide a year just
+  // because lib/fbar.ts hasn't been updated with that year's rate yet.
+  const availableYears = useMemo(() => {
+    let minYear = Infinity, maxYear = -Infinity;
+    for (const t of data.transactions) {
+      if (t.deleted) continue;
+      const y = Number(t.date.slice(0, 4));
+      if (Number.isFinite(y)) { if (y < minYear) minYear = y; if (y > maxYear) maxYear = y; }
+    }
+    const thisYear = new Date().getFullYear();
+    const hi = Math.max(thisYear, maxYear, ...(rateYears.length ? rateYears : [thisYear]));
+    const lo = Number.isFinite(minYear) ? minYear : hi;
+    const years: number[] = [];
+    for (let y = hi; y >= lo; y--) years.push(y);
+    return years;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.transactions]);
   // Local draft text per manual-value input, keyed by accountId -- lets the field be edited
   // freely (including clearing it to type a new number) without committing on every keystroke;
   // only saved on blur/Enter.
@@ -69,20 +89,34 @@ export function FbarReport({
     });
   }
 
+  const accountById = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts]);
+
   async function exportFbar() {
+    // Everything Form 114 Part III asks for per account (Account Number, Mailing Address of the
+    // Financial Institution), plus IFSC/routing and SWIFT, pulled straight from Masters -- so the
+    // export is something to fill the actual PDF from, not just the computed balances.
     const header = [
       "Account", "Group", "Treatment", "Peak Balance (INR)", "Peak Date",
       `USD @ ${summary.rate?.rate ?? ""} (Treasury ${summary.rate?.asOf ?? ""})`,
+      "Account Number", "IFSC / Routing", "SWIFT / BIC", "Branch", "Institution Address",
     ];
-    const rows = summary.rows.map((r) => [
-      r.name,
-      r.parent,
-      TREATMENT_LABEL[r.treatment] + (r.needsManualValue ? " — NEEDS VALUE" : ""),
-      r.treatment === "exclude" ? "" : r.maxBalanceNative,
-      r.maxBalanceDate ? fmtDate(r.maxBalanceDate) : r.treatment === "include" ? "(carried from before this year)" : "",
-      r.treatment === "exclude" ? "" : r.maxBalanceUsd,
-    ]);
-    rows.push(["TOTAL", "", "", "", "", summary.totalUsd]);
+    const rows = summary.rows.map((r) => {
+      const acct = accountById.get(r.accountId);
+      return [
+        r.name,
+        r.parent,
+        TREATMENT_LABEL[r.treatment] + (r.needsManualValue ? " — NEEDS VALUE" : ""),
+        r.treatment === "exclude" ? "" : r.maxBalanceNative,
+        r.maxBalanceDate ? fmtDate(r.maxBalanceDate) : r.treatment === "include" ? "(carried from before this year)" : "",
+        r.treatment === "exclude" ? "" : r.maxBalanceUsd,
+        acct?.bankAccountNumber ?? "",
+        acct?.bankIfscOrRouting ?? "",
+        acct?.bankSwiftCode ?? "",
+        acct?.bankBranch ?? "",
+        acct?.address ?? "",
+      ];
+    });
+    rows.push(["TOTAL", "", "", "", "", summary.totalUsd, "", "", "", "", ""]);
     await exportWorkbook(`FBAR Worksheet CY${year}.xlsx`, [{ name: `FBAR CY${year}`, rows: [header, ...rows] }]);
   }
 

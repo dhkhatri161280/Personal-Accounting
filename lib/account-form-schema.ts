@@ -20,5 +20,9 @@ export function accountFormSchema(existingNames: string[]) {
     active: z.boolean(),
     address: z.string().trim().optional(),
     email: z.string().trim().email("Enter a valid email address").optional().or(z.literal("")),
+    bankAccountNumber: z.string().trim().optional(),
+    bankIfscOrRouting: z.string().trim().optional(),
+    bankSwiftCode: z.string().trim().optional(),
+    bankBranch: z.string().trim().optional(),
   });
 }

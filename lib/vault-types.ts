@@ -84,6 +84,15 @@ export type Account = {
   // overrides that one letter, it doesn't write back to the master record.
   address?: string;
   email?: string;
+  // Real-world banking detail for a Bank-nature account (covers both plain bank accounts AND
+  // credit cards -- this app nests credit cards under the same "Bank Accounts" group). Useful on
+  // its own as a reference, and specifically what FinCEN Form 114 Part III asks for per account
+  // (Name of Financial Institution, Account Number, Mailing Address -- the last of which already
+  // has a home in the `address` field above, shared with Balance Confirmation Letters).
+  bankAccountNumber?: string;
+  bankIfscOrRouting?: string; // IFSC for an Indian bank, routing number for a US one
+  bankSwiftCode?: string;
+  bankBranch?: string;
   // How this account should be treated by the FBAR Worksheet (components/reports/FbarReport.tsx),
   // remembered on the account itself so the choice carries forward to next year automatically
   // instead of needing to be redone at every filing. Undefined = "include" (the default: use this
