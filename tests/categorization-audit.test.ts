@@ -79,10 +79,58 @@ test("auditNarrationCategorization: flags a 'conflicting' categorization with a 
   assert.equal(flags.length, 1);
   assert.equal(flags[0].guid, "v4");
   assert.equal(flags[0].kind, "conflicting");
-  assert.equal(flags[0].ownVotes, 0); // nothing else supports the Vehicle Maintenance pair
+  assert.equal(flags[0].ownVotes, 0); // nothing else supports the Vehicle Maintenance ledger
   assert.equal(flags[0].suggestedDebitId, 2); // Groceries
-  assert.equal(flags[0].suggestedCreditId, 3);
   assert.equal(flags[0].suggestedVotes, 3);
+});
+
+test("auditNarrationCategorization: does NOT flag a correct ledger just because a different card paid for it -- the real false-positive this audit flagged", () => {
+  // Real false positive: dozens of already-correct House Hold Exps vouchers got flagged as
+  // "wrong" purely because they were paid on a less-common card than the majority -- a real
+  // difference in payment method, not a miscategorization. The audit must compare the debit
+  // (expense) ledger only, never the credit (payment) side.
+  const accounts = [
+    account(1, "House Hold Exps - Oct 26", "Indirect Expenses"),
+    account(2, "Citi Credit Card", "Bank Accounts"),
+    account(3, "BofA Checking", "Bank Accounts"),
+  ];
+  const transactions = [
+    // Majority paid via Citi.
+    tx("v1", "2026-10-01", "Walmart", 1, 2, 40),
+    tx("v2", "2026-10-02", "Walmart", 1, 2, 35),
+    tx("v3", "2026-10-03", "Walmart", 1, 2, 28),
+    // This one, same correct ledger, just paid via a different (less common) account.
+    tx("v4", "2026-10-13", "Walmart", 1, 3, 19.99, { plaidTxId: "plaid-v4" }),
+  ];
+  const flags = auditNarrationCategorization(ledger(accounts, transactions));
+  assert.deepEqual(flags, []);
+});
+
+test("auditNarrationCategorization: a genuinely multi-purpose merchant (gas vs. groceries) is resolved by the MORE SPECIFIC shared word, not raw vote count", () => {
+  // Real false positive: "Gasoline @ Costco" (correctly Vehicle Maintenance) got suggested for
+  // House Hold Exps purely because "costco" shows up on far more grocery-run vouchers than gas
+  // ones. The specific word "gasoline" -- which has only ever meant Vehicle Maintenance in this
+  // ledger -- should outweigh the ambiguous "costco" token shared with both categories.
+  const accounts = [
+    account(1, "Vehicle Maintenance", "Indirect Expenses"),
+    account(2, "House Hold Exps - Oct 26", "Indirect Expenses"),
+    account(3, "Citi Credit Card", "Bank Accounts"),
+  ];
+  const transactions = [
+    // A handful of genuine gas purchases -- always "gasoline" + "costco", always Vehicle Maintenance.
+    tx("v1", "2026-06-01", "Gasoline @ Costco", 1, 3, 45),
+    tx("v2", "2026-07-01", "Gasoline @ Costco", 1, 3, 48),
+    // Far more grocery runs -- just "costco", never "gasoline", always House Hold Exps.
+    tx("v3", "2026-05-01", "Shopping @ Costco", 2, 3, 120),
+    tx("v4", "2026-05-15", "Shopping @ Costco", 2, 3, 95),
+    tx("v5", "2026-06-15", "Shopping @ Costco", 2, 3, 110),
+    tx("v6", "2026-07-15", "Shopping @ Costco", 2, 3, 130),
+    tx("v7", "2026-08-01", "Shopping @ Costco", 2, 3, 88),
+    // The voucher under audit: another genuine gas purchase, correctly posted to Vehicle Maintenance.
+    tx("v8", "2026-08-11", "Gasoline @ Costco", 1, 3, 52, { plaidTxId: "plaid-v8" }),
+  ];
+  const flags = auditNarrationCategorization(ledger(accounts, transactions));
+  assert.deepEqual(flags, []);
 });
 
 test("auditNarrationCategorization: does NOT flag a well-supported categorization", () => {
