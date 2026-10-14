@@ -64,6 +64,12 @@ export type CategorizationFlag = {
   // generic label rather than resolving it to one specific month's account.
   suggestedDebitId?: number;
   suggestedVotes?: number;
+  // The actual vouchers behind ownVotes/suggestedVotes above, so a caller can show (and let the
+  // user open) exactly which prior vouchers are the "evidence" -- without this, a false positive
+  // caused by a coincidentally-shared word (e.g. a person's name appearing in two unrelated
+  // narrations) is invisible; with it, opening the 2 vouchers immediately reveals why.
+  ownEvidenceGuids: string[];
+  suggestedEvidenceGuids?: string[];
 };
 
 const MIN_CONFLICT_VOTES = 2;
@@ -155,13 +161,17 @@ export function auditNarrationCategorization(ledger: Ledger): CategorizationFlag
     }
     if (!ledgerWeight.size) continue; // zero corroboration either way -- could just be a genuinely new category, not flagged
 
-    // Plain, human-readable corroborating-voucher counts -- NOT what decides
-    // kind/suggestedDebitId above (that's ledgerWeight, computed per shared token).
+    // Plain, human-readable corroborating-voucher counts AND the actual guids behind them -- NOT
+    // what decides kind/suggestedDebitId above (that's ledgerWeight, computed per shared token).
     const ledgerVoteCount = new Map<number, number>();
+    const ledgerVoteGuids = new Map<number, string[]>();
     for (const r of records) {
       if (r.guid === v.guid || r.debitIsFinancial) continue;
       if (!merchantTokens.some((t) => r.tokens.includes(t))) continue;
       ledgerVoteCount.set(r.debitId, (ledgerVoteCount.get(r.debitId) ?? 0) + 1);
+      const guids = ledgerVoteGuids.get(r.debitId) ?? [];
+      guids.push(r.guid);
+      ledgerVoteGuids.set(r.debitId, guids);
     }
 
     const ownWeight = ledgerWeight.get(ownDebitId) ?? 0;
@@ -176,11 +186,13 @@ export function auditNarrationCategorization(ledger: Ledger): CategorizationFlag
     let kind: CategorizationFlagKind | null = null;
     let suggestedDebitId: number | undefined;
     let suggestedVotes: number | undefined;
+    let suggestedEvidenceGuids: string[] | undefined;
 
     if (bestAltId !== null && bestAltVotes >= MIN_CONFLICT_VOTES && bestAltWeight > ownWeight) {
       kind = "conflicting";
       suggestedDebitId = bestAltId;
       suggestedVotes = bestAltVotes;
+      suggestedEvidenceGuids = ledgerVoteGuids.get(bestAltId) ?? [];
     } else if (ledgerWeight.size === 1 && ownVotes === 1) {
       kind = "thin";
     }
@@ -198,6 +210,8 @@ export function auditNarrationCategorization(ledger: Ledger): CategorizationFlag
       ownVotes,
       suggestedDebitId,
       suggestedVotes,
+      ownEvidenceGuids: ledgerVoteGuids.get(ownDebitId) ?? [],
+      suggestedEvidenceGuids,
     });
   }
 

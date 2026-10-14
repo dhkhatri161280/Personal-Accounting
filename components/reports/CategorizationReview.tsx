@@ -22,6 +22,15 @@ const KIND_COLOR: Record<CategorizationFlagKind, string> = {
 export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; onViewVoucher: (t: Tx) => void }) {
   const [kindFilter, setKindFilter] = useState<"" | CategorizationFlagKind>("");
   const [showInfo, setShowInfo] = useState(false);
+  // Which flag/side evidence lists are expanded -- keyed "<guid>:own" / "<guid>:suggested" so the
+  // two sides of the same flag (and every other flag) toggle independently.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
 
   const flags = useMemo(() => auditNarrationCategorization(data), [data]);
   const accountName = useMemo(() => new Map(data.accounts.map((a) => [a.id, a.name])), [data.accounts]);
@@ -31,6 +40,39 @@ export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; on
     if (id === undefined) return null;
     if (id === HOUSEHOLD_FAMILY_ID) return "House Hold Exps (any month)";
     return accountName.get(id) ?? "Unknown";
+  };
+
+  // Clickable "(N similar vouchers)" label that expands into the actual vouchers behind that
+  // count, each openable -- this is what the "evidence" actually was, so a false positive caused
+  // by a coincidentally-shared word (a person's name, an abbreviation) is visible and checkable
+  // at a glance instead of a bare, unverifiable number.
+  const EvidenceToggle = ({ flagGuid, side, count, guids }: { flagGuid: string; side: "own" | "suggested"; count: number; guids: string[] }) => {
+    if (count === 0) return null;
+    const key = `${flagGuid}:${side}`;
+    const isOpen = expanded.has(key);
+    return (
+      <>
+        {" "}
+        <button type="button" className="columnar-cell-btn" style={{ fontSize: 12 }} onClick={() => toggleExpanded(key)}>
+          ({count} similar voucher{count !== 1 ? "s" : ""}{side === "own" ? " agree" : ""}{isOpen ? " ▲" : " ▼"})
+        </button>
+        {isOpen && (
+          <div style={{ margin: "4px 0 4px 16px", fontSize: 12, opacity: 0.85 }}>
+            {guids.map((g) => {
+              const evTx = txByGuid.get(g);
+              if (!evTx) return null;
+              return (
+                <div key={g}>
+                  <button type="button" className="columnar-cell-btn" onClick={() => onViewVoucher(evTx)}>
+                    {fmtDate(evTx.date)} · {evTx.narration || "(no narration)"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
   };
 
   const filtered = kindFilter ? flags.filter((f) => f.kind === kindFilter) : flags;
@@ -102,11 +144,11 @@ export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; on
                 <br />
                 <span style={{ fontSize: 12, opacity: 0.8 }}>
                   Currently: <strong>{nameFor(f.debitId)}</strong>
-                  {f.ownVotes > 0 && ` (${f.ownVotes} similar voucher${f.ownVotes !== 1 ? "s" : ""} agree)`}
+                  <EvidenceToggle flagGuid={f.guid} side="own" count={f.ownVotes} guids={f.ownEvidenceGuids} />
                   {f.kind === "conflicting" && (
                     <>
                       {" — "}suggested: <strong style={{ color: "#16a34a" }}>{nameFor(f.suggestedDebitId)}</strong>
-                      {` (${f.suggestedVotes} similar voucher${f.suggestedVotes !== 1 ? "s" : ""})`}
+                      <EvidenceToggle flagGuid={f.guid} side="suggested" count={f.suggestedVotes ?? 0} guids={f.suggestedEvidenceGuids ?? []} />
                     </>
                   )}
                 </span>
