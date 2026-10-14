@@ -215,6 +215,15 @@ export function FbarReport({
                 </div>
               </div>
             </div>
+            <div className="equity-summary-col">
+              <div className="equity-summary-card">
+                <div className="equity-summary-card-body">
+                  <span>Exchange rate used</span>
+                  <strong className="equity-amt">{summary.rate ? `${summary.rate.rate} INR/USD` : "—"}</strong>
+                  {summary.rate && <small style={{ fontSize: 11, opacity: 0.6 }}>Treasury rate as of {fmtDate(summary.rate.asOf)}</small>}
+                </div>
+              </div>
+            </div>
           </section>
 
           <table className="fx-ledger-table">
@@ -225,7 +234,7 @@ export function FbarReport({
                 <th>Treatment</th>
                 <th className="right">Peak Balance (INR)</th>
                 <th>Peak Date</th>
-                <th className="right">USD Equivalent</th>
+                <th className="right">USD Equivalent{summary.rate ? ` @ ${summary.rate.rate}` : ""}</th>
               </tr>
             </thead>
             <tbody>
