@@ -17,16 +17,44 @@ import { accountNature } from "./vault-accounting.ts";
 //      Exchange" rate as of December 31 of the year being reported -- even if the real peak
 //      happened on a different day with a different actual exchange rate.
 
-// Treasury Reporting Rate of Exchange, INR per USD, as of the stated date -- published quarterly
-// by the Bureau of the Fiscal Service (api.fiscaldata.treasury.gov). Hardcoded per calendar year
-// since this is a once-a-year lookup; add the next year's rate here once Treasury publishes it
-// (typically available a few weeks into the following January).
+// Treasury Reporting Rate of Exchange, INR per USD, as of December 31 of each year -- published
+// quarterly by the Bureau of the Fiscal Service (api.fiscaldata.treasury.gov). Hardcoded rather
+// than fetched live since this app has no outbound network access at runtime; pulled directly
+// from the Fiscal Data API (filter=country:eq:India,record_calendar_month:eq:12,
+// record_calendar_day:eq:31) covering every year that API has on file (back to 2001). Add the
+// next year's rate here once Treasury publishes it (typically a few weeks into the following
+// January).
+const TREASURY_SOURCE = "US Treasury Bureau of the Fiscal Service, Reporting Rates of Exchange (api.fiscaldata.treasury.gov)";
+function yearEndRate(year: number, rate: number): { rate: number; asOf: string; source: string } {
+  const asOf = `${year}-12-31`;
+  return { rate, asOf, source: `${TREASURY_SOURCE}, record_date ${asOf}` };
+}
 export const TREASURY_YEAR_END_RATE_INR: Record<number, { rate: number; asOf: string; source: string }> = {
-  2025: {
-    rate: 89.854,
-    asOf: "2025-12-31",
-    source: "US Treasury Bureau of the Fiscal Service, Reporting Rates of Exchange (api.fiscaldata.treasury.gov), record_date 2025-12-31",
-  },
+  2025: yearEndRate(2025, 89.854),
+  2024: yearEndRate(2024, 85.577),
+  2023: yearEndRate(2023, 83.162),
+  2022: yearEndRate(2022, 82.599),
+  2021: yearEndRate(2021, 74.343),
+  2020: yearEndRate(2020, 73.034),
+  2019: yearEndRate(2019, 71.0),
+  2018: yearEndRate(2018, 69.8),
+  2017: yearEndRate(2017, 63.75),
+  2016: yearEndRate(2016, 67.8),
+  2015: yearEndRate(2015, 66.1),
+  2014: yearEndRate(2014, 63.2),
+  2013: yearEndRate(2013, 61.5),
+  2012: yearEndRate(2012, 54.45),
+  2011: yearEndRate(2011, 52.25),
+  2010: yearEndRate(2010, 45.7),
+  2009: yearEndRate(2009, 46.4),
+  2008: yearEndRate(2008, 48.2),
+  2007: yearEndRate(2007, 39.55),
+  2006: yearEndRate(2006, 44.05),
+  2005: yearEndRate(2005, 44.9),
+  2004: yearEndRate(2004, 44.6),
+  2003: yearEndRate(2003, 45.4),
+  2002: yearEndRate(2002, 47.84),
+  2001: yearEndRate(2001, 47.9),
 };
 
 // FBAR's own aggregation threshold -- combined value of every foreign account, not any one
