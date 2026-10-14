@@ -101,7 +101,7 @@ export function FbarReport({
     const header = [
       "Account", "Group", "Treatment", "Peak Balance (INR)", "Peak Date",
       `USD @ ${summary.rate?.rate ?? ""} (Treasury ${summary.rate?.asOf ?? ""})`,
-      "Account Number", "IFSC / Routing", "SWIFT / BIC", "Branch", "Institution Address",
+      "Account Number", "IFSC / Routing", "SWIFT / BIC", "Branch", "Institution Address", "City", "State", "Postal Code", "Country",
     ];
     const rows = summary.rows.map((r) => {
       const acct = accountById.get(r.accountId);
@@ -117,9 +117,13 @@ export function FbarReport({
         acct?.bankSwiftCode ?? "",
         acct?.bankBranch ?? "",
         acct?.address ?? "",
+        acct?.bankCity ?? "",
+        acct?.bankState ?? "",
+        acct?.bankPostalCode ?? "",
+        acct?.bankCountry || "India",
       ];
     });
-    rows.push(["TOTAL", "", "", "", "", summary.totalUsd, "", "", "", "", ""]);
+    rows.push(["TOTAL", "", "", "", "", summary.totalUsd, "", "", "", "", "", "", "", "", ""]);
     await exportWorkbook(`FBAR Worksheet CY${year}.xlsx`, [{ name: `FBAR CY${year}`, rows: [header, ...rows] }]);
   }
 

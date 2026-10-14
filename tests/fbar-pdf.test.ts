@@ -71,7 +71,13 @@ test("buildFbarXfaDatasets: one FinAcctOwnedSeparately block per account, whole-
     row({ accountId: 2, name: "LIC Annuity", nature: "Investment", maxBalanceUsd: 655.52 }),
   ];
   const accountById = new Map<number, Account>([
-    [1, { id: 1, name: "SBI Savings", parent: "Bank Accounts", category: "Asset", currency: "INR", openingBalance: 0, active: true, bankAccountNumber: "999888777", address: "SBI, MG Road, Mumbai" }],
+    [
+      1,
+      {
+        id: 1, name: "SBI Savings", parent: "Bank Accounts", category: "Asset", currency: "INR", openingBalance: 0, active: true,
+        bankAccountNumber: "999888777", address: "MG Road", bankCity: "Mumbai", bankState: "Maharashtra", bankPostalCode: "400001",
+      },
+    ],
     [2, { id: 2, name: "LIC Annuity", parent: "Investments", category: "Asset", currency: "INR", openingBalance: 0, active: true }],
   ]);
   const xml = buildFbarXfaDatasets({ year: 2025, filer, rows, accountById });
@@ -80,6 +86,11 @@ test("buildFbarXfaDatasets: one FinAcctOwnedSeparately block per account, whole-
   assert.equal(blocks.length, 2);
   assert.ok(blocks[0].includes("<ffbar:MaximumAccntValue>8906</ffbar:MaximumAccntValue>")); // rounded, no decimals
   assert.ok(blocks[0].includes("<ffbar:AccountType>A</ffbar:AccountType>")); // Bank
+  assert.ok(blocks[0].includes(">Mumbai<")); // city
+  assert.ok(blocks[0].includes(">Maharashtra<")); // state
+  assert.ok(blocks[0].includes(">400001<")); // postal code
+  assert.ok(blocks[0].includes(">India<")); // country default
+  assert.ok(blocks[1].includes(`<ucc:City xmlns:ucc="http://www.fincen.gov/bsa/ucommon-components/2011-06-01"></ucc:City>`)); // present but empty when no bank fields are set
   assert.ok(blocks[0].includes("<ffbar:AccntNumber>999888777</ffbar:AccntNumber>"));
   assert.ok(blocks[1].includes("<ffbar:MaximumAccntValue>656</ffbar:MaximumAccntValue>"));
   assert.ok(blocks[1].includes("<ffbar:AccountType>Z</ffbar:AccountType>")); // Investment nature defaults to "Other"

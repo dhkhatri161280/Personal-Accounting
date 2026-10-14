@@ -74,7 +74,13 @@ function accountBlock(row: FbarAccountRow, account: Account | undefined): string
     `<ffbar:OtherDesc/>` +
     el("ffbar:FinInstName", row.name) +
     el("ffbar:AccntNumber", account?.bankAccountNumber) +
-    addressBlock("ffbar:Address", { street: account?.address, country: "India" }) +
+    addressBlock("ffbar:Address", {
+      street: account?.address,
+      city: account?.bankCity,
+      state: account?.bankState,
+      zip: account?.bankPostalCode,
+      country: account?.bankCountry || "India",
+    }) +
     `</ffbar:FinAcctOwnedSeparately>`
   );
 }

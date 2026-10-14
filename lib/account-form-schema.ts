@@ -24,5 +24,9 @@ export function accountFormSchema(existingNames: string[]) {
     bankIfscOrRouting: z.string().trim().optional(),
     bankSwiftCode: z.string().trim().optional(),
     bankBranch: z.string().trim().optional(),
+    bankCity: z.string().trim().optional(),
+    bankState: z.string().trim().optional(),
+    bankPostalCode: z.string().trim().optional(),
+    bankCountry: z.string().trim().optional(),
   });
 }

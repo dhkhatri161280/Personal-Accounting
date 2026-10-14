@@ -93,6 +93,16 @@ export type Account = {
   bankIfscOrRouting?: string; // IFSC for an Indian bank, routing number for a US one
   bankSwiftCode?: string;
   bankBranch?: string;
+  // City/State/Postal split out separately from `address` (which stays the street line) because
+  // FinCEN Form 114 Part II asks for them as distinct boxes (Items 19-23) -- same reasoning as
+  // Ledger.fbarFilerProfile's own split fields, since guessing how to split a single free-text
+  // address back apart isn't safe on an actual government filing. Country defaults to "India" at
+  // export time (lib/fbar-pdf.ts) when unset, since the FBAR Worksheet only applies to the India
+  // book, but can be overridden here for an account actually held elsewhere.
+  bankCity?: string;
+  bankState?: string;
+  bankPostalCode?: string;
+  bankCountry?: string;
   // How this account should be treated by the FBAR Worksheet (components/reports/FbarReport.tsx),
   // remembered on the account itself so the choice carries forward to next year automatically
   // instead of needing to be redone at every filing. Undefined = "include" (the default: use this

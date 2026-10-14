@@ -60,6 +60,10 @@ export type MasterAccount = {
   bankIfscOrRouting?: string;
   bankSwiftCode?: string;
   bankBranch?: string;
+  bankCity?: string;
+  bankState?: string;
+  bankPostalCode?: string;
+  bankCountry?: string;
   fbarTreatment?: "include" | "exclude" | "manual";
   fbarManualValuesInr?: Record<string, number>;
 };
@@ -413,6 +417,10 @@ function AccountForm({
       bankIfscOrRouting: account?.bankIfscOrRouting || "",
       bankSwiftCode: account?.bankSwiftCode || "",
       bankBranch: account?.bankBranch || "",
+      bankCity: account?.bankCity || "",
+      bankState: account?.bankState || "",
+      bankPostalCode: account?.bankPostalCode || "",
+      bankCountry: account?.bankCountry || "",
     },
   });
   return (
@@ -459,11 +467,33 @@ function AccountForm({
       </label>
       {/* Optional -- lets the Balance Confirmation Letter pull this ledger's address straight
          from Masters instead of retyping it per letter; a per-letter edit there doesn't write
-         back here. Not required for ledgers that don't need one (e.g. internal/expense accounts). */}
+         back here. Not required for ledgers that don't need one (e.g. internal/expense accounts).
+         Street line only -- City/State/Postal/Country are their own fields below (not parsed out
+         of this one) since FinCEN Form 114 Part II needs them as separate boxes. */}
       <label>
-        Address (optional)
-        <textarea rows={2} {...register("address")} placeholder="Street, City, State, ZIP" />
+        Address / street (optional)
+        <textarea rows={2} {...register("address")} placeholder="Street address" />
       </label>
+      <div className="opening-fields">
+        <label>
+          City (optional)
+          <input {...register("bankCity")} />
+        </label>
+        <label>
+          State / region (optional)
+          <input {...register("bankState")} />
+        </label>
+      </div>
+      <div className="opening-fields">
+        <label>
+          Postal code (optional)
+          <input {...register("bankPostalCode")} />
+        </label>
+        <label>
+          Country (optional)
+          <input {...register("bankCountry")} placeholder="Defaults to India on the FBAR export" />
+        </label>
+      </div>
       <label>
         Email (optional)
         <input {...register("email")} type="email" placeholder="name@example.com" />
@@ -687,7 +717,11 @@ export function MastersPanel({
       bankAccountNumber = values.bankAccountNumber?.trim() || undefined,
       bankIfscOrRouting = values.bankIfscOrRouting?.trim() || undefined,
       bankSwiftCode = values.bankSwiftCode?.trim() || undefined,
-      bankBranch = values.bankBranch?.trim() || undefined;
+      bankBranch = values.bankBranch?.trim() || undefined,
+      bankCity = values.bankCity?.trim() || undefined,
+      bankState = values.bankState?.trim() || undefined,
+      bankPostalCode = values.bankPostalCode?.trim() || undefined,
+      bankCountry = values.bankCountry?.trim() || undefined;
     const existing = data.accounts.find((a) => a.id === accountId),
       account: MasterAccount = {
         id: existing?.id || Math.max(0, ...data.accounts.map((a) => a.id)) + 1,
@@ -703,6 +737,10 @@ export function MastersPanel({
         bankIfscOrRouting,
         bankSwiftCode,
         bankBranch,
+        bankCity,
+        bankState,
+        bankPostalCode,
+        bankCountry,
         masterSyncStatus: "pending",
         masterOriginalName: existing?.masterOriginalName || existing?.name,
         tallyGuid: existing?.tallyGuid,
