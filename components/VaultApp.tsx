@@ -5719,7 +5719,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             setSelectedAssetTag(null);
           }}
           wide
-          initialWidth={1300}
+          initialWidth={1600}
           initialHeight={700}
         >
           <div className="ledger-drill-panel">
