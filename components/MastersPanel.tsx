@@ -146,6 +146,23 @@ function PeriodControlPanel({
 
   const closedSet = new Set(closedPeriods);
 
+  // Guards every path that CLOSES a period (never reopening) against closing a period that
+  // hasn't happened yet -- confirmed live: closing "March 2027" back in October 2026 (7 months
+  // early) silently auto-posted that fiscal year's closing voucher (buildFiscalYearCloseVoucher,
+  // triggered from VaultApp.tsx's onSave watching for a newly-closed "-03" period) well before
+  // the year actually ended, corrupting the Dashboard's Capital Closing card (its "current year
+  // result" figure zeroes out once the app believes the year is already closed) until someone
+  // noticed and reversed it. Nothing else in the period-close path checks today's real date.
+  const currentMonth = todayLocalIso().slice(0, 7);
+  function confirmFutureClose(periods: string[]): boolean {
+    const future = periods.filter((p) => p > currentMonth);
+    if (!future.length) return true;
+    const label = future.length === 1 ? monthLabel(future[0]) : `${future.length} periods (${future.map(monthLabel).join(", ")})`;
+    return window.confirm(
+      `${label} ${future.length === 1 ? "hasn't" : "haven't"} happened yet -- today is ${monthLabel(currentMonth)}. Closing a future period (especially a fiscal year's March) auto-posts that year's closing voucher early, which throws off the Dashboard and reports until it's undone. Close anyway?`
+    );
+  }
+
   // Chronological list of every period shown, oldest first -- backs the "close through" cutoff
   // control below (the common "we've closed the books through August" workflow). This stays
   // global (every FY, not just the ones currently expanded below) since "close everything
@@ -181,6 +198,7 @@ function PeriodControlPanel({
   }
 
   function toggle(period: string, isClosed: boolean) {
+    if (!isClosed && !confirmFutureClose([period])) return;
     const next = isClosed ? closedPeriods.filter((p) => p !== period) : [...closedPeriods, period];
     onToggle(
       next,
@@ -191,6 +209,7 @@ function PeriodControlPanel({
   }
 
   function setBatch(periods: string[], close: boolean, message: string) {
+    if (close && !confirmFutureClose(periods)) return;
     const set = new Set(closedPeriods);
     for (const p of periods) close ? set.add(p) : set.delete(p);
     onToggle([...set], message);
