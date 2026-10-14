@@ -96,3 +96,46 @@ test("computeFbarSummary: returns no rate info for a year with no published Trea
   assert.equal(summary.rate, null);
   assert.deepEqual(summary.rows, []);
 });
+
+test("computeFbarSummary: 'exclude' treatment (e.g. a premium-payment ledger, not a real balance) shows a row but contributes nothing to the total", () => {
+  const premiumAcct: Account = { ...account(1, "LIC Premium", "Investments"), fbarTreatment: "exclude" };
+  const accounts = [premiumAcct, account(999, "Other", "Indirect Incomes")];
+  const transactions = [tx(1, "2025-08-11", 1, -569_644.2)]; // real ledger balance, must be ignored
+  const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2025-01-01", accounts, transactions };
+  const summary = computeFbarSummary(data, 2025);
+
+  const row = summary.rows.find((r) => r.name === "LIC Premium")!;
+  assert.ok(row); // still listed, for transparency
+  assert.equal(row.treatment, "exclude");
+  assert.equal(row.maxBalanceUsd, 0);
+  assert.equal(summary.totalUsd, 0); // the real ledger balance never counted
+});
+
+test("computeFbarSummary: 'manual' treatment uses the entered value for THAT calendar year, not the ledger's own balance, and flags a missing value", () => {
+  const policyAcct: Account = {
+    ...account(1, "Max Life Insurance", "Investments"),
+    fbarTreatment: "manual",
+    fbarManualValuesInr: { "2025": 210_875.1 }, // the real cash surrender value, not the premiums paid
+  };
+  const noValueYetAcct: Account = { ...account(2, "Max Life Insurance 2", "Investments"), fbarTreatment: "manual" };
+  const accounts = [policyAcct, noValueYetAcct, account(999, "Other", "Indirect Incomes")];
+  const transactions = [
+    tx(1, "2025-08-11", 1, -1_000_000), // premiums-paid ledger balance, must be ignored in favor of the manual value
+  ];
+  const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2025-01-01", accounts, transactions };
+  const summary = computeFbarSummary(data, 2025);
+
+  const rate = TREASURY_YEAR_END_RATE_INR[2025].rate;
+  const withValue = summary.rows.find((r) => r.name === "Max Life Insurance")!;
+  assert.equal(withValue.maxBalanceNative, 210_875.1);
+  assert.equal(withValue.needsManualValue, false);
+  assert.ok(Math.abs(withValue.maxBalanceUsd - 210_875.1 / rate) < 0.01);
+
+  const missingValue = summary.rows.find((r) => r.name === "Max Life Insurance 2")!;
+  assert.equal(missingValue.needsManualValue, true);
+  assert.equal(missingValue.maxBalanceUsd, 0);
+
+  // Only the entered manual value counts toward the total -- the missing one contributes nothing
+  // (not silently treated as $0 of real value) and neither reads the ledger's own balance.
+  assert.ok(Math.abs(summary.totalUsd - 210_875.1 / rate) < 0.01);
+});

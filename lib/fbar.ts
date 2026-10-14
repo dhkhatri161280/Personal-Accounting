@@ -38,9 +38,16 @@ export type FbarAccountRow = {
   name: string;
   parent: string;
   nature: string;
+  treatment: "include" | "exclude" | "manual";
+  // For treatment "include": this ledger's own computed peak. For "manual": the entered value for
+  // this calendar year (0 if none entered yet -- see needsManualValue). For "exclude": 0, unused.
   maxBalanceNative: number;
-  maxBalanceDate: string | null; // null when the peak is the opening balance itself (no transactions moved it within the year)
+  maxBalanceDate: string | null; // null when the peak is the opening balance itself (no transactions moved it within the year), or when manual/excluded
   maxBalanceUsd: number;
+  // "manual" treatment with no fbarManualValuesInr entry for this specific calendar year yet --
+  // the account IS a real reportable foreign financial account, but the number is still missing,
+  // so it must not silently read as $0 and get lost in the total.
+  needsManualValue: boolean;
 };
 
 // The highest balance `accountId` reached at any point within [startDate, endDate] (inclusive),
@@ -95,24 +102,50 @@ export function computeFbarSummary(
   const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g as unknown as { nature: string }]));
   const startDate = `${calendarYear}-01-01`;
   const endDate = `${calendarYear}-12-31`;
+  const yearKey = String(calendarYear);
 
   const rows: FbarAccountRow[] = [];
   for (const a of data.accounts) {
     if (a.active === false) continue;
     const nature = accountNature(a, masterGroups);
     if (nature !== "Bank" && nature !== "Investment") continue;
+    const treatment = a.fbarTreatment ?? "include";
+
+    if (treatment === "exclude") {
+      rows.push({
+        accountId: a.id, name: a.name, parent: a.parent || "", nature, treatment,
+        maxBalanceNative: 0, maxBalanceDate: null, maxBalanceUsd: 0, needsManualValue: false,
+      });
+      continue;
+    }
+    if (treatment === "manual") {
+      const manualValue = a.fbarManualValuesInr?.[yearKey];
+      const needsManualValue = manualValue === undefined;
+      rows.push({
+        accountId: a.id, name: a.name, parent: a.parent || "", nature, treatment,
+        maxBalanceNative: manualValue ?? 0,
+        maxBalanceDate: null,
+        maxBalanceUsd: rateInfo && manualValue !== undefined ? manualValue / rateInfo.rate : 0,
+        needsManualValue,
+      });
+      continue;
+    }
     const { max, maxDate } = maxBalanceInRange(data, a.id, startDate, endDate);
     rows.push({
       accountId: a.id,
       name: a.name,
       parent: a.parent || "",
       nature,
+      treatment,
       maxBalanceNative: max,
       maxBalanceDate: maxDate,
       maxBalanceUsd: rateInfo ? max / rateInfo.rate : 0,
+      needsManualValue: false,
     });
   }
   rows.sort((x, y) => y.maxBalanceUsd - x.maxBalanceUsd);
-  const totalUsd = rows.reduce((s, r) => s + r.maxBalanceUsd, 0);
+  // Excluded rows and not-yet-entered manual rows contribute nothing to the total -- excluded by
+  // definition, and a missing manual value must never silently count as $0 of real value.
+  const totalUsd = rows.reduce((s, r) => (r.treatment === "exclude" || r.needsManualValue ? s : s + r.maxBalanceUsd), 0);
   return { rows, totalUsd, thresholdExceeded: totalUsd > FBAR_THRESHOLD_USD, rate: rateInfo };
 }

@@ -84,6 +84,20 @@ export type Account = {
   // overrides that one letter, it doesn't write back to the master record.
   address?: string;
   email?: string;
+  // How this account should be treated by the FBAR Worksheet (components/reports/FbarReport.tsx),
+  // remembered on the account itself so the choice carries forward to next year automatically
+  // instead of needing to be redone at every filing. Undefined = "include" (the default: use this
+  // ledger's own computed peak balance, correct for a real bank/investment account). "exclude" is
+  // for a ledger that tracks something other than an actual account value (e.g. a premium-payment
+  // ledger like "LIC Premium" -- the premiums paid aren't themselves a reportable balance).
+  // "manual" is for an account whose real reportable value (e.g. a life insurance policy's cash
+  // surrender value) isn't what this ledger's own balance reflects, but IS still a real foreign
+  // financial account that needs reporting -- see fbarManualValuesInr below for the actual figure.
+  fbarTreatment?: "include" | "exclude" | "manual";
+  // Only read when fbarTreatment === "manual" -- the account's real reportable value in INR, for
+  // the specific calendar year a figure was entered for (keyed "YYYY", since a cash surrender
+  // value changes every year and last year's number silently going stale would be a real risk).
+  fbarManualValuesInr?: Record<string, number>;
 };
 
 export type RsuVest = {

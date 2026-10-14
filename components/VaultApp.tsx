@@ -1166,6 +1166,39 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     await save(next, "reports");
   }
 
+  // Remembers how an account should be treated by the FBAR Worksheet (see lib/fbar.ts's own doc
+  // comment) ON THE ACCOUNT ITSELF, so the choice carries forward to next year's filing
+  // automatically instead of being re-decided from scratch every year. "include" (the default) is
+  // stored as undefined rather than the literal string, matching how every other optional account
+  // field in this app works.
+  async function setFbarTreatment(accountId: number, treatment: "include" | "exclude" | "manual") {
+    if (!data) return;
+    const next: Ledger = {
+      ...data,
+      accounts: data.accounts.map((a) => (a.id === accountId ? { ...a, fbarTreatment: treatment === "include" ? undefined : treatment } : a)),
+    };
+    await save(next, "masters");
+  }
+
+  // The real reportable value for a "manual" account (e.g. a life insurance policy's cash
+  // surrender value, which this ledger's own balance doesn't reflect) -- keyed per calendar year
+  // since that figure changes annually and a stale prior-year number must never get silently
+  // reused. `valueInr: null` clears that year's entry (back to "needs a value").
+  async function setFbarManualValue(accountId: number, year: number, valueInr: number | null) {
+    if (!data) return;
+    const next: Ledger = {
+      ...data,
+      accounts: data.accounts.map((a) => {
+        if (a.id !== accountId) return a;
+        const values = { ...(a.fbarManualValuesInr ?? {}) };
+        if (valueInr === null) delete values[String(year)];
+        else values[String(year)] = valueInr;
+        return { ...a, fbarManualValuesInr: values };
+      }),
+    };
+    await save(next, "masters");
+  }
+
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
   // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
   // real sync outage was easy to miss because nothing draws your eye to the small lock button.
@@ -5132,7 +5165,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {report === "categorization" && data && (
             <CategorizationReview data={data} onViewVoucher={(t) => setSelectedVoucher(t)} onToggleDismissed={toggleCategorizationDismissed} />
           )}
-          {report === "fbar" && data && book === "india" && <FbarReport data={data} />}
+          {report === "fbar" && data && book === "india" && (
+            <FbarReport data={data} onSetTreatment={setFbarTreatment} onSetManualValue={setFbarManualValue} />
+          )}
           {report === "balconfirm" && data && <BalanceConfirmationLetter data={data} fmt={fmt} />}
           {report === "fixedassets" && data && (
             <FixedAssetRegister
