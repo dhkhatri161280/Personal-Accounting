@@ -600,18 +600,19 @@ function buildDraft(
     };
   }
 
-  // American Express ACH payment: paying AmEx credit card bill from a bank account
+  // American Express ACH payment: paying AmEx credit card bill from a bank account -- a real
+  // transfer between two financial accounts, so this is a Contra voucher (Dr the card, Cr the
+  // bank), not a Payment -- matches the BofA self-pay rule above and what the user actually
+  // expects from a credit-card bill payment in Tally terms.
   // Plaid name format: "AMERICAN EXPRESS DES:ACH PMT ID:..." from BofA/Chase checking
   if (/american express.*(pmt|payment|ach)|amex.*(pmt|payment)/i.test(tx.name)) {
     const amexAcc = findAcct(accounts, "American Express", "Amex", "AMEX");
-    // Source is the bank/checking account — match this institution first so BofA never picks Chase
-    const bankAcc = findAcct(
-      accounts,
-      tx.institution_name,
-      "Bank Of America", "Bank of America",
-      "Chase Bank", "Chase",
-      "Checking", "Savings"
-    );
+    // Resolve the actual paying account via its real Plaid subtype first (matchVaultAccount) --
+    // same fix as the Costco-deposit mis-routing bug (plaidAcct-aware beats guessing off
+    // tx.institution_name alone, which is identical for every account at that institution).
+    const bankAcc =
+      (plaidAcct && matchVaultAccount(plaidAcct, accounts)) ||
+      findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "Chase Bank", "Chase", "Checking", "Savings");
     const pastNarr = (() => {
       const hits = ledger.transactions
         .filter((v) => !v.deleted && !v.cancelled &&
@@ -623,13 +624,13 @@ function buildDraft(
       counts.forEach((c, n) => { if (c > bestC) { bestC = c; best = n; } });
       return best || "American Express CC Payment";
     })();
-    if (amexAcc && bankAcc) {
+    if (amexAcc && bankAcc && amexAcc.id !== bankAcc.id) {
       return {
         entries: [
           { accountId: amexAcc.id, accountName: amexAcc.name, amount: -netDeposit },
           { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
         ],
-        voucherType: "Payment",
+        voucherType: "Contra",
         narration: pastNarr,
         confidence: 0.85,
         source: "history",
@@ -637,36 +638,45 @@ function buildDraft(
     }
   }
 
-  // ── Citi card feed: money-IN transactions (payment received by Citi from user's bank) ──
-  // "PAYMENT THANK YOU", "AUTOPAY PAYMENT", etc. — institution = "Citibank Online"
-  if (/citi(?!zen)/i.test(instLower) && tx.amount < 0) {
+  // ── Citi card payment, either side of the transfer ──────────────────────────────────────────
+  // Two different ways this same transfer can show up in Plaid: on CITI'S OWN feed ("PAYMENT
+  // THANK YOU"/"AUTOPAY PAYMENT", money IN, no literal "citi" in the text -- needs the
+  // institution check) or on the PAYING BANK's feed, which names Citi explicitly in its own
+  // narration ("ACH HOLD CITI CARD ONLINE PAYMENT" from BofA checking). Confirmed live: only the
+  // first case was ever recognized -- a real BofA-side Citi payment fell all the way through to
+  // the generic history matcher, which mis-posted it to House Hold Exps on a coincidental word
+  // match. A real transfer between two financial accounts, so Contra (Dr the card, Cr the bank),
+  // same as the Amex/BofA rules.
+  const citiFromOwnFeed = /citi(?!zen)/i.test(instLower) && tx.amount < 0 && /payment|autopay|thank you/i.test(tx.name);
+  const citiFromBankFeed = /citi(?!zen)/i.test(tx.name) && /pmt|payment|ach|autopay|hold/i.test(tx.name);
+  if (citiFromOwnFeed || citiFromBankFeed) {
     const citiAcc = findAcct(accounts, "Citi Credit Card", "Citibank", "Citi");
-    if (/payment|autopay|thank you/i.test(tx.name)) {
-      const bankAcc = findAcct(accounts, "Bank Of America", "Bank of America", "BofA", "Chase Bank", "Chase");
-      // Look up the most common narration used in past Citi payment vouchers
-      const pastNarr = (() => {
-        const hits = ledger.transactions
-          .filter((v) => !v.deleted && !v.cancelled &&
-            v.entries.some((e) => e.accountId === citiAcc?.id && e.amount < 0))
-          .map((v) => v.narration || "");
-        const counts = new Map<string, number>();
-        for (const n of hits) counts.set(n, (counts.get(n) || 0) + 1);
-        let best = "", bestC = 0;
-        counts.forEach((c, n) => { if (c > bestC) { bestC = c; best = n; } });
-        return best || "Citi CC Payment";
-      })();
-      if (citiAcc && bankAcc) {
-        return {
-          entries: [
-            { accountId: citiAcc.id, accountName: citiAcc.name, amount: -netDeposit },
-            { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
-          ],
-          voucherType: "Payment",
-          narration: pastNarr,
-          confidence: 0.85,
-          source: "history",
-        };
-      }
+    const bankAcc =
+      (plaidAcct && matchVaultAccount(plaidAcct, accounts)) ||
+      findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "BofA", "Chase Bank", "Chase");
+    // Look up the most common narration used in past Citi payment vouchers
+    const pastNarr = (() => {
+      const hits = ledger.transactions
+        .filter((v) => !v.deleted && !v.cancelled &&
+          v.entries.some((e) => e.accountId === citiAcc?.id && e.amount < 0))
+        .map((v) => v.narration || "");
+      const counts = new Map<string, number>();
+      for (const n of hits) counts.set(n, (counts.get(n) || 0) + 1);
+      let best = "", bestC = 0;
+      counts.forEach((c, n) => { if (c > bestC) { bestC = c; best = n; } });
+      return best || "Citi CC Payment";
+    })();
+    if (citiAcc && bankAcc && citiAcc.id !== bankAcc.id) {
+      return {
+        entries: [
+          { accountId: citiAcc.id, accountName: citiAcc.name, amount: -netDeposit },
+          { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
+        ],
+        voucherType: "Contra",
+        narration: pastNarr,
+        confidence: 0.85,
+        source: "history",
+      };
     }
   }
 
