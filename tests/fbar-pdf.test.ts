@@ -42,6 +42,8 @@ test("fbarFilerProfileComplete: true only when every required field is present",
 test("buildFbarXfaDatasets: fills the filer's identity using the form's own reverse-engineered codes", () => {
   const xml = buildFbarXfaDatasets({ year: 2025, filer, rows: [], accountById: new Map() });
   assert.ok(xml.includes("<ffbar:CalendarYear>2025</ffbar:CalendarYear>"));
+  assert.ok(xml.includes("<est:FilingName xmlns:est=")); // Home page's own reference label
+  assert.ok(xml.includes(">DOE FBAR 2025<"));
   assert.ok(xml.includes("<ffbar:TypeOfFiler>A</ffbar:TypeOfFiler>")); // Individual
   assert.ok(xml.includes("<ffbar:TIN>123456789</ffbar:TIN>")); // dashes stripped
   assert.ok(xml.includes("<ffbar:TINTYPE>B</ffbar:TINTYPE>")); // SSN/ITIN

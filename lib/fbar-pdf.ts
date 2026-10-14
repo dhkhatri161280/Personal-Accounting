@@ -26,7 +26,6 @@ import type { FbarAccountRow } from "./fbar.ts";
 // it correctly in the visible box, so Item 5 specifically needs a manual look.
 
 const XFA_NS = "http://www.xfa.org/schema/xfa-data/1.0/";
-const DD_NS = "http://ns.adobe.com/data-description/";
 const FFBAR_NS = "http://www.fincen.gov/bsa/ffbar/2011-06-01";
 const UCC_NS = "http://www.fincen.gov/bsa/ucommon-components/2011-06-01";
 
@@ -87,7 +86,21 @@ export function buildFbarXfaDatasets(params: {
   accountById: Map<number, Account>;
 }): string {
   const { year, filer, rows, accountById } = params;
+  const EST_NS = "http://www.fincen.gov/bsa/efile-submission-types/2009-01-01";
+  const estEl = (tag: string, value: string | undefined) =>
+    value ? `<est:${tag} xmlns:est="${EST_NS}">${xmlEscape(value)}</est:${tag}>` : `<est:${tag} xmlns:est="${EST_NS}"/>`;
+  // Item on the form's own Home page, used purely as the filer's own reference label (matches
+  // its own placeholder example "SMITH FBAR 2013") -- not a FinCEN-assigned identifier, so a
+  // same-shape "LASTNAME FBAR YEAR" is a reasonable default rather than leaving it blank.
+  const eFileSubmissionInformation =
+    `<ffbar:EFileSubmissionInformation>` +
+    estEl("FilingName", filer.lastName ? `${filer.lastName.toUpperCase()} FBAR ${year}` : undefined) +
+    estEl("FilingType", undefined) +
+    estEl("VersionNumber", undefined) +
+    estEl("SubmitUrl", undefined) +
+    `</ffbar:EFileSubmissionInformation>`;
   const filerInformation =
+    eFileSubmissionInformation +
     `<ffbar:FilerInformation>` +
     el("ffbar:CalendarYear", year) +
     `<ffbar:AmendToPriorReports/>` +
@@ -114,15 +127,21 @@ export function buildFbarXfaDatasets(params: {
 
   const accounts = rows.map((r) => accountBlock(r, accountById.get(r.accountId))).join("");
 
+  // The actual data root an XFA form reads is xfa:datasets/xfa:data (Adobe's own FormCalc
+  // reference: "xfa.datasets" is the data model root, "!data" is shorthand for
+  // "xfa.datasets.data") -- NOT the dd:dataDescription sibling that the blank template ships
+  // with. That earlier mistake (putting the filled content in dd:dataDescription, copying the
+  // blank template's own layout) produced a structurally valid PDF whose data Adobe Reader never
+  // actually bound to any field, since a blank xfa:data and populated-but-unbound-dd:dataDescription
+  // look identical on an unfilled form -- confirmed live against the real desktop Acrobat app.
   return (
     `<xfa:datasets xmlns:xfa="${XFA_NS}">` +
-    `<xfa:data xfa:dataNode="dataGroup"/>` +
-    `<dd:dataDescription xmlns:dd="${DD_NS}" dd:name="BSAForm">` +
+    `<xfa:data>` +
     `<ffbar:BSAForm xmlns:ffbar="${FFBAR_NS}">` +
     filerInformation +
     accounts +
     `</ffbar:BSAForm>` +
-    `</dd:dataDescription>` +
+    `</xfa:data>` +
     `</xfa:datasets>`
   );
 }
