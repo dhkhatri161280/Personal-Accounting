@@ -322,44 +322,51 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // a row of its own.
   const reportExpandAll = useExpandCollapseAll();
 
-  // What to come back to once the voucher currently being edited/copied/reversed (opened from
-  // inside a Cash Flow report drilldown) is saved -- captured by closeDrilldownsAndSetTab right
-  // before it closes that drilldown, and replayed by restoreReturnTarget once the save actually
-  // goes through. Null for every other case (a voucher opened from Day Book, Ledgers, etc.),
-  // which just leaves the user on the New Voucher tab afterward as before.
+  // What to come back to once the voucher currently being edited/copied/reversed is saved --
+  // ALWAYS captured (not just when some particular report's drilldown happens to be open), so
+  // this is uniform regardless of which screen/tab/book the user started from: Day Book stays Day
+  // Book, any Reports screen stays that same report, and the three floating drilldowns that can
+  // themselves open a voucher for editing (Cash Flow's own detail view, the columnar drilldown,
+  // and the ledger drilldown popup -- reachable from Ledgers, Dashboard cards, Search, or any
+  // report's own account link) get reopened too. India book runs through this same component
+  // (just a different `book` value), so it's covered automatically; GR Books is a fully separate,
+  // read-only view with no voucher editing at all, so there's nothing to fix there.
   const [returnTarget, setReturnTarget] = useState<{
     tab: string;
     report: string;
     columnarDrilldown: DrilldownRequest | null;
     cashFlowDetail: { group: string; ledger?: string } | null;
+    selected: number | null;
+    selectedAssetTag: string | null;
   } | null>(null);
 
   // editVoucher/copyVoucher/reverseVoucher (via the hook below) switch to the New Voucher tab to
-  // show the form -- but if the voucher being acted on was opened from inside a Cash Flow report
-  // drilldown's own floating window (columnarDrilldown / cashFlowDetail), that overlay has no
-  // idea the tab just changed underneath it and stays open, visually burying the New Voucher
-  // form the user switched to. Confirmed live: clicking Edit on a voucher opened via the
-  // columnar Cash Flow drilldown left that drilldown's modal on screen with no apparent change,
-  // even though the tab switch and edit-state setup both actually succeeded underneath it.
+  // show the form -- but if the voucher being acted on was opened from inside one of the three
+  // floating drilldowns above, that overlay has no idea the tab just changed underneath it and
+  // stays open, visually burying the New Voucher form the user switched to. Confirmed live twice:
+  // once for the columnar Cash Flow drilldown, again for the ledger drilldown -- copying a
+  // voucher from inside a ledger's popup landed back on Day Book instead of staying put, even
+  // though the copy/save itself worked underneath it.
   const closeDrilldownsAndSetTab = (next: string) => {
-    if (columnarDrilldown || cashFlowDetail) {
-      setReturnTarget({ tab, report, columnarDrilldown, cashFlowDetail });
-    }
+    setReturnTarget({ tab, report, columnarDrilldown, cashFlowDetail, selected, selectedAssetTag });
     setColumnarDrilldown(null);
     setCashFlowDetail(null);
+    setSelected(null);
+    setSelectedAssetTag(null);
     setTab(next);
   };
 
   // Fires once the voucher save actually succeeds (see useVoucherForm's onSaved) -- puts the user
-  // right back in the same Cash Flow drilldown they edited this voucher from, instead of leaving
-  // them on a blank New Voucher form. A no-op when returnTarget is null (every non-Cash-Flow-
-  // drilldown edit path).
+  // right back on the same tab/report (and the same drilldown, if one was open) they edited/
+  // copied/reversed this voucher from, instead of leaving them on a blank New Voucher form.
   const restoreReturnTarget = () => {
     if (!returnTarget) return;
     setTab(returnTarget.tab);
     setReport(returnTarget.report);
     setColumnarDrilldown(returnTarget.columnarDrilldown);
     setCashFlowDetail(returnTarget.cashFlowDetail);
+    setSelected(returnTarget.selected);
+    setSelectedAssetTag(returnTarget.selectedAssetTag);
     setReturnTarget(null);
   };
 
