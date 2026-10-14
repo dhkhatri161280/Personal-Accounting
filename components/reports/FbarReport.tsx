@@ -172,9 +172,10 @@ export function FbarReport({
               real foreign financial account (e.g. a life insurance policy's cash surrender value) whose true value
               isn't what this ledger's balance reflects -- enter the real figure directly, per year. Both choices
               are remembered on the account for next year automatically. This is a computational aid only, not tax
-              or legal advice -- verify every figure yourself before filing. FBARs are filed electronically through
-              FinCEN's own BSA E-Filing System at bsaefiling.fincen.gov -- this app cannot file on your behalf.
-              "Generate FinCEN PDF" downloads a pre-filled DRAFT of the actual Form 114 PDF (using your FBAR filer
+              or legal advice -- verify every figure yourself before filing; this report is only a worksheet, not a
+              filing. FBARs are filed electronically through FinCEN's own BSA E-Filing System at bsaefiling.fincen.gov
+              -- this app cannot file on your behalf. "Generate FinCEN PDF" downloads a pre-filled DRAFT of the
+              actual Form 114 PDF (using your FBAR filer
               profile from Masters &gt; Settings plus the rows below) -- it's a dynamic Adobe form, so it only opens
               correctly in Adobe Reader, not a browser or Preview. Review every field yourself before signing and
               submitting it on FinCEN's site.
@@ -208,25 +209,7 @@ export function FbarReport({
         </p>
       )}
 
-      <p
-        style={{
-          margin: "0 0 14px",
-          padding: "10px 14px",
-          borderRadius: 8,
-          fontSize: 13,
-          fontWeight: 600,
-          background: extendedDeadlinePassed ? "#fee2e2" : "#fef9c3",
-          color: extendedDeadlinePassed ? "#991b1b" : "#713f12",
-          border: `1px solid ${extendedDeadlinePassed ? "#fecaca" : "#fde047"}`,
-        }}
-      >
-        {extendedDeadlinePassed
-          ? `CY${year} FBAR deadline (${deadline}) has passed.`
-          : `CY${year} FBAR is due ${deadline}.`}{" "}
-        File electronically at bsaefiling.fincen.gov -- this report is only a worksheet to help you fill it out.
-      </p>
-
-      {summary.rate && (
+      {summary.rate ? (
         <p
           style={{
             margin: "0 0 14px",
@@ -234,15 +217,19 @@ export function FbarReport({
             borderRadius: 8,
             fontSize: 13,
             fontWeight: 600,
-            background: summary.thresholdExceeded ? "#fee2e2" : "#dcfce7",
-            color: summary.thresholdExceeded ? "#991b1b" : "#166534",
-            border: `1px solid ${summary.thresholdExceeded ? "#fecaca" : "#bbf7d0"}`,
+            background: summary.thresholdExceeded || extendedDeadlinePassed ? "#fee2e2" : "#dcfce7",
+            color: summary.thresholdExceeded || extendedDeadlinePassed ? "#991b1b" : "#166534",
+            border: `1px solid ${summary.thresholdExceeded || extendedDeadlinePassed ? "#fecaca" : "#bbf7d0"}`,
           }}
         >
           {summary.thresholdExceeded
-            ? `You DO need to file an FBAR for CY${year} -- combined peak value ${fmtUsd(summary.totalUsd)} exceeds the ${fmtUsd(FBAR_THRESHOLD_USD)} threshold.`
-            : `You do NOT need to file an FBAR for CY${year} -- combined peak value ${fmtUsd(summary.totalUsd)} is under the ${fmtUsd(FBAR_THRESHOLD_USD)} threshold.`}
-          {needsAttentionCount > 0 ? " (Still missing manual values below -- this determination may change once those are entered.)" : ""}
+            ? `FBAR filing required for CY${year} -- peak value ${fmtUsd(summary.totalUsd)} exceeds ${fmtUsd(FBAR_THRESHOLD_USD)}. ${extendedDeadlinePassed ? `Deadline (${deadline}) has passed.` : `Due ${deadline}.`}`
+            : `No FBAR required for CY${year} -- peak value ${fmtUsd(summary.totalUsd)} is under ${fmtUsd(FBAR_THRESHOLD_USD)}.`}
+          {needsAttentionCount > 0 ? " (Missing manual values below -- this may change once entered.)" : ""}
+        </p>
+      ) : (
+        <p style={{ margin: "0 0 14px", padding: "10px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#fef9c3", color: "#713f12", border: "1px solid #fde047" }}>
+          {extendedDeadlinePassed ? `CY${year} FBAR deadline (${deadline}) has passed.` : `CY${year} FBAR is due ${deadline}.`}
         </p>
       )}
 
