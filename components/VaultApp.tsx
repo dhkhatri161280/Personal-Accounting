@@ -1141,6 +1141,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     await save(next, "daybook");
   }
 
+  // Lets the user confirm "I checked this one -- both ledgers are right, it's a genuine one-off,
+  // stop flagging it" directly from the Categorization Review report, since the audit's own
+  // word-overlap heuristic can't tell a real miscategorization apart from a coincidental match
+  // (e.g. a person's name shared with an unrelated ledger's vouchers) -- see
+  // lib/categorization-audit.ts's own doc comment. Reversible: toggling again un-dismisses it.
+  async function toggleCategorizationDismissed(guid: string) {
+    if (!data) return;
+    const already = (data.categorizationReviewDismissed ?? []).includes(guid);
+    const next: Ledger = {
+      ...data,
+      categorizationReviewDismissed: already
+        ? (data.categorizationReviewDismissed ?? []).filter((g) => g !== guid)
+        : [...(data.categorizationReviewDismissed ?? []), guid],
+    };
+    await save(next, "reports");
+  }
+
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
   // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
   // real sync outage was easy to miss because nothing draws your eye to the small lock button.
@@ -5072,7 +5089,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <AuditLog data={data} onViewVoucher={(t) => setSelectedVoucher(t)} />
           )}
           {report === "categorization" && data && (
-            <CategorizationReview data={data} onViewVoucher={(t) => setSelectedVoucher(t)} />
+            <CategorizationReview data={data} onViewVoucher={(t) => setSelectedVoucher(t)} onToggleDismissed={toggleCategorizationDismissed} />
           )}
           {report === "balconfirm" && data && <BalanceConfirmationLetter data={data} fmt={fmt} />}
           {report === "fixedassets" && data && (

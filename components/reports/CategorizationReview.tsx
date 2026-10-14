@@ -19,9 +19,20 @@ const KIND_COLOR: Record<CategorizationFlagKind, string> = {
 // DECCAN MORSEL / Vehicle Maintenance bug this was built to catch). Read-only: this surfaces
 // candidates for review, it never changes anything -- the fix is editing the flagged voucher's
 // ledger by hand, same as any other correction, which syncs to Tally normally on the next cycle.
-export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; onViewVoucher: (t: Tx) => void }) {
+export function CategorizationReview({
+  data,
+  onViewVoucher,
+  onToggleDismissed,
+}: {
+  data: Ledger;
+  onViewVoucher: (t: Tx) => void;
+  // Reversible "I checked this one, it's actually fine, stop flagging it" per voucher -- toggling
+  // the same guid again un-dismisses it. See VaultApp.tsx's toggleCategorizationDismissed.
+  onToggleDismissed: (guid: string) => void;
+}) {
   const [kindFilter, setKindFilter] = useState<"" | CategorizationFlagKind>("");
   const [showInfo, setShowInfo] = useState(false);
+  const [showDismissed, setShowDismissed] = useState(false);
   // Which flag/side evidence lists are expanded -- keyed "<guid>:own" / "<guid>:suggested" so the
   // two sides of the same flag (and every other flag) toggle independently.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -32,7 +43,10 @@ export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; on
       return next;
     });
 
-  const flags = useMemo(() => auditNarrationCategorization(data), [data]);
+  const allFlags = useMemo(() => auditNarrationCategorization(data), [data]);
+  const dismissedGuids = useMemo(() => new Set(data.categorizationReviewDismissed ?? []), [data.categorizationReviewDismissed]);
+  const flags = useMemo(() => allFlags.filter((f) => !dismissedGuids.has(f.guid)), [allFlags, dismissedGuids]);
+  const dismissedFlags = useMemo(() => allFlags.filter((f) => dismissedGuids.has(f.guid)), [allFlags, dismissedGuids]);
   const accountName = useMemo(() => new Map(data.accounts.map((a) => [a.id, a.name])), [data.accounts]);
   const txByGuid = useMemo(() => new Map(data.transactions.map((t) => [t.guid, t])), [data.transactions]);
 
@@ -79,6 +93,49 @@ export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; on
   const conflictingCount = flags.filter((f) => f.kind === "conflicting").length;
   const thinCount = flags.filter((f) => f.kind === "thin").length;
 
+  // Shared row rendering for both the active list and the "Show dismissed" list below --
+  // `dismissed` only changes the action button's label/behavior (Mark as correct vs. Un-dismiss).
+  const FlagRow = ({ f, dismissed }: { f: CategorizationFlag; dismissed: boolean }) => {
+    const tx = txByGuid.get(f.guid);
+    return (
+      <div className="report-line" key={f.guid}>
+        <span>
+          <strong style={{ color: KIND_COLOR[f.kind] }}>{KIND_LABEL[f.kind]}</strong>{" "}
+          <span style={{ opacity: 0.6, fontSize: 11 }}>({fmtDate(f.date)} · {f.voucherType} #{f.voucherNumber})</span>
+          <br />
+          {tx ? (
+            <button type="button" className="columnar-cell-btn" style={{ color: "#1d4ed8", textDecoration: "underline" }} onClick={() => onViewVoucher(tx)}>
+              {f.narration || "(no narration)"}
+            </button>
+          ) : (
+            f.narration || "(no narration)"
+          )}
+          <br />
+          <span style={{ fontSize: 12, opacity: 0.8 }}>
+            Currently: <strong>{nameFor(f.debitId)}</strong>
+            <EvidenceToggle flagGuid={f.guid} side="own" count={f.ownVotes} guids={f.ownEvidenceGuids} />
+            {f.kind === "conflicting" && (
+              <>
+                {" — "}suggested: <strong style={{ color: "#16a34a" }}>{nameFor(f.suggestedDebitId)}</strong>
+                <EvidenceToggle flagGuid={f.guid} side="suggested" count={f.suggestedVotes ?? 0} guids={f.suggestedEvidenceGuids ?? []} />
+              </>
+            )}
+          </span>
+          <br />
+          <button
+            type="button"
+            className="tr-refresh-btn"
+            style={{ marginTop: 4 }}
+            title={dismissed ? "Put this back in the review list" : "I checked both ledgers -- this one's actually fine, stop flagging it"}
+            onClick={() => onToggleDismissed(f.guid)}
+          >
+            {dismissed ? "Un-dismiss" : "Mark as correct — don't flag again"}
+          </button>
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div className="data-panel">
       <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -106,7 +163,11 @@ export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; on
               pattern that mis-posts a restaurant charge onto a Vehicle Maintenance ledger because it happens to share one
               word with an unrelated prior voucher. This is read-only -- nothing is changed automatically; fix a flagged
               voucher the normal way (edit its ledger), which syncs to Tally like any other edit. Manually-entered vouchers
-              are never flagged, since a coincidental word match there isn't a categorization bug.
+              are never flagged, since a coincidental word match there isn't a categorization bug. Click "(N similar
+              vouchers)" to see and open exactly which vouchers are behind that count -- a false positive caused by a
+              coincidentally-shared word (a person's name, an abbreviation) becomes obvious once you can see them. If
+              you've checked one and it's genuinely fine as-is, "Mark as correct" hides it from future reviews
+              (reversible, via "Show dismissed").
             </div>
           )}
         </span>
@@ -118,6 +179,12 @@ export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; on
           <option value="conflicting">Likely wrong ({conflictingCount})</option>
           <option value="thin">Weak evidence ({thinCount})</option>
         </select>
+        {dismissedFlags.length > 0 && (
+          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+            <input type="checkbox" checked={showDismissed} onChange={(e) => setShowDismissed(e.target.checked)} />
+            Show dismissed ({dismissedFlags.length})
+          </label>
+        )}
       </div>
 
       {flags.length === 0 ? (
@@ -126,36 +193,15 @@ export function CategorizationReview({ data, onViewVoucher }: { data: Ledger; on
           entries are never included.
         </p>
       ) : (
-        filtered.map((f) => {
-          const tx = txByGuid.get(f.guid);
-          return (
-            <div className="report-line" key={f.guid}>
-              <span>
-                <strong style={{ color: KIND_COLOR[f.kind] }}>{KIND_LABEL[f.kind]}</strong>{" "}
-                <span style={{ opacity: 0.6, fontSize: 11 }}>({fmtDate(f.date)} · {f.voucherType} #{f.voucherNumber})</span>
-                <br />
-                {tx ? (
-                  <button type="button" className="columnar-cell-btn" onClick={() => onViewVoucher(tx)}>
-                    {f.narration || "(no narration)"}
-                  </button>
-                ) : (
-                  f.narration || "(no narration)"
-                )}
-                <br />
-                <span style={{ fontSize: 12, opacity: 0.8 }}>
-                  Currently: <strong>{nameFor(f.debitId)}</strong>
-                  <EvidenceToggle flagGuid={f.guid} side="own" count={f.ownVotes} guids={f.ownEvidenceGuids} />
-                  {f.kind === "conflicting" && (
-                    <>
-                      {" — "}suggested: <strong style={{ color: "#16a34a" }}>{nameFor(f.suggestedDebitId)}</strong>
-                      <EvidenceToggle flagGuid={f.guid} side="suggested" count={f.suggestedVotes ?? 0} guids={f.suggestedEvidenceGuids ?? []} />
-                    </>
-                  )}
-                </span>
-              </span>
-            </div>
-          );
-        })
+        filtered.map((f) => <FlagRow key={f.guid} f={f} dismissed={false} />)
+      )}
+
+      {showDismissed && dismissedFlags.length > 0 && (
+        <>
+          <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e5e7eb" }} />
+          <h4 style={{ margin: "0 0 8px", opacity: 0.7 }}>Dismissed — confirmed correct</h4>
+          {dismissedFlags.map((f) => <FlagRow key={f.guid} f={f} dismissed={true} />)}
+        </>
       )}
     </div>
   );

@@ -576,6 +576,12 @@ export type Ledger = {
   // source of truth in both cases, not a per-transaction match this app can ever produce. See
   // TransactionTable.tsx's isReconciled.
   alwaysReconciledAccountIds?: number[];
+  // Voucher guids the user has explicitly reviewed and confirmed correct in the Categorization
+  // Review report (components/reports/CategorizationReview.tsx) -- a one-off word coincidence the
+  // audit's heuristic can't distinguish from a real miscategorization (e.g. a person's name
+  // shared with an unrelated ledger's vouchers). Suppresses that one voucher from future audit
+  // runs without changing anything about the voucher itself; see lib/categorization-audit.ts.
+  categorizationReviewDismissed?: string[];
   // Depreciable physical assets tracked in the Fixed Asset Register. See lib/fixed-assets.ts.
   fixedAssets?: FixedAsset[];
   // Prepaid expenses amortized over time. See lib/prepaid-expense.ts.
