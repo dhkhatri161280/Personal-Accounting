@@ -1389,29 +1389,47 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         // through THIS account" without discarding the identity the way the original computation
         // did (it only ever checked "did some cash account move", never which one).
         const cashAccountIds = cashEntries.map((e) => e.accountId);
-        // A voucher can move money through MULTIPLE cash/bank accounts at once (e.g. a payroll
-        // deposit split across two banks from one Salary Income credit) -- confirmed live as a
-        // real bug: filtering to one account still showed each non-cash entry's FULL amount
-        // against that account, not just its own share of the split. When filtered, each entry's
-        // amount is scaled by the filtered account's own share of this voucher's total cash
-        // movement; unfiltered ("" / every account) keeps the original full amount.
-        const totalCashAbs = cashEntries.reduce((s, e) => s + Math.abs(e.amount), 0);
-        const filteredShare =
-          cashFlowAccountFilter === ""
-            ? 1
-            : totalCashAbs > tol
-              ? Math.abs(cashEntries.find((e) => e.accountId === cashFlowAccountFilter)?.amount ?? 0) / totalCashAbs
-              : 0;
-        return t.entries
-          .filter((e) => !cashIds.has(e.accountId) && Math.abs(e.amount) * filteredShare > tol)
-          .map((e, i) => {
-            const account = accountById.get(e.accountId),
-              group = account?.parent || "Other",
-              ledger = account?.name || e.accountName || "Unknown Ledger",
-              amount = Math.abs(e.amount) * filteredShare,
-              kind = e.amount > 0 ? "inflow" : "outflow";
-            return { t, entry: e, entryIndex: i, group, ledger, amount, kind, movement: kind === "inflow" ? amount : -amount, cashAccountIds };
-          });
+        if (cashFlowAccountFilter === "") {
+          // Unfiltered: every account combined, original behavior.
+          return t.entries
+            .filter((e) => !cashIds.has(e.accountId) && Math.abs(e.amount) > tol)
+            .map((e, i) => {
+              const account = accountById.get(e.accountId),
+                group = account?.parent || "Other",
+                ledger = account?.name || e.accountName || "Unknown Ledger",
+                amount = Math.abs(e.amount),
+                kind = e.amount > 0 ? "inflow" : "outflow";
+              return { t, entry: e, entryIndex: i, group, ledger, amount, kind, movement: kind === "inflow" ? amount : -amount, cashAccountIds };
+            });
+        }
+        // Filtered to one account -- a voucher can move money through MULTIPLE cash/bank
+        // accounts at once (e.g. a payroll deposit split across two banks), and can ALSO carry
+        // non-cash entries that have nothing to do with any one bank specifically (e.g. Tax/401k
+        // deductions subtracted from gross pay before the bank split even happens). Confirmed
+        // live twice: filtering to one bank first showed the FULL salary credit against it, then
+        // (after a first, still-incomplete fix) an inflated gross-minus-deductions share, AND
+        // showed Tax/401k as "outflow" against a bank that never touched them. Correct model:
+        // this account's own entry amount is exactly how much moved -- split that fixed amount
+        // across only the counter-entries on the OPPOSITE side (credits fund a debit/inflow;
+        // debits are funded BY a credit/outflow), weighted by each counter-entry's own share of
+        // that side's total. A same-side entry gets nothing -- it's a sibling destination this
+        // account's money never passed through.
+        const filteredEntry = cashEntries.find((e) => e.accountId === cashFlowAccountFilter);
+        if (!filteredEntry) return [];
+        const filteredAmt = Math.abs(filteredEntry.amount);
+        if (filteredAmt <= tol) return [];
+        const isInflow = filteredEntry.amount < 0;
+        const counterEntries = t.entries.filter((e) => !cashIds.has(e.accountId) && (isInflow ? e.amount > tol : e.amount < -tol));
+        const counterTotal = counterEntries.reduce((s, e) => s + Math.abs(e.amount), 0);
+        if (counterTotal <= tol) return [];
+        return counterEntries.map((e, i) => {
+          const account = accountById.get(e.accountId),
+            group = account?.parent || "Other",
+            ledger = account?.name || e.accountName || "Unknown Ledger",
+            amount = filteredAmt * (Math.abs(e.amount) / counterTotal),
+            kind = isInflow ? "inflow" : "outflow";
+          return { t, entry: e, entryIndex: i, group, ledger, amount, kind, movement: kind === "inflow" ? amount : -amount, cashAccountIds };
+        });
       });
     const filteredItems = cashFlowAccountFilter === "" ? items : items.filter((x) => x.cashAccountIds.includes(cashFlowAccountFilter));
     const groups = [

@@ -236,6 +236,49 @@ test("buildGrCashFlowColumns: a voucher split across two cash accounts apportion
   assert.ok(Math.abs(chaseSalary!.total + bofaSalary!.total - allSalary!.total) < 0.01);
 });
 
+test("buildGrCashFlowColumns: a real payroll voucher (gross salary minus Tax/401k deductions, split across two banks) attributes the filtered bank's EXACT fixed deposit to Salary only -- no deduction bleed-through", () => {
+  const usAccounts = [
+    account(1, "Bank Of America", "Bank Accounts"),
+    account(2, "Chase Bank", "Bank Accounts"),
+    account(3, "Salary Income - Nvidia", "Direct Incomes"),
+    account(4, "Tax Deduction", "Indirect Expenses"),
+    account(5, "401K Investments", "Investments"),
+  ];
+  const usTxns = [
+    tx(1, "2026-07-15", [
+      { accountId: 3, accountName: "Salary Income - Nvidia", amount: 9000 },
+      { accountId: 4, accountName: "Tax Deduction", amount: -300 },
+      { accountId: 5, accountName: "401K Investments", amount: -200 },
+      { accountId: 1, accountName: "Bank Of America", amount: -6500 },
+      { accountId: 2, accountName: "Chase Bank", amount: -2000 },
+    ]),
+  ];
+  const usData = ledger(usAccounts, usTxns);
+  const indiaData = ledger([], []);
+  const gr = consolidateLedger(usData, indiaData, { "2026-06": 1 });
+  const bankCashAccounts = gr.accounts.filter((a) => a.parent === "Bank Accounts");
+  const periods = periodBoundariesForRange("2026-07-01", "2026-07-31", "monthly");
+
+  const chaseOnly = buildGrCashFlowColumns(gr, periods, bankCashAccounts, "Chase Bank");
+  const chaseSalary = chaseOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(chaseSalary);
+  assert.ok(Math.abs(chaseSalary!.total - 2000) < 0.01, `expected exactly 2000, got ${chaseSalary!.total}`);
+  assert.equal(chaseOnly.outflowRows.find((r) => r.name === "Tax Deduction"), undefined);
+  assert.equal(chaseOnly.outflowRows.find((r) => r.name === "401K Investments"), undefined);
+
+  const bofaOnly = buildGrCashFlowColumns(gr, periods, bankCashAccounts, "Bank Of America");
+  const bofaSalary = bofaOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(bofaSalary);
+  assert.ok(Math.abs(bofaSalary!.total - 6500) < 0.01, `expected exactly 6500, got ${bofaSalary!.total}`);
+  assert.equal(bofaOnly.outflowRows.find((r) => r.name === "Tax Deduction"), undefined);
+  assert.equal(bofaOnly.outflowRows.find((r) => r.name === "401K Investments"), undefined);
+
+  const all = buildGrCashFlowColumns(gr, periods, bankCashAccounts);
+  assert.ok(Math.abs((all.inflowRows.find((r) => r.name === "Salary Income - Nvidia")?.total ?? 0) - 9000) < 0.01);
+  assert.ok(Math.abs((all.outflowRows.find((r) => r.name === "Tax Deduction")?.total ?? 0) - 300) < 0.01);
+  assert.ok(Math.abs((all.outflowRows.find((r) => r.name === "401K Investments")?.total ?? 0) - 200) < 0.01);
+});
+
 test("trimGrToLatestActivity: drops periods that haven't started yet as of the latest posted voucher", () => {
   const usAccounts = [account(1, "Checking", "Bank Accounts"), account(2, "Salary", "Direct Incomes")];
   const usTxns = [

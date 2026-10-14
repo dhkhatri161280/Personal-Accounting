@@ -403,27 +403,43 @@ export function buildCashFlowColumns(
     const cashMovement = -cashEntries.reduce((s, e) => s + e.amount, 0);
     if (!cashEntries.length || Math.abs(cashMovement) <= TOL) continue;
     if (accountFilter !== "" && !cashEntries.some((e) => e.accountId === accountFilter)) continue;
-    // A voucher can move money through MULTIPLE cash/bank accounts at once (e.g. a payroll
-    // deposit split across two banks from one Salary Income credit) -- confirmed live as a real
-    // bug: filtering Cash Flow to one account still attributed each non-cash entry's FULL amount
-    // to that account, so a $10,666.67 salary credit split $10,166.67/$500 between two banks
-    // showed the entire $10,666.67 against EITHER bank once filtered, not just its own share.
-    // When filtered, each non-cash entry is apportioned by the filtered account's own share of
-    // this voucher's total cash movement -- for the common case of exactly one cash leg, that
-    // share is 1 (no change from before); unfiltered ("" / every account) is also unaffected,
-    // since every account's shares sum back to the original full amount.
-    const totalCashAbs = cashEntries.reduce((s, e) => s + Math.abs(e.amount), 0);
-    const filteredShare =
-      accountFilter === ""
-        ? 1
-        : totalCashAbs > TOL
-          ? Math.abs(cashEntries.find((e) => e.accountId === accountFilter)?.amount ?? 0) / totalCashAbs
-          : 0;
-    for (const e of t.entries) {
-      if (cashIds.has(e.accountId) || Math.abs(e.amount) <= TOL) continue;
-      const amt = Math.abs(e.amount) * filteredShare;
+    if (accountFilter === "") {
+      // Unfiltered: every account combined, original behavior -- each non-cash entry's own full
+      // amount, exactly as before.
+      for (const e of t.entries) {
+        if (cashIds.has(e.accountId) || Math.abs(e.amount) <= TOL) continue;
+        const map = e.amount > 0 ? inflowValues : outflowValues;
+        const rec = map.get(e.accountId) || (map.set(e.accountId, {}).get(e.accountId) as Record<string, number>);
+        rec[period.key] = (rec[period.key] || 0) + Math.abs(e.amount);
+      }
+      continue;
+    }
+    // Filtered to one account: a voucher can move money through MULTIPLE cash/bank accounts at
+    // once (e.g. a payroll deposit split across two banks from one Salary Income credit), and can
+    // ALSO carry non-cash entries that have nothing to do with any one bank specifically (e.g.
+    // Tax/401k/Medical deductions subtracted from gross pay before the bank split even happens).
+    // Confirmed live as a real bug twice: first, filtering to one bank showed the FULL salary
+    // credit against it (not just its own share); fixed by apportioning every non-cash entry by
+    // the filtered account's share of TOTAL cash movement -- but that still let a portion of each
+    // deduction bleed onto a bank it never touched, and still over-attributed the credit (gross
+    // pay, inflated by the deductions that never reached any bank) instead of the filtered
+    // account's own exact cash amount. The correct model: this account's own entry amount is
+    // EXACTLY how much moved -- split that fixed amount across only the counter-entries on the
+    // OPPOSITE side of the ledger (credits fund a debit/inflow; debits are funded BY a credit/
+    // outflow), weighted by each counter-entry's own share of that opposite side's total. A
+    // same-side entry (e.g. another deduction debited alongside this account) gets nothing --
+    // it's a sibling destination, not something this account's money passed through.
+    const filteredEntry = cashEntries.find((e) => e.accountId === accountFilter)!;
+    const filteredAmt = Math.abs(filteredEntry.amount);
+    if (filteredAmt <= TOL) continue;
+    const isInflow = filteredEntry.amount < 0; // Dr on this cash account = inflow
+    const counterEntries = t.entries.filter((e) => !cashIds.has(e.accountId) && (isInflow ? e.amount > TOL : e.amount < -TOL));
+    const counterTotal = counterEntries.reduce((s, e) => s + Math.abs(e.amount), 0);
+    if (counterTotal <= TOL) continue;
+    const map = isInflow ? inflowValues : outflowValues;
+    for (const e of counterEntries) {
+      const amt = filteredAmt * (Math.abs(e.amount) / counterTotal);
       if (amt <= TOL) continue;
-      const map = e.amount > 0 ? inflowValues : outflowValues;
       const rec = map.get(e.accountId) || (map.set(e.accountId, {}).get(e.accountId) as Record<string, number>);
       rec[period.key] = (rec[period.key] || 0) + amt;
     }

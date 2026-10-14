@@ -138,6 +138,67 @@ test("buildCashFlowColumns: a voucher split across two cash accounts (e.g. payro
   assert.ok(Math.abs(chaseSalary!.total + bofaSalary!.total - allSalary!.total) < 0.01);
 });
 
+test("buildCashFlowColumns: a real payroll voucher (gross salary minus Tax/401k deductions, split across two banks) attributes the filtered bank's EXACT fixed deposit to Salary only -- no deduction bleed-through", () => {
+  // Real confirmed bug (second report): Chase's own deposit is always a fixed $2,000/paycheck,
+  // but filtering to Chase showed a different, inflated "Salary Income" figure every month (since
+  // an earlier, now-superseded fix apportioned by Chase's share of ALL cash movement, which
+  // pulled in a slice of the GROSS salary -- inflated beyond Chase's real $2,000 by however much
+  // was deducted for Tax/401k before the bank split even happened), AND showed Tax/401k
+  // themselves as "cash outflow" from Chase, even though neither ever touched Chase at all.
+  const data: Ledger = {
+    currency: "USD",
+    accounts: [
+      { id: 1, name: "Bank Of America", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0, active: true },
+      { id: 2, name: "Chase Bank", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0, active: true },
+      { id: 3, name: "Salary Income - Nvidia", parent: "Direct Incomes", category: "Income", currency: "USD", openingBalance: 0, active: true },
+      { id: 4, name: "Tax Deduction", parent: "Indirect Expenses", category: "Expense", currency: "USD", openingBalance: 0, active: true },
+      { id: 5, name: "401K Investments", parent: "Investments", category: "Expense", currency: "USD", openingBalance: 0, active: true },
+    ],
+    transactions: [
+      {
+        id: 1,
+        guid: "t1",
+        date: "2026-07-15",
+        number: "1",
+        type: "Receipt",
+        narration: "Salary Income - Semi Monthly",
+        entries: [
+          { accountId: 3, accountName: "Salary Income - Nvidia", amount: 9000 }, // gross
+          { accountId: 4, accountName: "Tax Deduction", amount: -300 },
+          { accountId: 5, accountName: "401K Investments", amount: -200 },
+          { accountId: 1, accountName: "Bank Of America", amount: -6500 }, // net to primary bank
+          { accountId: 2, accountName: "Chase Bank", amount: -2000 }, // fixed secondary deposit
+        ],
+      },
+    ],
+    groups: [],
+  } as unknown as Ledger;
+  const periods = periodBoundariesForRange("2026-07-01", "2026-07-31", "monthly");
+
+  const chaseOnly = buildCashFlowColumns(data, periods, 2);
+  // Exactly Chase's own fixed deposit -- not inflated by a share of the gross-minus-deductions.
+  const chaseSalary = chaseOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(chaseSalary);
+  assert.ok(Math.abs(chaseSalary!.total - 2000) < 0.01, `expected exactly 2000, got ${chaseSalary!.total}`);
+  // Tax/401k never touched Chase -- must not appear as outflow against it at all.
+  assert.equal(chaseOnly.outflowRows.find((r) => r.name === "Tax Deduction"), undefined);
+  assert.equal(chaseOnly.outflowRows.find((r) => r.name === "401K Investments"), undefined);
+
+  // BofA likewise gets exactly its own net deposit, not a gross-inflated share.
+  const bofaOnly = buildCashFlowColumns(data, periods, 1);
+  const bofaSalary = bofaOnly.inflowRows.find((r) => r.name === "Salary Income - Nvidia");
+  assert.ok(bofaSalary);
+  assert.ok(Math.abs(bofaSalary!.total - 6500) < 0.01, `expected exactly 6500, got ${bofaSalary!.total}`);
+  assert.equal(bofaOnly.outflowRows.find((r) => r.name === "Tax Deduction"), undefined);
+  assert.equal(bofaOnly.outflowRows.find((r) => r.name === "401K Investments"), undefined);
+
+  // The unfiltered view is untouched: full gross in, both deductions out as their own lines.
+  const all = buildCashFlowColumns(data, periods);
+  assert.equal(all.inflowRows.find((r) => r.name === "Salary Income - Nvidia")?.total, 9000);
+  assert.equal(all.outflowRows.find((r) => r.name === "Tax Deduction")?.total, 300);
+  assert.equal(all.outflowRows.find((r) => r.name === "401K Investments")?.total, 200);
+});
+
 test("buildCashFlowColumns: closingByPeriod scopes to the filtered account's own balance", () => {
   const data = ledger();
   const periods = periodBoundariesForRange("2026-04-01", "2026-04-30", "monthly");

@@ -772,37 +772,54 @@ export function GrApp() {
     const netCash = cashEntries.reduce((s, e) => s - e.amountInr, 0);
     if (Math.abs(netCash) < tol) continue;
     if (cashFlowAccountFilterKey && !cashEntries.some((e) => normKey(e.accountName) === cashFlowAccountFilterKey)) continue;
-    const isInflow = netCash > 0;
-    // A voucher can move money through MULTIPLE cash/bank accounts at once (e.g. a payroll
-    // deposit split across two banks from one Salary Income credit) -- confirmed live as a real
-    // bug: filtering to one account still attributed each non-cash entry's FULL amount to that
-    // account, not just its own share of the split. When filtered, each entry is scaled by the
-    // filtered account's own share of this voucher's total cash movement; unfiltered ("" / every
-    // account) keeps the original full amount.
-    const totalCashAbs = cashEntries.reduce((s, e) => s + Math.abs(e.amountInr), 0);
-    const filteredShare =
-      cashFlowAccountFilterKey === ""
-        ? 1
-        : totalCashAbs > tol
-          ? Math.abs(cashEntries.find((e) => normKey(e.accountName) === cashFlowAccountFilterKey)?.amountInr ?? 0) / totalCashAbs
-          : 0;
 
-    for (const e of t.entries) {
-      if (bankCashNameSet.has(normKey(e.accountName))) continue;
-      const amt = Math.abs(e.amountInr) * filteredShare;
-      if (amt <= tol) continue;
-      const parent = accountParentMap.get(normKey(e.accountName)) || "Other";
-      if (!cfGroupMap.has(parent)) {
-        cfGroupMap.set(parent, { inflow: 0, outflow: 0, inflowLedgers: new Map(), outflowLedgers: new Map() });
+    const addAmt = (accountName: string, parentGroup: string, amt: number, inflow: boolean) => {
+      if (amt <= tol) return;
+      if (!cfGroupMap.has(parentGroup)) {
+        cfGroupMap.set(parentGroup, { inflow: 0, outflow: 0, inflowLedgers: new Map(), outflowLedgers: new Map() });
       }
-      const g = cfGroupMap.get(parent)!;
-      if (isInflow) {
+      const g = cfGroupMap.get(parentGroup)!;
+      if (inflow) {
         g.inflow += amt;
-        g.inflowLedgers.set(e.accountName, (g.inflowLedgers.get(e.accountName) || 0) + amt);
+        g.inflowLedgers.set(accountName, (g.inflowLedgers.get(accountName) || 0) + amt);
       } else {
         g.outflow += amt;
-        g.outflowLedgers.set(e.accountName, (g.outflowLedgers.get(e.accountName) || 0) + amt);
+        g.outflowLedgers.set(accountName, (g.outflowLedgers.get(accountName) || 0) + amt);
       }
+    };
+
+    if (cashFlowAccountFilterKey === "") {
+      // Unfiltered: every account combined, original behavior.
+      const isInflow = netCash > 0;
+      for (const e of t.entries) {
+        if (bankCashNameSet.has(normKey(e.accountName))) continue;
+        const parent = accountParentMap.get(normKey(e.accountName)) || "Other";
+        addAmt(e.accountName, parent, Math.abs(e.amountInr), isInflow);
+      }
+      continue;
+    }
+    // Filtered to one account -- a voucher can move money through MULTIPLE cash/bank accounts at
+    // once (e.g. a payroll deposit split across two banks), and can ALSO carry non-cash entries
+    // that have nothing to do with any one bank specifically (e.g. Tax/401k deductions subtracted
+    // from gross pay before the bank split even happens). Confirmed live twice: filtering to one
+    // bank first showed the FULL salary credit against it, then an inflated gross-minus-
+    // deductions share, AND showed Tax/401k as "outflow" against a bank that never touched them.
+    // Correct model: this account's own entry amount is exactly how much moved -- split that
+    // fixed amount across only the counter-entries on the OPPOSITE side (credits fund a
+    // debit/inflow; debits are funded BY a credit/outflow), weighted by each counter-entry's own
+    // share of that side's total. A same-side entry gets nothing -- it's a sibling destination
+    // this account's money never passed through.
+    const filteredEntry = cashEntries.find((e) => normKey(e.accountName) === cashFlowAccountFilterKey);
+    if (!filteredEntry) continue;
+    const filteredAmt = Math.abs(filteredEntry.amountInr);
+    if (filteredAmt <= tol) continue;
+    const isInflow = filteredEntry.amountInr < 0;
+    const counterEntries = t.entries.filter((e) => !bankCashNameSet.has(normKey(e.accountName)) && (isInflow ? e.amountInr > tol : e.amountInr < -tol));
+    const counterTotal = counterEntries.reduce((s, e) => s + Math.abs(e.amountInr), 0);
+    if (counterTotal <= tol) continue;
+    for (const e of counterEntries) {
+      const parent = accountParentMap.get(normKey(e.accountName)) || "Other";
+      addAmt(e.accountName, parent, filteredAmt * (Math.abs(e.amountInr) / counterTotal), isInflow);
     }
   }
 
