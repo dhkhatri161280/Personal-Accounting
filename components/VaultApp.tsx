@@ -1170,14 +1170,18 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // comment) ON THE ACCOUNT ITSELF, so the choice carries forward to next year's filing
   // automatically instead of being re-decided from scratch every year. "include" (the default) is
   // stored as undefined rather than the literal string, matching how every other optional account
-  // field in this app works.
+  // field in this app works. save()'s `destination` arg is "reports" (NOT "masters"), since this
+  // is invoked from inside the FBAR report itself and save() switches to whatever tab that string
+  // names once it succeeds -- "masters" was confirmed live to kick the user out to Masters →
+  // Ledger Accounts on every single dropdown change, even though nothing about THIS edit has
+  // anything to do with the Masters screen.
   async function setFbarTreatment(accountId: number, treatment: "include" | "exclude" | "manual") {
     if (!data) return;
     const next: Ledger = {
       ...data,
       accounts: data.accounts.map((a) => (a.id === accountId ? { ...a, fbarTreatment: treatment === "include" ? undefined : treatment } : a)),
     };
-    await save(next, "masters");
+    await save(next, "reports");
   }
 
   // The real reportable value for a "manual" account (e.g. a life insurance policy's cash
@@ -1196,7 +1200,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         return { ...a, fbarManualValuesInr: values };
       }),
     };
-    await save(next, "masters");
+    await save(next, "reports");
   }
 
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
