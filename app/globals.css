@@ -3920,6 +3920,16 @@ aside .install-app span {
 .master-status.synced:before {
   background: #28b978;
 }
+/* Deliberately NOT green/yellow -- those two are reserved for sync status (Synced/Pending).
+   "Inactive" is an unrelated, orthogonal fact about the ledger itself (active vs. closed), so it
+   gets its own neutral gray to avoid looking like a third sync state. */
+.master-status.inactive {
+  color: #52525b;
+  background: #f0f0f3;
+}
+.master-status.inactive:before {
+  background: #a1a1aa;
+}
 .master-deleting {
   opacity: 0.7;
 }

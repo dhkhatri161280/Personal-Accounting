@@ -160,17 +160,34 @@ function Sync-Book([string]$BookName, [string]$VaultName, [string]$Port) {
 
     $zero = [pscustomobject]@{ matched = 0; tallyToApp = 0; appToTally = 0; conflicts = 0 }
 
-    $master = Invoke-Node @('dual-port-engine-runner.js','master-sync',$BookName) 180
-    if ($master.Text) { Write-Host $master.Text }
-    $masterErr = [regex]::Match($master.Text, 'MASTER_SYNC_ERROR:\s*(.+)')
-    if ($masterErr.Success) {
-      $msg = $masterErr.Groups[1].Value.Trim()
-      if ($msg.Length -gt 180) { $msg = $msg.Substring(0,180) }
-      Publish-Health $BookName 'error' $zero "Master sync: $msg"
-    }
-    if ($master.ExitCode -ne 0 -and $master.Text -notmatch 'MASTER_SYNC_CLEAN') {
-      Publish-Health $BookName 'error' $zero "Master sync failed"
-      return
+    # master-sync.js only ever applies ONE pending ledger/group per invocation (deliberately --
+    # it verifies each write actually took in Tally before moving on, same discipline as the
+    # App-to-Tally voucher loop below). With a backlog of several pending masters (e.g. a bunch
+    # of Ledgers account edits made in one Masters session), a single cycle used to clear only
+    # one of them, silently leaving the rest "Pending" until the NEXT scheduled/manual cycle --
+    # looking like a stuck/broken sync rather than just "more to do". Looping here (same 25-pass
+    # cap, same per-pass verification) drains the whole backlog in one cycle instead, with no
+    # change to the one-at-a-time-with-verification safety property itself.
+    for ($mi = 1; $mi -le 25; $mi++) {
+      $master = Invoke-Node @('dual-port-engine-runner.js','master-sync',$BookName) 180
+      if ($master.Text) { Write-Host $master.Text }
+      $masterErr = [regex]::Match($master.Text, 'MASTER_SYNC_ERROR:\s*(.+)')
+      if ($masterErr.Success) {
+        $msg = $masterErr.Groups[1].Value.Trim()
+        if ($msg.Length -gt 180) { $msg = $msg.Substring(0,180) }
+        Publish-Health $BookName 'error' $zero "Master sync: $msg"
+      }
+      if ($master.ExitCode -ne 0 -and $master.Text -notmatch 'MASTER_SYNC_CLEAN') {
+        Publish-Health $BookName 'error' $zero "Master sync failed"
+        return
+      }
+      if ($master.Text -match 'MASTER_SYNC_CLEAN') { break }
+      if ($mi -eq 25) {
+        Publish-Health $BookName 'error' $zero "Master sync loop limit reached -- backlog may remain"
+      }
+      # Any other recognized outcome (MASTER_ACTION_APPLIED, MASTER_BASELINE_INITIALIZED,
+      # MASTER_DELETE_CHECK_1_OF_2/CLEARED, ...) means this pass did one unit of real work --
+      # loop again immediately to pick up the next pending master, if any.
     }
 
     for ($i = 1; $i -le 25; $i++) {

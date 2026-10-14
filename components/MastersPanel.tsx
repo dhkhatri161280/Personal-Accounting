@@ -1303,10 +1303,10 @@ export function MastersPanel({
                       <span className="master-status pending">
                         {a.masterDeletePending ? "Pending delete" : "Pending"}
                       </span>
+                    ) : a.active === false ? (
+                      <span className="master-status inactive">Inactive</span>
                     ) : (
-                      <span className="master-status synced">
-                        {a.active === false ? "Inactive" : "Synced"}
-                      </span>
+                      <span className="master-status synced">Synced</span>
                     )}
                   </td>
                   <td>
@@ -1358,10 +1358,10 @@ export function MastersPanel({
                       <span className="master-status pending">
                         {g.masterDeletePending ? "Pending delete" : "Pending"}
                       </span>
+                    ) : g.active === false ? (
+                      <span className="master-status inactive">Inactive</span>
                     ) : (
-                      <span className="master-status synced">
-                        {g.active === false ? "Inactive" : "Synced"}
-                      </span>
+                      <span className="master-status synced">Synced</span>
                     )}
                   </td>
                   <td>
