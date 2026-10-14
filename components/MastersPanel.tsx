@@ -513,7 +513,13 @@ export function MastersPanel({
   // Needed only for the Documents section's R2 upload/view/delete calls (book-scoped key
   // prefix, same as voucher attachments) -- every other section works off `data` alone.
   book: "us" | "india";
-  onSave: (next: MasterLedger, message: string) => void;
+  // May optionally return the underlying save's success/failure -- the global header toast
+  // already shows a status message on every save, but it's a small fixed-position pill in the
+  // top-right corner that's easy to miss on a long form (confirmed: a user scrolled down to the
+  // bottom of a long Settings form never saw it). The Settings form below awaits this to show its
+  // own inline, impossible-to-miss confirmation/error right next to the button they just clicked,
+  // without changing the toast itself (used the same way by every other Masters section here).
+  onSave: (next: MasterLedger, message: string) => void | Promise<boolean>;
   // Lets a caller deep-link straight into a sub-tab (e.g. the Dashboard's period-open badge
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
@@ -535,6 +541,9 @@ export function MastersPanel({
   privacyMode?: boolean;
 }) {
   const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings">(initialSection ?? "ledgers"),
+    // Inline confirmation/error for the Settings form's own Save button -- see that form's
+    // onSubmit and onSave's doc comment above for why this exists alongside the global toast.
+    [settingsSaveState, setSettingsSaveState] = useState<"saving" | "saved" | "error" | null>(null),
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
     [recurringTemplateId, setRecurringTemplateId] = useState<string | null>(null),
@@ -1907,8 +1916,9 @@ export function MastersPanel({
       {section === "settings" && (
         <form
           className="master-form settings-form"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
+            setSettingsSaveState("saving");
             const f = new FormData(e.currentTarget),
               currencies = String(f.get("currencies") || "")
                 .split(",")
@@ -1952,7 +1962,7 @@ export function MastersPanel({
                     country: fbarCountry || "United States",
                   }
                 : undefined;
-            onSave(
+            const result = onSave(
               {
                 ...data,
                 currencies,
@@ -1967,6 +1977,13 @@ export function MastersPanel({
               },
               "Other masters updated."
             );
+            // The real save (components/VaultApp.tsx) is async and can genuinely fail (network,
+            // stale-vault 412, expired session 428) -- awaiting it (when the caller returns a
+            // promise) lets this show an accurate inline result instead of always claiming
+            // success the instant the button is clicked.
+            const ok = result instanceof Promise ? await result : true;
+            setSettingsSaveState(ok ? "saved" : "error");
+            setTimeout(() => setSettingsSaveState((s) => (s === "saved" ? null : s)), 4000);
           }}
         >
           <h3>Company profile</h3>
@@ -2100,7 +2117,17 @@ export function MastersPanel({
               ))}
             </select>
           </label>
-          <button className="primary">Save settings</button>
+          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="primary" disabled={settingsSaveState === "saving"}>
+              {settingsSaveState === "saving" ? "Saving…" : "Save settings"}
+            </button>
+            {settingsSaveState === "saved" && (
+              <span style={{ fontWeight: 600, color: "#166534" }}>✓ Saved</span>
+            )}
+            {settingsSaveState === "error" && (
+              <span style={{ fontWeight: 600, color: "#991b1b" }}>Save failed -- see the message at the top of the page for details.</span>
+            )}
+          </span>
         </form>
       )}
       {accountId !== null && (

@@ -4186,7 +4186,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 }
               }
               setStatus(notes.length ? `${message} ${notes.join(" ")}` : message);
-              void save(finalLedger, "masters", exemptGuids);
+              return save(finalLedger, "masters", exemptGuids);
             }}
           />
         </div>
