@@ -178,7 +178,6 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
   if (!nameQuery) return "get_account_ledger error: no accountName given.";
   const { period, note } = readPeriodArg(args);
   const { from, to, label } = resolvePeriod(period, todayIso);
-  const masterGroups = masterGroupsOf(data);
 
   // Confirmed live: asked "how much is the ESPP this FY", this tool's plain substring match found
   // MULTIPLE distinct real accounts whose name happens to contain "espp" (e.g. an ESPP payroll
@@ -197,31 +196,45 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
     return `get_account_ledger("${args.accountName}"): ${candidates.length} DIFFERENT accounts match that name (${names}) and none is an exact match -- these are DISTINCT real accounts with their own separate balances. Do NOT add their numbers together or guess which one is meant. Call this tool again once per account using its EXACT full name (one call per account) and report them separately, or ask the user which one they meant.`;
   }
 
-  const matchingAccountIds = new Set([candidates[0].id]);
+  const theAccountId = candidates[0].id;
 
   const matches = data.transactions
     .filter((t) => !t.deleted && !t.cancelled && t.date >= from && t.date <= to)
-    .filter((t) => t.entries.some((e) => matchingAccountIds.has(e.accountId)))
+    .filter((t) => t.entries.some((e) => e.accountId === theAccountId))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
   if (!matches.length) return `get_account_ledger("${args.accountName}", ${label}): 0 vouchers found.${note}`;
 
+  // Confirmed live: reusing classifyVoucher's Expense/refund-specific sign logic here produced a
+  // badly wrong total ($41559.46 vs the real ledger report's $3802.22) for an Investment-nature
+  // account (ESPP Deduction) -- that logic is a bespoke "is this a refund of an expense" scheme
+  // built for search_vouchers' Costco-purchase-vs-return questions, and it only special-cases
+  // Expense-nature accounts; every other nature (Investment, Bank, Cash, Asset, ...) just falls
+  // through to an always-positive magnitude, discarding the real debit/credit direction entirely.
+  // This instead mirrors the real Ledger report's own math EXACTLY (see ledgerSignedAmount in
+  // components/TransactionTable.tsx, the function that actually produces the "Displayed total" the
+  // user is comparing against): sum THIS account's own entry amount(s) in the voucher, then flip
+  // the sign -- a debit to the account displays positive, a credit displays negative, independent
+  // of account nature, matching the real ledger UI for any account.
   let total = 0;
-  for (const t of matches) total += classifyVoucher(data, masterGroups, t).amt;
+  const allLines: string[] = [];
+  for (const t of matches) {
+    const rawForThisAccount = t.entries.filter((e) => e.accountId === theAccountId).reduce((s, e) => s + e.amount, 0);
+    const displayAmt = -rawForThisAccount;
+    total += displayAmt;
+    const otherAccounts = [...new Set(t.entries.filter((e) => e.accountId !== theAccountId).map((e) => data.accounts.find((a) => a.id === e.accountId)?.name).filter((n): n is string => !!n))].join(" / ");
+    allLines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} [other side: ${otherAccounts || "n/a"}] (${displayAmt.toFixed(2)} ${data.currency})`);
+  }
 
   const truncated = matches.length > MAX_RESULTS;
-  const shown = truncated ? matches.slice(0, MAX_RESULTS) : matches;
+  const shownLines = truncated ? allLines.slice(0, MAX_RESULTS) : allLines;
   const lines = [
     `get_account_ledger("${args.accountName}", ${label}): ${matches.length} voucher(s).${note}`,
-    `PRECOMPUTED TOTAL (authoritative, refunds already subtracted -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
+    `PRECOMPUTED TOTAL (authoritative -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
     "",
     truncated ? `Voucher list (showing the first ${MAX_RESULTS} of ${matches.length} -- the total above already covers all ${matches.length}):` : "Voucher list (every voucher in this account for the period, for citing examples only):",
+    ...shownLines,
   ];
-  for (const t of shown) {
-    const { amt, isRefund, acctNames } = classifyVoucher(data, masterGroups, t);
-    const refundNote = isRefund ? " -- REFUND/return" : "";
-    lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} [accounts: ${acctNames}] (${amt.toFixed(2)} ${data.currency}${refundNote})`);
-  }
   return lines.join("\n");
 }
 

@@ -158,6 +158,31 @@ test("get_account_ledger: an EXACT name match wins outright over a broader parti
   assert.ok(!result.includes("DIFFERENT accounts"));
 });
 
+test("get_account_ledger: an Investment-nature account's net total matches the real Ledger report's own math, not an always-positive magnitude", () => {
+  // Confirmed live: the real Ledger report for "ESPP Deduction" (Investments) this FY showed
+  // exactly 4 vouchers -- three deductions of +1525.00 (10-Oct, 09-Sep, 15-Apr) and one reversal
+  // of -772.78 (01-Jun) -- for a real "Displayed total" of 3802.22. The old classifyVoucher-based
+  // logic only special-cased Expense-nature accounts; for an Investment-nature account like this
+  // one, every voucher fell through to an always-positive magnitude, which would have shown the
+  // reversal as +772.78 instead of -772.78 (total 5347.78, still wrong, though not the exact wrong
+  // number seen live -- the point is ANY non-Expense account's sign was never handled at all).
+  // Real ledgerSignedAmount convention (components/TransactionTable.tsx): displayed = -(this
+  // account's own raw entry sum) -- so a deduction (Dr, raw negative) displays positive, and a
+  // reversal (Cr, raw positive) displays negative.
+  const accounts = [account(1, "ESPP Deduction", "Investments"), account(999, "Bank Of America", "Bank Accounts")];
+  const transactions: Tx[] = [
+    tx(1, "2026-04-15", "Payment", "ESPP payroll deduction", [{ accountId: 1, amount: -1525 }, { accountId: 999, amount: 1525 }]),
+    tx(2, "2026-06-01", "Receipt", "ESPP deduction reversal", [{ accountId: 1, amount: 772.78 }, { accountId: 999, amount: -772.78 }]),
+    tx(3, "2026-09-09", "Payment", "ESPP payroll deduction", [{ accountId: 1, amount: -1525 }, { accountId: 999, amount: 1525 }]),
+    tx(4, "2026-10-10", "Payment", "ESPP payroll deduction", [{ accountId: 1, amount: -1525 }, { accountId: 999, amount: 1525 }]),
+  ];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions };
+  const result = executeTool("get_account_ledger", { accountName: "ESPP Deduction", period: "current_fiscal_year" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("4 voucher(s)"));
+  assert.ok(result.includes("3802.22 USD"), "must match the real Ledger report's own 'Displayed total' exactly");
+  assert.ok(result.includes("(-772.78 USD)"), "the reversal must display negative, same sign the real Ledger report shows it with");
+});
+
 // ---- get_salary_summary -------------------------------------------------------------------
 
 test("get_salary_summary: take-home reads the real bank deposit, not a derived subtraction", () => {
