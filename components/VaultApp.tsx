@@ -93,6 +93,7 @@ import { computeDashboardTrend } from "@/lib/dashboard-trend";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
+import { ChatAssistant } from "@/components/ChatAssistant";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
 
 // Every "Reports" tab component below is lazy-loaded: VaultApp.tsx used to statically import all
@@ -3455,6 +3456,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {status}
         </div>
       )}
+      {data && <ChatAssistant data={data} book={book} />}
       {isBlockingStatus && (
         <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
           <p className="vault-alert-message">{status}</p>

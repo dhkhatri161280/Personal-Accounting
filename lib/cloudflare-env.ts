@@ -1,6 +1,11 @@
 export interface AppBindings {
   VAULT: KVNamespace;
   DB: D1Database;
+  // Free in-app chat assistant (components/ChatAssistant.tsx, app/api/assistant) -- Cloudflare's
+  // own hosted open-weight models, billed in "Neurons" with a real recurring daily free
+  // allocation (10,000/day) and, critically, no way to accidentally get billed past it on the
+  // Free Workers plan (requests just fail until the next day's reset, never silently charges).
+  AI: Ai;
   // Voucher receipt/statement attachments -- file bytes live here, only lightweight metadata
   // (key/filename/size/contentType) lives in the encrypted vault blob. See app/api/attachments.
   ATTACHMENTS: R2Bucket;
