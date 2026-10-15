@@ -129,6 +129,35 @@ test("get_account_ledger: says plainly when the account name doesn't exist", () 
   assert.ok(result.includes("no account found"));
 });
 
+test("get_account_ledger: two DISTINCT accounts sharing a substring are never silently blended into one total", () => {
+  // Confirmed live: asked "how much is the ESPP this FY", a plain substring match found TWO real
+  // accounts both containing "espp" (an ESPP Deduction account and a separate ESPP-related
+  // account) and summed vouchers from BOTH into one total that matched neither account's own real
+  // ledger report ($41559.46 vs the real $3802.22). Must refuse to blend and name both instead.
+  const accounts = [
+    account(1, "ESPP Deduction", "Investments"),
+    account(2, "ESPP Shares Held", "Investments"),
+    account(999, "Bank", "Bank Accounts"),
+  ];
+  const deduction = tx(1, "2026-04-15", "Payment", "ESPP payroll deduction", [{ accountId: 1, amount: -1525 }, { accountId: 999, amount: 1525 }]);
+  const shares = tx(2, "2026-05-01", "Receipt", "ESPP shares purchased", [{ accountId: 2, amount: 40000 }, { accountId: 999, amount: -40000 }]);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [deduction, shares] };
+  const result = executeTool("get_account_ledger", { accountName: "ESPP", period: "current_fiscal_year" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("DIFFERENT accounts"), "must refuse to guess/blend when multiple distinct accounts match");
+  assert.ok(result.includes("ESPP Deduction") && result.includes("ESPP Shares Held"), "must name both real candidate accounts");
+  assert.ok(!result.includes("41525.00"), "must never produce a blended total across the two distinct accounts");
+});
+
+test("get_account_ledger: an EXACT name match wins outright over a broader partial match", () => {
+  const accounts = [account(1, "ESPP Deduction", "Investments"), account(2, "ESPP Deduction Extra", "Investments"), account(999, "Bank", "Bank Accounts")];
+  const real = tx(1, "2026-04-15", "Payment", "ESPP payroll deduction", [{ accountId: 1, amount: -1525 }, { accountId: 999, amount: 1525 }]);
+  const other = tx(2, "2026-05-01", "Payment", "Other", [{ accountId: 2, amount: -999 }, { accountId: 999, amount: 999 }]);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [real, other] };
+  const result = executeTool("get_account_ledger", { accountName: "ESPP Deduction", period: "current_fiscal_year" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("1525.00 USD"), "an exact name match must use ONLY that account, not blend in the similarly-named one");
+  assert.ok(!result.includes("DIFFERENT accounts"));
+});
+
 // ---- get_salary_summary -------------------------------------------------------------------
 
 test("get_salary_summary: take-home reads the real bank deposit, not a derived subtraction", () => {

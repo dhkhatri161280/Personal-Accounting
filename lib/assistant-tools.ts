@@ -180,8 +180,24 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
   const { from, to, label } = resolvePeriod(period, todayIso);
   const masterGroups = masterGroupsOf(data);
 
-  const matchingAccountIds = new Set(data.accounts.filter((a) => a.name.toLowerCase().includes(nameQuery)).map((a) => a.id));
-  if (!matchingAccountIds.size) return `get_account_ledger("${args.accountName}"): no account found with that name.`;
+  // Confirmed live: asked "how much is the ESPP this FY", this tool's plain substring match found
+  // MULTIPLE distinct real accounts whose name happens to contain "espp" (e.g. an ESPP payroll
+  // deduction account AND a separate ESPP share-value/count account) and silently SUMMED vouchers
+  // from both into one total that matched neither account's own real report -- exactly the
+  // "blend unrelated accounts into one opaque number" failure this tool exists to avoid, just one
+  // layer deeper than narration noise. An exact (case-insensitive) name match always wins outright
+  // over a partial one; only when there's no exact match do multiple partial matches surface, and
+  // even then they're reported as DISTINCT candidates (never silently blended) so the model has to
+  // pick one or ask, instead of guessing by adding unrelated accounts together.
+  const exact = data.accounts.filter((a) => a.name.toLowerCase() === nameQuery);
+  const candidates = exact.length ? exact : data.accounts.filter((a) => a.name.toLowerCase().includes(nameQuery));
+  if (!candidates.length) return `get_account_ledger("${args.accountName}"): no account found with that name.`;
+  if (candidates.length > 1) {
+    const names = candidates.map((a) => `"${a.name}"`).join(", ");
+    return `get_account_ledger("${args.accountName}"): ${candidates.length} DIFFERENT accounts match that name (${names}) and none is an exact match -- these are DISTINCT real accounts with their own separate balances. Do NOT add their numbers together or guess which one is meant. Call this tool again once per account using its EXACT full name (one call per account) and report them separately, or ask the user which one they meant.`;
+  }
+
+  const matchingAccountIds = new Set([candidates[0].id]);
 
   const matches = data.transactions
     .filter((t) => !t.deleted && !t.cancelled && t.date >= from && t.date <= to)
