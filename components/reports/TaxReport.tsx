@@ -919,22 +919,44 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       }
       toUpload = trimmed.file;
     }
-    try {
-      const form = new FormData();
-      form.append("file", toUpload);
-      form.append("book", book);
-      form.append("folder", "documents");
-      const r = await apiFetch("/api/attachments", { method: "POST", body: form });
-      if (!r.ok) {
-        setPaystubError(`Numbers saved, but archiving the PDF to Documents failed (${r.status}).`);
-        return null;
+    // Retries a couple times on a network-level failure (fetch() throwing before any response --
+    // no HTTP status at all) before giving up -- confirmed live this upload fails this way from a
+    // phone on a flaky connection (tab backgrounded mid-upload, signal drop), not from anything
+    // the server itself does (its own route always returns a clean status code on every failure
+    // path it controls). A transient blip shouldn't need the user to redo this by hand every time.
+    const ATTEMPTS = 3;
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      try {
+        const form = new FormData();
+        form.append("file", toUpload);
+        form.append("book", book);
+        form.append("folder", "documents");
+        const r = await apiFetch("/api/attachments", { method: "POST", body: form });
+        if (!r.ok) {
+          // A real server-reported failure (bad request, storage unavailable, ...) -- retry once
+          // or twice in case it's transient (e.g. R2 hiccup), but don't mask a genuine 400.
+          lastError = new Error(`HTTP ${r.status}`);
+          if (r.status < 500 || attempt === ATTEMPTS) {
+            setPaystubError(`Numbers saved, but archiving the PDF to Documents failed (${r.status}).`);
+            return null;
+          }
+          continue;
+        }
+        const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
+        return { id: crypto.randomUUID(), category: "Pay Stub", label, date, ...meta };
+      } catch (e) {
+        lastError = e;
+        if (attempt < ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+          continue;
+        }
       }
-      const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
-      return { id: crypto.randomUUID(), category: "Pay Stub", label, date, ...meta };
-    } catch {
-      setPaystubError("Numbers saved, but archiving the PDF to Documents failed.");
-      return null;
     }
+    setPaystubError(
+      `Numbers saved, but archiving the PDF to Documents failed after ${ATTEMPTS} attempts (${lastError instanceof Error ? lastError.message : "network error"}). Try again, or use Masters > Documents to upload it directly.`
+    );
+    return null;
   }
 
   async function savePaystubReview() {
