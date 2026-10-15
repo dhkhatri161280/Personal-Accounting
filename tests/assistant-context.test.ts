@@ -106,31 +106,36 @@ test("buildAssistantContext: a refund against an expense account shows negative 
   assert.ok(context.includes("(-22.04 USD -- REFUND/return)"), "a Receipt refund must show negative and explicitly labeled");
 });
 
-test("buildAssistantContext: a Receipt paystub voucher with both income and expense-nature entries is never labeled a refund", () => {
-  // Confirmed live a second time: a semi-monthly paystub voucher (gross pay credited to an Income
+test("buildAssistantContext: a salary voucher is never labeled a refund, and shows a gross/tax/net breakdown instead of one summed amount", () => {
+  // Confirmed live TWICE: (1) a semi-monthly paystub voucher (gross pay credited to an Income
   // account, plus tax/benefit deductions hitting Expense-nature accounts in the SAME voucher) got
-  // mislabeled "REFUND/return" because the voucher touched an Expense account at all. The refund
-  // rule must only apply to a voucher that's PURELY on the expense side -- any Income entry in the
-  // voucher rules it out, regardless of touching an Expense account too.
+  // mislabeled "REFUND/return" because the voucher touched an Expense account at all -- fixed by
+  // letting an Income entry anywhere in the voucher rule out the refund interpretation. (2) Even
+  // after that fix, "what's my take-home and tax deducted" still couldn't be answered because the
+  // voucher was shown as one summed amount, with the gross/tax/net entries collapsed away --
+  // fixed by routing a salary voucher through buildShadowPeriod (lib/payroll-match.ts) instead,
+  // which already parses those entries by account name for the payroll-reconciliation feature.
   const today = new Date().toISOString().slice(0, 10);
   const monthKey = today.slice(0, 7);
   const accounts = [
-    account(1, "Salary Income - Semi Monthly", "Direct Incomes"),
-    account(2, "Health Insurance Premium", "Indirect Expenses"),
-    account(999, "Bank", "Bank Accounts"),
+    account(1, "Salary Income - Employer", "Direct Incomes"),
+    account(2, "Tax Deduction", "Indirect Expenses"),
+    account(999, "Bank Of America", "Bank Accounts"),
   ];
   const paystub: Tx = {
     id: 1, guid: "v1", date: `${monthKey}-15`, number: "131", type: "Receipt", narration: "Salary Income - Semi Monthly", historical: false,
     entries: [
-      { accountId: 1, accountName: "", amount: -10_196.67 },
-      { accountId: 2, accountName: "", amount: 200 },
-      { accountId: 999, accountName: "", amount: 9_996.67 },
+      { accountId: 1, accountName: "Salary Income - Employer", amount: 10_000 },
+      { accountId: 2, accountName: "Tax Deduction", amount: -200 },
+      { accountId: 999, accountName: "Bank Of America", amount: -9_800 },
     ],
   };
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [paystub] };
   const context = buildAssistantContext(data, "us");
-  assert.ok(!context.includes("REFUND/return"), "a paystub Receipt with an Income entry must never be labeled a refund");
-  assert.ok(!context.includes("(-"), "a paystub Receipt with an Income entry must not show a negative amount");
+  assert.ok(!context.includes("REFUND/return"), "a salary voucher must never be labeled a refund");
+  assert.ok(context.includes("gross pay 10000.00"), "gross pay must be broken out");
+  assert.ok(context.includes("tax deducted 200.00"), "tax deducted must be broken out, answering a 'how much tax' question directly");
+  assert.ok(context.includes("net take-home 9800.00"), "net take-home must be broken out, answering a 'what's my take-home' question directly");
 });
 
 test("buildAssistantContext: voucher dates match the app's own DD-MM-YYYY display format, not raw ISO", () => {

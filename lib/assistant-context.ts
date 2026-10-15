@@ -2,6 +2,7 @@ import type { Ledger } from "./vault-types.ts";
 import { ledgerBalanceAsOf, displayLedgerBalance, accountNature } from "./vault-accounting.ts";
 import { computeFbarSummary } from "./fbar.ts";
 import { todayLocalIso, fmtDate } from "./format-date.ts";
+import { isSalaryVoucher, buildShadowPeriod } from "./payroll-match.ts";
 
 // Builds the plain-text "financial data snapshot" sent to the free chat assistant (see
 // app/api/assistant) alongside each question -- the ONLY thing the server-side model ever sees
@@ -108,6 +109,20 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
         : `All vouchers this month (${monthTxForContext.length}). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any spending total, don't add its size:`
     );
     for (const t of monthTxForContext) {
+      // Confirmed live: a "take-home / tax deducted" question couldn't be answered because a
+      // salary voucher was only ever shown as ONE summed amount -- the gross pay, tax withheld,
+      // 401k/medical/telephone deductions, and net deposit live as separate entries inside the
+      // same voucher, collapsed away by the magnitude-only line below. isSalaryVoucher/
+      // buildShadowPeriod (lib/payroll-match.ts) already parse those entries by account name
+      // (e.g. "Salary Income", "Tax Deduction", "401k") for the payroll-reconciliation feature --
+      // reused here instead of re-deriving the same breakdown a second, possibly-inconsistent way.
+      if (isSalaryVoucher(t)) {
+        const sp = buildShadowPeriod(t);
+        lines.push(
+          `- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} -- gross pay ${sp.base.toFixed(2)}, tax deducted ${sp.tax.toFixed(2)}, 401k ${sp.k401.toFixed(2)}, medical/health ${sp.medical.toFixed(2)}, telephone ${sp.telephone.toFixed(2)}, net take-home ${sp.net.toFixed(2)} ${data.currency}`
+        );
+        continue;
+      }
       // Confirmed live: showing the plain absolute amount for every voucher made a refund (a
       // "Receipt" against a prior expense, e.g. a Costco return) look identical to a normal
       // purchase, so a spending total the model computed over the list silently added it instead
