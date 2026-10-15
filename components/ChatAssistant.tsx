@@ -1,11 +1,19 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { buildAssistantContext, extractSearchTerms, searchVouchersThisFiscalYear } from "@/lib/assistant-context";
+import { TOOL_DEFS, executeTool } from "@/lib/assistant-tools";
 import { apiFetch } from "@/lib/api-fetch";
 import { todayLocalIso } from "@/lib/format-date";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+// The API-side conversation (what actually goes to app/api/assistant) also carries "tool" turns --
+// a tool call's JSON (as an assistant message) and its result (as a tool message) -- which the chat
+// UI never shows directly (see ChatMessage above, which is just user/assistant for display).
+type ApiMessage = { role: "user" | "assistant" | "tool"; content: string };
+// A free, small model asking for the same tool over and over (or never settling on a final answer)
+// is a real failure mode to cap, not just a hypothetical -- 6 rounds is enough for any legitimate
+// multi-tool question this assistant's tool set supports.
+const MAX_TOOL_ROUNDS = 6;
 type Rect = { top: number; left: number; width: number; height: number };
 type Point = { top: number; left: number };
 type Corner = "nw" | "ne" | "sw" | "se";
@@ -24,9 +32,10 @@ const DRAG_CLICK_THRESHOLD = 4;
 
 // Free in-app chat assistant -- Cloudflare Workers AI (app/api/assistant), not the Anthropic API.
 // A fixed corner bubble (not a new header icon or a bigger existing screen) so it adds nothing to
-// the weight of any screen that isn't actively using it. Sends a computed summary of the user's
-// own data (see lib/assistant-context.ts) with every question -- this component is the only place
-// that reads the decrypted Ledger for this feature; the server route never sees it.
+// the weight of any screen that isn't actively using it. Tool-calling (see lib/assistant-tools.ts
+// and the send() loop below), not a text snapshot -- this component is the only place that reads
+// the decrypted Ledger for this feature, executing each tool call the model asks for locally; the
+// server route never sees real data, only the tool name/arguments and the computed result.
 //
 // Both the closed bubble (drag anywhere) and the open panel (drag its header to move, corners to
 // resize) are fully user-positionable, each remembered independently in localStorage -- confirmed
@@ -238,6 +247,13 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     setOpen((v) => !v);
   }
 
+  // Tool-calling loop (see lib/assistant-tools.ts for why phase 1's context-stuffing approach was
+  // replaced). The model picks a tool + arguments; executeTool runs it HERE, client-side, against
+  // the decrypted Ledger already in memory (the server route never sees real data, only the tool
+  // name/arguments the model chose and the already-computed result this loop sends back) -- same
+  // vault-blind posture app/api/assistant always had. Loops until the model returns a final text
+  // reply instead of another tool call, capped at MAX_TOOL_ROUNDS so a model that never settles
+  // can't hang the UI forever.
   async function send() {
     const message = input.trim();
     if (!message || sending) return;
@@ -247,29 +263,37 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     setMessages(nextMessages);
     setSending(true);
     try {
-      const baseContext = buildAssistantContext(data, book);
-      // Confirmed live: asked "this fiscal year" questions, the assistant could only ever
-      // honestly say "I only have this month's data" -- accurate, but useless for what was
-      // actually asked. baseContext stays month-scoped (dumping every voucher ever posted would
-      // blow both the char budget and the free model's context window), but THIS message's own
-      // wording (e.g. "Costco", "Gasoline") drives a real fiscal-year-scoped search appended just
-      // for this turn -- see searchVouchersThisFiscalYear's own comment (confirmed live a SECOND
-      // time this needs an explicit FY boundary -- with none, it searched the vault's entire
-      // history back to 2016 instead of just the fiscal year actually asked about).
-      const searchTerms = extractSearchTerms(message, data);
-      const searchResults = searchTerms.length ? searchVouchersThisFiscalYear(data, searchTerms, todayLocalIso()) : "";
-      const context = searchResults ? `${baseContext}\n\n${searchResults}` : baseContext;
-      const r = await apiFetch("/api/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, context, history: nextMessages.slice(0, -1).slice(-MAX_HISTORY_SENT) }),
-      });
-      const j = (await r.json().catch(() => null)) as { reply?: string; error?: string } | null;
-      if (!r.ok || !j?.reply) {
-        setError(j?.error || `Request failed (${r.status})`);
+      const priorHistory: ApiMessage[] = nextMessages.slice(0, -1).slice(-MAX_HISTORY_SENT);
+      const apiMessages: ApiMessage[] = [...priorHistory, { role: "user", content: message }];
+      const tools = TOOL_DEFS.filter((t) => book === "india" || t.name !== "get_fbar_status");
+      const todayIso = todayLocalIso();
+
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const r = await apiFetch("/api/assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: apiMessages, tools }),
+        });
+        const j = (await r.json().catch(() => null)) as { reply?: string; toolCalls?: { name: string; arguments: Record<string, unknown> }[]; error?: string } | null;
+        if (!r.ok || !j) {
+          setError(j?.error || `Request failed (${r.status})`);
+          return;
+        }
+        if (j.toolCalls?.length) {
+          for (const call of j.toolCalls) {
+            apiMessages.push({ role: "assistant", content: JSON.stringify(call) });
+            apiMessages.push({ role: "tool", content: executeTool(call.name, call.arguments || {}, data, book, todayIso) });
+          }
+          continue;
+        }
+        if (j.reply) {
+          setMessages((prev) => [...prev, { role: "assistant", content: j.reply! }]);
+          return;
+        }
+        setError(j.error || "Empty response from assistant.");
         return;
       }
-      setMessages((prev) => [...prev, { role: "assistant", content: j.reply! }]);
+      setError("The assistant couldn't settle on an answer after several tool lookups -- please try rephrasing.");
     } catch {
       setError("Network error -- please try again.");
     } finally {

@@ -13,123 +13,110 @@ export const dynamic = "force-dynamic";
 // to abandon, see lib/fbar.ts's own history).
 //
 // Stateless and vault-blind by design, same posture as app/api/categorize: the vault is end-to-
-// end encrypted and this route never sees decrypted ledger data. The browser (which already has
-// the decrypted Ledger in memory after unlock) computes a plain-text summary of whatever's
-// relevant and sends THAT as `context` -- this route never reads from KV/D1/R2 for the user's
-// financial data, only calls the model with what the client already chose to share.
+// end encrypted and this route never sees decrypted ledger data. Phase 2 (tool-calling, see
+// lib/assistant-tools.ts) keeps that exactly the same -- this route only ever sees a tool NAME and
+// ARGUMENTS the model chose, and relays the already-computed tool RESULT the client sends back; it
+// never reads from KV/D1/R2 for the user's financial data and never executes a tool itself.
+//
+// Phase 1 of this feature built one big text "snapshot" of the user's data and asked the model to
+// read, filter, and sum it in its own head -- and kept failing the same way under different names
+// (wrong refund signs, dropped vouchers while summing a list, "this fiscal year" silently answered
+// from one month's data). Phase 2 replaces that with real tools (lib/assistant-tools.ts) that
+// compute exact, already-correct answers in code; the model's only job now is choosing which tool
+// to call with what arguments. @cf/meta/llama-3.3-70b-instruct-fp8-fast supports Workers AI's
+// function-calling `tools` request parameter and `tool_calls` response field natively (confirmed
+// against Cloudflare's own model catalog and function-calling docs before building this).
 const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-const SYSTEM_PROMPT = `You are a helpful assistant embedded in a personal accounting app. You can
-see a snapshot of the user's own financial data below (account balances, this month's vouchers,
-FBAR status, etc.) -- answer their questions using ONLY that data.
+const SYSTEM_PROMPT = `You are a helpful assistant embedded in a personal accounting app. You do
+NOT have the user's financial data in front of you -- you must call one of the provided tools to
+look up anything real (balances, spending, salary, FBAR status). Never guess, estimate, or answer
+from general knowledge about what a number might be.
 
-CRITICAL: when asked about a specific merchant, category, or kind of spending (e.g. "Costco",
-"gasoline", "groceries"), search the voucher list for ones whose narration actually names it.
-NEVER treat a voucher as a match just because its narration is vague, blank, generic (e.g. a bare
-"C-STORE TRANS" or "POS Purchase" with no further description), or merely posted near another
-matching voucher in time -- those are NOT evidence of what it actually was. If you find zero
-vouchers that clearly match, say plainly "I didn't find any vouchers matching that" and list what
-you searched, rather than guessing which unrelated voucher might be related. A wrong confident
-answer about someone's real money is worse than an honest "I don't know."
-
-CRITICAL: when asked to check a specific ACCOUNT (e.g. "check the Vehicle Maintenance account"),
-each voucher line below ends with "[accounts: ...]" naming every account it actually posted to --
-that is the ONLY way to know which account a voucher belongs to, so match against that list
-exactly, not against narration text or a guess. Before answering, reread the voucher(s) you're
-about to cite in the SAME reply and make sure your answer doesn't contradict what you just said
-about them one sentence earlier -- a reply that finds a voucher in one sentence and says "I didn't
-find any" in the next is worse than either answer alone.
+CRITICAL: pick the right tool.
+- A specific GL/ledger account is named (e.g. "check the Vehicle Maintenance account") ->
+  get_account_ledger. This returns EVERY voucher in that account, regardless of narration.
+- A merchant or category is named, but no specific account (e.g. "Costco spending", "gasoline") ->
+  search_vouchers. This matches on narration OR account name for the given terms.
+- Salary, paycheck, take-home, or tax-withheld -> get_salary_summary.
+- A balance question ("how much is in my bank account", "what's my NVDA balance") ->
+  get_account_balances. These are CUMULATIVE since the account opened, NOT a period total --
+  never use this tool to answer a "how much did I spend/earn in period X" question.
+- FBAR / FinCEN Form 114 (India book only) -> get_fbar_status.
 
 CRITICAL: "calendar year" and "fiscal year" are DIFFERENT periods and are NEVER the same thing --
-never say they're "also the same in this case" or otherwise treat them as interchangeable, even if
-today's date happens to fall in both. If a "Calendar-year-to-date (CY...)" salary summary is
-present, it covers Jan-Dec of the current calendar year ONLY -- use it for a question that actually
-says "calendar year" or a specific year number, not "fiscal year". If a "Fiscal-year-to-date (FY...)"
-salary summary is present, it covers the books' own Apr-Mar fiscal year (it states the exact FY and
-date range in its own label) -- use THIS one, not the calendar-year one, whenever the question says
-"fiscal year" or "FY". The two will usually be different numbers; if only one of the two sections is
-present for what the question actually asked about, say plainly you don't have the other one, rather
-than substituting it silently.
+never say they're "also the same in this case". This app's books run Apr-Mar as the fiscal year,
+NOT Jan-Dec. Use the tool's "period" argument to pick the right one: current_fiscal_year/
+last_fiscal_year for anything the question calls "fiscal year" or "FY"; current_calendar_year/
+last_calendar_year only when the question actually says "calendar year" or names a specific year
+number; current_month for "this month"; all_time only when the question says "ever"/"all time"/
+"total" with no period named at all. Never compute a date range yourself.
 
-CRITICAL: the "All vouchers THIS CALENDAR MONTH ONLY" list below covers ONLY the current calendar
-month -- it never contains anything from an earlier or later month, even if a fiscal year, quarter,
-or other month is named in the question. The salary summaries above (if present) are the one
-exception to that -- each covers its own whole year as labeled, not just this month.
-If a "Fiscal-year search" section is ALSO present below, it covers the WHOLE CURRENT FISCAL YEAR
-(it states the exact FY and date range at the top of that section) -- not just this month, but also
-NOT every year the vault has ever had data for -- that matched the specific words in the user's own
-question. If the question asks about a period OTHER than the current fiscal year (a specific past
-year, "all time", "last year"), that section still does NOT cover it -- say plainly you only have
-the current fiscal year's search results and this month's full list, and can't total that different
-period. Only when NO "Fiscal-year search" section is present, and the question needs data wider
-than the current month, should you say plainly that you only have this month's data on file --
-never silently answer a wide-period question using just the current month's list as if it covered
-the whole period asked about.
-
-CRITICAL: a "Fiscal-year search" section's "PRECOMPUTED TOTAL" line is the ONLY number you may give
-for that total -- it was already computed correctly over every real matching voucher, including any
-that aren't shown in the voucher list below it. Quote that exact number verbatim. Do NOT add up the
+CRITICAL: every tool response that includes a "PRECOMPUTED TOTAL" (or "PRECOMPUTED TOTALS") line
+is the ONLY number you may give for that total -- it was already computed correctly, including any
+vouchers not shown in the list beneath it. Quote that exact number verbatim. Do NOT add up any
 voucher lines yourself, do NOT mention only a subset of them as if that were the complete list, and
-do NOT produce a different number from your own arithmetic -- re-deriving the total yourself is how
-a real matching voucher gets silently dropped and the total comes out wrong. The voucher list under
-a PRECOMPUTED TOTAL is there only so you can cite a few examples by name/date if asked, never to
-recompute the total.
+do NOT produce a different number from your own arithmetic. The voucher list under a PRECOMPUTED
+TOTAL exists only so you can cite a few examples by name/date if asked.
 
-When summing a spending total across several vouchers, pay close attention to each one's sign and
-any "REFUND" note -- a negative amount or a REFUND note means that voucher is money coming back,
-and must be SUBTRACTED from the total, never added as if it were a purchase.
+CRITICAL: when a tool's result says "0 matching vouchers found" or "0 vouchers found", say plainly
+you didn't find any, and name what you searched for -- never guess or connect it to an unrelated
+voucher just because it was posted nearby in time or has a vague narration.
+
+CRITICAL: before answering, reread your own reply and make sure it doesn't contradict itself --
+e.g. finding something in one sentence and saying "I didn't find any" in the next.
 
 You are not a tax or legal advisor -- for anything involving tax filings, legal compliance, or
 investment decisions, remind the user to verify with a professional rather than treating your
 answer as authoritative. Keep answers concise.`;
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ApiMessage = { role: "user" | "assistant" | "tool"; content: string };
+type ToolDef = { name: string; description: string; parameters: Record<string, unknown> };
+type ToolCall = { name: string; arguments: Record<string, unknown> };
 
-const MAX_MESSAGE_CHARS = 4000;
-// Raised from an earlier 12000 -- a full current-month voucher list (lib/assistant-context.ts's
-// own fix for the same incident this system prompt change addresses) can run well past that on a
-// high-volume month, and silently truncating it here would cut the list off mid-month with no
-// signal to the model that it's incomplete -- exactly the kind of gap that caused a wrong answer
-// in the first place. Llama 3.3 70B's own context window has plenty of headroom for this.
-const MAX_CONTEXT_CHARS = 60000;
-const MAX_HISTORY_MESSAGES = 12;
+const MAX_MESSAGE_CHARS = 8000; // a tool result can be a sizeable voucher list; generous but still bounded
+const MAX_MESSAGES = 40; // a handful of user turns, each possibly expanded into a few tool round-trips
+const MAX_TOOLS = 10;
 
-function isChatMessage(v: unknown): v is ChatMessage {
+function isApiMessage(v: unknown): v is ApiMessage {
   if (!v || typeof v !== "object") return false;
   const m = v as Record<string, unknown>;
-  return (m.role === "user" || m.role === "assistant") && typeof m.content === "string";
+  return (m.role === "user" || m.role === "assistant" || m.role === "tool") && typeof m.content === "string" && m.content.length <= MAX_MESSAGE_CHARS;
+}
+
+function isToolDef(v: unknown): v is ToolDef {
+  if (!v || typeof v !== "object") return false;
+  const t = v as Record<string, unknown>;
+  return typeof t.name === "string" && typeof t.description === "string" && typeof t.parameters === "object" && t.parameters !== null;
 }
 
 export async function POST(request: Request) {
   const denied = requireAccessToken(request, bindings);
   if (denied) return denied;
 
-  let body: { message?: unknown; context?: unknown; history?: unknown };
+  let body: { messages?: unknown; tools?: unknown };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (!message) return Response.json({ error: "Missing message" }, { status: 400 });
-  if (message.length > MAX_MESSAGE_CHARS) {
-    return Response.json({ error: `Message too long (max ${MAX_MESSAGE_CHARS} characters)` }, { status: 400 });
-  }
+  const messages = Array.isArray(body.messages) ? body.messages.filter(isApiMessage).slice(-MAX_MESSAGES) : [];
+  if (!messages.length) return Response.json({ error: "Missing messages" }, { status: 400 });
 
-  const context = typeof body.context === "string" ? body.context.slice(0, MAX_CONTEXT_CHARS) : "";
+  const tools = Array.isArray(body.tools) ? body.tools.filter(isToolDef).slice(0, MAX_TOOLS) : [];
 
-  const history = Array.isArray(body.history) ? body.history.filter(isChatMessage).slice(-MAX_HISTORY_MESSAGES) : [];
-
-  const messages = [
-    { role: "system", content: context ? `${SYSTEM_PROMPT}\n\n--- Financial data snapshot ---\n${context}` : SYSTEM_PROMPT },
-    ...history,
-    { role: "user", content: message },
-  ];
+  const fullMessages = [{ role: "system", content: SYSTEM_PROMPT }, ...messages];
 
   try {
-    const result = await bindings.AI.run(MODEL, { messages, max_tokens: 1024 });
-    const reply = typeof result === "string" ? result : (result as { response?: string }).response;
+    const result = (await bindings.AI.run(MODEL, { messages: fullMessages, tools, max_tokens: 1024 })) as {
+      response?: string;
+      tool_calls?: ToolCall[];
+    };
+    if (Array.isArray(result.tool_calls) && result.tool_calls.length) {
+      return Response.json({ toolCalls: result.tool_calls });
+    }
+    const reply = typeof result === "string" ? result : result.response;
     if (!reply) return Response.json({ error: "Empty response from model" }, { status: 502 });
     return Response.json({ reply });
   } catch (e) {
