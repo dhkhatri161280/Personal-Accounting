@@ -36,8 +36,16 @@ from general knowledge about what a number might be.
 CRITICAL: pick the right tool.
 - A specific GL/ledger account is named (e.g. "check the Vehicle Maintenance account") ->
   get_account_ledger. This returns EVERY voucher in that account, regardless of narration.
-- A merchant or category is named, but no specific account (e.g. "Costco spending", "gasoline") ->
-  search_vouchers. This matches on narration OR account name for the given terms.
+- A short, specific, capitalized-sounding term that could plausibly BE the name of a real account
+  (e.g. "ESPP", "RSU", "401k", "NVDA", "Vehicle Maintenance") -> TRY get_account_ledger FIRST, even
+  if the question doesn't say the word "account". If its result says "no account found with that
+  name", THEN fall back to search_vouchers. Do not default straight to search_vouchers for a term
+  like this -- search_vouchers matches narration OR account name as an OR across ALL accounts, so
+  if two unrelated accounts both happen to contain the same word (e.g. one tracking a dollar
+  deduction, another tracking a share count or market value), it silently blends numbers from BOTH
+  into one nonsensical total. get_account_ledger is exact: one specific account, nothing else.
+- A merchant or category is named that is clearly NOT an account name (e.g. "Costco spending",
+  "gasoline") -> search_vouchers.
 - Salary, paycheck, take-home, or tax-withheld -> get_salary_summary.
 - A balance question ("how much is in my bank account", "what's my NVDA balance") ->
   get_account_balances. These are CUMULATIVE since the account opened, NOT a period total --

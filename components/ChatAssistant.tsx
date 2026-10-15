@@ -5,7 +5,14 @@ import { TOOL_DEFS, executeTool, coerceToolArgs } from "@/lib/assistant-tools";
 import { apiFetch } from "@/lib/api-fetch";
 import { todayLocalIso } from "@/lib/format-date";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+// toolTrace (assistant messages only) is the exact tool call(s) that produced this answer --
+// confirmed live this is genuinely needed: asked "how much is the ESPP this FY", the assistant
+// gave a number matching nothing in the real ledger report, and there was no way to tell whether
+// it had called the precise get_account_ledger tool or the broader search_vouchers tool (which can
+// pull in an unrelated account that merely shares a word in its name) without guessing. Shown as a
+// small caption under the reply so a wrong-looking answer is immediately diagnosable instead of a
+// guess every time.
+type ChatMessage = { role: "user" | "assistant"; content: string; toolTrace?: string[] };
 // The API-side conversation (what actually goes to app/api/assistant) also carries "tool" turns --
 // a tool call's JSON (as an assistant message) and its result (as a tool message) -- which the chat
 // UI never shows directly (see ChatMessage above, which is just user/assistant for display).
@@ -267,6 +274,7 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
       const apiMessages: ApiMessage[] = [...priorHistory, { role: "user", content: message }];
       const tools = TOOL_DEFS.filter((t) => book === "india" || t.name !== "get_fbar_status");
       const todayIso = todayLocalIso();
+      const toolTrace: string[] = [];
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const r = await apiFetch("/api/assistant", {
@@ -286,6 +294,7 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
             // insurance against that difference (or any other malformed shape) rather than letting
             // property access on a string silently no-op every argument.
             const args = coerceToolArgs(call.arguments);
+            toolTrace.push(`${call.name}(${Object.entries(args).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")})`);
             apiMessages.push({ role: "assistant", content: JSON.stringify({ name: call.name, arguments: args }) });
             // Isolated from the outer try/catch's generic "Network error" message -- a thrown error
             // HERE is a tool-execution bug, not a network failure, and the model can usefully react
@@ -302,7 +311,7 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
           continue;
         }
         if (j.reply) {
-          setMessages((prev) => [...prev, { role: "assistant", content: j.reply! }]);
+          setMessages((prev) => [...prev, { role: "assistant", content: j.reply!, toolTrace: toolTrace.length ? toolTrace : undefined }]);
           return;
         }
         setError(j.error || "Empty response from assistant.");
@@ -356,6 +365,13 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
             {messages.map((m, i) => (
               <div key={i} className={`chat-assistant-message chat-assistant-message--${m.role}`}>
                 {m.content}
+                {m.toolTrace && (
+                  <div style={{ marginTop: 6, fontSize: 10, opacity: 0.55, fontFamily: "monospace" }} title="The exact tool call(s) used to produce this answer -- makes a wrong-looking number immediately checkable instead of a guess">
+                    {m.toolTrace.map((t, ti) => (
+                      <div key={ti}>🔧 {t}</div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {sending && <div className="chat-assistant-message chat-assistant-message--assistant">…</div>}
