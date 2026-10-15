@@ -107,19 +107,24 @@ test("buildAssistantContext: a refund against an expense account shows negative 
 });
 
 test("buildAssistantContext: a salary voucher is never labeled a refund, and shows a gross/tax/net breakdown instead of one summed amount", () => {
-  // Confirmed live TWICE: (1) a semi-monthly paystub voucher (gross pay credited to an Income
-  // account, plus tax/benefit deductions hitting Expense-nature accounts in the SAME voucher) got
-  // mislabeled "REFUND/return" because the voucher touched an Expense account at all -- fixed by
-  // letting an Income entry anywhere in the voucher rule out the refund interpretation. (2) Even
-  // after that fix, "what's my take-home and tax deducted" still couldn't be answered because the
-  // voucher was shown as one summed amount, with the gross/tax/net entries collapsed away --
-  // fixed by routing a salary voucher through buildShadowPeriod (lib/payroll-match.ts) instead,
-  // which already parses those entries by account name for the payroll-reconciliation feature.
+  // Confirmed live THREE times: (1) a semi-monthly paystub voucher (gross pay credited to an
+  // Income account, plus tax/benefit deductions hitting Expense-nature accounts in the SAME
+  // voucher) got mislabeled "REFUND/return" because the voucher touched an Expense account at all
+  // -- fixed by letting an Income entry anywhere in the voucher rule out the refund
+  // interpretation. (2) Even after that fix, "what's my take-home and tax deducted" still
+  // couldn't be answered because the voucher was shown as one summed amount -- fixed by routing a
+  // salary voucher through buildShadowPeriod (lib/payroll-match.ts), which parses gross/tax/
+  // 401k/medical/telephone by account name. (3) The user then pointed out take-home must be
+  // "whatever is deposited in Bank" -- buildShadowPeriod's `net` is DERIVED by subtracting only
+  // the deduction buckets it recognizes, so it silently drifts from the real deposit the moment a
+  // voucher has an unrecognized deduction line (here: "Other Deduction", $100, not base/
+  // telephone/medical/401k/tax). Fixed by reading the voucher's own Bank-nature entry directly.
   const today = new Date().toISOString().slice(0, 10);
   const monthKey = today.slice(0, 7);
   const accounts = [
     account(1, "Salary Income - Employer", "Direct Incomes"),
     account(2, "Tax Deduction", "Indirect Expenses"),
+    account(3, "Other Deduction", "Indirect Expenses"),
     account(999, "Bank Of America", "Bank Accounts"),
   ];
   const paystub: Tx = {
@@ -127,7 +132,8 @@ test("buildAssistantContext: a salary voucher is never labeled a refund, and sho
     entries: [
       { accountId: 1, accountName: "Salary Income - Employer", amount: 10_000 },
       { accountId: 2, accountName: "Tax Deduction", amount: -200 },
-      { accountId: 999, accountName: "Bank Of America", amount: -9_800 },
+      { accountId: 3, accountName: "Other Deduction", amount: -100 },
+      { accountId: 999, accountName: "Bank Of America", amount: -9_700 },
     ],
   };
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [paystub] };
@@ -135,7 +141,10 @@ test("buildAssistantContext: a salary voucher is never labeled a refund, and sho
   assert.ok(!context.includes("REFUND/return"), "a salary voucher must never be labeled a refund");
   assert.ok(context.includes("gross pay 10000.00"), "gross pay must be broken out");
   assert.ok(context.includes("tax deducted 200.00"), "tax deducted must be broken out, answering a 'how much tax' question directly");
-  assert.ok(context.includes("net take-home 9800.00"), "net take-home must be broken out, answering a 'what's my take-home' question directly");
+  assert.ok(
+    context.includes("net take-home (actual bank deposit) 9700.00"),
+    "net take-home must be the REAL bank deposit (9700), not the derived gross-minus-known-buckets figure (9800, which silently ignores the unrecognized $100 'Other Deduction' line)"
+  );
 });
 
 test("buildAssistantContext: voucher dates match the app's own DD-MM-YYYY display format, not raw ISO", () => {

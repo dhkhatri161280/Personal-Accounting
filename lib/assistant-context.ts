@@ -118,8 +118,21 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
       // reused here instead of re-deriving the same breakdown a second, possibly-inconsistent way.
       if (isSalaryVoucher(t)) {
         const sp = buildShadowPeriod(t);
+        // Confirmed live a THIRD time: buildShadowPeriod's `net` is DERIVED (gross + telephone -
+        // medical - 401k - tax), which silently drifts from reality the moment the voucher has any
+        // deduction line that regex doesn't recognize. "Take-home" must be the literal amount that
+        // landed in the bank, so read it straight off the voucher's own Bank/Cash-nature entry
+        // instead of trusting the subtraction -- falling back to the derived figure only if the
+        // voucher has no such entry to read (e.g. net pay rolled into a non-bank account).
+        const bankAmt = t.entries.reduce((s, e) => {
+          const acct = data.accounts.find((a) => a.id === e.accountId);
+          if (!acct) return s;
+          const n = accountNature(acct, masterGroups);
+          return n === "Bank" || n === "Cash" ? s + Math.abs(e.amount) : s;
+        }, 0);
+        const net = bankAmt > 0 ? bankAmt : sp.net;
         lines.push(
-          `- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} -- gross pay ${sp.base.toFixed(2)}, tax deducted ${sp.tax.toFixed(2)}, 401k ${sp.k401.toFixed(2)}, medical/health ${sp.medical.toFixed(2)}, telephone ${sp.telephone.toFixed(2)}, net take-home ${sp.net.toFixed(2)} ${data.currency}`
+          `- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} -- gross pay ${sp.base.toFixed(2)}, tax deducted ${sp.tax.toFixed(2)}, 401k ${sp.k401.toFixed(2)}, medical/health ${sp.medical.toFixed(2)}, telephone ${sp.telephone.toFixed(2)}, net take-home (actual bank deposit) ${net.toFixed(2)} ${data.currency}`
         );
         continue;
       }
