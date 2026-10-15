@@ -662,6 +662,14 @@ export type Ledger = {
     zip?: string;
     country?: string; // defaults to "United States" in the UI
   };
+  // Self-service fallback for a calendar year not yet in lib/fbar.ts's own hardcoded, reviewed
+  // TREASURY_YEAR_END_RATE_INR table (Treasury typically publishes the Dec 31 rate a few weeks
+  // into the following January) -- entered once in Masters > Settings, keyed "YYYY" -> INR per
+  // USD. Only ever consulted when the hardcoded table has no entry for that year; it can never
+  // override a year already reviewed and locked in there. Exists so a new year's FBAR Worksheet
+  // doesn't need a code change/redeploy (or this app's developer being reachable) just to add one
+  // published number -- the user can type it in directly once Treasury publishes it.
+  fbarManualTreasuryRates?: Record<string, number>;
 };
 
 // One archived personal document (pay stub, RSU grant agreement/award notice, offer letter, ...).

@@ -245,8 +245,9 @@ export function FbarReport({
 
       {!summary.rate && (
         <p style={{ opacity: 0.7 }}>
-          No Treasury year-end exchange rate is on file for {year} yet (lib/fbar.ts's TREASURY_YEAR_END_RATE_INR) --
-          USD figures below can't be computed until that's added.
+          No Treasury year-end exchange rate is on file for {year} yet. Treasury typically publishes the December 31
+          rate a few weeks into the following January -- once it's out, add it yourself in Masters &gt; Settings
+          &gt; "FBAR Treasury rates (manual)", or ping Claude to add it to the app's own reviewed table.
         </p>
       )}
 

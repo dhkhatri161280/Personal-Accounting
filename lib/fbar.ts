@@ -123,10 +123,17 @@ export function maxBalanceInRange(
 // are genuinely reportable foreign accounts -- this just surfaces every candidate with its
 // computed peak so nothing has to be found by hand.
 export function computeFbarSummary(
-  data: Pick<Ledger, "accounts" | "transactions" | "groups">,
+  data: Pick<Ledger, "accounts" | "transactions" | "groups" | "fbarManualTreasuryRates">,
   calendarYear: number
 ): { rows: FbarAccountRow[]; totalUsd: number; thresholdExceeded: boolean; rate: { rate: number; asOf: string; source: string } | null } {
-  const rateInfo = TREASURY_YEAR_END_RATE_INR[calendarYear] ?? null;
+  // Falls back to a rate the user entered themselves (Masters > Settings) for a year not yet in
+  // the table above -- self-service, so a new year's rate doesn't require a code change/redeploy
+  // or this app's own developer to be reachable. The hardcoded table above still wins whenever a
+  // year IS on file there, so a manual entry can never override an already-reviewed figure.
+  const manualRate = data.fbarManualTreasuryRates?.[String(calendarYear)];
+  const rateInfo =
+    TREASURY_YEAR_END_RATE_INR[calendarYear] ??
+    (manualRate ? { rate: manualRate, asOf: `${calendarYear}-12-31`, source: "Entered manually in Masters > Settings" } : null);
   const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g as unknown as { nature: string }]));
   const startDate = `${calendarYear}-01-01`;
   const endDate = `${calendarYear}-12-31`;

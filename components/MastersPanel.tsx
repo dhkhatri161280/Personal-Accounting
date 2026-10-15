@@ -86,6 +86,7 @@ export type MasterLedger = {
     zip?: string;
     country?: string;
   };
+  fbarManualTreasuryRates?: Record<string, number>;
   currency: string;
   accounts: MasterAccount[];
   groups?: MasterGroup[];
@@ -1983,7 +1984,20 @@ export function MastersPanel({
               fbarCity = String(f.get("fbarCity") || "").trim(),
               fbarState = String(f.get("fbarState") || "").trim().toUpperCase(),
               fbarZip = String(f.get("fbarZip") || "").trim(),
-              fbarCountry = String(f.get("fbarCountry") || "").trim();
+              fbarCountry = String(f.get("fbarCountry") || "").trim(),
+              fbarRatesRaw = String(f.get("fbarManualTreasuryRates") || "").trim();
+            // "2026:89.5, 2027:90.1" -- one year:rate pair per entry, comma-separated, matching
+            // this same form's existing convention for currencies/voucherTypes. Silently skips a
+            // malformed entry (missing colon, non-numeric rate, non-4-digit year) rather than
+            // blocking the whole save over one typo elsewhere in the list.
+            const fbarManualTreasuryRates: Record<string, number> = {};
+            for (const entry of fbarRatesRaw.split(",")) {
+              const [yearPart, ratePart] = entry.split(":").map((s) => s.trim());
+              if (!/^\d{4}$/.test(yearPart || "")) continue;
+              const rate = Number(ratePart);
+              if (!Number.isFinite(rate) || rate <= 0) continue;
+              fbarManualTreasuryRates[yearPart] = rate;
+            }
             const fbarFilerProfile =
               fbarFirstName || fbarLastName || fbarSsnOrItin || fbarDob || fbarStreet || fbarCity || fbarState || fbarZip
                 ? {
@@ -2012,6 +2026,7 @@ export function MastersPanel({
                 companyEmail,
                 costcoMembershipRenewalMonthDay: costcoMonth && costcoDay ? `${costcoMonth}-${costcoDay}` : undefined,
                 fbarFilerProfile,
+                fbarManualTreasuryRates: Object.keys(fbarManualTreasuryRates).length ? fbarManualTreasuryRates : undefined,
               },
               "Other masters updated."
             );
@@ -2121,6 +2136,24 @@ export function MastersPanel({
           <label>
             Country
             <input name="fbarCountry" defaultValue={data.fbarFilerProfile?.country || "United States"} autoComplete="off" />
+          </label>
+          <label>
+            FBAR Treasury rates (manual, optional)
+            <input
+              name="fbarManualTreasuryRates"
+              defaultValue={Object.entries(data.fbarManualTreasuryRates || {})
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([year, rate]) => `${year}:${rate}`)
+                .join(", ")}
+              placeholder="2026:89.5, 2027:90.1"
+              autoComplete="off"
+            />
+            <span className="field-hint">
+              Only needed for a calendar year the FBAR Worksheet shows "no rate on file" for -- Treasury publishes the
+              official December 31 INR/USD rate a few weeks into the following January
+              (api.fiscaldata.treasury.gov). One "year:rate" pair per year, comma-separated. Never overrides a year
+              already built into the app.
+            </span>
           </label>
 
           <h3>Company accounting settings</h3>
