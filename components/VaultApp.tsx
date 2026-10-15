@@ -1203,6 +1203,23 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     await save(next, "reports");
   }
 
+  async function saveFbarFilerProfile(profile: NonNullable<Ledger["fbarFilerProfile"]>) {
+    if (!data) return;
+    await save({ ...data, fbarFilerProfile: profile }, "reports");
+  }
+
+  // Self-service fallback for a calendar year not yet in lib/fbar.ts's own reviewed
+  // TREASURY_YEAR_END_RATE_INR table -- see that table's own doc comment. `rate: null` removes
+  // that year's entry (e.g. the row was cleared, or its year was edited and the old key needs to
+  // go away -- see FbarSettingsPanel's own commitRate).
+  async function setFbarManualTreasuryRate(year: number, rate: number | null) {
+    if (!data) return;
+    const rates = { ...(data.fbarManualTreasuryRates ?? {}) };
+    if (rate === null) delete rates[String(year)];
+    else rates[String(year)] = rate;
+    await save({ ...data, fbarManualTreasuryRates: rates }, "reports");
+  }
+
   // Polled here (not just read from SyncStatusLock's own query) so a stuck or long-silent Tally
   // sync can also surface in Needs Attention, not only in the lock icon's color -- found live: a
   // real sync outage was easy to miss because nothing draws your eye to the small lock button.
@@ -5170,7 +5187,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             <CategorizationReview data={data} onViewVoucher={(t) => setSelectedVoucher(t)} onToggleDismissed={toggleCategorizationDismissed} />
           )}
           {report === "fbar" && data && book === "india" && (
-            <FbarReport data={data} onSetTreatment={setFbarTreatment} onSetManualValue={setFbarManualValue} />
+            <FbarReport
+              data={data}
+              onSetTreatment={setFbarTreatment}
+              onSetManualValue={setFbarManualValue}
+              onSaveFilerProfile={saveFbarFilerProfile}
+              onSetManualTreasuryRate={setFbarManualTreasuryRate}
+            />
           )}
           {report === "balconfirm" && data && <BalanceConfirmationLetter data={data} fmt={fmt} />}
           {report === "fixedassets" && data && (
