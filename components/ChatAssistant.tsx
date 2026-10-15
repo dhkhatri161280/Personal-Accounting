@@ -363,15 +363,16 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
               </p>
             )}
             {messages.map((m, i) => (
-              <div key={i} className={`chat-assistant-message chat-assistant-message--${m.role}`}>
+              <div
+                key={i}
+                className={`chat-assistant-message chat-assistant-message--${m.role}`}
+                // Confirmed live: the visible "🔧 tool(args)" caption was genuinely useful for
+                // diagnosing a wrong-looking answer, but the user found it too much clutter to see
+                // on every normal reply. Kept, just moved into a hover tooltip instead of always
+                // rendered -- still one hover away when a number needs checking, invisible otherwise.
+                title={m.toolTrace ? `Tool call(s) used: ${m.toolTrace.join(" | ")}` : undefined}
+              >
                 {m.content}
-                {m.toolTrace && (
-                  <div style={{ marginTop: 6, fontSize: 10, opacity: 0.55, fontFamily: "monospace" }} title="The exact tool call(s) used to produce this answer -- makes a wrong-looking number immediately checkable instead of a guess">
-                    {m.toolTrace.map((t, ti) => (
-                      <div key={ti}>🔧 {t}</div>
-                    ))}
-                  </div>
-                )}
               </div>
             ))}
             {sending && <div className="chat-assistant-message chat-assistant-message--assistant">…</div>}
