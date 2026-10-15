@@ -26,6 +26,40 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, open]);
 
+  // .install-options (the PWA install buttons, see PWARegister.tsx) shares this same bottom-right
+  // corner, and its own height varies wildly across breakpoints -- confirmed live it has dozens
+  // of responsive overrides (single row, 2-column grid, different margins, sometimes hidden
+  // entirely once installed). A static guessed pixel offset got this wrong once already; measures
+  // the real element's actual position instead of guessing again, and stays correct if its size
+  // or presence changes (viewport resize, orientation change, or it disappearing post-install).
+  useEffect(() => {
+    function updateOffset() {
+      const el = document.querySelector<HTMLElement>(".install-options");
+      let offset = 20; // default clearance when no install prompt is showing at all
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const visible = rect.height > 0 && getComputedStyle(el).display !== "none";
+        if (visible) offset = window.innerHeight - rect.top + 12; // clear its top edge, plus a gap
+      }
+      document.documentElement.style.setProperty("--chat-bubble-offset", `${offset}px`);
+    }
+    updateOffset();
+    window.addEventListener("resize", updateOffset);
+    const resizeObserver = new ResizeObserver(updateOffset);
+    const target = document.querySelector(".install-options");
+    if (target) resizeObserver.observe(target);
+    // .install-options can appear/disappear after mount (PWARegister's own install-state
+    // detection runs async) -- a plain querySelector + ResizeObserver at mount time alone would
+    // miss that, so also watch the DOM for it being added or removed.
+    const mutationObserver = new MutationObserver(updateOffset);
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.removeEventListener("resize", updateOffset);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, []);
+
   async function send() {
     const message = input.trim();
     if (!message || sending) return;

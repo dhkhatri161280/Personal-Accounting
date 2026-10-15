@@ -10851,13 +10851,15 @@ body.dark-mode {
    styled like FloatingWindow's centered resizable popup -- a persistent bottom-corner widget,
    same convention as a typical support-chat bubble, so it never competes with report content. */
 /* .install-options (the PWA install buttons, see PWARegister.tsx) already owns the bottom-right
-   corner at right:18px/bottom:18px -- confirmed live that this collided with it directly (same
-   corner, this bubble's z-index on top), hiding the install buttons entirely. Stacked here well
-   above that row's own height (~46px) instead, not sharing the corner. */
+   corner -- confirmed live this collided with it directly, and that a static guessed offset
+   wasn't enough clearance either (.install-options has dozens of responsive-breakpoint overrides,
+   its real height varies a lot). --chat-bubble-offset is set dynamically by ChatAssistant.tsx
+   itself, measuring the real element instead of guessing; this 20px is only the fallback for
+   before that effect runs, or if .install-options isn't present at all. */
 .chat-assistant-bubble {
   position: fixed;
   right: 20px;
-  bottom: 80px;
+  bottom: var(--chat-bubble-offset, 20px);
   z-index: 85;
   width: 52px;
   height: 52px;
@@ -10878,7 +10880,7 @@ body.dark-mode {
 .chat-assistant-panel {
   position: fixed;
   right: 20px;
-  bottom: 144px;
+  bottom: calc(var(--chat-bubble-offset, 20px) + 64px); /* bubble height (52px) + a gap above it */
   z-index: 85;
   width: 340px;
   max-width: calc(100vw - 32px);
@@ -10890,6 +10892,19 @@ body.dark-mode {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* On a wide landscape screen, a tall narrow panel in the bottom-right corner reaches up into real
+   report/dashboard content instead of the actual blank space usually sitting below it (confirmed
+   live: it covered a Dashboard card while a wide empty strip sat unused further down). This app
+   has no reliable way to know exactly where any given screen's content ends to dock precisely
+   into that blank strip, but going wide-and-short instead of narrow-and-tall makes landing inside
+   it far more likely without needing that. Portrait/narrow screens keep the original tall shape,
+   where there usually isn't a comparable horizontal blank strip to aim for anyway. */
+@media (orientation: landscape) and (min-width: 900px) {
+  .chat-assistant-panel {
+    width: min(620px, 70vw);
+    height: 240px;
+  }
 }
 .chat-assistant-header {
   padding: 12px 14px;
