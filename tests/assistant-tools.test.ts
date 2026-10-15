@@ -242,6 +242,23 @@ test("get_account_balances: nameFilter narrows to matching accounts only", () =>
   assert.ok(!result.includes("SBI Savings"));
 });
 
+test("get_account_balances: matches the real dashboard's sign exactly, not its double-negated opposite", () => {
+  // Confirmed live: asked "closing balance of 401K as of today", this tool answered -$97,452.78
+  // against the real dashboard's own +$97,452.78 for the same account -- a double-negation bug.
+  // ledgerBalanceAsOf (lib/vault-accounting.ts) already returns the final, correctly-signed
+  // display value on its own; wrapping it in displayLedgerBalance() (as this tool used to) applied
+  // a SECOND negation, flipping every single balance's sign back to wrong. Every other call site
+  // in the app (VaultApp.tsx's own dashboard included) uses ledgerBalanceAsOf directly, never
+  // wrapped -- this fixture mirrors VaultApp's own closing-balance math (opening + all entries,
+  // then negated for display) for a single contribution so the two can be compared directly.
+  const accounts = [account(1, "401K Investments", "Investments")];
+  const contribution = tx(1, "2026-04-15", "Payment", "401k contribution", [{ accountId: 1, amount: -97_452.78 }, { accountId: 999, amount: 97_452.78 }]);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [...accounts, account(999, "Bank", "Bank Accounts")], transactions: [contribution] };
+  const result = executeTool("get_account_balances", { nameFilter: "401k" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("97452.78 USD"), "a real positive contribution must display positive, matching the real dashboard");
+  assert.ok(!result.includes("-97452.78"), "must not show the double-negated (wrong-sign) figure");
+});
+
 // ---- get_fbar_status -----------------------------------------------------------------------
 
 test("get_fbar_status: only available for the India book", () => {

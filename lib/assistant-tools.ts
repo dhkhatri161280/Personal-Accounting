@@ -1,5 +1,5 @@
 import type { Ledger, Tx } from "./vault-types.ts";
-import { ledgerBalanceAsOf, displayLedgerBalance, accountNature, fiscalYearOf } from "./vault-accounting.ts";
+import { ledgerBalanceAsOf, accountNature, fiscalYearOf } from "./vault-accounting.ts";
 import { computeFbarSummary } from "./fbar.ts";
 import { fmtDate } from "./format-date.ts";
 import { isSalaryVoucher, buildShadowPeriod } from "./payroll-match.ts";
@@ -277,7 +277,15 @@ function getAccountBalances(data: Ledger, args: Record<string, unknown>, todayIs
   ];
   let any = false;
   for (const a of accounts) {
-    const bal = displayLedgerBalance(a, ledgerBalanceAsOf(data, a.id, todayIso));
+    // Confirmed live: asked "closing balance of 401K as of today", this showed -$97,452.78 against
+    // the real dashboard's own +$97,452.78 for the same account -- a double-negation bug.
+    // ledgerBalanceAsOf already returns the final, correctly-signed display value on its own (it
+    // negates the raw opening+entries sum internally) -- EVERY other call site in this entire
+    // codebase (VaultApp.tsx, BalanceConfirmationLetter.tsx, cash-flow-forecast.ts,
+    // financial-ratios.ts, ...) uses it directly for exactly that reason. Wrapping it in
+    // displayLedgerBalance() here (the only call site that did) applied a SECOND negation on top,
+    // flipping every balance's sign back to wrong.
+    const bal = ledgerBalanceAsOf(data, a.id, todayIso);
     if (Math.abs(bal) < 0.01) continue;
     any = true;
     lines.push(`- ${a.name} [${a.parent}]: ${bal.toFixed(2)} ${a.currency || data.currency}`);
