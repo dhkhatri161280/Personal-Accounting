@@ -10847,19 +10847,19 @@ body.dark-mode {
   color: #94a3b8;
 }
 
-/* Chat assistant -- fixed corner bubble + panel (components/ChatAssistant.tsx). Deliberately NOT
-   styled like FloatingWindow's centered resizable popup -- a persistent bottom-corner widget,
-   same convention as a typical support-chat bubble, so it never competes with report content. */
-/* .install-options (the PWA install buttons, see PWARegister.tsx) already owns the bottom-right
-   corner -- confirmed live this collided with it directly, and that a static guessed offset
-   wasn't enough clearance either (.install-options has dozens of responsive-breakpoint overrides,
-   its real height varies a lot). --chat-bubble-offset is set dynamically by ChatAssistant.tsx
-   itself, measuring the real element instead of guessing; this 20px is only the fallback for
-   before that effect runs, or if .install-options isn't present at all. */
+/* Chat assistant -- draggable bubble + panel (components/ChatAssistant.tsx). Deliberately NOT
+   styled like FloatingWindow's centered resizable popup -- a persistent widget, same convention
+   as a typical support-chat bubble, so it never competes with report content. top/left are set
+   inline by the component itself (remembered per-user in localStorage; confirmed live that a
+   fixed bottom-right corner collides with other fixed-position UI -- the install-options PWA
+   buttons, a Day Book table's own scrollbar -- on enough different screens that no single default
+   position avoids all of them; letting the user drag it wherever actually works is what
+   generalizes). right/bottom:auto below only matter before that inline style is set (this rule's
+   static right/bottom would otherwise still apply and fight the inline top/left). */
 .chat-assistant-bubble {
   position: fixed;
-  right: 20px;
-  bottom: var(--chat-bubble-offset, 20px);
+  right: auto;
+  bottom: auto;
   z-index: 85;
   width: 52px;
   height: 52px;
@@ -10869,10 +10869,14 @@ body.dark-mode {
   color: #fff;
   font-size: 22px;
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
-  cursor: pointer;
+  cursor: grab;
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: none;
+}
+.chat-assistant-bubble:active {
+  cursor: grabbing;
 }
 .chat-assistant-bubble:hover {
   background: #1e40af;
@@ -10898,6 +10902,7 @@ body.dark-mode {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  touch-action: none;
 }
 .chat-assistant-messages {
   flex: 1;

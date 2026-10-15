@@ -6,13 +6,20 @@ import { apiFetch } from "@/lib/api-fetch";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type Rect = { top: number; left: number; width: number; height: number };
+type Point = { top: number; left: number };
 type Corner = "nw" | "ne" | "sw" | "se";
 
 const MAX_HISTORY_SENT = 12;
 const MIN_W = 280;
 const MIN_H = 220;
+const BUBBLE_SIZE = 52;
 const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
 const RECT_STORAGE_KEY = "dk-chat-assistant-rect";
+const BUBBLE_STORAGE_KEY = "dk-chat-assistant-bubble-pos";
+// A pointerdown->pointerup with less movement than this is treated as a click (open/close the
+// panel) rather than a drag -- without this, the bubble's own onClick would never fire at all
+// once it's also listening for drags, since every click technically starts and ends a 0px "drag".
+const DRAG_CLICK_THRESHOLD = 4;
 
 // Free in-app chat assistant -- Cloudflare Workers AI (app/api/assistant), not the Anthropic API.
 // A fixed corner bubble (not a new header icon or a bigger existing screen) so it adds nothing to
@@ -20,14 +27,14 @@ const RECT_STORAGE_KEY = "dk-chat-assistant-rect";
 // own data (see lib/assistant-context.ts) with every question -- this component is the only place
 // that reads the decrypted Ledger for this feature; the server route never sees it.
 //
-// The open panel is fully draggable (by its header) and resizable (corner handles), with the
-// result remembered in localStorage -- confirmed live that no single fixed size/position avoids
-// covering real content on every screen (a wide-short default landed on a Dashboard card on one
-// layout, a tall-narrow one on another); letting the user park it wherever actually works for
-// whatever they're looking at is the only approach that generalizes. Deliberately NOT built on
-// FloatingWindow (used elsewhere for drilldowns): that component has no drag-to-move at all (only
-// corner-resize), and its full-page dimming overlay is a modal pattern wrong for a persistent
-// widget meant to stay open alongside normal use, not block it.
+// Both the closed bubble (drag anywhere) and the open panel (drag its header to move, corners to
+// resize) are fully user-positionable, each remembered independently in localStorage -- confirmed
+// live that no single fixed position/size avoids covering real content or other fixed-position UI
+// (the install-options PWA buttons, a Day Book's own scrollbar) on every screen; letting the user
+// park each piece wherever actually works for whatever they're looking at is what generalizes.
+// Deliberately NOT built on FloatingWindow (used elsewhere for drilldowns): that component has no
+// drag-to-move at all (only corner-resize), and its full-page dimming overlay is a modal pattern
+// wrong for a widget meant to stay open alongside normal use, not block it.
 export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "india" }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -35,8 +42,10 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rect, setRect] = useState<Rect | null>(null);
+  const [bubblePos, setBubblePos] = useState<Point | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ kind: "move"; startX: number; startY: number; rect: Rect } | { kind: "resize"; corner: Corner; startX: number; startY: number; rect: Rect } | null>(null);
+  const bubbleDragRef = useRef<{ startX: number; startY: number; pos: Point; moved: boolean } | null>(null);
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -46,8 +55,8 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
   // corner, and its own height varies wildly across breakpoints -- confirmed live it has dozens
   // of responsive overrides. Measures the real element's actual position instead of guessing a
   // static offset, and stays correct if its size or presence changes (resize, orientation change,
-  // or it disappearing post-install). Only used for the closed bubble's own position now -- the
-  // open panel's position is whatever the user last left it at (or a computed default, below).
+  // or it disappearing post-install). Only feeds the bubble's own DEFAULT position (first run, or
+  // if localStorage has nothing usable) -- once the user drags it, their position wins instead.
   useEffect(() => {
     function updateOffset() {
       const el = document.querySelector<HTMLElement>(".install-options");
@@ -73,6 +82,36 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     };
   }, []);
 
+  // Restores (or computes a first-time default for) the bubble's own position, once on mount.
+  useEffect(() => {
+    const vw = window.innerWidth,
+      vh = window.innerHeight;
+    let saved: Point | null = null;
+    try {
+      const raw = localStorage.getItem(BUBBLE_STORAGE_KEY);
+      if (raw) saved = JSON.parse(raw);
+    } catch {
+      // ignore corrupt/missing storage -- fall through to the computed default below
+    }
+    if (saved && saved.left >= -40 && saved.top >= -40 && saved.left <= vw + 40 && saved.top <= vh + 40) {
+      setBubblePos(saved);
+      return;
+    }
+    const installClearance = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--chat-bubble-offset") || "20", 10) || 20;
+    setBubblePos({ top: Math.max(12, vh - installClearance - BUBBLE_SIZE), left: Math.max(12, vw - 20 - BUBBLE_SIZE) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (bubblePos) {
+      try {
+        localStorage.setItem(BUBBLE_STORAGE_KEY, JSON.stringify(bubblePos));
+      } catch {
+        // storage full/unavailable -- losing the remembered position isn't worth surfacing an error for
+      }
+    }
+  }, [bubblePos]);
+
   // Computes (or restores) the panel's rect the moment it's opened, not on mount -- window size
   // isn't meaningful to measure against before the user actually opens it, and restoring a saved
   // rect from a previous, differently-sized window could otherwise land off-screen.
@@ -97,11 +136,11 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     const landscape = vw >= 900 && vw >= vh;
     const width = Math.min(landscape ? 620 : 340, vw - 32);
     const height = Math.min(landscape ? 320 : 440, vh - 32);
-    const installClearance = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--chat-bubble-offset") || "20", 10) || 20;
-    const top = Math.max(12, vh - installClearance - 64 - height);
-    const left = Math.max(12, vw - 20 - width);
+    const bubbleTop = bubblePos?.top ?? vh - 80;
+    const top = Math.max(12, bubbleTop - 12 - height);
+    const left = Math.max(12, Math.min((bubblePos?.left ?? vw - 72) - (width - BUBBLE_SIZE), vw - width - 12));
     setRect({ top, left, width, height });
-  }, [open, rect]);
+  }, [open, rect, bubblePos]);
 
   useEffect(() => {
     if (rect) {
@@ -115,6 +154,20 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
 
   useEffect(() => {
     function onMove(e: PointerEvent) {
+      const bd = bubbleDragRef.current;
+      if (bd) {
+        const dx = e.clientX - bd.startX,
+          dy = e.clientY - bd.startY;
+        if (Math.abs(dx) > DRAG_CLICK_THRESHOLD || Math.abs(dy) > DRAG_CLICK_THRESHOLD) bd.moved = true;
+        if (bd.moved) {
+          const vw = window.innerWidth,
+            vh = window.innerHeight;
+          const left = Math.max(0, Math.min(bd.pos.left + dx, vw - BUBBLE_SIZE));
+          const top = Math.max(0, Math.min(bd.pos.top + dy, vh - BUBBLE_SIZE));
+          setBubblePos({ top, left });
+        }
+        return;
+      }
       const d = dragRef.current;
       if (!d) return;
       const dx = e.clientX - d.startX,
@@ -142,6 +195,8 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     }
     function onUp() {
       dragRef.current = null;
+      // bubbleDragRef is cleared by the bubble's own onClick/onPointerUp handler (see below) --
+      // it needs to read `moved` one more time there to decide whether to toggle `open`.
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -164,6 +219,22 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
       e.stopPropagation();
       dragRef.current = { kind: "resize", corner, startX: e.clientX, startY: e.clientY, rect };
     };
+  }
+
+  function bubblePointerDown(e: React.PointerEvent) {
+    if (!bubblePos) return;
+    bubbleDragRef.current = { startX: e.clientX, startY: e.clientY, pos: bubblePos, moved: false };
+  }
+
+  function bubbleClick() {
+    // A real drag (moved past the threshold) must not also toggle the panel open/closed -- only
+    // a plain click (no meaningful movement) does that.
+    if (bubbleDragRef.current?.moved) {
+      bubbleDragRef.current = null;
+      return;
+    }
+    bubbleDragRef.current = null;
+    setOpen((v) => !v);
   }
 
   async function send() {
@@ -199,9 +270,11 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
       <button
         type="button"
         className="chat-assistant-bubble"
-        onClick={() => setOpen((v) => !v)}
+        style={bubblePos ? { top: bubblePos.top, left: bubblePos.left, right: "auto", bottom: "auto" } : { visibility: "hidden" }}
+        onPointerDown={bubblePointerDown}
+        onClick={bubbleClick}
         aria-label={open ? "Close chat assistant" : "Open chat assistant"}
-        title="Chat assistant (free, Cloudflare Workers AI)"
+        title="Chat assistant (free, Cloudflare Workers AI) -- drag to move"
       >
         {open ? "✕" : "💬"}
       </button>
@@ -215,7 +288,8 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
             {messages.length === 0 && (
               <p style={{ opacity: 0.6, fontSize: 13 }}>
                 Ask about your balances, this month's spend, or (India book) your FBAR status. Drag the header to move
-                this panel, or its corners to resize -- both are remembered next time.
+                this panel, or its corners to resize -- both are remembered next time, same as dragging the bubble
+                itself when closed.
               </p>
             )}
             {messages.map((m, i) => (
