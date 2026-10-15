@@ -223,16 +223,8 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
     return { gross: sp.base, tax: sp.tax, k401: sp.k401, medical: sp.medical, telephone: sp.telephone, net: bankAmt > 0 ? bankAmt : sp.net };
   }
 
-  // Confirmed live: asked "how much YTD" right after a correct per-paystub answer, the assistant
-  // had no year-to-date figure anywhere in its context and fabricated one from the "Current
-  // account balances" section instead -- those are CUMULATIVE since the account was opened, not
-  // year-to-date, and presenting them as a YTD estimate was a confident wrong answer. Give it the
-  // real thing: every salary voucher dated this calendar year, summed the same way as the
-  // per-voucher lines below.
-  const yearKey = today.slice(0, 4);
-  const yearSalaryTx = data.transactions.filter((t) => !t.deleted && !t.cancelled && t.date.startsWith(yearKey) && isSalaryVoucher(t));
-  if (yearSalaryTx.length) {
-    const ytd = yearSalaryTx.reduce(
+  function salaryAggregate(txs: Tx[]) {
+    return txs.reduce(
       (acc, t) => {
         const b = salaryBreakdown(t);
         acc.gross += b.gross;
@@ -245,9 +237,38 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
       },
       { gross: 0, tax: 0, k401: 0, medical: 0, telephone: 0, net: 0 }
     );
+  }
+
+  // Confirmed live: asked "how much YTD" right after a correct per-paystub answer, the assistant
+  // had no year-to-date figure anywhere in its context and fabricated one from the "Current
+  // account balances" section instead -- those are CUMULATIVE since the account was opened, not
+  // year-to-date, and presenting them as a YTD estimate was a confident wrong answer. Give it the
+  // real thing: every salary voucher dated this calendar year, summed the same way as the
+  // per-voucher lines below.
+  const yearKey = today.slice(0, 4);
+  const yearSalaryTx = data.transactions.filter((t) => !t.deleted && !t.cancelled && t.date.startsWith(yearKey) && isSalaryVoucher(t));
+  if (yearSalaryTx.length) {
+    const ytd = salaryAggregate(yearSalaryTx);
     lines.push(
       "",
-      `Year-to-date (CY${yearKey}) salary summary across ${yearSalaryTx.length} paystub voucher(s): gross pay ${ytd.gross.toFixed(2)}, tax deducted ${ytd.tax.toFixed(2)}, 401k ${ytd.k401.toFixed(2)}, medical/health ${ytd.medical.toFixed(2)}, telephone ${ytd.telephone.toFixed(2)}, net take-home (actual bank deposits) ${ytd.net.toFixed(2)} ${data.currency}`
+      `Calendar-year-to-date (CY${yearKey}, Jan-Dec -- NOT the books' fiscal year, see the separate fiscal-year summary below if present) salary summary across ${yearSalaryTx.length} paystub voucher(s): gross pay ${ytd.gross.toFixed(2)}, tax deducted ${ytd.tax.toFixed(2)}, 401k ${ytd.k401.toFixed(2)}, medical/health ${ytd.medical.toFixed(2)}, telephone ${ytd.telephone.toFixed(2)}, net take-home (actual bank deposits) ${ytd.net.toFixed(2)} ${data.currency}`
+    );
+  }
+
+  // Confirmed live: asked specifically about "this fiscal year", the assistant had only the
+  // CALENDAR-year summary above and wrongly claimed the two were "also the same in this case" --
+  // they are not (this app's own books run Apr-Mar, see fiscalYearOf, while the summary above is
+  // Jan-Dec). A real fiscal-year-scoped summary, unambiguously labeled with its own date range,
+  // so a fiscal-year question has the right data instead of a mislabeled calendar-year one.
+  const fy = fiscalYearOf(today);
+  const fyFrom = `${fy}-04-01`,
+    fyTo = `${fy + 1}-03-31`;
+  const fySalaryTx = data.transactions.filter((t) => !t.deleted && !t.cancelled && t.date >= fyFrom && t.date <= fyTo && isSalaryVoucher(t));
+  if (fySalaryTx.length) {
+    const fyTotal = salaryAggregate(fySalaryTx);
+    lines.push(
+      "",
+      `Fiscal-year-to-date (FY${fy}: ${fyFrom} to ${fyTo}, Apr-Mar -- this is the books' own fiscal year, NOT the same as the calendar-year summary above) salary summary across ${fySalaryTx.length} paystub voucher(s): gross pay ${fyTotal.gross.toFixed(2)}, tax deducted ${fyTotal.tax.toFixed(2)}, 401k ${fyTotal.k401.toFixed(2)}, medical/health ${fyTotal.medical.toFixed(2)}, telephone ${fyTotal.telephone.toFixed(2)}, net take-home (actual bank deposits) ${fyTotal.net.toFixed(2)} ${data.currency}`
     );
   }
 

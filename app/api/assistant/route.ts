@@ -40,10 +40,21 @@ about to cite in the SAME reply and make sure your answer doesn't contradict wha
 about them one sentence earlier -- a reply that finds a voucher in one sentence and says "I didn't
 find any" in the next is worse than either answer alone.
 
+CRITICAL: "calendar year" and "fiscal year" are DIFFERENT periods and are NEVER the same thing --
+never say they're "also the same in this case" or otherwise treat them as interchangeable, even if
+today's date happens to fall in both. If a "Calendar-year-to-date (CY...)" salary summary is
+present, it covers Jan-Dec of the current calendar year ONLY -- use it for a question that actually
+says "calendar year" or a specific year number, not "fiscal year". If a "Fiscal-year-to-date (FY...)"
+salary summary is present, it covers the books' own Apr-Mar fiscal year (it states the exact FY and
+date range in its own label) -- use THIS one, not the calendar-year one, whenever the question says
+"fiscal year" or "FY". The two will usually be different numbers; if only one of the two sections is
+present for what the question actually asked about, say plainly you don't have the other one, rather
+than substituting it silently.
+
 CRITICAL: the "All vouchers THIS CALENDAR MONTH ONLY" list below covers ONLY the current calendar
 month -- it never contains anything from an earlier or later month, even if a fiscal year, quarter,
-or other month is named in the question. The year-to-date salary summary (if present) is the one
-exception to that -- it really does cover the whole current calendar year, not just this month.
+or other month is named in the question. The salary summaries above (if present) are the one
+exception to that -- each covers its own whole year as labeled, not just this month.
 If a "Fiscal-year search" section is ALSO present below, it covers the WHOLE CURRENT FISCAL YEAR
 (it states the exact FY and date range at the top of that section) -- not just this month, but also
 NOT every year the vault has ever had data for -- that matched the specific words in the user's own

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAssistantContext, extractSearchTerms, searchVouchersThisFiscalYear } from "../lib/assistant-context.ts";
+import { fiscalYearOf } from "../lib/vault-accounting.ts";
+import { todayLocalIso } from "../lib/format-date.ts";
 import type { Account, Tx, Ledger } from "../lib/vault-types.ts";
 
 function account(id: number, name: string, parent: string, openingBalance = 0): Account {
@@ -189,11 +191,46 @@ test("buildAssistantContext: includes a year-to-date salary summary across ALL t
   const transactions = [salaryVoucher(1, `${yearKey}-02-01`, 5_000, 1_000), salaryVoucher(2, `${yearKey}-08-01`, 6_000, 1_200)];
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions };
   const context = buildAssistantContext(data, "us");
-  assert.ok(context.includes(`Year-to-date (CY${yearKey})`), "must include an explicit year-to-date section");
+  assert.ok(context.includes(`Calendar-year-to-date (CY${yearKey}`), "must include an explicit calendar-year-to-date section");
   assert.ok(context.includes("across 2 paystub voucher(s)"), "must count both of this year's paystubs, not just the current month's");
   assert.ok(context.includes("gross pay 11000.00"), "YTD gross must sum both vouchers (5000 + 6000)");
   assert.ok(context.includes("tax deducted 2200.00"), "YTD tax must sum both vouchers (1000 + 1200)");
   assert.ok(context.includes("net take-home (actual bank deposits) 8800.00"), "YTD net take-home must sum both vouchers' actual bank deposits (4000 + 4800)");
+});
+
+test("buildAssistantContext: a fiscal-year-to-date salary summary is distinct from, and never confused with, the calendar-year one", () => {
+  // Confirmed live: asked "what is the tax deducted from salary for this fiscal year", the
+  // assistant had only the CALENDAR-year summary and said it was "also the fiscal year in this
+  // case" -- wrong, since this app's own books run Apr-Mar (see fiscalYearOf), not Jan-Dec. A real
+  // fiscal-year-scoped summary, with its own unambiguous label and date range, fixes that.
+  const fy = fiscalYearOf(todayLocalIso());
+  const accounts = [
+    account(1, "Salary Income - Employer", "Direct Incomes"),
+    account(2, "Tax Deduction", "Indirect Expenses"),
+    account(999, "Bank Of America", "Bank Accounts"),
+  ];
+  function salaryVoucher(id: number, date: string, gross: number, tax: number): Tx {
+    return {
+      id, guid: `v${id}`, date, number: String(id), type: "Receipt", narration: "Salary Income - Semi Monthly", historical: false,
+      entries: [
+        { accountId: 1, accountName: "Salary Income - Employer", amount: gross },
+        { accountId: 2, accountName: "Tax Deduction", amount: -tax },
+        { accountId: 999, accountName: "Bank Of America", amount: -(gross - tax) },
+      ],
+    };
+  }
+  // Apr 15 of fiscal year `fy` always falls inside FY `fy` (Apr fy - Mar fy+1); Apr 15 one full
+  // year earlier always falls BEFORE it -- both true regardless of which real date this test runs
+  // on, so no date-mocking is needed.
+  const inFy = salaryVoucher(1, `${fy}-04-15`, 5_000, 1_000);
+  const beforeFy = salaryVoucher(2, `${fy - 1}-04-15`, 9_000, 1_800);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [inFy, beforeFy] };
+  const context = buildAssistantContext(data, "us");
+  assert.ok(context.includes(`Fiscal-year-to-date (FY${fy}: ${fy}-04-01 to ${fy + 1}-03-31`), "must include an explicit fiscal-year-to-date section with its own FY number and date range");
+  const fySection = context.slice(context.indexOf("Fiscal-year-to-date"));
+  assert.ok(fySection.includes("across 1 paystub voucher(s)"), "must count only the voucher actually inside FY, not the one from a year before it");
+  assert.ok(fySection.includes("gross pay 5000.00"), "fiscal-year total must be just the in-FY voucher (5000), not both (14000)");
+  assert.ok(fySection.includes("tax deducted 1000.00"), "fiscal-year tax total must be just the in-FY voucher (1000), not both (2800)");
 });
 
 test("buildAssistantContext: voucher dates match the app's own DD-MM-YYYY display format, not raw ISO", () => {
