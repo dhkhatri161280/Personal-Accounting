@@ -5,22 +5,38 @@ import { buildAssistantContext } from "@/lib/assistant-context";
 import { apiFetch } from "@/lib/api-fetch";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+type Rect = { top: number; left: number; width: number; height: number };
+type Corner = "nw" | "ne" | "sw" | "se";
 
 const MAX_HISTORY_SENT = 12;
+const MIN_W = 280;
+const MIN_H = 220;
+const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
+const RECT_STORAGE_KEY = "dk-chat-assistant-rect";
 
 // Free in-app chat assistant -- Cloudflare Workers AI (app/api/assistant), not the Anthropic API.
 // A fixed corner bubble (not a new header icon or a bigger existing screen) so it adds nothing to
-// the weight of any screen that isn't actively using it -- same reasoning that moved the FBAR
-// filer profile out of Settings earlier. Sends a computed summary of the user's own data (see
-// lib/assistant-context.ts) with every question -- this component is the only place that reads
-// the decrypted Ledger for this feature; the server route never sees it.
+// the weight of any screen that isn't actively using it. Sends a computed summary of the user's
+// own data (see lib/assistant-context.ts) with every question -- this component is the only place
+// that reads the decrypted Ledger for this feature; the server route never sees it.
+//
+// The open panel is fully draggable (by its header) and resizable (corner handles), with the
+// result remembered in localStorage -- confirmed live that no single fixed size/position avoids
+// covering real content on every screen (a wide-short default landed on a Dashboard card on one
+// layout, a tall-narrow one on another); letting the user park it wherever actually works for
+// whatever they're looking at is the only approach that generalizes. Deliberately NOT built on
+// FloatingWindow (used elsewhere for drilldowns): that component has no drag-to-move at all (only
+// corner-resize), and its full-page dimming overlay is a modal pattern wrong for a persistent
+// widget meant to stay open alongside normal use, not block it.
 export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "india" }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rect, setRect] = useState<Rect | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ kind: "move"; startX: number; startY: number; rect: Rect } | { kind: "resize"; corner: Corner; startX: number; startY: number; rect: Rect } | null>(null);
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -28,18 +44,18 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
 
   // .install-options (the PWA install buttons, see PWARegister.tsx) shares this same bottom-right
   // corner, and its own height varies wildly across breakpoints -- confirmed live it has dozens
-  // of responsive overrides (single row, 2-column grid, different margins, sometimes hidden
-  // entirely once installed). A static guessed pixel offset got this wrong once already; measures
-  // the real element's actual position instead of guessing again, and stays correct if its size
-  // or presence changes (viewport resize, orientation change, or it disappearing post-install).
+  // of responsive overrides. Measures the real element's actual position instead of guessing a
+  // static offset, and stays correct if its size or presence changes (resize, orientation change,
+  // or it disappearing post-install). Only used for the closed bubble's own position now -- the
+  // open panel's position is whatever the user last left it at (or a computed default, below).
   useEffect(() => {
     function updateOffset() {
       const el = document.querySelector<HTMLElement>(".install-options");
-      let offset = 20; // default clearance when no install prompt is showing at all
+      let offset = 20;
       if (el) {
-        const rect = el.getBoundingClientRect();
-        const visible = rect.height > 0 && getComputedStyle(el).display !== "none";
-        if (visible) offset = window.innerHeight - rect.top + 12; // clear its top edge, plus a gap
+        const r = el.getBoundingClientRect();
+        const visible = r.height > 0 && getComputedStyle(el).display !== "none";
+        if (visible) offset = window.innerHeight - r.top + 12;
       }
       document.documentElement.style.setProperty("--chat-bubble-offset", `${offset}px`);
     }
@@ -48,9 +64,6 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     const resizeObserver = new ResizeObserver(updateOffset);
     const target = document.querySelector(".install-options");
     if (target) resizeObserver.observe(target);
-    // .install-options can appear/disappear after mount (PWARegister's own install-state
-    // detection runs async) -- a plain querySelector + ResizeObserver at mount time alone would
-    // miss that, so also watch the DOM for it being added or removed.
     const mutationObserver = new MutationObserver(updateOffset);
     mutationObserver.observe(document.body, { childList: true, subtree: true });
     return () => {
@@ -59,6 +72,99 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
       mutationObserver.disconnect();
     };
   }, []);
+
+  // Computes (or restores) the panel's rect the moment it's opened, not on mount -- window size
+  // isn't meaningful to measure against before the user actually opens it, and restoring a saved
+  // rect from a previous, differently-sized window could otherwise land off-screen.
+  useEffect(() => {
+    if (!open || rect) return;
+    const vw = window.innerWidth,
+      vh = window.innerHeight;
+    let saved: Rect | null = null;
+    try {
+      const raw = localStorage.getItem(RECT_STORAGE_KEY);
+      if (raw) saved = JSON.parse(raw);
+    } catch {
+      // ignore corrupt/missing storage -- fall through to the computed default below
+    }
+    if (saved && saved.left + saved.width <= vw + 40 && saved.top + saved.height <= vh + 40 && saved.left >= -40 && saved.top >= -40) {
+      setRect(saved);
+      return;
+    }
+    // Default: wide-and-short on a landscape desktop (more likely to clear content sitting above
+    // it), narrower-and-taller on a portrait/mobile screen -- a starting point, not a final
+    // answer, since the user can now drag/resize it anywhere that works for their actual screen.
+    const landscape = vw >= 900 && vw >= vh;
+    const width = Math.min(landscape ? 620 : 340, vw - 32);
+    const height = Math.min(landscape ? 320 : 440, vh - 32);
+    const installClearance = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--chat-bubble-offset") || "20", 10) || 20;
+    const top = Math.max(12, vh - installClearance - 64 - height);
+    const left = Math.max(12, vw - 20 - width);
+    setRect({ top, left, width, height });
+  }, [open, rect]);
+
+  useEffect(() => {
+    if (rect) {
+      try {
+        localStorage.setItem(RECT_STORAGE_KEY, JSON.stringify(rect));
+      } catch {
+        // storage full/unavailable -- losing the remembered position isn't worth surfacing an error for
+      }
+    }
+  }, [rect]);
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = e.clientX - d.startX,
+        dy = e.clientY - d.startY;
+      if (d.kind === "move") {
+        const vw = window.innerWidth,
+          vh = window.innerHeight;
+        const left = Math.max(0, Math.min(d.rect.left + dx, vw - d.rect.width));
+        const top = Math.max(0, Math.min(d.rect.top + dy, vh - d.rect.height));
+        setRect({ ...d.rect, top, left });
+        return;
+      }
+      let { top, left, width, height } = d.rect;
+      if (d.corner.includes("e")) width = Math.max(MIN_W, Math.min(d.rect.width + dx, window.innerWidth - left - 12));
+      if (d.corner.includes("s")) height = Math.max(MIN_H, Math.min(d.rect.height + dy, window.innerHeight - top - 12));
+      if (d.corner.includes("w")) {
+        width = Math.max(MIN_W, d.rect.width - dx);
+        left = d.rect.left + (d.rect.width - width);
+      }
+      if (d.corner.includes("n")) {
+        height = Math.max(MIN_H, d.rect.height - dy);
+        top = d.rect.top + (d.rect.height - height);
+      }
+      setRect({ top, left, width, height });
+    }
+    function onUp() {
+      dragRef.current = null;
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
+
+  function startMove(e: React.PointerEvent) {
+    if (!rect || (e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    dragRef.current = { kind: "move", startX: e.clientX, startY: e.clientY, rect };
+  }
+
+  function startResize(corner: Corner) {
+    return (e: React.PointerEvent) => {
+      if (!rect) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragRef.current = { kind: "resize", corner, startX: e.clientX, startY: e.clientY, rect };
+    };
+  }
 
   async function send() {
     const message = input.trim();
@@ -100,15 +206,16 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
         {open ? "✕" : "💬"}
       </button>
       {open && (
-        <div className="chat-assistant-panel">
-          <div className="chat-assistant-header">
+        <div className="chat-assistant-panel" style={rect ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height } : { visibility: "hidden" }}>
+          <div className="chat-assistant-header" onPointerDown={startMove} style={{ cursor: "move" }}>
             <strong>Assistant</strong>
             <span style={{ fontSize: 11, opacity: 0.6 }}>Free -- answers from your own data snapshot, not a tax/legal advisor</span>
           </div>
           <div className="chat-assistant-messages" ref={listRef}>
             {messages.length === 0 && (
               <p style={{ opacity: 0.6, fontSize: 13 }}>
-                Ask about your balances, this month's spend, or (India book) your FBAR status.
+                Ask about your balances, this month's spend, or (India book) your FBAR status. Drag the header to move
+                this panel, or its corners to resize -- both are remembered next time.
               </p>
             )}
             {messages.map((m, i) => (
@@ -134,6 +241,9 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
               Send
             </button>
           </div>
+          {CORNERS.map((c) => (
+            <div key={c} className={`fw-handle fw-handle-${c}`} onPointerDown={startResize(c)} />
+          ))}
         </div>
       )}
     </>
