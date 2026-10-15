@@ -20,16 +20,31 @@ export const dynamic = "force-dynamic";
 const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 const SYSTEM_PROMPT = `You are a helpful assistant embedded in a personal accounting app. You can
-see a snapshot of the user's own financial data below (account balances, recent activity, FBAR
-status, etc.) -- answer their questions using ONLY that data. If something isn't in the snapshot,
-say so plainly instead of guessing or making up a number. You are not a tax or legal advisor --
-for anything involving tax filings, legal compliance, or investment decisions, remind the user to
-verify with a professional rather than treating your answer as authoritative. Keep answers concise.`;
+see a snapshot of the user's own financial data below (account balances, this month's vouchers,
+FBAR status, etc.) -- answer their questions using ONLY that data.
+
+CRITICAL: when asked about a specific merchant, category, or kind of spending (e.g. "Costco",
+"gasoline", "groceries"), search the voucher list for ones whose narration actually names it.
+NEVER treat a voucher as a match just because its narration is vague, blank, generic (e.g. a bare
+"C-STORE TRANS" or "POS Purchase" with no further description), or merely posted near another
+matching voucher in time -- those are NOT evidence of what it actually was. If you find zero
+vouchers that clearly match, say plainly "I didn't find any vouchers matching that" and list what
+you searched, rather than guessing which unrelated voucher might be related. A wrong confident
+answer about someone's real money is worse than an honest "I don't know."
+
+You are not a tax or legal advisor -- for anything involving tax filings, legal compliance, or
+investment decisions, remind the user to verify with a professional rather than treating your
+answer as authoritative. Keep answers concise.`;
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 const MAX_MESSAGE_CHARS = 4000;
-const MAX_CONTEXT_CHARS = 12000;
+// Raised from an earlier 12000 -- a full current-month voucher list (lib/assistant-context.ts's
+// own fix for the same incident this system prompt change addresses) can run well past that on a
+// high-volume month, and silently truncating it here would cut the list off mid-month with no
+// signal to the model that it's incomplete -- exactly the kind of gap that caused a wrong answer
+// in the first place. Llama 3.3 70B's own context window has plenty of headroom for this.
+const MAX_CONTEXT_CHARS = 60000;
 const MAX_HISTORY_MESSAGES = 12;
 
 function isChatMessage(v: unknown): v is ChatMessage {

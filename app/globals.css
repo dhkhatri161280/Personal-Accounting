@@ -10850,11 +10850,15 @@ body.dark-mode {
 /* Chat assistant -- fixed corner bubble + panel (components/ChatAssistant.tsx). Deliberately NOT
    styled like FloatingWindow's centered resizable popup -- a persistent bottom-corner widget,
    same convention as a typical support-chat bubble, so it never competes with report content. */
+/* .install-options (the PWA install buttons, see PWARegister.tsx) already owns the bottom-right
+   corner at right:18px/bottom:18px -- confirmed live that this collided with it directly (same
+   corner, this bubble's z-index on top), hiding the install buttons entirely. Stacked here well
+   above that row's own height (~46px) instead, not sharing the corner. */
 .chat-assistant-bubble {
   position: fixed;
   right: 20px;
-  bottom: 20px;
-  z-index: 1400;
+  bottom: 80px;
+  z-index: 85;
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -10874,8 +10878,8 @@ body.dark-mode {
 .chat-assistant-panel {
   position: fixed;
   right: 20px;
-  bottom: 84px;
-  z-index: 1400;
+  bottom: 144px;
+  z-index: 85;
   width: 340px;
   max-width: calc(100vw - 32px);
   height: 440px;

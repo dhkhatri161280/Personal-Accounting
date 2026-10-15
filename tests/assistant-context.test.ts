@@ -58,15 +58,37 @@ test("buildAssistantContext: includes FBAR status only for the India book", () =
   assert.ok(!usContext.includes("FBAR"));
 });
 
-test("buildAssistantContext: lists recent vouchers, most recent first", () => {
+test("buildAssistantContext: includes the WHOLE current month in chronological order, not just the most-recent few", () => {
+  // Confirmed live: a real question ("Costco spending this month") got a wrong answer because an
+  // earlier fix only sent the most-recent-15-overall vouchers, silently dropping an
+  // earlier-in-month voucher once monthly volume exceeded that. This locks in the fix: every
+  // voucher dated this month is present, oldest first (how a real ledger reads), and nothing
+  // outside this month leaks in just because it's "recent" in absolute terms.
+  const today = new Date().toISOString().slice(0, 10);
+  const monthKey = today.slice(0, 7);
   const accounts = [account(1, "Bank", "Bank Accounts"), account(999, "Other", "Indirect Incomes")];
   const transactions = [
-    tx(1, "2026-01-01", 1, -100, "Older voucher"),
-    tx(2, "2026-06-01", 1, -200, "Newer voucher"),
+    ...Array.from({ length: 20 }, (_, i) => tx(i + 1, `${monthKey}-01`, 1, -(i + 1), `Filler voucher ${i + 1}`)),
+    tx(100, `${monthKey}-02`, 1, -999, "Early-in-month Costco voucher"),
+    tx(101, "2020-01-01", 1, -1, "Long-ago voucher outside this month"),
   ];
   const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2026-01-01", accounts, transactions };
   const context = buildAssistantContext(data, "us");
-  const newerIdx = context.indexOf("Newer voucher");
-  const olderIdx = context.indexOf("Older voucher");
-  assert.ok(newerIdx > -1 && olderIdx > -1 && newerIdx < olderIdx);
+  assert.ok(context.includes("Early-in-month Costco voucher"), "an earlier-in-month voucher must not be dropped just because other vouchers are more recent");
+  assert.ok(!context.includes("Long-ago voucher outside this month"));
+  // Chronological (oldest first) within the month, not most-recent-first
+  const firstFillerIdx = context.indexOf("Filler voucher 1 ");
+  const earlyCostcoIdx = context.indexOf("Early-in-month Costco voucher");
+  assert.ok(firstFillerIdx > -1 && earlyCostcoIdx > -1 && firstFillerIdx < earlyCostcoIdx);
+});
+
+test("buildAssistantContext: flags truncation explicitly instead of silently dropping vouchers past the safety cap", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthKey = today.slice(0, 7);
+  const accounts = [account(1, "Bank", "Bank Accounts"), account(999, "Other", "Indirect Incomes")];
+  const transactions = Array.from({ length: 160 }, (_, i) => tx(i + 1, `${monthKey}-01`, 1, -1, `Voucher ${i + 1}`));
+  const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2026-01-01", accounts, transactions };
+  const context = buildAssistantContext(data, "us");
+  assert.ok(context.includes("160 total"));
+  assert.ok(context.includes("NOT included below"));
 });
