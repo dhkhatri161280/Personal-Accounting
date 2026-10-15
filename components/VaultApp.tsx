@@ -1312,14 +1312,30 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
 
   useEffect(() => {
     if (!data?.equity) return;
-    fetch("/api/equity-price?ticker=NVDA")
-      .then((r) => r.json())
-      .then((d: unknown) => {
-        const j = d as { price?: number | null; previousClose?: number | null };
-        if (typeof j.price === "number") setNvdaPrice(j.price);
-        if (typeof j.previousClose === "number") setNvdaPrevClose(j.previousClose);
-      })
-      .catch(() => {});
+    let cancelled = false;
+    // Confirmed live: the route itself works fine (curled directly seconds after a stuck "price
+    // loading…" dashboard, returned a valid price right away) -- a transient fetch/provider
+    // hiccup can still leave the Equity card stuck on "price loading…" forever, since there was no
+    // retry at all, only a page reload could recover it. One retry after a short delay covers a
+    // one-off hiccup without hammering the API on a real, persistent failure.
+    (async () => {
+      for (let attempt = 0; attempt < 2 && !cancelled; attempt++) {
+        if (attempt > 0) await new Promise((res) => setTimeout(res, 8000));
+        const j = await fetch("/api/equity-price?ticker=NVDA")
+          .then((r) => r.json())
+          .then((d: unknown) => d as { price?: number | null; previousClose?: number | null })
+          .catch(() => null);
+        if (cancelled) return;
+        if (j && typeof j.price === "number") {
+          setNvdaPrice(j.price);
+          if (typeof j.previousClose === "number") setNvdaPrevClose(j.previousClose);
+          return;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [data?.equity]);
 
   // Daily close history for valuing vested equity as of a *past* fiscal year-end (Net Worth),

@@ -43,7 +43,7 @@ export const CODENAMES: string[] = [
   "mitha-penda", "malai-penda",
   "mithi-ghari", "khaas-ghari",
   "malai-basundi", "mithi-basundi",
-  "chatpata-chakri", "kadak-chakri",
+  "chatpati-chakri", "kadak-chakri",
   "chatpata-locho", "garmagaram-locho",
 ];
 
