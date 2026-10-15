@@ -4,6 +4,7 @@ import {
   addMonthsIso,
   computeCostcoRewardWindow,
   isQualifyingCostcoNarration,
+  costcoQualifyingAmount,
   computeCostcoRewardEstimate,
   listPastCostcoRewardCycles,
   COSTCO_REWARD_CAP,
@@ -70,6 +71,35 @@ test("computeCostcoRewardEstimate: sums qualifying spend, excludes gas, subtract
   assert.equal(result.estimatedReward, 16); // 2% of 800
   assert.equal(result.capped, false);
   assert.equal(result.voucherCount, 2); // the purchase + the refund, not the gas/unrelated/out-of-window ones
+});
+
+test("costcoQualifyingAmount: a gift/shop card purchase with no dollar figure is excluded entirely", () => {
+  assert.equal(costcoQualifyingAmount("Costco - Gift Cards for Family", 500), 0);
+  assert.equal(costcoQualifyingAmount("Costco Shop Card purchase", 200), 0);
+});
+
+test("costcoQualifyingAmount: a flagged gift-card amount within a larger bill is subtracted, not the whole voucher", () => {
+  assert.equal(costcoQualifyingAmount("Costco run -- Gift Card $50", 300), 250);
+  assert.equal(costcoQualifyingAmount("Costco -- Shop Card: $75.50", 200), 124.5);
+});
+
+test("costcoQualifyingAmount: a flagged amount larger than the voucher total clamps to 0, never negative", () => {
+  assert.equal(costcoQualifyingAmount("Costco -- Gift Card $500", 300), 0);
+});
+
+test("costcoQualifyingAmount: an ordinary Costco purchase with no gift card mention is untouched", () => {
+  assert.equal(costcoQualifyingAmount("Shopping @ Costco", 300), 300);
+});
+
+test("computeCostcoRewardEstimate: excludes a whole-gift-card voucher and nets out a flagged partial amount", () => {
+  const transactions: Tx[] = [
+    tx(1, "2026-06-01", "Shopping @ Costco", 300), // ordinary -- fully qualifies
+    tx(2, "2026-06-05", "Costco -- Gift Cards for Family", 500), // entirely gift cards -- excluded
+    tx(3, "2026-06-10", "Costco run -- Gift Card $50", 150), // mixed bill -- only $100 qualifies
+  ];
+  const result = computeCostcoRewardEstimate(transactions, "2026-05-31", "2027-05-31");
+  assert.equal(result.qualifyingSpend, 400); // 300 + (150 - 50)
+  assert.equal(result.voucherCount, 2); // the whole-gift-card voucher doesn't count at all
 });
 
 test("computeCostcoRewardEstimate: caps the estimate at $1,250 even when 2% of spend exceeds it", () => {

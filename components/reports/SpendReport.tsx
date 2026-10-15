@@ -318,7 +318,11 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     FAQ. Counts Costco household purchases tagged by narration (same pattern the Plaid import itself
                     uses to post them); Costco Gasoline is excluded (Costco's own terms exclude it, and the
                     certificate can't be redeemed at the pump), and a refund against a prior Costco purchase subtracts
-                    from the total. This is an estimate only -- the real number always comes from Costco's own
+                    from the total. Costco Shop Cards / gift cards are also excluded by Costco's own terms -- a
+                    voucher whose narration mentions "Gift Card" or "Shop Card" with no dollar figure is assumed to be
+                    entirely gift cards and dropped from the total; add a dollar figure right after it (e.g. "Costco
+                    run -- Gift Card $50") on a bill that mixed regular items with a gift card, and only that amount
+                    is backed out. This is an estimate only -- the real number always comes from Costco's own
                     coupon/certificate once issued. Capped at $1,250.
                   </div>
                 )}

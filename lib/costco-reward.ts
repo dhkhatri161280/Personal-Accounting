@@ -19,6 +19,31 @@ export function isQualifyingCostcoNarration(narration: string): boolean {
   return COSTCO_RE.test(narration) && !COSTCO_GAS_RE.test(narration);
 }
 
+// Costco Shop Cards / gift cards are explicitly excluded from the Executive 2% Reward (confirmed
+// against Costco's own Executive 2% Reward FAQ) -- this app can only see a voucher's narration,
+// not its actual receipt line items, so it does what it can from that one signal:
+//   1. A voucher whose narration mentions a gift/shop card with NO dollar figure attached is
+//      assumed to be entirely a gift card purchase (the common case -- "Costco - Gift Cards for
+//      Family") and is excluded from qualifying spend entirely.
+//   2. A voucher whose narration includes a dollar figure right after "gift card"/"shop card"
+//      (e.g. "Costco run -- Gift Card $50") has just that amount subtracted from an otherwise-
+//      qualifying purchase, for a single larger bill that mixed regular items with a gift card.
+// Neither rule can see inside a bill that mixes the two WITHOUT the user flagging the gift-card
+// portion in the narration -- there's no data in this app to split a bill's total automatically.
+const GIFT_CARD_RE = /gift\s*card|shop\s*card/i;
+const GIFT_CARD_AMOUNT_RE = /(?:gift\s*card|shop\s*card)s?\s*:?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/i;
+
+// The portion of a voucher's own total that actually qualifies for the 2% Reward, after backing
+// out any flagged (or assumed-whole-purchase) gift card amount. Clamped to 0 -- a gift-card
+// figure larger than the voucher's own total (e.g. a typo) can't make qualifying spend negative.
+export function costcoQualifyingAmount(narration: string, voucherTotal: number): number {
+  if (!GIFT_CARD_RE.test(narration)) return voucherTotal;
+  const m = narration.match(GIFT_CARD_AMOUNT_RE);
+  if (!m) return 0; // no amount given -- assume the whole purchase was gift cards
+  const giftCardAmount = Number(m[1].replace(/,/g, ""));
+  return Math.max(0, voucherTotal - giftCardAmount);
+}
+
 // UTC-day-count month arithmetic (never new Date() + setMonth, which drifts across local
 // timezones and silently overflows a short month, e.g. May 31 - 3mo landing on Mar 3 instead of
 // Feb 28) -- same manual-arithmetic convention lib/gr-consolidation.ts's prevMonthKey already
@@ -86,7 +111,8 @@ export function computeCostcoRewardEstimate(
     if (t.deleted || t.cancelled) continue;
     if (t.date < windowStart || t.date >= windowEnd) continue;
     if (!isQualifyingCostcoNarration(t.narration)) continue;
-    const amt = voucherAmount(t);
+    const amt = costcoQualifyingAmount(t.narration, voucherAmount(t));
+    if (amt === 0) continue; // entirely a gift card purchase -- not a qualifying voucher at all
     qualifyingSpend += t.type.toLowerCase() === "receipt" ? -amt : amt;
     voucherCount++;
   }
