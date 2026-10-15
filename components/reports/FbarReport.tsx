@@ -548,44 +548,52 @@ function FbarSettingsPanel({
               </td>
             </tr>
           ) : (
-            rateRows.map((row, i) => (
-              <tr key={i}>
-                <td>
-                  <input
-                    type="number"
-                    value={row.year}
-                    placeholder="2026"
-                    style={{ width: 90 }}
-                    onChange={(e) => setRateRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, year: e.target.value } : r)))}
-                    onBlur={() => commitRate(i)}
-                  />
-                </td>
-                <td className="right">
-                  <input
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    value={row.rate}
-                    placeholder="89.5"
-                    style={{ width: 100, textAlign: "right" }}
-                    onChange={(e) => setRateRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, rate: e.target.value } : r)))}
-                    onBlur={() => commitRate(i)}
-                  />
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="master-delete"
-                    onClick={() => {
-                      if (row.originalYear) onSetManualTreasuryRate(Number(row.originalYear), null);
-                      setRateRows((rows) => rows.filter((_, ri) => ri !== i));
-                    }}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))
+            rateRows.map((row, i) => {
+              const valid = /^\d{4}$/.test(row.year) && Number.isFinite(Number(row.rate)) && Number(row.rate) > 0;
+              const saved = row.originalYear === row.year && valid;
+              return (
+                <tr key={i}>
+                  <td>
+                    <input
+                      type="number"
+                      value={row.year}
+                      placeholder="2026"
+                      style={{ width: 90 }}
+                      onChange={(e) => setRateRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, year: e.target.value } : r)))}
+                      onKeyDown={(e) => { if (e.key === "Enter") commitRate(i); }}
+                    />
+                  </td>
+                  <td className="right">
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={row.rate}
+                      placeholder="89.5"
+                      style={{ width: 100, textAlign: "right" }}
+                      onChange={(e) => setRateRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, rate: e.target.value } : r)))}
+                      onKeyDown={(e) => { if (e.key === "Enter") commitRate(i); }}
+                    />
+                  </td>
+                  <td style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <button type="button" className="tr-refresh-btn" disabled={!valid} onClick={() => commitRate(i)}>
+                      Save
+                    </button>
+                    {saved && <span style={{ fontSize: 12, color: "#16a34a", fontWeight: 600 }}>✓ Saved</span>}
+                    <button
+                      type="button"
+                      className="master-delete"
+                      onClick={() => {
+                        if (row.originalYear) onSetManualTreasuryRate(Number(row.originalYear), null);
+                        setRateRows((rows) => rows.filter((_, ri) => ri !== i));
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>
