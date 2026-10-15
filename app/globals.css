@@ -10904,6 +10904,30 @@ body.dark-mode {
   gap: 2px;
   touch-action: none;
 }
+.chat-assistant-close-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-assistant-close-btn:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+.dark-mode .chat-assistant-close-btn {
+  color: #9ca3af;
+}
+.dark-mode .chat-assistant-close-btn:hover {
+  background: #2a3448;
+  color: #e2e8f0;
+}
 .chat-assistant-messages {
   flex: 1;
   overflow-y: auto;

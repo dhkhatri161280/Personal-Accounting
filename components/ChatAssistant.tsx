@@ -281,8 +281,18 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
       {open && (
         <div className="chat-assistant-panel" style={rect ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height } : { visibility: "hidden" }}>
           <div className="chat-assistant-header" onPointerDown={startMove} style={{ cursor: "move" }}>
-            <strong>Assistant</strong>
-            <span style={{ fontSize: 11, opacity: 0.6 }}>Free -- answers from your own data snapshot, not a tax/legal advisor</span>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+              <div>
+                <strong>Assistant</strong>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>Free -- answers from your own data snapshot, not a tax/legal advisor</div>
+              </div>
+              {/* Confirmed live: the only close control was the floating bubble, which can end up
+                  far from the panel once both are dragged independently -- the panel header has
+                  its own close button now too, so closing doesn't mean hunting for the bubble. */}
+              <button type="button" className="chat-assistant-close-btn" onClick={() => setOpen(false)} aria-label="Close chat assistant" title="Close">
+                ✕
+              </button>
+            </div>
           </div>
           <div className="chat-assistant-messages" ref={listRef}>
             {messages.length === 0 && (
