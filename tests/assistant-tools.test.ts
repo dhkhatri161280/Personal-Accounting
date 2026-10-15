@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolvePeriod, executeTool, TOOL_DEFS } from "../lib/assistant-tools.ts";
+import { resolvePeriod, executeTool, TOOL_DEFS, coerceToolArgs } from "../lib/assistant-tools.ts";
 import type { Account, Tx, Ledger } from "../lib/vault-types.ts";
 
 function account(id: number, name: string, parent: string, openingBalance = 0): Account {
@@ -207,4 +207,49 @@ test("TOOL_DEFS: every tool has a name, description, and object-type parameters 
     assert.ok(t.description.length > 0);
     assert.equal((t.parameters as { type?: string }).type, "object");
   }
+});
+
+// ---- hardening pass: defensive behavior for malformed/unexpected model output ------------
+
+test("executeTool: an unrecognized tool name lists the valid tool names instead of a bare error", () => {
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [] };
+  const result = executeTool("delete_everything", {}, data, "us", "2026-10-15");
+  assert.ok(result.includes("Unknown tool"));
+  for (const t of TOOL_DEFS) assert.ok(result.includes(t.name), `must list ${t.name} as a valid tool`);
+});
+
+test("executeTool: an invalid period value falls back to current_fiscal_year AND says so explicitly", () => {
+  // Confirmed live this needed visible surfacing, not just a silent fallback -- a model that sends
+  // a garbled period value (e.g. a typo, or a date string instead of a period name) should show up
+  // in the conversation transcript as a correction, not silently become a different period than
+  // what was actually asked for.
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses"), account(999, "Bank", "Bank Accounts")];
+  const inFy = tx(1, "2026-04-15", "Payment", "Gasoline @ Costco", [{ accountId: 1, amount: -50 }, { accountId: 999, amount: 50 }]);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [inFy] };
+  const result = executeTool("search_vouchers", { terms: ["costco"], period: "next_tuesday" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("50.00 USD"), "must still fall back to current_fiscal_year and find the real match");
+  assert.ok(result.includes('unrecognized period "next_tuesday"'), "must explicitly flag the invalid value, not silently substitute");
+});
+
+test("executeTool: an OMITTED period (normal case) does NOT get flagged as invalid", () => {
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses")];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [] };
+  const result = executeTool("search_vouchers", { terms: ["costco"] }, data, "us", "2026-10-15");
+  assert.ok(!result.includes("unrecognized period"), "omitting the period is normal and expected, not an error to flag");
+});
+
+test("coerceToolArgs: passes a real object straight through", () => {
+  assert.deepEqual(coerceToolArgs({ terms: ["costco"], period: "current_fiscal_year" }), { terms: ["costco"], period: "current_fiscal_year" });
+});
+
+test("coerceToolArgs: parses a JSON-string-encoded arguments payload (a different provider's function-calling convention)", () => {
+  assert.deepEqual(coerceToolArgs('{"accountName":"Vehicle Maintenance","period":"current_fiscal_year"}'), { accountName: "Vehicle Maintenance", period: "current_fiscal_year" });
+});
+
+test("coerceToolArgs: falls back to an empty object for garbage input instead of throwing", () => {
+  assert.deepEqual(coerceToolArgs("not valid json"), {});
+  assert.deepEqual(coerceToolArgs(null), {});
+  assert.deepEqual(coerceToolArgs(undefined), {});
+  assert.deepEqual(coerceToolArgs(42), {});
+  assert.deepEqual(coerceToolArgs(["costco"]), {}, "an array is not a valid arguments object, even though typeof is 'object'");
 });

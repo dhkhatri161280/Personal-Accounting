@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { TOOL_DEFS, executeTool } from "@/lib/assistant-tools";
+import { TOOL_DEFS, executeTool, coerceToolArgs } from "@/lib/assistant-tools";
 import { apiFetch } from "@/lib/api-fetch";
 import { todayLocalIso } from "@/lib/format-date";
 
@@ -274,15 +274,30 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ messages: apiMessages, tools }),
         });
-        const j = (await r.json().catch(() => null)) as { reply?: string; toolCalls?: { name: string; arguments: Record<string, unknown> }[]; error?: string } | null;
+        const j = (await r.json().catch(() => null)) as { reply?: string; toolCalls?: { name: string; arguments: unknown }[]; error?: string } | null;
         if (!r.ok || !j) {
           setError(j?.error || `Request failed (${r.status})`);
           return;
         }
         if (j.toolCalls?.length) {
           for (const call of j.toolCalls) {
-            apiMessages.push({ role: "assistant", content: JSON.stringify(call) });
-            apiMessages.push({ role: "tool", content: executeTool(call.name, call.arguments || {}, data, book, todayIso) });
+            // Defensive: Workers AI's own docs show `arguments` as an already-parsed object, but
+            // other providers' function-calling APIs serialize it as a JSON STRING instead -- cheap
+            // insurance against that difference (or any other malformed shape) rather than letting
+            // property access on a string silently no-op every argument.
+            const args = coerceToolArgs(call.arguments);
+            apiMessages.push({ role: "assistant", content: JSON.stringify({ name: call.name, arguments: args }) });
+            // Isolated from the outer try/catch's generic "Network error" message -- a thrown error
+            // HERE is a tool-execution bug, not a network failure, and the model can usefully react
+            // to an explicit tool-failure message (and tell the user) instead of the whole exchange
+            // dying with a misleading error.
+            let result: string;
+            try {
+              result = executeTool(call.name, args, data, book, todayIso);
+            } catch (e) {
+              result = `Tool "${call.name}" failed: ${e instanceof Error ? e.message : String(e)}`;
+            }
+            apiMessages.push({ role: "tool", content: result });
           }
           continue;
         }

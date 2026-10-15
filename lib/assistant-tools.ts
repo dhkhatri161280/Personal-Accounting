@@ -54,6 +54,18 @@ export function resolvePeriod(period: PeriodName, todayIso: string): { from: str
   }
 }
 
+// Reads a tool's "period" argument defensively: falls back to current_fiscal_year (the most
+// common real question) when it's missing or not one of the known names, same as before -- but
+// now also surfaces a visible note in that fallback case, so a genuinely invalid value the model
+// sent (as opposed to simply omitting the argument, which is normal) shows up in the conversation
+// transcript instead of silently and invisibly becoming a different period than what was asked.
+function readPeriodArg(args: Record<string, unknown>): { period: PeriodName; note: string } {
+  const raw = args.period;
+  if (isPeriodName(raw)) return { period: raw, note: "" };
+  const note = raw === undefined ? "" : ` [note: received unrecognized period "${String(raw)}", defaulted to current_fiscal_year]`;
+  return { period: "current_fiscal_year", note };
+}
+
 // Classifies one voucher's signed amount, nature, refund status, and the real account name(s) it
 // posted to. Confirmed live (user's own Day Book data) that deriving spend-vs-refund from each
 // entry's raw signed amount against its account's nature got it backwards -- the voucher's own
@@ -111,7 +123,7 @@ const MAX_RESULTS = 100;
 function searchVouchers(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
   const terms = Array.isArray(args.terms) ? args.terms.filter((t): t is string => typeof t === "string" && t.trim().length > 0).map((t) => t.toLowerCase().trim()) : [];
   if (!terms.length) return "search_vouchers error: no search terms given.";
-  const period = isPeriodName(args.period) ? args.period : "current_fiscal_year";
+  const { period, note } = readPeriodArg(args);
   const { from, to, label } = resolvePeriod(period, todayIso);
   const masterGroups = masterGroupsOf(data);
   const quoted = terms.map((t) => `"${t}"`).join(", ");
@@ -128,7 +140,7 @@ function searchVouchers(data: Ledger, args: Record<string, unknown>, todayIso: s
     })
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-  if (!matches.length) return `search_vouchers(${quoted}, ${label}): 0 matching vouchers found.`;
+  if (!matches.length) return `search_vouchers(${quoted}, ${label}): 0 matching vouchers found.${note}`;
 
   // The total is computed here, once, over EVERY real match -- including any not shown below if
   // the list is truncated -- and stated as its own line the model is instructed (see the system
@@ -141,7 +153,7 @@ function searchVouchers(data: Ledger, args: Record<string, unknown>, todayIso: s
   const truncated = matches.length > MAX_RESULTS;
   const shown = truncated ? matches.slice(0, MAX_RESULTS) : matches;
   const lines = [
-    `search_vouchers(${quoted}, ${label}): ${matches.length} matching voucher(s).`,
+    `search_vouchers(${quoted}, ${label}): ${matches.length} matching voucher(s).${note}`,
     `PRECOMPUTED TOTAL (authoritative, refunds already subtracted -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
     "",
     truncated ? `Voucher list (showing the first ${MAX_RESULTS} of ${matches.length} -- the total above already covers all ${matches.length}):` : "Voucher list (every match, for citing examples only -- the total above is already correct):",
@@ -164,7 +176,7 @@ function searchVouchers(data: Ledger, args: Record<string, unknown>, todayIso: s
 function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
   const nameQuery = typeof args.accountName === "string" ? args.accountName.toLowerCase().trim() : "";
   if (!nameQuery) return "get_account_ledger error: no accountName given.";
-  const period = isPeriodName(args.period) ? args.period : "current_fiscal_year";
+  const { period, note } = readPeriodArg(args);
   const { from, to, label } = resolvePeriod(period, todayIso);
   const masterGroups = masterGroupsOf(data);
 
@@ -176,7 +188,7 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
     .filter((t) => t.entries.some((e) => matchingAccountIds.has(e.accountId)))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-  if (!matches.length) return `get_account_ledger("${args.accountName}", ${label}): 0 vouchers found.`;
+  if (!matches.length) return `get_account_ledger("${args.accountName}", ${label}): 0 vouchers found.${note}`;
 
   let total = 0;
   for (const t of matches) total += classifyVoucher(data, masterGroups, t).amt;
@@ -184,7 +196,7 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
   const truncated = matches.length > MAX_RESULTS;
   const shown = truncated ? matches.slice(0, MAX_RESULTS) : matches;
   const lines = [
-    `get_account_ledger("${args.accountName}", ${label}): ${matches.length} voucher(s).`,
+    `get_account_ledger("${args.accountName}", ${label}): ${matches.length} voucher(s).${note}`,
     `PRECOMPUTED TOTAL (authoritative, refunds already subtracted -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
     "",
     truncated ? `Voucher list (showing the first ${MAX_RESULTS} of ${matches.length} -- the total above already covers all ${matches.length}):` : "Voucher list (every voucher in this account for the period, for citing examples only):",
@@ -200,12 +212,12 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
 // ---- tool: get_salary_summary ----------------------------------------------------------------
 
 function getSalarySummary(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
-  const period = isPeriodName(args.period) ? args.period : "current_fiscal_year";
+  const { period, note } = readPeriodArg(args);
   const { from, to, label } = resolvePeriod(period, todayIso);
   const masterGroups = masterGroupsOf(data);
 
   const salaryTx = data.transactions.filter((t) => !t.deleted && !t.cancelled && t.date >= from && t.date <= to && isSalaryVoucher(t));
-  if (!salaryTx.length) return `get_salary_summary(${label}): 0 paystub vouchers found.`;
+  if (!salaryTx.length) return `get_salary_summary(${label}): 0 paystub vouchers found.${note}`;
 
   const totals = salaryTx.reduce(
     (acc, t) => {
@@ -221,7 +233,7 @@ function getSalarySummary(data: Ledger, args: Record<string, unknown>, todayIso:
     { gross: 0, tax: 0, k401: 0, medical: 0, telephone: 0, net: 0 }
   );
   return [
-    `get_salary_summary(${label}): ${salaryTx.length} paystub voucher(s).`,
+    `get_salary_summary(${label}): ${salaryTx.length} paystub voucher(s).${note}`,
     `PRECOMPUTED TOTALS (authoritative -- quote these exact numbers, do NOT recompute from anywhere else): gross pay ${totals.gross.toFixed(2)}, tax deducted ${totals.tax.toFixed(2)}, 401k ${totals.k401.toFixed(2)}, medical/health ${totals.medical.toFixed(2)}, telephone ${totals.telephone.toFixed(2)}, net take-home (actual bank deposits) ${totals.net.toFixed(2)} ${data.currency}`,
   ].join("\n");
 }
@@ -325,6 +337,24 @@ export const TOOL_DEFS: { name: string; description: string; parameters: Record<
 // Executes one tool call against the decrypted Ledger already in memory client-side -- the server
 // route (app/api/assistant) only ever sees the model's chosen tool NAME and ARGUMENTS, never the
 // vault's actual data, same vault-blind posture the whole feature has always had.
+// Coerces a tool call's `arguments` into a plain object regardless of how the model actually sent
+// it -- Workers AI's own function-calling docs show it as an already-parsed object, but this is
+// cheap insurance against a JSON-string encoding (common in other providers' function-calling
+// APIs) or any other malformed shape, rather than letting property access on the wrong type
+// silently drop every argument the model intended to pass.
+export function coerceToolArgs(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      // not valid JSON -- fall through to the empty-object default below
+    }
+  }
+  return {};
+}
+
 export function executeTool(name: string, args: Record<string, unknown>, data: Ledger, book: "us" | "india", todayIso: string): string {
   switch (name) {
     case "search_vouchers":
@@ -338,6 +368,6 @@ export function executeTool(name: string, args: Record<string, unknown>, data: L
     case "get_fbar_status":
       return book === "india" ? getFbarStatus(data, args, todayIso) : "get_fbar_status is only available for the India book.";
     default:
-      return `Unknown tool: ${name}`;
+      return `Unknown tool: "${name}". Valid tools are: ${TOOL_DEFS.map((t) => t.name).join(", ")}.`;
   }
 }

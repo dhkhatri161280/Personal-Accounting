@@ -66,6 +66,14 @@ voucher just because it was posted nearby in time or has a vague narration.
 CRITICAL: before answering, reread your own reply and make sure it doesn't contradict itself --
 e.g. finding something in one sentence and saying "I didn't find any" in the next.
 
+CRITICAL: never answer a question about the user's own balances, spending, salary, or FBAR status
+without calling a tool first -- you have no other source of truth for that, and a plausible-sounding
+guess is not an answer. If a tool result starts with 'Tool "..." failed:', or says "Unknown tool" or
+"no accountName given" / "no search terms given", that is NOT a real answer -- tell the user that
+specific lookup didn't work (in plain terms, not the raw error) rather than inventing a number to
+fill the gap, and retry with corrected arguments if the problem is obviously fixable (e.g. you
+forgot a required argument).
+
 You are not a tax or legal advisor -- for anything involving tax filings, legal compliance, or
 investment decisions, remind the user to verify with a professional rather than treating your
 answer as authoritative. Keep answers concise.`;
@@ -111,10 +119,16 @@ export async function POST(request: Request) {
   try {
     const result = (await bindings.AI.run(MODEL, { messages: fullMessages, tools, max_tokens: 1024 })) as {
       response?: string;
-      tool_calls?: ToolCall[];
+      tool_calls?: unknown;
     };
-    if (Array.isArray(result.tool_calls) && result.tool_calls.length) {
-      return Response.json({ toolCalls: result.tool_calls });
+    // Defensive: only relay tool_calls entries shaped the way this route (and the client's
+    // executeTool dispatch) expects -- a malformed entry from the model shouldn't propagate as a
+    // crash on either side of the wire.
+    const toolCalls = Array.isArray(result.tool_calls)
+      ? result.tool_calls.filter((c): c is ToolCall => !!c && typeof c === "object" && typeof (c as ToolCall).name === "string")
+      : [];
+    if (toolCalls.length) {
+      return Response.json({ toolCalls });
     }
     const reply = typeof result === "string" ? result : result.response;
     if (!reply) return Response.json({ error: "Empty response from model" }, { status: 502 });
