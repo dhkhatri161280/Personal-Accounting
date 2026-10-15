@@ -106,6 +106,33 @@ test("buildAssistantContext: a refund against an expense account shows negative 
   assert.ok(context.includes("(-22.04 USD -- REFUND/return)"), "a Receipt refund must show negative and explicitly labeled");
 });
 
+test("buildAssistantContext: a Receipt paystub voucher with both income and expense-nature entries is never labeled a refund", () => {
+  // Confirmed live a second time: a semi-monthly paystub voucher (gross pay credited to an Income
+  // account, plus tax/benefit deductions hitting Expense-nature accounts in the SAME voucher) got
+  // mislabeled "REFUND/return" because the voucher touched an Expense account at all. The refund
+  // rule must only apply to a voucher that's PURELY on the expense side -- any Income entry in the
+  // voucher rules it out, regardless of touching an Expense account too.
+  const today = new Date().toISOString().slice(0, 10);
+  const monthKey = today.slice(0, 7);
+  const accounts = [
+    account(1, "Salary Income - Semi Monthly", "Direct Incomes"),
+    account(2, "Health Insurance Premium", "Indirect Expenses"),
+    account(999, "Bank", "Bank Accounts"),
+  ];
+  const paystub: Tx = {
+    id: 1, guid: "v1", date: `${monthKey}-15`, number: "131", type: "Receipt", narration: "Salary Income - Semi Monthly", historical: false,
+    entries: [
+      { accountId: 1, accountName: "", amount: -10_196.67 },
+      { accountId: 2, accountName: "", amount: 200 },
+      { accountId: 999, accountName: "", amount: 9_996.67 },
+    ],
+  };
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [paystub] };
+  const context = buildAssistantContext(data, "us");
+  assert.ok(!context.includes("REFUND/return"), "a paystub Receipt with an Income entry must never be labeled a refund");
+  assert.ok(!context.includes("(-"), "a paystub Receipt with an Income entry must not show a negative amount");
+});
+
 test("buildAssistantContext: voucher dates match the app's own DD-MM-YYYY display format, not raw ISO", () => {
   const today = new Date().toISOString().slice(0, 10);
   const monthKey = today.slice(0, 7);

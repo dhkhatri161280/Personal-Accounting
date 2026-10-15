@@ -43,8 +43,15 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
   // against its account's nature got it backwards. The voucher's own `type` field is the correct,
   // simple signal -- exactly the convention lib/costco-reward.ts already uses and has proven
   // correct: a "Payment" voucher is money going out (a purchase), a "Receipt" voucher against an
-  // expense account is money coming back (a refund/return). A Receipt against an INCOME account is
-  // genuine income, not a refund -- type alone doesn't flip that.
+  // expense account is money coming back (a refund/return).
+  //
+  // Confirmed live a SECOND time: a semi-monthly paystub voucher (one Income-nature entry for
+  // gross pay, plus several Expense-nature entries for withheld tax/benefits deductions in the
+  // same voucher) got mislabeled "REFUND/return" too -- picking "Expense" as the voucher's nature
+  // just because ANY entry touched an Expense account, even though the same voucher also had a
+  // real Income entry. The refund rule only makes sense for a voucher that's PURELY on the expense
+  // side (like a Costco return, which never touches an Income account at all) -- so an Income
+  // entry anywhere in the voucher now wins and rules out the refund interpretation entirely.
   function classify(t: { type: string; entries: { accountId: number; amount: number }[] }): { amt: number; nature: "Expense" | "Income" | null; isRefund: boolean } {
     const magnitude = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
     let nature: "Expense" | "Income" | null = null;
@@ -52,8 +59,8 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
       const acct = data.accounts.find((a) => a.id === e.accountId);
       if (!acct) continue;
       const n = accountNature(acct, masterGroups);
-      if (n === "Expense") nature = "Expense";
-      else if (n === "Income" && nature !== "Expense") nature = "Income";
+      if (n === "Income") nature = "Income";
+      else if (n === "Expense" && nature !== "Income") nature = "Expense";
     }
     const isReceipt = t.type.toLowerCase() === "receipt";
     const isRefund = nature === "Expense" && isReceipt;
