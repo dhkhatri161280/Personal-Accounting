@@ -7,13 +7,13 @@ function account(id: number, name: string, parent: string, openingBalance = 0): 
   return { id, name, parent, category: "Asset", currency: "INR", openingBalance, active: true };
 }
 
-function tx(id: number, date: string, accountId: number, amount: number, narration = "test"): Tx {
+function tx(id: number, date: string, accountId: number, amount: number, narration = "test", type?: string): Tx {
   return {
     id,
     guid: `v${id}`,
     date,
     number: String(id),
-    type: amount < 0 ? "Payment" : "Receipt",
+    type: type ?? (amount < 0 ? "Payment" : "Receipt"),
     narration,
     historical: false,
     entries: [
@@ -41,7 +41,7 @@ test("buildAssistantContext: sums this month's income/expense from current trans
   ];
   const transactions = [
     tx(1, `${monthKey}-02`, 1, -100_000), // income
-    tx(2, `${monthKey}-05`, 2, 5_000), // expense
+    tx(2, `${monthKey}-05`, 2, 5_000, "test", "Payment"), // expense (a genuine purchase is a Payment voucher)
   ];
   const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2026-01-01", accounts, transactions };
   const context = buildAssistantContext(data, "us");
@@ -83,24 +83,27 @@ test("buildAssistantContext: includes the WHOLE current month in chronological o
 });
 
 test("buildAssistantContext: a refund against an expense account shows negative and labeled, not a plain positive amount", () => {
-  // Confirmed live: asked for "Costco spending this month", the chat assistant added a Receipt
-  // (refund) voucher's amount instead of subtracting it, because the voucher list showed every
-  // amount as a plain positive magnitude regardless of whether it was a purchase or a return.
+  // Confirmed live (user's own Day Book data): a Payment voucher is a genuine purchase, a Receipt
+  // voucher against an expense account is a refund/return -- NOT the other way around. An earlier
+  // attempt at this fix derived the sign from each entry's raw amount against its account's
+  // nature and got it backwards (showed real purchases as negative "REFUND"s and the actual
+  // refund as a plain positive amount). The voucher's own `type` field is the correct signal,
+  // matching lib/costco-reward.ts's already-proven convention.
   const today = new Date().toISOString().slice(0, 10);
   const monthKey = today.slice(0, 7);
   const accounts = [account(1, "Shopping", "Indirect Expenses"), account(999, "Citi Credit Card", "Bank Accounts")];
   const purchase: Tx = {
     id: 1, guid: "v1", date: `${monthKey}-05`, number: "587", type: "Payment", narration: "Shopping @ Costco", historical: false,
-    entries: [{ accountId: 1, accountName: "", amount: 129.77 }, { accountId: 999, accountName: "", amount: -129.77 }],
+    entries: [{ accountId: 1, accountName: "", amount: -129.77 }, { accountId: 999, accountName: "", amount: 129.77 }],
   };
   const refund: Tx = {
     id: 2, guid: "v2", date: `${monthKey}-06`, number: "125", type: "Receipt", narration: "Shopping @ Costco", historical: false,
-    entries: [{ accountId: 1, accountName: "", amount: -22.04 }, { accountId: 999, accountName: "", amount: 22.04 }],
+    entries: [{ accountId: 1, accountName: "", amount: 22.04 }, { accountId: 999, accountName: "", amount: -22.04 }],
   };
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [purchase, refund] };
   const context = buildAssistantContext(data, "us");
-  assert.ok(context.includes("(129.77 USD)"), "a normal purchase stays a plain positive amount");
-  assert.ok(context.includes("(-22.04 USD -- REFUND/return)"), "a refund must show negative and explicitly labeled");
+  assert.ok(context.includes("(129.77 USD)"), "a normal Payment purchase stays a plain positive amount");
+  assert.ok(context.includes("(-22.04 USD -- REFUND/return)"), "a Receipt refund must show negative and explicitly labeled");
 });
 
 test("buildAssistantContext: voucher dates match the app's own DD-MM-YYYY display format, not raw ISO", () => {

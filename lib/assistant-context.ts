@@ -37,16 +37,36 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
     .slice()
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-  let monthIncome = 0,
-    monthExpense = 0;
-  for (const t of monthTx) {
+  // Per-voucher classification used for BOTH the month total below and the per-voucher list
+  // further down, so the two can never drift out of sync with each other again. Confirmed live
+  // (user's own Day Book data) that deriving spend-vs-refund from each entry's raw signed amount
+  // against its account's nature got it backwards. The voucher's own `type` field is the correct,
+  // simple signal -- exactly the convention lib/costco-reward.ts already uses and has proven
+  // correct: a "Payment" voucher is money going out (a purchase), a "Receipt" voucher against an
+  // expense account is money coming back (a refund/return). A Receipt against an INCOME account is
+  // genuine income, not a refund -- type alone doesn't flip that.
+  function classify(t: { type: string; entries: { accountId: number; amount: number }[] }): { amt: number; nature: "Expense" | "Income" | null; isRefund: boolean } {
+    const magnitude = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
+    let nature: "Expense" | "Income" | null = null;
     for (const e of t.entries) {
       const acct = data.accounts.find((a) => a.id === e.accountId);
       if (!acct) continue;
-      const nature = accountNature(acct, masterGroups);
-      if (nature === "Income") monthIncome += -e.amount;
-      else if (nature === "Expense") monthExpense += e.amount;
+      const n = accountNature(acct, masterGroups);
+      if (n === "Expense") nature = "Expense";
+      else if (n === "Income" && nature !== "Expense") nature = "Income";
     }
+    const isReceipt = t.type.toLowerCase() === "receipt";
+    const isRefund = nature === "Expense" && isReceipt;
+    const amt = nature === "Expense" ? (isReceipt ? -magnitude : magnitude) : magnitude;
+    return { amt, nature, isRefund };
+  }
+
+  let monthIncome = 0,
+    monthExpense = 0;
+  for (const t of monthTx) {
+    const { amt, nature } = classify(t);
+    if (nature === "Income") monthIncome += amt;
+    else if (nature === "Expense") monthExpense += amt;
   }
   lines.push(
     "",
@@ -84,28 +104,11 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
       // Confirmed live: showing the plain absolute amount for every voucher made a refund (a
       // "Receipt" against a prior expense, e.g. a Costco return) look identical to a normal
       // purchase, so a spending total the model computed over the list silently added it instead
-      // of subtracting it. Same Expense/Income entry-sign logic the month total above already
-      // gets right (a credit against an expense account is negative there too) -- applied per
-      // voucher here instead of just the aggregate, with an explicit "REFUND" label as a second,
-      // redundant signal.
-      let signedAmt = 0;
-      let natureLabel: "Expense" | "Income" | null = null;
-      for (const e of t.entries) {
-        const acct = data.accounts.find((a) => a.id === e.accountId);
-        if (!acct) continue;
-        const nature = accountNature(acct, masterGroups);
-        if (nature === "Expense") {
-          signedAmt += e.amount;
-          natureLabel = "Expense";
-        } else if (nature === "Income") {
-          signedAmt += -e.amount;
-          natureLabel = "Income";
-        }
-      }
-      const magnitude = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
-      const displayAmt = natureLabel ? signedAmt : magnitude; // Contra/transfer vouchers have no Expense/Income side -- show plain magnitude
-      const refundNote = natureLabel === "Expense" && signedAmt < 0 ? " -- REFUND/return" : "";
-      lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} (${displayAmt.toFixed(2)} ${data.currency}${refundNote})`);
+      // of subtracting it. Reuses the same classify() the month total above uses, so the two can
+      // never disagree with each other.
+      const { amt, isRefund } = classify(t);
+      const refundNote = isRefund ? " -- REFUND/return" : "";
+      lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} (${amt.toFixed(2)} ${data.currency}${refundNote})`);
     }
   } else {
     lines.push("", "No vouchers posted yet this month.");
