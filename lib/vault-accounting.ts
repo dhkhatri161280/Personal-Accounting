@@ -178,6 +178,38 @@ export const backfillDividendNarrations = (ledger: Ledger): Ledger => {
   return changed ? { ...ledger, transactions } : ledger;
 };
 
+// Strips Tally's own "&#4;" marker (a stray XML numeric character reference Tally's export puts
+// in front of a group/ledger's PARENT value whenever that parent is the built-in "Primary" group,
+// e.g. "&#4; Primary") that leaked straight into the vault's stored data. The vouchers-side of the
+// Tally sync (tools/tally-sync/sync-core.js's dec()) already stripped this; the separate masters-
+// side decoder (tools/tally-sync/master-sync.js's decode()) was missing the same strip until now
+// -- confirmed live via the Masters > Groups screen showing "&#4; Primary" raw instead of
+// "Primary" for every group directly under Primary. Fixing the sync tool only prevents it on
+// FUTURE syncs; this cleans up what's already stored. Idempotent and additive-only, same shape as
+// backfillReversalLinks/backfillDividendNarrations above -- a no-op (same reference) once a vault
+// has been cleaned up once.
+const TALLY_PRIMARY_MARKER = /&#4;\s*/g;
+export const backfillGroupParentNames = (ledger: Ledger): Ledger => {
+  let changed = false;
+  const clean = (s: string | undefined) => {
+    const c = (s || "").replace(TALLY_PRIMARY_MARKER, "").trim();
+    return c === (s || "") ? s : c;
+  };
+  const groups = (ledger.groups || []).map((g) => {
+    const parent = clean(g.parent);
+    if (parent === g.parent) return g;
+    changed = true;
+    return { ...g, parent };
+  });
+  const accounts = ledger.accounts.map((a) => {
+    const parent = clean(a.parent);
+    if (parent === a.parent) return a;
+    changed = true;
+    return { ...a, parent: parent || a.parent };
+  });
+  return changed ? { ...ledger, groups, accounts } : ledger;
+};
+
 // Redirects a REVERSAL's account to the current month's own "House Hold Exps - <Mon> <YY>"
 // sibling instead of keeping the original (now-stale) month's account -- e.g. reversing today in
 // September a voucher originally posted against "House Hold Exps - Aug 26" should land in

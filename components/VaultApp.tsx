@@ -49,6 +49,7 @@ import {
   ensureHouseHoldAccountsForFiscalYears,
   backfillReversalLinks,
   backfillDividendNarrations,
+  backfillGroupParentNames,
   buildFiscalYearCloseVoucher,
   isFiscalYearAlreadyClosed,
   isProfitAndLossAccountName,
@@ -471,8 +472,12 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const reversalLinksBackfilled = withReversalLinks !== postedAmortization;
     // Same one-time catch-up, for Schwab dividend/interest vouchers missing their keyword --
     // see backfillDividendNarrations's own comment.
-    const decrypted = backfillDividendNarrations(withReversalLinks);
-    const dividendNarrationsBackfilled = decrypted !== withReversalLinks;
+    const withDividendNarrations = backfillDividendNarrations(withReversalLinks);
+    const dividendNarrationsBackfilled = withDividendNarrations !== withReversalLinks;
+    // Same one-time catch-up, for groups/accounts whose PARENT came through a Tally master sync
+    // before the sync tool's own "&#4;" strip was fixed -- see backfillGroupParentNames's own
+    // comment.
+    const decrypted = backfillGroupParentNames(withDividendNarrations);
     const { changed: repaired, hadDuplicate } = recomputeVoucherNumbers(decrypted);
     setVaultEtag(etag);
     setPassword(pw);
@@ -902,6 +907,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // Same safety net, for Schwab dividend/interest vouchers missing their keyword -- see
     // backfillDividendNarrations's own comment.
     next = backfillDividendNarrations(next);
+    // Same safety net, for groups/accounts whose PARENT came through a Tally master sync before
+    // the sync tool's own "&#4;" strip was fixed -- see backfillGroupParentNames's own comment.
+    next = backfillGroupParentNames(next);
 
     recomputeVoucherNumbers(next);
     setStatus("Encrypting and saving...");
