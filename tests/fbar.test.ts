@@ -97,6 +97,24 @@ test("computeFbarSummary: returns no rate info for a year with no published Trea
   assert.deepEqual(summary.rows, []);
 });
 
+test("computeFbarSummary: a live-fetched rate fills in for a year with no reviewed Treasury rate on file", () => {
+  const accounts = [account(1, "SBI Savings", "Bank Accounts"), account(999, "Other", "Indirect Incomes")];
+  const transactions = [tx(1, "2026-04-01", 1, -800_000)];
+  const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2026-01-01", accounts, transactions };
+
+  const liveRate = { rate: 90, asOf: "2026-12-31", source: "fetched live" };
+  const summary = computeFbarSummary(data, 2026, liveRate);
+  assert.equal(summary.rate, liveRate);
+  const sbi = summary.rows.find((r) => r.name === "SBI Savings")!;
+  assert.ok(Math.abs(sbi.maxBalanceUsd - 800_000 / 90) < 0.01);
+});
+
+test("computeFbarSummary: the reviewed hardcoded rate always wins over a live-fetched override, for a year already on file", () => {
+  const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2025-01-01", accounts: [], transactions: [] };
+  const summary = computeFbarSummary(data, 2025, { rate: 1, asOf: "2025-12-31", source: "fetched live" });
+  assert.equal(summary.rate, TREASURY_YEAR_END_RATE_INR[2025]);
+});
+
 test("computeFbarSummary: 'exclude' treatment (e.g. a premium-payment ledger, not a real balance) shows a row but contributes nothing to the total", () => {
   const premiumAcct: Account = { ...account(1, "LIC Premium", "Investments"), fbarTreatment: "exclude" };
   const accounts = [premiumAcct, account(999, "Other", "Indirect Incomes")];
