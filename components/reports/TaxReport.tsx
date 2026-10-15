@@ -2903,16 +2903,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                     {rows.map(([label, w1, ss, med]) => (
                       <tr key={label}>
                         <td style={{ padding: "3px 8px 3px 0", opacity: 0.8 }}>{label}</td>
-                        <td style={{ textAlign: "right", padding: "3px 8px" }}>{w1 == null ? "" : fmt(w1)}</td>
-                        <td style={{ textAlign: "right", padding: "3px 8px" }}>{ss == null ? "" : fmt(ss)}</td>
-                        <td style={{ textAlign: "right", padding: "3px 0 3px 8px" }}>{med == null ? "" : fmt(med)}</td>
+                        <td className="right" style={{ padding: "3px 8px" }}>{w1 == null ? "" : fmt(w1)}</td>
+                        <td className="right" style={{ padding: "3px 8px" }}>{ss == null ? "" : fmt(ss)}</td>
+                        <td className="right" style={{ padding: "3px 0 3px 8px" }}>{med == null ? "" : fmt(med)}</td>
                       </tr>
                     ))}
                     <tr style={{ fontWeight: 700, borderTop: "1px solid #dde2ea" }}>
                       <td style={{ padding: "5px 8px 3px 0" }}>Taxable Wages (Box 1/3/5)</td>
-                      <td style={{ textAlign: "right", padding: "5px 8px 3px" }}>{fmt(w2Box1Wages)}</td>
-                      <td style={{ textAlign: "right", padding: "5px 8px 3px" }}>{fmt(w2Box3SsWages)}</td>
-                      <td style={{ textAlign: "right", padding: "5px 0 3px 8px" }}>{fmt(w2Box5MedicareWages)}</td>
+                      <td className="right" style={{ padding: "5px 8px 3px" }}>{fmt(w2Box1Wages)}</td>
+                      <td className="right" style={{ padding: "5px 8px 3px" }}>{fmt(w2Box3SsWages)}</td>
+                      <td className="right" style={{ padding: "5px 0 3px 8px" }}>{fmt(w2Box5MedicareWages)}</td>
                     </tr>
                   </tbody>
                 </table>

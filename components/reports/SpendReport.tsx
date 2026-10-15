@@ -273,15 +273,15 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap", margin: "0 0 16px" }}>
         <div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>Total Expense</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{fmt(totalExpense)}</div>
+          <div className="spend-total-amt" style={{ fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{fmt(totalExpense)}</div>
         </div>
         <div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>Total Income</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#16a34a" }}>{fmt(totalIncome)}</div>
+          <div className="spend-total-amt" style={{ fontSize: 22, fontWeight: 700, color: "#16a34a" }}>{fmt(totalIncome)}</div>
         </div>
         <div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>Net</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: net >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(net)}</div>
+          <div className="spend-total-amt" style={{ fontSize: 22, fontWeight: 700, color: net >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(net)}</div>
         </div>
       </div>
 
@@ -343,11 +343,11 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                 >
                   <span>
                     <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {costcoLines.length > 0 && `(${costcoLines.length} voucher${costcoLines.length !== 1 ? "s" : ""})`}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(costcoReward.estimate.qualifyingSpend)}</div>
+                    <div className="costco-reward-amt" style={{ fontSize: 20, fontWeight: 700 }}>{fmt(costcoReward.estimate.qualifyingSpend)}</div>
                   </span>
                   <span>
                     <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{costcoReward.estimate.capped ? " (capped)" : ""}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(costcoReward.estimate.estimatedReward)}</div>
+                    <div className="costco-reward-amt" style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(costcoReward.estimate.estimatedReward)}</div>
                   </span>
                 </button>
                 {showCostcoDrilldown && (
@@ -385,11 +385,11 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                       >
                         <span>
                           <div style={{ fontSize: 12, opacity: 0.7 }}>Qualifying spend {prevCostcoLines.length > 0 && `(${prevCostcoLines.length} voucher${prevCostcoLines.length !== 1 ? "s" : ""})`}</div>
-                          <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(prevCostcoReward.estimate.qualifyingSpend)}</div>
+                          <div className="costco-reward-amt" style={{ fontSize: 20, fontWeight: 700 }}>{fmt(prevCostcoReward.estimate.qualifyingSpend)}</div>
                         </span>
                         <span>
                           <div style={{ fontSize: 12, opacity: 0.7 }}>Estimated reward{prevCostcoReward.estimate.capped ? " (capped)" : ""}</div>
-                          <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(prevCostcoReward.estimate.estimatedReward)}</div>
+                          <div className="costco-reward-amt" style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(prevCostcoReward.estimate.estimatedReward)}</div>
                         </span>
                       </button>
                       {showPrevCostcoDrilldown && (
@@ -458,7 +458,7 @@ export function SpendSection({
                   <span className="spend-category-chip-fill" style={{ width: `${pct}%`, background: color }} />
                   <span className="spend-category-chip-text">
                     <b>{name}</b>
-                    <em>{fmt(amt)}</em>
+                    <em className="spend-category-chip-amt">{fmt(amt)}</em>
                   </span>
                 </button>
               );

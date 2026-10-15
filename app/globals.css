@@ -8010,6 +8010,9 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .lr-money-input,
 .privacy-mode .lr-payment-preview,
 .privacy-mode .lr-schedule-balance,
+.privacy-mode .spend-total-amt,
+.privacy-mode .spend-category-chip-amt,
+.privacy-mode .costco-reward-amt,
 .privacy-mode .br-detail-amt {
   filter: blur(7px);
   user-select: none;

@@ -139,15 +139,15 @@ export function GrSpendReport({
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap", margin: "0 0 16px" }}>
         <div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>Total Expense</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{fmt(totalExpense)}</div>
+          <div className="spend-total-amt" style={{ fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{fmt(totalExpense)}</div>
         </div>
         <div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>Total Income</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: "#16a34a" }}>{fmt(totalIncome)}</div>
+          <div className="spend-total-amt" style={{ fontSize: 22, fontWeight: 700, color: "#16a34a" }}>{fmt(totalIncome)}</div>
         </div>
         <div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>Net</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: net >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(net)}</div>
+          <div className="spend-total-amt" style={{ fontSize: 22, fontWeight: 700, color: net >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(net)}</div>
         </div>
       </div>
 
