@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
 import { computeFbarSummary, TREASURY_YEAR_END_RATE_INR, FBAR_THRESHOLD_USD, type FbarAccountRow } from "@/lib/fbar";
 import { buildFbarXfaDatasets, fillFbarPdf, downloadFbarPdf, fbarFilerProfileComplete } from "@/lib/fbar-pdf";
@@ -72,33 +72,7 @@ export function FbarReport({
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
-  // Fallback for a year not yet in lib/fbar.ts's own reviewed TREASURY_YEAR_END_RATE_INR table --
-  // Treasury publishes the Dec 31 rate a few weeks into the following January, so "no rate on
-  // file yet" is the normal state for the current year for a while, not a bug. Tries the live
-  // Treasury proxy (app/api/fbar-rate) at most once per year per session (undefined = not tried
-  // yet, null = tried and it's genuinely not published yet) -- never re-fetches on every render,
-  // and never touches a year that's already in the hardcoded table (computeFbarSummary ignores
-  // this override whenever that table already has an entry).
-  const [liveRates, setLiveRates] = useState<Record<number, { rate: number; asOf: string; source: string } | null>>({});
-  useEffect(() => {
-    if (TREASURY_YEAR_END_RATE_INR[year] || year in liveRates) return;
-    if (year > new Date().getFullYear()) return; // a future year can never have a Dec 31 rate yet
-    let cancelled = false;
-    fetch(`/api/fbar-rate?year=${year}&country=India`)
-      .then((r) => (r.ok ? (r.json() as Promise<{ rate: number; asOf: string; source: string }>) : null))
-      .then((j) => {
-        if (!cancelled) setLiveRates((prev) => ({ ...prev, [year]: j && Number.isFinite(j.rate) ? j : null }));
-      })
-      .catch(() => {
-        if (!cancelled) setLiveRates((prev) => ({ ...prev, [year]: null }));
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year]);
-
-  const summary = useMemo(() => computeFbarSummary(data, year, liveRates[year]), [data, year, liveRates]);
+  const summary = useMemo(() => computeFbarSummary(data, year), [data, year]);
   const deadline = `April 15, ${year + 1} (automatically extended to October 15, ${year + 1} -- no request needed)`;
   const today = todayLocalIso();
   const extendedDeadlinePassed = today > `${year + 1}-10-15`;
@@ -271,9 +245,8 @@ export function FbarReport({
 
       {!summary.rate && (
         <p style={{ opacity: 0.7 }}>
-          {year in liveRates
-            ? `Treasury hasn't published the December 31, ${year} exchange rate yet -- it's typically published a few weeks into the following January. This page checks automatically; USD figures below will appear on their own once it's available.`
-            : `Checking for the December 31, ${year} Treasury exchange rate...`}
+          No Treasury year-end exchange rate is on file for {year} yet (lib/fbar.ts's TREASURY_YEAR_END_RATE_INR) --
+          USD figures below can't be computed until that's added.
         </p>
       )}
 
@@ -308,9 +281,6 @@ export function FbarReport({
                 <div className="equity-summary-card-body">
                   <span>Exchange rate used{summary.rate ? ` (as of ${fmtDate(summary.rate.asOf)})` : ""}</span>
                   <strong className="equity-amt">{summary.rate ? `${summary.rate.rate} INR/USD` : "—"}</strong>
-                  {summary.rate?.source.includes("fetched live") && (
-                    <small style={{ fontSize: 11, opacity: 0.6 }}>Fetched live from Treasury -- not yet in the app's reviewed rate table</small>
-                  )}
                 </div>
               </div>
             </div>

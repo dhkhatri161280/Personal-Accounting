@@ -124,14 +124,9 @@ export function maxBalanceInRange(
 // computed peak so nothing has to be found by hand.
 export function computeFbarSummary(
   data: Pick<Ledger, "accounts" | "transactions" | "groups">,
-  calendarYear: number,
-  // Used only as a fallback for a year not yet in TREASURY_YEAR_END_RATE_INR above -- see
-  // app/api/fbar-rate/route.ts and FbarReport.tsx's own fetch-once effect. Stays a plain
-  // parameter (not this function reaching out to fetch() itself) so this stays synchronous and
-  // trivially unit-testable; the live fetch is the UI layer's job, not this pure computation's.
-  liveRateOverride?: { rate: number; asOf: string; source: string } | null
+  calendarYear: number
 ): { rows: FbarAccountRow[]; totalUsd: number; thresholdExceeded: boolean; rate: { rate: number; asOf: string; source: string } | null } {
-  const rateInfo = TREASURY_YEAR_END_RATE_INR[calendarYear] ?? liveRateOverride ?? null;
+  const rateInfo = TREASURY_YEAR_END_RATE_INR[calendarYear] ?? null;
   const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g as unknown as { nature: string }]));
   const startDate = `${calendarYear}-01-01`;
   const endDate = `${calendarYear}-12-31`;
