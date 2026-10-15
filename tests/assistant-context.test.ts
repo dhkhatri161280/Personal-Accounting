@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAssistantContext } from "../lib/assistant-context.ts";
+import { buildAssistantContext, extractSearchTerms, searchVouchersAcrossAllDates } from "../lib/assistant-context.ts";
 import type { Account, Tx, Ledger } from "../lib/vault-types.ts";
 
 function account(id: number, name: string, parent: string, openingBalance = 0): Account {
@@ -216,4 +216,47 @@ test("buildAssistantContext: flags truncation explicitly instead of silently dro
   const context = buildAssistantContext(data, "us");
   assert.ok(context.includes("160 total"));
   assert.ok(context.includes("NOT included below"));
+});
+
+test("extractSearchTerms: picks out question words that actually appear in the vault's own vocabulary, drops generic ones", () => {
+  // Confirmed live: asked "this fiscal year" questions, the assistant could only say "I only have
+  // this month's data" -- accurate, but useless. Rather than a hand-maintained stopword list, a
+  // word only counts as a real search term if it's genuinely part of THIS vault's vocabulary (an
+  // account name or a voucher narration) -- generic question words never will be.
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses")];
+  const transactions = [
+    { id: 1, guid: "v1", date: "2026-03-01", number: "1", type: "Payment", narration: "Gasoline @ Costco", historical: false, entries: [{ accountId: 1, accountName: "", amount: -69 }] } as Tx,
+  ];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions };
+  const terms = extractSearchTerms("How much is my Costco Gasoline Spending till today for this fiscal year", data);
+  assert.deepEqual(new Set(terms), new Set(["costco", "gasoline"]), "only real vocabulary words (from narrations/account names) should survive, not generic question words");
+});
+
+test("searchVouchersAcrossAllDates: finds a match from an EARLIER fiscal year, not just the current month, and totals it", () => {
+  // Confirmed live: asked "how much is Costco Gasoline this fiscal year", the assistant could
+  // only see the current calendar month and had no way to total a wider period. This is the real
+  // fix -- a full-history search that finds a match from months ago and computes its own total,
+  // rather than the model having to re-derive one from a huge, budget-busting voucher dump.
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses"), account(999, "Citi Credit Card", "Bank Accounts")];
+  const oldGas: Tx = {
+    id: 1, guid: "v1", date: "2026-04-15", number: "100", type: "Payment", narration: "Gasoline @ Costco", historical: false,
+    entries: [{ accountId: 1, accountName: "", amount: -50 }, { accountId: 999, accountName: "", amount: 50 }],
+  };
+  const unrelated: Tx = {
+    id: 2, guid: "v2", date: "2026-04-16", number: "101", type: "Payment", narration: "Groceries @ Safeway", historical: false,
+    entries: [{ accountId: 1, accountName: "", amount: -20 }, { accountId: 999, accountName: "", amount: 20 }],
+  };
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [oldGas, unrelated] };
+  const result = searchVouchersAcrossAllDates(data, ["costco"]);
+  assert.ok(result.includes("Full-history search"), "must be labeled as a full-history search, not month-scoped");
+  assert.ok(result.includes("Gasoline @ Costco"), "must find the match even though it's months before today");
+  assert.ok(!result.includes("Safeway"), "must not include an unrelated voucher");
+  assert.ok(result.includes("Total across these 1 voucher(s) (refunds already subtracted): 50.00 USD"), "must compute a real total, not leave it to the model");
+});
+
+test("searchVouchersAcrossAllDates: says plainly when nothing matches, instead of staying silent", () => {
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses")];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [] };
+  const result = searchVouchersAcrossAllDates(data, ["costco"]);
+  assert.ok(result.includes("0 matching vouchers found"));
 });

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { buildAssistantContext } from "@/lib/assistant-context";
+import { buildAssistantContext, extractSearchTerms, searchVouchersAcrossAllDates } from "@/lib/assistant-context";
 import { apiFetch } from "@/lib/api-fetch";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -246,7 +246,16 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
     setMessages(nextMessages);
     setSending(true);
     try {
-      const context = buildAssistantContext(data, book);
+      const baseContext = buildAssistantContext(data, book);
+      // Confirmed live: asked "this fiscal year" questions, the assistant could only ever
+      // honestly say "I only have this month's data" -- accurate, but useless for what was
+      // actually asked. baseContext stays month-scoped (dumping every voucher ever posted would
+      // blow both the char budget and the free model's context window), but THIS message's own
+      // wording (e.g. "Costco", "Gasoline") drives a real full-history search appended just for
+      // this turn -- see searchVouchersAcrossAllDates's own comment.
+      const searchTerms = extractSearchTerms(message, data);
+      const searchResults = searchTerms.length ? searchVouchersAcrossAllDates(data, searchTerms) : "";
+      const context = searchResults ? `${baseContext}\n\n${searchResults}` : baseContext;
       const r = await apiFetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

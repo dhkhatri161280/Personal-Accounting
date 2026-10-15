@@ -4,6 +4,129 @@ import { computeFbarSummary } from "./fbar.ts";
 import { todayLocalIso, fmtDate } from "./format-date.ts";
 import { isSalaryVoucher, buildShadowPeriod } from "./payroll-match.ts";
 
+// Classifies one voucher's signed amount, nature, refund status, and the real account name(s) it
+// posted to -- shared by buildAssistantContext's month total/per-voucher list AND
+// searchVouchersAcrossAllDates below, so the two can never drift out of sync with each other.
+// Confirmed live (user's own Day Book data) that deriving spend-vs-refund from each entry's raw
+// signed amount against its account's nature got it backwards. The voucher's own `type` field is
+// the correct, simple signal -- exactly the convention lib/costco-reward.ts already uses and has
+// proven correct: a "Payment" voucher is money going out (a purchase), a "Receipt" voucher against
+// an expense account is money coming back (a refund/return).
+//
+// Confirmed live a SECOND time: a semi-monthly paystub voucher (one Income-nature entry for gross
+// pay, plus several Expense-nature entries for withheld tax/benefits deductions in the same
+// voucher) got mislabeled "REFUND/return" too -- picking "Expense" as the voucher's nature just
+// because ANY entry touched an Expense account, even though the same voucher also had a real
+// Income entry. The refund rule only makes sense for a voucher that's PURELY on the expense side
+// (like a Costco return, which never touches an Income account at all) -- so an Income entry
+// anywhere in the voucher now wins and rules out the refund interpretation entirely.
+//
+// Confirmed live a THIRD time: asked to "check the Vehicle Maintenance account" for a Costco
+// match, the assistant flatly contradicted its own prior answer -- it had NO way to actually check
+// account membership, since the per-voucher line only ever showed narration text, never which
+// account(s) the voucher posted to. Also returns the account name(s) touched, so an
+// account-specific question has real data to check against instead of the model having to guess.
+function classifyVoucher(
+  data: Ledger,
+  masterGroups: Map<string, { nature: string }>,
+  t: { type: string; entries: { accountId: number; amount: number }[] }
+): { amt: number; nature: "Expense" | "Income" | null; isRefund: boolean; acctNames: string } {
+  const magnitude = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
+  let nature: "Expense" | "Income" | null = null;
+  const names = new Set<string>();
+  for (const e of t.entries) {
+    const acct = data.accounts.find((a) => a.id === e.accountId);
+    if (!acct) continue;
+    names.add(acct.name);
+    const n = accountNature(acct, masterGroups);
+    if (n === "Income") nature = "Income";
+    else if (n === "Expense" && nature !== "Income") nature = "Expense";
+  }
+  const isReceipt = t.type.toLowerCase() === "receipt";
+  const isRefund = nature === "Expense" && isReceipt;
+  const amt = nature === "Expense" ? (isReceipt ? -magnitude : magnitude) : magnitude;
+  return { amt, nature, isRefund, acctNames: [...names].join(" / ") };
+}
+
+const STOPWORD_LEN_FLOOR = 3;
+function wordsOf(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= STOPWORD_LEN_FLOOR);
+}
+
+// Confirmed live: asked "this fiscal year" questions, the assistant could only ever honestly say
+// "I only have this month's data" -- accurate, but useless for what the user actually asked. The
+// real fix isn't dumping every voucher ever posted into the context (hundreds of vouchers would
+// blow both the char budget and the free model's practical context window) -- it's a real
+// full-history SEARCH, scoped to just the terms the user's own question named. Rather than a hand-
+// maintained stopword list (fragile across phrasings), a word only counts as a search term if it
+// actually appears somewhere in THIS vault's own vocabulary (an account name or a voucher
+// narration) -- "how/much/is/my/spending/till/today/for/this/fiscal/year" never will, while
+// "Costco"/"Gasoline"/"Vehicle"/"Maintenance" always will for a vault that actually has them.
+export function extractSearchTerms(message: string, data: Ledger): string[] {
+  const vocab = new Set<string>();
+  for (const a of data.accounts) for (const w of wordsOf(a.name)) vocab.add(w);
+  for (const t of data.transactions) {
+    if (t.deleted) continue;
+    for (const w of wordsOf(t.narration || "")) vocab.add(w);
+  }
+  const terms = new Set<string>();
+  for (const w of wordsOf(message)) if (vocab.has(w)) terms.add(w);
+  return [...terms];
+}
+
+const MAX_SEARCH_RESULTS = 100;
+
+// Searches EVERY non-deleted/cancelled voucher ever posted (not scoped to the current month) for
+// one whose narration OR whose touched account name contains any of `terms` -- the real answer to
+// "how much X all-time / this fiscal year / last quarter", computed and listed directly rather
+// than asking the model to re-derive it from a giant dump of unrelated vouchers. Returns "" when
+// there are no terms to search for (buildAssistantContext's own month-scoped list already covers
+// that case) or when nothing matches (the caller still gets an explicit "zero matches" line, so
+// the model says so plainly instead of inventing a connection to something unrelated).
+export function searchVouchersAcrossAllDates(data: Ledger, terms: string[]): string {
+  if (!terms.length) return "";
+  const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g as unknown as { nature: string }]));
+  const quoted = terms.map((t) => `"${t}"`).join(", ");
+
+  const matches = data.transactions
+    .filter((t) => !t.deleted && !t.cancelled)
+    .filter((t) => {
+      const narration = t.narration.toLowerCase();
+      if (terms.some((term) => narration.includes(term))) return true;
+      return t.entries.some((e) => {
+        const acct = data.accounts.find((a) => a.id === e.accountId);
+        return acct && terms.some((term) => acct.name.toLowerCase().includes(term));
+      });
+    })
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const lines: string[] = [];
+  if (!matches.length) {
+    lines.push(`Full-history search (ALL dates, not just this month) for ${quoted}: 0 matching vouchers found.`);
+    return lines.join("\n");
+  }
+
+  const truncated = matches.length > MAX_SEARCH_RESULTS;
+  const forContext = truncated ? matches.slice(0, MAX_SEARCH_RESULTS) : matches;
+  lines.push(
+    truncated
+      ? `Full-history search (ALL dates, not just this month) for ${quoted}: ${matches.length} matching vouchers found, showing the first ${MAX_SEARCH_RESULTS} (some are NOT included below -- say so if asked for an exact total):`
+      : `Full-history search (ALL dates, not just this month) for ${quoted}: ${matches.length} matching voucher(s). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any total, don't add its size:`
+  );
+  let total = 0;
+  for (const t of forContext) {
+    const { amt, isRefund, acctNames } = classifyVoucher(data, masterGroups, t);
+    total += amt;
+    const refundNote = isRefund ? " -- REFUND/return" : "";
+    lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} [accounts: ${acctNames}] (${amt.toFixed(2)} ${data.currency}${refundNote})`);
+  }
+  if (!truncated) lines.push(`Total across these ${forContext.length} voucher(s) (refunds already subtracted): ${total.toFixed(2)} ${data.currency}`);
+  return lines.join("\n");
+}
+
 // Builds the plain-text "financial data snapshot" sent to the free chat assistant (see
 // app/api/assistant) alongside each question -- the ONLY thing the server-side model ever sees
 // about the user's actual data, computed here client-side where the decrypted Ledger already
@@ -38,45 +161,7 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
     .slice()
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-  // Per-voucher classification used for BOTH the month total below and the per-voucher list
-  // further down, so the two can never drift out of sync with each other again. Confirmed live
-  // (user's own Day Book data) that deriving spend-vs-refund from each entry's raw signed amount
-  // against its account's nature got it backwards. The voucher's own `type` field is the correct,
-  // simple signal -- exactly the convention lib/costco-reward.ts already uses and has proven
-  // correct: a "Payment" voucher is money going out (a purchase), a "Receipt" voucher against an
-  // expense account is money coming back (a refund/return).
-  //
-  // Confirmed live a SECOND time: a semi-monthly paystub voucher (one Income-nature entry for
-  // gross pay, plus several Expense-nature entries for withheld tax/benefits deductions in the
-  // same voucher) got mislabeled "REFUND/return" too -- picking "Expense" as the voucher's nature
-  // just because ANY entry touched an Expense account, even though the same voucher also had a
-  // real Income entry. The refund rule only makes sense for a voucher that's PURELY on the expense
-  // side (like a Costco return, which never touches an Income account at all) -- so an Income
-  // entry anywhere in the voucher now wins and rules out the refund interpretation entirely.
-  //
-  // Confirmed live a THIRD time: asked to "check the Vehicle Maintenance account" for a Costco
-  // match, the assistant flatly contradicted its own prior answer -- it had NO way to actually
-  // check account membership, since the per-voucher line below only ever showed narration text,
-  // never which account(s) the voucher posted to. classify() now also returns the account name(s)
-  // touched, so an account-specific question has real data to check against instead of the model
-  // having to guess from narration alone.
-  function classify(t: { type: string; entries: { accountId: number; amount: number }[] }): { amt: number; nature: "Expense" | "Income" | null; isRefund: boolean; acctNames: string } {
-    const magnitude = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
-    let nature: "Expense" | "Income" | null = null;
-    const names = new Set<string>();
-    for (const e of t.entries) {
-      const acct = data.accounts.find((a) => a.id === e.accountId);
-      if (!acct) continue;
-      names.add(acct.name);
-      const n = accountNature(acct, masterGroups);
-      if (n === "Income") nature = "Income";
-      else if (n === "Expense" && nature !== "Income") nature = "Expense";
-    }
-    const isReceipt = t.type.toLowerCase() === "receipt";
-    const isRefund = nature === "Expense" && isReceipt;
-    const amt = nature === "Expense" ? (isReceipt ? -magnitude : magnitude) : magnitude;
-    return { amt, nature, isRefund, acctNames: [...names].join(" / ") };
-  }
+  const classify = (t: { type: string; entries: { accountId: number; amount: number }[] }) => classifyVoucher(data, masterGroups, t);
 
   let monthIncome = 0,
     monthExpense = 0;
