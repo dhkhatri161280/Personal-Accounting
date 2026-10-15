@@ -551,13 +551,20 @@ function FbarSettingsPanel({
             rateRows.map((row, i) => {
               const valid = /^\d{4}$/.test(row.year) && Number.isFinite(Number(row.rate)) && Number(row.rate) > 0;
               const saved = row.originalYear === row.year && valid;
+              // Once a year this was saved under also has a reviewed rate (e.g. after it's added
+              // to TREASURY_YEAR_END_RATE_INR following Treasury's real publication), the
+              // worksheet's own math already ignores this row automatically -- the reviewed table
+              // always wins (see lib/fbar.ts). Flagging it here is purely so the row doesn't sit
+              // there looking active when it's actually inert; nothing is deleted automatically,
+              // since the figure may still be worth keeping for reference.
+              const superseded = !!(row.originalYear && TREASURY_YEAR_END_RATE_INR[Number(row.originalYear)]);
               return (
-                <tr key={i}>
+                <tr key={i} style={superseded ? { opacity: 0.55 } : undefined}>
                   <td>
                     <input
                       type="number"
                       value={row.year}
-                      placeholder="2026"
+                      placeholder="e.g. 2026"
                       style={{ width: 90 }}
                       onChange={(e) => setRateRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, year: e.target.value } : r)))}
                       onKeyDown={(e) => { if (e.key === "Enter") commitRate(i); }}
@@ -569,17 +576,23 @@ function FbarSettingsPanel({
                       step="0.001"
                       min="0"
                       value={row.rate}
-                      placeholder="89.5"
+                      placeholder="e.g. 89.5"
                       style={{ width: 100, textAlign: "right" }}
                       onChange={(e) => setRateRows((rows) => rows.map((r, ri) => (ri === i ? { ...r, rate: e.target.value } : r)))}
                       onKeyDown={(e) => { if (e.key === "Enter") commitRate(i); }}
                     />
                   </td>
                   <td style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <button type="button" className="tr-refresh-btn" disabled={!valid} onClick={() => commitRate(i)}>
-                      Save
-                    </button>
-                    {saved && <span style={{ fontSize: 12, color: "#16a34a", fontWeight: 600 }}>✓ Saved</span>}
+                    {superseded ? (
+                      <span style={{ fontSize: 12, fontStyle: "italic" }}>Superseded -- using the reviewed rate above</span>
+                    ) : (
+                      <>
+                        <button type="button" className="tr-refresh-btn" disabled={!valid} onClick={() => commitRate(i)}>
+                          Save
+                        </button>
+                        {saved && <span style={{ fontSize: 12, color: "#16a34a", fontWeight: 600 }}>✓ Saved</span>}
+                      </>
+                    )}
                     <button
                       type="button"
                       className="master-delete"
@@ -597,7 +610,21 @@ function FbarSettingsPanel({
           )}
         </tbody>
       </table>
-      <button type="button" className="tr-refresh-btn" onClick={() => setRateRows((rows) => [...rows, { originalYear: null, year: "", rate: "" }])}>
+      <button
+        type="button"
+        className="tr-refresh-btn"
+        onClick={() =>
+          setRateRows((rows) => {
+            // A real starting value, not a placeholder -- confirmed live that a placeholder
+            // showing the exact year someone was about to type (e.g. "2026") is visually
+            // indistinguishable from an actually-filled field, which silently left Save disabled.
+            const reviewedYears = Object.keys(TREASURY_YEAR_END_RATE_INR).map(Number);
+            const rowYears = rows.map((r) => Number(r.year)).filter(Number.isFinite);
+            const nextYear = Math.max(0, ...reviewedYears, ...rowYears) + 1;
+            return [...rows, { originalYear: null, year: String(nextYear), rate: "" }];
+          })
+        }
+      >
         + Add year
       </button>
     </div>
