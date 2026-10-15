@@ -106,6 +106,23 @@ test("buildAssistantContext: a refund against an expense account shows negative 
   assert.ok(context.includes("(-22.04 USD -- REFUND/return)"), "a Receipt refund must show negative and explicitly labeled");
 });
 
+test("buildAssistantContext: each voucher line names the real account(s) it posted to", () => {
+  // Confirmed live: asked to "check the Vehicle Maintenance account", the assistant flatly
+  // contradicted its own prior answer in the same reply -- it had no real data to check account
+  // membership against, since the voucher line only ever showed narration text. Each line now
+  // names the actual account(s) so an account-specific question has something real to match.
+  const today = new Date().toISOString().slice(0, 10);
+  const monthKey = today.slice(0, 7);
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses"), account(999, "Citi Credit Card", "Bank Accounts")];
+  const gas: Tx = {
+    id: 1, guid: "v1", date: `${monthKey}-05`, number: "587", type: "Payment", narration: "Gasoline @ Costco", historical: false,
+    entries: [{ accountId: 1, accountName: "", amount: -69 }, { accountId: 999, accountName: "", amount: 69 }],
+  };
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [gas] };
+  const context = buildAssistantContext(data, "us");
+  assert.ok(context.includes("[accounts: Vehicle Maintenance / Citi Credit Card]"), "the voucher line must name every account it actually posted to");
+});
+
 test("buildAssistantContext: a salary voucher is never labeled a refund, and shows a gross/tax/net breakdown instead of one summed amount", () => {
   // Confirmed live THREE times: (1) a semi-monthly paystub voucher (gross pay credited to an
   // Income account, plus tax/benefit deductions hitting Expense-nature accounts in the SAME

@@ -53,12 +53,21 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
   // real Income entry. The refund rule only makes sense for a voucher that's PURELY on the expense
   // side (like a Costco return, which never touches an Income account at all) -- so an Income
   // entry anywhere in the voucher now wins and rules out the refund interpretation entirely.
-  function classify(t: { type: string; entries: { accountId: number; amount: number }[] }): { amt: number; nature: "Expense" | "Income" | null; isRefund: boolean } {
+  //
+  // Confirmed live a THIRD time: asked to "check the Vehicle Maintenance account" for a Costco
+  // match, the assistant flatly contradicted its own prior answer -- it had NO way to actually
+  // check account membership, since the per-voucher line below only ever showed narration text,
+  // never which account(s) the voucher posted to. classify() now also returns the account name(s)
+  // touched, so an account-specific question has real data to check against instead of the model
+  // having to guess from narration alone.
+  function classify(t: { type: string; entries: { accountId: number; amount: number }[] }): { amt: number; nature: "Expense" | "Income" | null; isRefund: boolean; acctNames: string } {
     const magnitude = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
     let nature: "Expense" | "Income" | null = null;
+    const names = new Set<string>();
     for (const e of t.entries) {
       const acct = data.accounts.find((a) => a.id === e.accountId);
       if (!acct) continue;
+      names.add(acct.name);
       const n = accountNature(acct, masterGroups);
       if (n === "Income") nature = "Income";
       else if (n === "Expense" && nature !== "Income") nature = "Expense";
@@ -66,7 +75,7 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
     const isReceipt = t.type.toLowerCase() === "receipt";
     const isRefund = nature === "Expense" && isReceipt;
     const amt = nature === "Expense" ? (isReceipt ? -magnitude : magnitude) : magnitude;
-    return { amt, nature, isRefund };
+    return { amt, nature, isRefund, acctNames: [...names].join(" / ") };
   }
 
   let monthIncome = 0,
@@ -149,8 +158,8 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
     lines.push(
       "",
       truncated
-        ? `All vouchers this month (${monthTx.length} total, showing the most recent ${MAX_MONTH_VOUCHERS} -- some earlier-in-month vouchers are NOT included below):`
-        : `All vouchers this month (${monthTxForContext.length}). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any spending total, don't add its size:`
+        ? `All vouchers THIS CALENDAR MONTH ONLY (${monthKey}) -- nothing from any earlier or later month is included below (${monthTx.length} total, showing the most recent ${MAX_MONTH_VOUCHERS} -- some earlier-in-month vouchers are NOT included below):`
+        : `All vouchers THIS CALENDAR MONTH ONLY (${monthKey}) -- nothing from any earlier or later month is included below (${monthTxForContext.length} voucher(s)). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any spending total, don't add its size:`
     );
     for (const t of monthTxForContext) {
       // Confirmed live: a "take-home / tax deducted" question couldn't be answered because a
@@ -170,9 +179,9 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
       // purchase, so a spending total the model computed over the list silently added it instead
       // of subtracting it. Reuses the same classify() the month total above uses, so the two can
       // never disagree with each other.
-      const { amt, isRefund } = classify(t);
+      const { amt, isRefund, acctNames } = classify(t);
       const refundNote = isRefund ? " -- REFUND/return" : "";
-      lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} (${amt.toFixed(2)} ${data.currency}${refundNote})`);
+      lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} [accounts: ${acctNames}] (${amt.toFixed(2)} ${data.currency}${refundNote})`);
     }
   } else {
     lines.push("", "No vouchers posted yet this month.");
