@@ -1,12 +1,12 @@
 import type { Ledger, Tx } from "./vault-types.ts";
-import { ledgerBalanceAsOf, displayLedgerBalance, accountNature } from "./vault-accounting.ts";
+import { ledgerBalanceAsOf, displayLedgerBalance, accountNature, fiscalYearOf } from "./vault-accounting.ts";
 import { computeFbarSummary } from "./fbar.ts";
 import { todayLocalIso, fmtDate } from "./format-date.ts";
 import { isSalaryVoucher, buildShadowPeriod } from "./payroll-match.ts";
 
 // Classifies one voucher's signed amount, nature, refund status, and the real account name(s) it
 // posted to -- shared by buildAssistantContext's month total/per-voucher list AND
-// searchVouchersAcrossAllDates below, so the two can never drift out of sync with each other.
+// searchVouchersThisFiscalYear below, so the two can never drift out of sync with each other.
 // Confirmed live (user's own Day Book data) that deriving spend-vs-refund from each entry's raw
 // signed amount against its account's nature got it backwards. The voucher's own `type` field is
 // the correct, simple signal -- exactly the convention lib/costco-reward.ts already uses and has
@@ -56,15 +56,31 @@ function wordsOf(s: string): string[] {
     .filter((w) => w.length >= STOPWORD_LEN_FLOOR);
 }
 
+// Confirmed live: filtering search terms by "does this word appear anywhere in the vault's own
+// vocabulary" was NOT enough on its own -- common question words like "for", "this", "year" very
+// often also appear as genuine whole words inside real narrations once a vault has years of
+// history (e.g. any "... for groceries" narration contains "for"), so they survived the filter
+// and got treated as real search terms, massively over-matching (2219 vouchers for one query). A
+// real stopword list comes first and is authoritative -- vocabulary membership alone was never a
+// safe substitute for it.
+const QUESTION_STOPWORDS = new Set([
+  "how", "much", "many", "what", "which", "who", "when", "where", "why", "is", "are", "was", "were",
+  "the", "a", "an", "my", "our", "your", "this", "that", "these", "those", "for", "of", "in", "on",
+  "at", "to", "from", "till", "until", "today", "now", "please", "can", "you", "tell", "me", "and",
+  "or", "with", "check", "give", "show", "see", "find", "there", "here", "it", "its", "vs", "compare",
+  "than", "have", "has", "had", "do", "does", "did", "total", "spend", "spent", "spending", "amount",
+  "account", "accounts", "fiscal", "year", "years", "month", "months", "quarter", "quarters", "so",
+  "far", "all", "any", "not", "about", "info", "information", "data",
+]);
+
 // Confirmed live: asked "this fiscal year" questions, the assistant could only ever honestly say
 // "I only have this month's data" -- accurate, but useless for what the user actually asked. The
 // real fix isn't dumping every voucher ever posted into the context (hundreds of vouchers would
-// blow both the char budget and the free model's practical context window) -- it's a real
-// full-history SEARCH, scoped to just the terms the user's own question named. Rather than a hand-
-// maintained stopword list (fragile across phrasings), a word only counts as a search term if it
-// actually appears somewhere in THIS vault's own vocabulary (an account name or a voucher
-// narration) -- "how/much/is/my/spending/till/today/for/this/fiscal/year" never will, while
-// "Costco"/"Gasoline"/"Vehicle"/"Maintenance" always will for a vault that actually has them.
+// blow both the char budget and the free model's practical context window) -- it's a real SEARCH,
+// scoped to just the terms the user's own question named. A word only counts as a search term if
+// it's NOT a generic question word (QUESTION_STOPWORDS above) AND it actually appears somewhere in
+// THIS vault's own vocabulary (an account name or a voucher narration) -- "Costco"/"Gasoline"/
+// "Vehicle"/"Maintenance" pass both checks for a vault that has them.
 export function extractSearchTerms(message: string, data: Ledger): string[] {
   const vocab = new Set<string>();
   for (const a of data.accounts) for (const w of wordsOf(a.name)) vocab.add(w);
@@ -73,26 +89,33 @@ export function extractSearchTerms(message: string, data: Ledger): string[] {
     for (const w of wordsOf(t.narration || "")) vocab.add(w);
   }
   const terms = new Set<string>();
-  for (const w of wordsOf(message)) if (vocab.has(w)) terms.add(w);
+  for (const w of wordsOf(message)) if (!QUESTION_STOPWORDS.has(w) && vocab.has(w)) terms.add(w);
   return [...terms];
 }
 
 const MAX_SEARCH_RESULTS = 100;
 
-// Searches EVERY non-deleted/cancelled voucher ever posted (not scoped to the current month) for
-// one whose narration OR whose touched account name contains any of `terms` -- the real answer to
-// "how much X all-time / this fiscal year / last quarter", computed and listed directly rather
-// than asking the model to re-derive it from a giant dump of unrelated vouchers. Returns "" when
-// there are no terms to search for (buildAssistantContext's own month-scoped list already covers
-// that case) or when nothing matches (the caller still gets an explicit "zero matches" line, so
+// Searches the CURRENT FISCAL YEAR's non-deleted/cancelled vouchers (same Apr-Mar FY the rest of
+// this app uses -- see fiscalYearOf) for one whose narration OR whose touched account name
+// contains any of `terms` -- the real answer to "how much X this fiscal year", computed and listed
+// directly rather than asking the model to re-derive it from a giant dump of unrelated vouchers.
+// Confirmed live this needs an explicit boundary: with none at all, a "this fiscal year" question
+// searched the vault's ENTIRE history back to 2016, returning 2219 matches and a confused, overrun
+// partial answer, not "this fiscal year"'s actual (much smaller) total. Returns "" when there are
+// no terms to search for (buildAssistantContext's own month-scoped list already covers that case)
+// or when nothing matches within the FY (the caller still gets an explicit "zero matches" line, so
 // the model says so plainly instead of inventing a connection to something unrelated).
-export function searchVouchersAcrossAllDates(data: Ledger, terms: string[]): string {
+export function searchVouchersThisFiscalYear(data: Ledger, terms: string[], todayIso: string): string {
   if (!terms.length) return "";
   const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g as unknown as { nature: string }]));
   const quoted = terms.map((t) => `"${t}"`).join(", ");
+  const fy = fiscalYearOf(todayIso);
+  const fromDate = `${fy}-04-01`,
+    toDate = `${fy + 1}-03-31`;
+  const fyLabel = `FY${fy} (${fromDate} to ${toDate})`;
 
   const matches = data.transactions
-    .filter((t) => !t.deleted && !t.cancelled)
+    .filter((t) => !t.deleted && !t.cancelled && t.date >= fromDate && t.date <= toDate)
     .filter((t) => {
       const narration = t.narration.toLowerCase();
       if (terms.some((term) => narration.includes(term))) return true;
@@ -105,7 +128,7 @@ export function searchVouchersAcrossAllDates(data: Ledger, terms: string[]): str
 
   const lines: string[] = [];
   if (!matches.length) {
-    lines.push(`Full-history search (ALL dates, not just this month) for ${quoted}: 0 matching vouchers found.`);
+    lines.push(`Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: 0 matching vouchers found.`);
     return lines.join("\n");
   }
 
@@ -113,8 +136,8 @@ export function searchVouchersAcrossAllDates(data: Ledger, terms: string[]): str
   const forContext = truncated ? matches.slice(0, MAX_SEARCH_RESULTS) : matches;
   lines.push(
     truncated
-      ? `Full-history search (ALL dates, not just this month) for ${quoted}: ${matches.length} matching vouchers found, showing the first ${MAX_SEARCH_RESULTS} (some are NOT included below -- say so if asked for an exact total):`
-      : `Full-history search (ALL dates, not just this month) for ${quoted}: ${matches.length} matching voucher(s). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any total, don't add its size:`
+      ? `Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: ${matches.length} matching vouchers found, showing the first ${MAX_SEARCH_RESULTS} (some are NOT included below -- say so if asked for an exact total):`
+      : `Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: ${matches.length} matching voucher(s). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any total, don't add its size:`
   );
   let total = 0;
   for (const t of forContext) {

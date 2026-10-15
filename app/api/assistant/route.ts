@@ -44,14 +44,17 @@ CRITICAL: the "All vouchers THIS CALENDAR MONTH ONLY" list below covers ONLY the
 month -- it never contains anything from an earlier or later month, even if a fiscal year, quarter,
 or other month is named in the question. The year-to-date salary summary (if present) is the one
 exception to that -- it really does cover the whole current calendar year, not just this month.
-If a "Full-history search" section is ALSO present below, it covers EVERY voucher ever posted (not
-just this month) that matched the specific words in the user's own question -- use ITS total and
-voucher list to answer a question about a merchant/category over a fiscal year, "all time", or any
-period wider than the current month, instead of saying you don't have that data. Only when NO
-"Full-history search" section is present, and the question needs data wider than the current month,
-should you say plainly that you only have this month's data on file and can't total the wider
-period -- never silently answer a wide-period question using just the current month's list as if it
-covered the whole period asked about.
+If a "Fiscal-year search" section is ALSO present below, it covers the WHOLE CURRENT FISCAL YEAR
+(it states the exact FY and date range at the top of that section) -- not just this month, but also
+NOT every year the vault has ever had data for -- that matched the specific words in the user's own
+question. Use ITS total and voucher list to answer a question about a merchant/category over the
+current fiscal year, instead of saying you don't have that data. If the question asks about a
+period OTHER than the current fiscal year (a specific past year, "all time", "last year"), that
+section still does NOT cover it -- say plainly you only have the current fiscal year's search
+results and this month's full list, and can't total that different period. Only when NO "Fiscal-
+year search" section is present, and the question needs data wider than the current month, should
+you say plainly that you only have this month's data on file -- never silently answer a wide-period
+question using just the current month's list as if it covered the whole period asked about.
 
 When summing a spending total across several vouchers, pay close attention to each one's sign and
 any "REFUND" note -- a negative amount or a REFUND note means that voucher is money coming back,
