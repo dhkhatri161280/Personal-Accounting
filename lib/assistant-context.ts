@@ -1,4 +1,4 @@
-import type { Ledger } from "./vault-types.ts";
+import type { Ledger, Tx } from "./vault-types.ts";
 import { ledgerBalanceAsOf, displayLedgerBalance, accountNature } from "./vault-accounting.ts";
 import { computeFbarSummary } from "./fbar.ts";
 import { todayLocalIso, fmtDate } from "./format-date.ts";
@@ -25,7 +25,7 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
   const masterGroups = new Map((data.groups || []).map((g) => [g.name.toLowerCase(), g as unknown as { nature: string }]));
   const activeAccounts = data.accounts.filter((a) => a.active !== false);
 
-  lines.push("", "Current account balances (non-zero only):");
+  lines.push("", "Current account balances (non-zero only -- CUMULATIVE since the account was opened, NOT year-to-date):");
   for (const a of activeAccounts) {
     const bal = displayLedgerBalance(a, ledgerBalanceAsOf(data, a.id, today));
     if (Math.abs(bal) < 0.01) continue;
@@ -81,6 +81,50 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
     `This month (${monthKey}) so far: income ${monthIncome.toFixed(2)}, expense ${monthExpense.toFixed(2)}, net ${(monthIncome - monthExpense).toFixed(2)} ${data.currency}`
   );
 
+  // Same breakdown used for BOTH the per-voucher salary lines below and the year-to-date summary
+  // just below that, so the two can't disagree. "Take-home" reads the voucher's own Bank/Cash-
+  // nature entry directly (see the comment at its call site) rather than deriving it by
+  // subtraction, which silently drifts from reality on any deduction line the parser doesn't
+  // recognize.
+  function salaryBreakdown(t: Tx) {
+    const sp = buildShadowPeriod(t);
+    const bankAmt = t.entries.reduce((s, e) => {
+      const acct = data.accounts.find((a) => a.id === e.accountId);
+      if (!acct) return s;
+      const n = accountNature(acct, masterGroups);
+      return n === "Bank" || n === "Cash" ? s + Math.abs(e.amount) : s;
+    }, 0);
+    return { gross: sp.base, tax: sp.tax, k401: sp.k401, medical: sp.medical, telephone: sp.telephone, net: bankAmt > 0 ? bankAmt : sp.net };
+  }
+
+  // Confirmed live: asked "how much YTD" right after a correct per-paystub answer, the assistant
+  // had no year-to-date figure anywhere in its context and fabricated one from the "Current
+  // account balances" section instead -- those are CUMULATIVE since the account was opened, not
+  // year-to-date, and presenting them as a YTD estimate was a confident wrong answer. Give it the
+  // real thing: every salary voucher dated this calendar year, summed the same way as the
+  // per-voucher lines below.
+  const yearKey = today.slice(0, 4);
+  const yearSalaryTx = data.transactions.filter((t) => !t.deleted && !t.cancelled && t.date.startsWith(yearKey) && isSalaryVoucher(t));
+  if (yearSalaryTx.length) {
+    const ytd = yearSalaryTx.reduce(
+      (acc, t) => {
+        const b = salaryBreakdown(t);
+        acc.gross += b.gross;
+        acc.tax += b.tax;
+        acc.k401 += b.k401;
+        acc.medical += b.medical;
+        acc.telephone += b.telephone;
+        acc.net += b.net;
+        return acc;
+      },
+      { gross: 0, tax: 0, k401: 0, medical: 0, telephone: 0, net: 0 }
+    );
+    lines.push(
+      "",
+      `Year-to-date (CY${yearKey}) salary summary across ${yearSalaryTx.length} paystub voucher(s): gross pay ${ytd.gross.toFixed(2)}, tax deducted ${ytd.tax.toFixed(2)}, 401k ${ytd.k401.toFixed(2)}, medical/health ${ytd.medical.toFixed(2)}, telephone ${ytd.telephone.toFixed(2)}, net take-home (actual bank deposits) ${ytd.net.toFixed(2)} ${data.currency}`
+    );
+  }
+
   if (book === "india") {
     const year = new Date(today).getFullYear();
     const fbar = computeFbarSummary(data, year);
@@ -112,27 +156,12 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
       // Confirmed live: a "take-home / tax deducted" question couldn't be answered because a
       // salary voucher was only ever shown as ONE summed amount -- the gross pay, tax withheld,
       // 401k/medical/telephone deductions, and net deposit live as separate entries inside the
-      // same voucher, collapsed away by the magnitude-only line below. isSalaryVoucher/
-      // buildShadowPeriod (lib/payroll-match.ts) already parse those entries by account name
-      // (e.g. "Salary Income", "Tax Deduction", "401k") for the payroll-reconciliation feature --
-      // reused here instead of re-deriving the same breakdown a second, possibly-inconsistent way.
+      // same voucher, collapsed away by the magnitude-only line below. Reuses salaryBreakdown()
+      // above, which is also what feeds the year-to-date summary, so the two can't disagree.
       if (isSalaryVoucher(t)) {
-        const sp = buildShadowPeriod(t);
-        // Confirmed live a THIRD time: buildShadowPeriod's `net` is DERIVED (gross + telephone -
-        // medical - 401k - tax), which silently drifts from reality the moment the voucher has any
-        // deduction line that regex doesn't recognize. "Take-home" must be the literal amount that
-        // landed in the bank, so read it straight off the voucher's own Bank/Cash-nature entry
-        // instead of trusting the subtraction -- falling back to the derived figure only if the
-        // voucher has no such entry to read (e.g. net pay rolled into a non-bank account).
-        const bankAmt = t.entries.reduce((s, e) => {
-          const acct = data.accounts.find((a) => a.id === e.accountId);
-          if (!acct) return s;
-          const n = accountNature(acct, masterGroups);
-          return n === "Bank" || n === "Cash" ? s + Math.abs(e.amount) : s;
-        }, 0);
-        const net = bankAmt > 0 ? bankAmt : sp.net;
+        const b = salaryBreakdown(t);
         lines.push(
-          `- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} -- gross pay ${sp.base.toFixed(2)}, tax deducted ${sp.tax.toFixed(2)}, 401k ${sp.k401.toFixed(2)}, medical/health ${sp.medical.toFixed(2)}, telephone ${sp.telephone.toFixed(2)}, net take-home (actual bank deposit) ${net.toFixed(2)} ${data.currency}`
+          `- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} -- gross pay ${b.gross.toFixed(2)}, tax deducted ${b.tax.toFixed(2)}, 401k ${b.k401.toFixed(2)}, medical/health ${b.medical.toFixed(2)}, telephone ${b.telephone.toFixed(2)}, net take-home (actual bank deposit) ${b.net.toFixed(2)} ${data.currency}`
         );
         continue;
       }

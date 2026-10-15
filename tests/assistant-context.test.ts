@@ -147,6 +147,38 @@ test("buildAssistantContext: a salary voucher is never labeled a refund, and sho
   );
 });
 
+test("buildAssistantContext: includes a year-to-date salary summary across ALL this year's paystubs, not just this month's", () => {
+  // Confirmed live: asked "how much YTD" right after a correct per-paystub answer, the assistant
+  // had no year-to-date figure anywhere in its context and fabricated one from the "Current
+  // account balances" section (cumulative since the account was opened, not year-to-date) instead
+  // of saying it didn't have that data. This locks in the real fix: every salary voucher dated
+  // this calendar year is summed into an explicit YTD line, regardless of which month it's in.
+  const yearKey = new Date().toISOString().slice(0, 4);
+  const accounts = [
+    account(1, "Salary Income - Employer", "Direct Incomes"),
+    account(2, "Tax Deduction", "Indirect Expenses"),
+    account(999, "Bank Of America", "Bank Accounts"),
+  ];
+  function salaryVoucher(id: number, date: string, gross: number, tax: number): Tx {
+    return {
+      id, guid: `v${id}`, date, number: String(id), type: "Receipt", narration: "Salary Income - Semi Monthly", historical: false,
+      entries: [
+        { accountId: 1, accountName: "Salary Income - Employer", amount: gross },
+        { accountId: 2, accountName: "Tax Deduction", amount: -tax },
+        { accountId: 999, accountName: "Bank Of America", amount: -(gross - tax) },
+      ],
+    };
+  }
+  const transactions = [salaryVoucher(1, `${yearKey}-02-01`, 5_000, 1_000), salaryVoucher(2, `${yearKey}-08-01`, 6_000, 1_200)];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions };
+  const context = buildAssistantContext(data, "us");
+  assert.ok(context.includes(`Year-to-date (CY${yearKey})`), "must include an explicit year-to-date section");
+  assert.ok(context.includes("across 2 paystub voucher(s)"), "must count both of this year's paystubs, not just the current month's");
+  assert.ok(context.includes("gross pay 11000.00"), "YTD gross must sum both vouchers (5000 + 6000)");
+  assert.ok(context.includes("tax deducted 2200.00"), "YTD tax must sum both vouchers (1000 + 1200)");
+  assert.ok(context.includes("net take-home (actual bank deposits) 8800.00"), "YTD net take-home must sum both vouchers' actual bank deposits (4000 + 4800)");
+});
+
 test("buildAssistantContext: voucher dates match the app's own DD-MM-YYYY display format, not raw ISO", () => {
   const today = new Date().toISOString().slice(0, 10);
   const monthKey = today.slice(0, 7);
