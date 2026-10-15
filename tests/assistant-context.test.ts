@@ -271,7 +271,24 @@ test("searchVouchersThisFiscalYear: finds a match EARLIER in the fiscal year (no
   assert.ok(result.includes("Gasoline @ Costco"), "must find the match even though it's months before today, within the same FY");
   assert.ok(!result.includes("Gas from Costco"), "must NOT include a match from a past fiscal year");
   assert.ok(!result.includes("Safeway"), "must not include an unrelated voucher");
-  assert.ok(result.includes("Total across these 1 voucher(s) (refunds already subtracted): 50.00 USD"), "must compute a real total scoped to just the current FY's match");
+  assert.ok(result.includes("PRECOMPUTED TOTAL") && result.includes("50.00 USD"), "must compute a real, authoritative total scoped to just the current FY's match");
+});
+
+test("searchVouchersThisFiscalYear: the precomputed total covers EVERY real match, even ones not shown when the list is truncated", () => {
+  // Confirmed live: given the correct voucher set, the free model still re-derived its OWN total
+  // by reading a subset of the listed lines and silently dropped 3 of 6 real matches doing it
+  // (understated $365.05 as $171.02). The fix is to never ask the model to do the arithmetic --
+  // the total is computed here, once, over every real match, independent of how many are shown.
+  const today = "2026-10-15";
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses"), account(999, "Citi Credit Card", "Bank Accounts")];
+  const transactions: Tx[] = Array.from({ length: 6 }, (_, i) => ({
+    id: i + 1, guid: `v${i + 1}`, date: `2026-0${4 + i}-15`, number: String(i + 1), type: "Payment", narration: "Shopping @ Costco Gasoline", historical: false,
+    entries: [{ accountId: 1, accountName: "", amount: -10 }, { accountId: 999, accountName: "", amount: 10 }],
+  }));
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions };
+  const result = searchVouchersThisFiscalYear(data, ["costco"], today);
+  assert.ok(result.includes("PRECOMPUTED TOTAL") && result.includes("60.00 USD"), "total must cover all 6 vouchers (6 x 10.00), not just whichever ones a reader might stop at");
+  assert.ok(result.includes("do NOT add up the voucher lines yourself") || result.includes("quote this exact number"), "must explicitly instruct against re-deriving the total");
 });
 
 test("searchVouchersThisFiscalYear: says plainly when nothing matches, instead of staying silent", () => {

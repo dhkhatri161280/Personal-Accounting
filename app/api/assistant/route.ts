@@ -47,14 +47,22 @@ exception to that -- it really does cover the whole current calendar year, not j
 If a "Fiscal-year search" section is ALSO present below, it covers the WHOLE CURRENT FISCAL YEAR
 (it states the exact FY and date range at the top of that section) -- not just this month, but also
 NOT every year the vault has ever had data for -- that matched the specific words in the user's own
-question. Use ITS total and voucher list to answer a question about a merchant/category over the
-current fiscal year, instead of saying you don't have that data. If the question asks about a
-period OTHER than the current fiscal year (a specific past year, "all time", "last year"), that
-section still does NOT cover it -- say plainly you only have the current fiscal year's search
-results and this month's full list, and can't total that different period. Only when NO "Fiscal-
-year search" section is present, and the question needs data wider than the current month, should
-you say plainly that you only have this month's data on file -- never silently answer a wide-period
-question using just the current month's list as if it covered the whole period asked about.
+question. If the question asks about a period OTHER than the current fiscal year (a specific past
+year, "all time", "last year"), that section still does NOT cover it -- say plainly you only have
+the current fiscal year's search results and this month's full list, and can't total that different
+period. Only when NO "Fiscal-year search" section is present, and the question needs data wider
+than the current month, should you say plainly that you only have this month's data on file --
+never silently answer a wide-period question using just the current month's list as if it covered
+the whole period asked about.
+
+CRITICAL: a "Fiscal-year search" section's "PRECOMPUTED TOTAL" line is the ONLY number you may give
+for that total -- it was already computed correctly over every real matching voucher, including any
+that aren't shown in the voucher list below it. Quote that exact number verbatim. Do NOT add up the
+voucher lines yourself, do NOT mention only a subset of them as if that were the complete list, and
+do NOT produce a different number from your own arithmetic -- re-deriving the total yourself is how
+a real matching voucher gets silently dropped and the total comes out wrong. The voucher list under
+a PRECOMPUTED TOTAL is there only so you can cite a few examples by name/date if asked, never to
+recompute the total.
 
 When summing a spending total across several vouchers, pay close attention to each one's sign and
 any "REFUND" note -- a negative amount or a REFUND note means that voucher is money coming back,

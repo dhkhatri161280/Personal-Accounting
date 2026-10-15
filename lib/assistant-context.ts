@@ -126,27 +126,36 @@ export function searchVouchersThisFiscalYear(data: Ledger, terms: string[], toda
     })
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-  const lines: string[] = [];
   if (!matches.length) {
-    lines.push(`Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: 0 matching vouchers found.`);
-    return lines.join("\n");
+    return `Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: 0 matching vouchers found.`;
   }
+
+  // Confirmed live: even with the correct voucher set in front of it, the free model re-derived
+  // its OWN total by reading and adding up a subset of the listed lines -- and silently dropped 3
+  // of 6 real matches doing it, understating a real total ($365.05) as $171.02. The fix isn't a
+  // better instruction to "please add these up correctly" -- it's to never ask the model to do the
+  // arithmetic at all. The total below is computed here, once, over EVERY real match (not just the
+  // ones shown if the list is truncated), stated as its own authoritative line before the voucher
+  // list even starts, with an explicit instruction (see the system prompt) to quote that number
+  // verbatim rather than recompute it.
+  let total = 0;
+  for (const t of matches) total += classifyVoucher(data, masterGroups, t).amt;
 
   const truncated = matches.length > MAX_SEARCH_RESULTS;
   const forContext = truncated ? matches.slice(0, MAX_SEARCH_RESULTS) : matches;
-  lines.push(
+  const lines: string[] = [
+    `Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: ${matches.length} matching voucher(s).`,
+    `PRECOMPUTED TOTAL (authoritative, refunds already subtracted -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
+    "",
     truncated
-      ? `Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: ${matches.length} matching vouchers found, showing the first ${MAX_SEARCH_RESULTS} (some are NOT included below -- say so if asked for an exact total):`
-      : `Fiscal-year search (${fyLabel}, not just this month) for ${quoted}: ${matches.length} matching voucher(s). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any total, don't add its size:`
-  );
-  let total = 0;
+      ? `Voucher list (showing the first ${MAX_SEARCH_RESULTS} of ${matches.length} -- some are not shown, but the total above already covers all ${matches.length}):`
+      : "Voucher list (every matching voucher, for citing examples only -- the total above is already correct, don't recompute it from this list):",
+  ];
   for (const t of forContext) {
     const { amt, isRefund, acctNames } = classifyVoucher(data, masterGroups, t);
-    total += amt;
     const refundNote = isRefund ? " -- REFUND/return" : "";
     lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} [accounts: ${acctNames}] (${amt.toFixed(2)} ${data.currency}${refundNote})`);
   }
-  if (!truncated) lines.push(`Total across these ${forContext.length} voucher(s) (refunds already subtracted): ${total.toFixed(2)} ${data.currency}`);
   return lines.join("\n");
 }
 
