@@ -1,7 +1,7 @@
 import type { Ledger } from "./vault-types.ts";
 import { ledgerBalanceAsOf, displayLedgerBalance, accountNature } from "./vault-accounting.ts";
 import { computeFbarSummary } from "./fbar.ts";
-import { todayLocalIso } from "./format-date.ts";
+import { todayLocalIso, fmtDate } from "./format-date.ts";
 
 // Builds the plain-text "financial data snapshot" sent to the free chat assistant (see
 // app/api/assistant) alongside each question -- the ONLY thing the server-side model ever sees
@@ -78,11 +78,34 @@ export function buildAssistantContext(data: Ledger, book: "us" | "india"): strin
       "",
       truncated
         ? `All vouchers this month (${monthTx.length} total, showing the most recent ${MAX_MONTH_VOUCHERS} -- some earlier-in-month vouchers are NOT included below):`
-        : `All vouchers this month (${monthTxForContext.length}):`
+        : `All vouchers this month (${monthTxForContext.length}). A negative amount or "REFUND" note means money came back -- SUBTRACT it from any spending total, don't add its size:`
     );
     for (const t of monthTxForContext) {
-      const amt = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
-      lines.push(`- ${t.date} ${t.type} #${t.number}: ${t.narration} (${amt.toFixed(2)} ${data.currency})`);
+      // Confirmed live: showing the plain absolute amount for every voucher made a refund (a
+      // "Receipt" against a prior expense, e.g. a Costco return) look identical to a normal
+      // purchase, so a spending total the model computed over the list silently added it instead
+      // of subtracting it. Same Expense/Income entry-sign logic the month total above already
+      // gets right (a credit against an expense account is negative there too) -- applied per
+      // voucher here instead of just the aggregate, with an explicit "REFUND" label as a second,
+      // redundant signal.
+      let signedAmt = 0;
+      let natureLabel: "Expense" | "Income" | null = null;
+      for (const e of t.entries) {
+        const acct = data.accounts.find((a) => a.id === e.accountId);
+        if (!acct) continue;
+        const nature = accountNature(acct, masterGroups);
+        if (nature === "Expense") {
+          signedAmt += e.amount;
+          natureLabel = "Expense";
+        } else if (nature === "Income") {
+          signedAmt += -e.amount;
+          natureLabel = "Income";
+        }
+      }
+      const magnitude = t.entries.reduce((s, e) => s + Math.abs(e.amount), 0) / 2;
+      const displayAmt = natureLabel ? signedAmt : magnitude; // Contra/transfer vouchers have no Expense/Income side -- show plain magnitude
+      const refundNote = natureLabel === "Expense" && signedAmt < 0 ? " -- REFUND/return" : "";
+      lines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} (${displayAmt.toFixed(2)} ${data.currency}${refundNote})`);
     }
   } else {
     lines.push("", "No vouchers posted yet this month.");

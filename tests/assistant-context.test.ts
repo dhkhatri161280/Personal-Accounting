@@ -82,6 +82,38 @@ test("buildAssistantContext: includes the WHOLE current month in chronological o
   assert.ok(firstFillerIdx > -1 && earlyCostcoIdx > -1 && firstFillerIdx < earlyCostcoIdx);
 });
 
+test("buildAssistantContext: a refund against an expense account shows negative and labeled, not a plain positive amount", () => {
+  // Confirmed live: asked for "Costco spending this month", the chat assistant added a Receipt
+  // (refund) voucher's amount instead of subtracting it, because the voucher list showed every
+  // amount as a plain positive magnitude regardless of whether it was a purchase or a return.
+  const today = new Date().toISOString().slice(0, 10);
+  const monthKey = today.slice(0, 7);
+  const accounts = [account(1, "Shopping", "Indirect Expenses"), account(999, "Citi Credit Card", "Bank Accounts")];
+  const purchase: Tx = {
+    id: 1, guid: "v1", date: `${monthKey}-05`, number: "587", type: "Payment", narration: "Shopping @ Costco", historical: false,
+    entries: [{ accountId: 1, accountName: "", amount: 129.77 }, { accountId: 999, accountName: "", amount: -129.77 }],
+  };
+  const refund: Tx = {
+    id: 2, guid: "v2", date: `${monthKey}-06`, number: "125", type: "Receipt", narration: "Shopping @ Costco", historical: false,
+    entries: [{ accountId: 1, accountName: "", amount: -22.04 }, { accountId: 999, accountName: "", amount: 22.04 }],
+  };
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [purchase, refund] };
+  const context = buildAssistantContext(data, "us");
+  assert.ok(context.includes("(129.77 USD)"), "a normal purchase stays a plain positive amount");
+  assert.ok(context.includes("(-22.04 USD -- REFUND/return)"), "a refund must show negative and explicitly labeled");
+});
+
+test("buildAssistantContext: voucher dates match the app's own DD-MM-YYYY display format, not raw ISO", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthKey = today.slice(0, 7);
+  const accounts = [account(1, "Bank", "Bank Accounts"), account(999, "Other", "Indirect Incomes")];
+  const transactions = [tx(1, `${monthKey}-05`, 1, -100, "Test voucher")];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions };
+  const context = buildAssistantContext(data, "us");
+  assert.ok(context.includes(`- 05-${monthKey.slice(5)}-${monthKey.slice(0, 4)} Payment`), "should read DD-MM-YYYY, matching lib/format-date.ts's fmtDate used everywhere else in the app");
+  assert.ok(!context.includes(`${monthKey}-05 Payment`), "must not leak the raw ISO date format");
+});
+
 test("buildAssistantContext: flags truncation explicitly instead of silently dropping vouchers past the safety cap", () => {
   const today = new Date().toISOString().slice(0, 10);
   const monthKey = today.slice(0, 7);
