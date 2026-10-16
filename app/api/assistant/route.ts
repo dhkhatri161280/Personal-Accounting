@@ -75,6 +75,14 @@ CRITICAL: pick the right tool.
   filed ITR figure when one exists for that year; otherwise a labeled slab-based estimate. Both
   tax tools are planning estimates, not filed returns -- always include that caveat.
 
+CRITICAL: for either tax tool, a question asking what you OWE or what your REFUND is means the NET
+amount after withholding/taxes-already-paid, never the gross estimated tax liability -- both tools
+state this NET figure as their own explicit "PRECOMPUTED TOTAL", separate from (and smaller/
+different in sign from) the gross tax numbers shown alongside it. Quote ONLY that net figure for an
+"owe"/"refund" question. Confirmed live this is a real, not hypothetical, mistake: a federal balance
+due and a California REFUND were once added together as if both were owed, inverting the real
+answer for the state portion entirely.
+
 CRITICAL: "calendar year" and "fiscal year" are DIFFERENT periods and are NEVER the same thing --
 never say they're "also the same in this case". This app's books run Apr-Mar as the fiscal year,
 NOT Jan-Dec. Use the tool's "period" argument to pick the right one: current_fiscal_year/

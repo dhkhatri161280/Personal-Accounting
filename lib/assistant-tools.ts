@@ -591,12 +591,22 @@ function getUsTaxEstimate(data: Ledger, args: Record<string, unknown>, todayIso:
   if (!rawYr) return `get_us_tax_estimate: no payroll data found for ${year}.`;
   const filingStatus: UsFilingStatus = args.filingStatus === "single" ? "single" : "mfj";
   const est = computeYearTaxEstimate(rawYr, data.transactions, data.accounts, data.equity, data.trades, filingStatus, "family");
-  const totalTax = est.estimatedFederalTax + est.estimatedStateTax;
+  // Confirmed live: asked "what will I owe in taxes", the model answered with the GROSS estimated
+  // tax liability (federal + state added together) instead of what's actually still owed after
+  // withholding -- for the real case that exposed this, CA alone was a $17,681.20 REFUND (withheld
+  // exceeded the CA tax), the opposite of "owed", yet got summed into an "owed" total anyway. The
+  // gross liability figures alone are genuinely ambiguous for an "owe" question -- net balance
+  // due/refund (per side AND combined) is now computed and labeled explicitly as the one to quote,
+  // so there's no figure left for the model to mispick.
+  const netFederal = est.federalBalanceDue - est.federalRefund; // positive = owed, negative = refund
+  const netState = est.stateBalanceDue - est.stateRefund;
+  const netCombined = netFederal + netState;
+  const describe = (net: number) => (net >= 0 ? `OWE (balance due) ${net.toFixed(2)}` : `get a REFUND of ${Math.abs(net).toFixed(2)}`);
   return [
     `get_us_tax_estimate(${est.year}, filing status: ${filingStatus}): AGI ${est.agi.toFixed(2)}, deduction used ${est.deductionUsed.toFixed(2)} (${est.usedItemized ? "itemized" : "standard"}), long-term capital gain ${est.longTermGain.toFixed(2)} ${data.currency}.`,
-    `PRECOMPUTED TOTALS (authoritative -- quote these exact numbers, do NOT recompute): estimated federal tax ${est.estimatedFederalTax.toFixed(2)}, federal withheld ${est.federalWithheld.toFixed(2)}, federal ${est.federalBalanceDue > 0 ? "balance due" : "refund"} ${Math.abs(est.federalBalanceDue || est.federalRefund).toFixed(2)} ${data.currency}.`,
-    `State: ${est.stateName} (${est.stateCode}), taxable income ${est.stateTaxableIncome.toFixed(2)}, estimated state tax ${est.estimatedStateTax.toFixed(2)}, state withheld ${est.stateWithheld.toFixed(2)}, state ${est.stateBalanceDue > 0 ? "balance due" : "refund"} ${Math.abs(est.stateBalanceDue || est.stateRefund).toFixed(2)} ${data.currency}.`,
-    `Combined estimated federal + state tax: ${totalTax.toFixed(2)} ${data.currency}.`,
+    `Federal: gross estimated tax ${est.estimatedFederalTax.toFixed(2)}, already withheld ${est.federalWithheld.toFixed(2)} -> you ${describe(netFederal)} ${data.currency}.`,
+    `State (${est.stateName}, ${est.stateCode}): taxable income ${est.stateTaxableIncome.toFixed(2)}, gross estimated tax ${est.estimatedStateTax.toFixed(2)}, already withheld ${est.stateWithheld.toFixed(2)} -> you ${describe(netState)} ${data.currency}.`,
+    `PRECOMPUTED TOTAL (authoritative -- THIS is the number for a plain "what will I owe"/"what's my refund" question, NOT the gross tax figures above, which ignore withholding): combined federal + state, you ${describe(netCombined)} ${data.currency}.`,
     "This is an ESTIMATE for planning purposes, not a filed return -- verify with a tax professional before relying on it.",
   ].join("\n");
 }
@@ -622,10 +632,17 @@ function getIndiaTaxEstimate(data: Ledger, args: Record<string, unknown>, todayI
     : canEstimate
       ? " (ESTIMATE -- ordinary slab rates only, does NOT account for capital-gains special rates)"
       : " (cannot determine -- no ITR filed for this year and its tax slabs aren't modeled by this app)";
+  // Confirmed live on the US tax tool: a gross tax-liability figure labeled as THE authoritative
+  // total is genuinely ambiguous for a plain "what will I owe" question -- the model grabbed the
+  // gross number over the real net refund/balance-due figure, and got a real refund case backwards
+  // entirely. The net refund/balance-due (taxesPaidTotal - taxPayable, already computed as
+  // result.refund) is now the one explicitly labeled as THE number to quote for "owe"/"refund"
+  // questions; the gross tax payable is still shown, but only as supporting detail.
+  const netLabel = result.refund >= 0 ? `get a REFUND of ${result.refund.toFixed(2)}` : `OWE (balance due) ${Math.abs(result.refund).toFixed(2)}`;
   const lines = [
     `get_india_tax_estimate(FY${result.fy}, AY${result.ay}): taxable income ${result.taxableIncome.toFixed(2)} ${data.currency} -- ${result.hasFiledItr ? "this year has a FILED ITR on record" : "NO ITR filed yet for this year"}.`,
-    `PRECOMPUTED TOTAL (authoritative -- quote this exact number, do NOT recompute): tax payable ${result.taxPayable.toFixed(2)} ${data.currency}${taxLabel}.`,
-    `Taxes already paid (TDS + advance + self-assessment): ${result.taxesPaidTotal.toFixed(2)} ${data.currency}. ${result.refund >= 0 ? "Refund" : "Balance due"}: ${Math.abs(result.refund).toFixed(2)} ${data.currency}.`,
+    `Gross tax payable ${result.taxPayable.toFixed(2)} ${data.currency}${taxLabel}; taxes already paid (TDS + advance + self-assessment) ${result.taxesPaidTotal.toFixed(2)} ${data.currency}.`,
+    `PRECOMPUTED TOTAL (authoritative -- THIS is the number for a plain "what will I owe"/"what's my refund" question, NOT the gross tax payable above, which ignores taxes already paid): you ${netLabel} ${data.currency}.`,
   ];
   if (canEstimate) lines.push("This is an ESTIMATE for planning purposes, not a filed return -- verify with a tax professional before relying on it.");
   if (cannotDetermine) lines.push("Say plainly that this year's tax can't be determined (no ITR on file, and this app doesn't model that year's tax slabs) -- do not state the taxable income or 0 as if it were an answer.");

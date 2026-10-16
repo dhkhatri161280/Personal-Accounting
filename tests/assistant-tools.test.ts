@@ -570,8 +570,32 @@ test("get_us_tax_estimate: wires a minimal payroll year through to a real, non-c
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], payroll };
   const result = executeTool("get_us_tax_estimate", { year: "2025" }, data, "us", "2026-10-15");
   assert.ok(result.includes("get_us_tax_estimate(2025"));
-  assert.ok(result.includes("PRECOMPUTED TOTALS"));
+  assert.ok(result.includes("PRECOMPUTED TOTAL"));
   assert.ok(result.includes("ESTIMATE for planning purposes, not a filed return"));
+});
+
+test("get_us_tax_estimate: the PRECOMPUTED TOTAL is the NET amount owed/refunded, not the gross tax liability", () => {
+  // Confirmed live: asked "what will I owe in taxes", the model answered with the GROSS federal +
+  // state tax liability added together -- for the real case that exposed this, CA alone was
+  // actually a $17,681.20 REFUND (withheld exceeded the CA tax), the opposite of "owed". The old
+  // output's "Combined estimated federal + state tax" line was genuinely ambiguous for an "owe"
+  // question; this locks in that the authoritative line now explicitly nets balance-due against
+  // refund per side, and is clearly labeled as NOT the gross figure.
+  const payrollYear: PayrollYear = {
+    year: "2025", sheetName: "Yearly 2025", periodLabels: ["Jan 01 Jan 15"],
+    rows: [
+      { label: "Gross Salary", annual: 100_000, cumulative: 100_000, values: [100_000] },
+      { label: "Federal", annual: 15_000, cumulative: 15_000, values: [15_000] },
+      { label: "SSN", annual: 6_200, cumulative: 6_200, values: [6_200] },
+      { label: "Medicare", annual: 1_450, cumulative: 1_450, values: [1_450] },
+      { label: "State W/H", annual: 5_000, cumulative: 5_000, values: [5_000] },
+    ],
+  };
+  const payroll: PayrollData = { years: [payrollYear], importedAt: "2026-01-01", sourceFileName: "test.xlsx" };
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], payroll };
+  const result = executeTool("get_us_tax_estimate", { year: "2025" }, data, "us", "2026-10-15");
+  assert.ok(result.includes('NOT the gross tax figures above, which ignore withholding'), "must explicitly warn the gross figures are not the answer to an \"owe\" question");
+  assert.ok(/you (OWE \(balance due\)|get a REFUND of) [\d.]+ USD\.$/m.test(result), "the authoritative combined line must state a clear net owe/refund verdict");
 });
 
 test("get_us_tax_estimate: says plainly when there's no payroll data", () => {
@@ -600,8 +624,9 @@ test("get_india_tax_estimate: uses the REAL filed figure when an ITR is on recor
   const data: Ledger = { version: 1, company: "Test", currency: "INR", createdAt: "2026-01-01", accounts: [], transactions: [], indiaTax: { itrYears: [itr] } };
   const result = executeTool("get_india_tax_estimate", { fy: "2025-26" }, data, "india", "2026-10-15");
   assert.ok(result.includes("FILED ITR on record"));
-  assert.ok(result.includes("tax payable 72500.00 INR (real filed figure)"));
-  assert.ok(result.includes("Refund: 7500.00 INR"), "taxesPaidTotal (80000) - taxPayable (72500) = 7500 refund");
+  assert.ok(result.includes("Gross tax payable 72500.00 INR (real filed figure)"));
+  assert.ok(result.includes("you get a REFUND of 7500.00 INR"), "taxesPaidTotal (80000) - taxPayable (72500) = 7500 refund");
+  assert.ok(result.includes('NOT the gross tax payable above, which ignores taxes already paid'), "must explicitly warn the gross figure is not the answer to an \"owe\"/\"refund\" question");
 });
 
 test("get_india_tax_estimate: falls back to its own slab-based estimate when no ITR is filed but the year is modeled", () => {
