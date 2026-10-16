@@ -353,6 +353,22 @@ export function ChatAssistant({
             } catch (e) {
               result = `Tool "${call.name}" failed: ${e instanceof Error ? e.message : String(e)}`;
             }
+            // Several tool results (navigate_to_screen's book-mismatch answers, the book-gated
+            // tax/FBAR tools' own mismatch answers) are already-complete, deterministic answers --
+            // "FINAL RESULT" is baked into their own text as a marker. Confirmed live: even with
+            // that marker AND an explicit system-prompt instruction not to retry, the small free
+            // model sometimes ignored it anyway and kept calling more tools until it hit the round
+            // cap, showing the generic "couldn't settle on an answer" error instead of the
+            // perfectly good answer it already had. Enforced here in code instead of hoping the
+            // model complies -- a FINAL RESULT short-circuits the whole loop immediately, the
+            // model never gets another round to second-guess it.
+            if (result.includes(": FINAL RESULT (")) {
+              const cut = result.indexOf(") -- ");
+              const clean = cut >= 0 ? result.slice(cut + 5) : result;
+              answerCacheRef.current.set(cacheKey, { content: clean, toolTrace: [...toolTrace] });
+              setMessages((prev) => [...prev, { role: "assistant", content: clean, toolTrace: [...toolTrace] }]);
+              return;
+            }
             apiMessages.push({ role: "tool", content: result });
           }
           continue;
