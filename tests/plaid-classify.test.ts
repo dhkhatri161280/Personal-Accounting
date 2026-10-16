@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isCcAcct, isBankAcct, isCashBankGroup, isLoanLiabilityGroup, enforceContraType, inferReversalVoucherType } from "../lib/plaid-classify.ts";
+import { isCcAcct, isBankAcct, isCashBankGroup, isLoanLiabilityGroup, enforceContraType, inferReversalVoucherType, applyCategoryPrefix } from "../lib/plaid-classify.ts";
 
 const BOFA = { id: 1, name: "Bank Of America", parent: "Bank Accounts" };
 const CITI_CARD = { id: 2, name: "Citi Credit Card", parent: "Credit Card" };
@@ -123,4 +123,21 @@ test("inferReversalVoucherType keeps a Journal reversal as Journal (no financial
     accounts
   );
   assert.equal(type, "Journal");
+});
+
+// ---- applyCategoryPrefix -------------------------------------------------------------------
+
+test("applyCategoryPrefix adds the right prefix for a known Plaid category", () => {
+  assert.equal(applyCategoryPrefix("Sakoon", { personal_finance_category: { primary: "FOOD_AND_DRINK" } }), "Food @ Sakoon");
+  assert.equal(applyCategoryPrefix("Uber", { personal_finance_category: { primary: "TRANSPORTATION" } }), "Travel @ Uber");
+  assert.equal(applyCategoryPrefix("AMC Theatres", { personal_finance_category: { primary: "ENTERTAINMENT" } }), "Entertainment @ AMC Theatres");
+});
+
+test("applyCategoryPrefix leaves narration unchanged for an unmapped or missing category", () => {
+  assert.equal(applyCategoryPrefix("DD's Discounts", { personal_finance_category: { primary: "GENERAL_MERCHANDISE" } }), "DD's Discounts");
+  assert.equal(applyCategoryPrefix("Some Merchant", {}), "Some Merchant");
+});
+
+test("applyCategoryPrefix never double-prefixes a narration that's already prefixed (e.g. edited and saved once already)", () => {
+  assert.equal(applyCategoryPrefix("Food @ Sakoon", { personal_finance_category: { primary: "FOOD_AND_DRINK" } }), "Food @ Sakoon");
 });

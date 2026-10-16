@@ -113,3 +113,21 @@ export function inferReversalVoucherType(
   const netFinancial = financialEntries.reduce((s, e) => s + e.amount, 0);
   return netFinancial >= 0 ? "Payment" : "Receipt";
 }
+
+// Plaid's own personal_finance_category.primary (a clean enum it already computes per
+// transaction) is far more reliable than guessing merchant type from the raw name -- confirmed
+// live: the user manually prefixes narrations like "Food @ Sakoon" by hand every time; this
+// automates it wherever Plaid's own category already tells us, without any extra API call or
+// LLM guess. Only applied to the generic "no special handling, just use the merchant name"
+// fallback branches in buildDraft (components/vault/PlaidImport.tsx) -- deliberately NOT applied
+// to the special-cased ones (payroll, HSA transfer, card payment, the Costco-specific "Shopping @
+// Costco"), which already have their own clear, purpose-built narration.
+const CATEGORY_PREFIXES: Record<string, string> = {
+  FOOD_AND_DRINK: "Food @ ",
+  TRANSPORTATION: "Travel @ ",
+  ENTERTAINMENT: "Entertainment @ ",
+};
+export function applyCategoryPrefix(narration: string, tx: { personal_finance_category?: { primary: string } }): string {
+  const prefix = CATEGORY_PREFIXES[tx.personal_finance_category?.primary || ""];
+  return prefix && !narration.toLowerCase().startsWith(prefix.toLowerCase()) ? `${prefix}${narration}` : narration;
+}

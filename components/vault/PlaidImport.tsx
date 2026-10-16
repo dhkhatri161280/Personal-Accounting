@@ -11,7 +11,7 @@ import {
   MORTGAGE_INTEREST_ACCOUNT_NAMES,
   computeMortgagePaymentSplit,
 } from "@/lib/mortgage-amortization";
-import { isCcAcct, isBankAcct, enforceContraType } from "@/lib/plaid-classify";
+import { isCcAcct, isBankAcct, enforceContraType, applyCategoryPrefix } from "@/lib/plaid-classify";
 import {
   tokenise,
   buildHistoryIndex,
@@ -896,7 +896,7 @@ function buildDraft(
           { accountId: creditAcc.id, accountName: creditAcc.name, amount: amt },
         ],
         voucherType: tx.amount < 0 ? "Receipt" : "Payment",
-        narration: tx.merchant_name || tx.name,
+        narration: applyCategoryPrefix(tx.merchant_name || tx.name, tx),
         confidence: match.confidence,
         source: "history",
       };
@@ -915,7 +915,7 @@ function buildDraft(
           { accountId: cardAcc.id, accountName: cardAcc.name, amount: amt },
         ],
         voucherType: "Payment",
-        narration: tx.merchant_name || tx.name,
+        narration: applyCategoryPrefix(tx.merchant_name || tx.name, tx),
         confidence: amtMatch.confidence,
         source: "history",
       };
@@ -937,7 +937,7 @@ function buildDraft(
           { accountId: cardAcc.id, accountName: cardAcc.name, amount: netDeposit },
         ],
         voucherType: "Payment",
-        narration: tx.merchant_name || tx.name,
+        narration: applyCategoryPrefix(tx.merchant_name || tx.name, tx),
         confidence: 0.3,
         source: "history",
       };
@@ -964,7 +964,7 @@ function buildDraft(
           { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
         ],
         voucherType: "Payment",
-        narration: tx.merchant_name || tx.name,
+        narration: applyCategoryPrefix(tx.merchant_name || tx.name, tx),
         confidence: 0.35,
         source: "household",
       };
@@ -990,7 +990,7 @@ function buildDraft(
           { accountId: incomeAcc.id, accountName: incomeAcc.name, amount: netDeposit },
         ],
         voucherType: "Receipt",
-        narration: tx.merchant_name || tx.name,
+        narration: applyCategoryPrefix(tx.merchant_name || tx.name, tx),
         confidence: 0.35,
         source: "history",
       };
@@ -1001,7 +1001,7 @@ function buildDraft(
   return {
     entries: [],
     voucherType: tx.amount < 0 ? "Receipt" : "Payment",
-    narration: tx.merchant_name || tx.name,
+    narration: applyCategoryPrefix(tx.merchant_name || tx.name, tx),
     confidence: 0,
     source: "none",
   };
