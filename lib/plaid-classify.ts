@@ -125,7 +125,7 @@ export function inferReversalVoucherType(
 const CATEGORY_PREFIXES: Record<string, string> = {
   FOOD_AND_DRINK: "Food @ ",
   TRANSPORTATION: "Travel @ ",
-  ENTERTAINMENT: "Entertainment @ ",
+  ENTERTAINMENT: "Fun @ ",
 };
 export function applyCategoryPrefix(narration: string, tx: { personal_finance_category?: { primary: string } }): string {
   const prefix = CATEGORY_PREFIXES[tx.personal_finance_category?.primary || ""];

@@ -130,7 +130,7 @@ test("inferReversalVoucherType keeps a Journal reversal as Journal (no financial
 test("applyCategoryPrefix adds the right prefix for a known Plaid category", () => {
   assert.equal(applyCategoryPrefix("Sakoon", { personal_finance_category: { primary: "FOOD_AND_DRINK" } }), "Food @ Sakoon");
   assert.equal(applyCategoryPrefix("Uber", { personal_finance_category: { primary: "TRANSPORTATION" } }), "Travel @ Uber");
-  assert.equal(applyCategoryPrefix("AMC Theatres", { personal_finance_category: { primary: "ENTERTAINMENT" } }), "Entertainment @ AMC Theatres");
+  assert.equal(applyCategoryPrefix("AMC Theatres", { personal_finance_category: { primary: "ENTERTAINMENT" } }), "Fun @ AMC Theatres");
 });
 
 test("applyCategoryPrefix leaves narration unchanged for an unmapped or missing category", () => {
