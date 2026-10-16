@@ -50,6 +50,7 @@ export function FbarReport({
   const [year, setYear] = useState(rateYears.length ? Math.max(...rateYears) : new Date().getFullYear() - 1);
   const [showInfo, setShowInfo] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [showAllYears, setShowAllYears] = useState(false);
 
   // Every calendar year worth reviewing -- not just the ones with a published Treasury rate on
   // file, so a prior year can still be browsed (rate-less years just show "—" for USD, same as
@@ -226,13 +227,15 @@ export function FbarReport({
         <button type="button" className="tr-refresh-btn" onClick={() => setShowSettingsPanel((v) => !v)}>
           {showSettingsPanel ? "Hide filer profile & rates" : "Filer profile & rates"}
         </button>
+        {allYearsSummary.length > 1 && (
+          <button type="button" className="tr-refresh-btn" onClick={() => setShowAllYears((v) => !v)}>
+            {showAllYears ? "Hide all years" : `All Years (${allYearsSummary.length})`}
+          </button>
+        )}
       </div>
-      {allYearsSummary.length > 1 && (
-        <details style={{ margin: "0 0 14px" }}>
-          <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
-            All Years — Combined Peak Value ({allYearsSummary.length} years, click to expand)
-          </summary>
-          <div className="columnar-report-scroll" style={{ marginTop: "0.5rem" }}>
+      {showAllYears && allYearsSummary.length > 1 && (
+        <div style={{ margin: "0 0 14px" }}>
+          <div className="columnar-report-scroll">
             <table className="equity-table equity-drilldown-table">
               <thead>
                 <tr>
@@ -273,7 +276,7 @@ export function FbarReport({
               </tfoot>
             </table>
           </div>
-        </details>
+        </div>
       )}
       {showSettingsPanel && (
         <FbarSettingsPanel data={data} onSaveFilerProfile={onSaveFilerProfile} onSetManualTreasuryRate={onSetManualTreasuryRate} />
