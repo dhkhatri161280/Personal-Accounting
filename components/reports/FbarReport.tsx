@@ -227,6 +227,50 @@ export function FbarReport({
           {showSettingsPanel ? "Hide filer profile & rates" : "Filer profile & rates"}
         </button>
       </div>
+      {allYearsSummary.length > 1 && (
+        <details style={{ margin: "0 0 14px" }}>
+          <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
+            All Years — Combined Peak Value ({allYearsSummary.length} years, click to expand)
+          </summary>
+          <div className="columnar-report-scroll" style={{ marginTop: "0.5rem" }}>
+            <table className="equity-table equity-drilldown-table">
+              <thead>
+                <tr>
+                  <th>Year</th>
+                  <th className="right">Combined Peak Value (INR)</th>
+                  <th className="right">USD Equivalent</th>
+                  <th>Rate Used</th>
+                  <th>Filing Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allYearsSummary.map((r) => (
+                  <tr key={r.year}>
+                    <td>
+                      <button type="button" style={linkBtnStyle} onClick={() => setYear(r.year)}>
+                        {r.year}
+                      </button>
+                    </td>
+                    <td className="right equity-amt">{r.rate ? fmtInr(r.totalInr) : "—"}</td>
+                    <td className="right equity-amt">{r.rate ? fmtUsd(r.totalUsd) : "—"}</td>
+                    <td>{r.rate ? `${r.rate.rate} INR/USD` : "no rate on file"}</td>
+                    <td>{!r.rate ? "—" : r.thresholdExceeded ? "Required" : "Not required"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td className="right equity-amt">{fmtInr(allYearsSummary.reduce((s, r) => s + r.totalInr, 0))}</td>
+                  <td className="right equity-amt">{fmtUsd(allYearsSummary.reduce((s, r) => s + r.totalUsd, 0))}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </details>
+      )}
       {showSettingsPanel && (
         <FbarSettingsPanel data={data} onSaveFilerProfile={onSaveFilerProfile} onSetManualTreasuryRate={onSetManualTreasuryRate} />
       )}
@@ -383,51 +427,6 @@ export function FbarReport({
             <p style={{ fontSize: 11, opacity: 0.6, marginTop: 10 }}>
               Converted at {summary.rate.rate} INR/USD — {summary.rate.source}.
             </p>
-          )}
-
-          {allYearsSummary.length > 1 && (
-            <details style={{ margin: "14px 0 0" }}>
-              <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
-                All Years — Combined Peak Value ({allYearsSummary.length} years, click to expand)
-              </summary>
-              <div className="columnar-report-scroll" style={{ marginTop: "0.5rem" }}>
-                <table className="equity-table equity-drilldown-table">
-                  <thead>
-                    <tr>
-                      <th>Year</th>
-                      <th className="right">Combined Peak Value (INR)</th>
-                      <th className="right">USD Equivalent</th>
-                      <th>Rate Used</th>
-                      <th>Filing Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allYearsSummary.map((r) => (
-                      <tr key={r.year}>
-                        <td>
-                          <button type="button" style={linkBtnStyle} onClick={() => setYear(r.year)}>
-                            {r.year}
-                          </button>
-                        </td>
-                        <td className="right equity-amt">{r.rate ? fmtInr(r.totalInr) : "—"}</td>
-                        <td className="right equity-amt">{r.rate ? fmtUsd(r.totalUsd) : "—"}</td>
-                        <td>{r.rate ? `${r.rate.rate} INR/USD` : "no rate on file"}</td>
-                        <td>{!r.rate ? "—" : r.thresholdExceeded ? "Required" : "Not required"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td>Total</td>
-                      <td className="right equity-amt">{fmtInr(allYearsSummary.reduce((s, r) => s + r.totalInr, 0))}</td>
-                      <td className="right equity-amt">{fmtUsd(allYearsSummary.reduce((s, r) => s + r.totalUsd, 0))}</td>
-                      <td></td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </details>
           )}
         </>
       )}
