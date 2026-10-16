@@ -374,7 +374,16 @@ function TellerConnectButton({ appId, onConnected }: { appId: string; onConnecte
     }).catch(() => setError("Network error"));
   });
 
-  if (error) return <span className="plaid-error">{error}</span>;
+  // Confirmed live (same gap as PlaidConnectButton): this permanently replaced the button with
+  // the error, no way to try again short of reloading the page. The failure here happens AFTER
+  // the user already completed Teller's own connect widget (saving the resulting enrollment to
+  // this app failed) -- clearing the error just re-shows the connect button so they can retry
+  // the save without having to re-link their bank with Teller a second time.
+  if (error) return (
+    <span className="plaid-error">
+      {error} <button className="plaid-connect-btn" onClick={() => setError("")}>Retry</button>
+    </span>
+  );
   return (
     <button className="plaid-connect-btn" onClick={() => open?.()} disabled={!ready}>
       + Connect Bank / Card
@@ -388,6 +397,12 @@ export function TellerImport({ data, onSave }: Props) {
   const [appId, setAppId] = useState<string | null>(null);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [rows, setRows] = useState<ImportRow[]>([]);
+  // Local draft text per entry-line amount input, keyed "<rowIdx>-<entryIdx>" -- same bug/fix as
+  // components/vault/PlaidImport.tsx's own amountDrafts: the amount input's value was always
+  // `Math.abs(e.amount).toFixed(2)`, re-derived fresh on every keystroke, so typing a multi-digit
+  // replacement (e.g. "60") got mangled the instant the first digit committed and reformatted the
+  // field to "6.00". Shows exactly what's typed while editing; only reformats on blur/Enter.
+  const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
   const [newAccts, setNewAccts] = useState<Record<string, Account>>({});
   const [status, setStatus] = useState("");
   const [fetching, setFetching] = useState(false);
@@ -634,11 +649,18 @@ export function TellerImport({ data, onSave }: Props) {
                           type="number"
                           step="0.01"
                           min="0"
-                          value={Math.abs(e.amount).toFixed(2)}
-                          onChange={(ev) => {
-                            const abs = Math.abs(+ev.target.value);
-                            updateEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs });
+                          value={amountDrafts[`${idx}-${ei}`] ?? Math.abs(e.amount).toFixed(2)}
+                          onChange={(ev) => setAmountDrafts((prev) => ({ ...prev, [`${idx}-${ei}`]: ev.target.value }))}
+                          onBlur={(ev) => {
+                            const abs = Math.abs(Number(ev.target.value));
+                            if (Number.isFinite(abs)) updateEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs });
+                            setAmountDrafts((prev) => {
+                              const next = { ...prev };
+                              delete next[`${idx}-${ei}`];
+                              return next;
+                            });
                           }}
+                          onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
                         />
                       </div>
                     ))}

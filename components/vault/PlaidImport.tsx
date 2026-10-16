@@ -1317,7 +1317,13 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  // Confirmed live: on a failed link-token fetch, this component permanently showed the error
+  // with no way to retry short of reloading the whole page -- unlike the sibling "reconnect an
+  // existing bank" flow (startReconnect below), which already has a working Retry button. Pulled
+  // into its own function (instead of only inline in the mount effect) so the Retry button can
+  // call it again.
+  const fetchLinkToken = useCallback(() => {
+    setError("");
     setLoading(true);
     apiFetch("/api/plaid/link-token", { method: "POST" })
       .then((r) => r.json())
@@ -1328,6 +1334,10 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
       .catch(() => setError("Network error — check Plaid credentials"))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    fetchLinkToken();
+  }, [fetchLinkToken]);
 
   const onSuccess = useCallback<PlaidLinkOnSuccess>(
     (publicToken: string | null, metadata: PlaidLinkOnSuccessMetadata) => {
@@ -1349,7 +1359,11 @@ function PlaidConnectButton({ onConnected }: { onConnected: (name: string) => vo
 
   const { open, ready } = usePlaidLink({ token: linkToken || "", onSuccess });
 
-  if (error) return <span className="plaid-error">{error}</span>;
+  if (error) return (
+    <span className="plaid-error">
+      {error} <button className="plaid-connect-btn" onClick={fetchLinkToken}>Retry</button>
+    </span>
+  );
   if (loading || !linkToken) return <button className="plaid-connect-btn" disabled>Loading…</button>;
   return (
     <button className="plaid-connect-btn" onClick={() => open()} disabled={!ready}>

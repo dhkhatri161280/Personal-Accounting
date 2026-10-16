@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { decryptVault } from "@/lib/vault-crypto";
+import { backfillGroupParentNames } from "@/lib/vault-accounting";
 import type { Ledger, Vault, EquityData, PayrollData } from "@/lib/vault-types";
 import {
   consolidateLedger,
@@ -340,10 +341,18 @@ export function GrApp() {
       if (!usResp.ok || !inResp.ok) throw new Error("Vault fetch failed");
       const [usRaw, inRaw] = await Promise.all([usResp.text(), inResp.text()]);
       const [usVault, inVault] = [JSON.parse(usRaw) as Vault, JSON.parse(inRaw) as Vault];
-      const [usData, inData] = await Promise.all([
+      const [usDataRaw, inDataRaw] = await Promise.all([
         decryptVault(usVault, usPw),
         decryptVault(inVault, inPw),
       ]);
+      // Same one-time catch-up VaultApp.tsx always runs on every vault open -- stray Tally "&#4;"
+      // markers on a group/account's parent (see lib/vault-accounting.ts's own comment) leak
+      // straight into this consolidated US+India report's own account.parent renders otherwise.
+      // Confirmed missing here specifically (GrApp decrypts independently of VaultApp, so it never
+      // inherited the fix) while auditing for the exact class of bug this already broke once in
+      // components/reports/ReconReport.tsx.
+      const usData = backfillGroupParentNames(usDataRaw);
+      const inData = backfillGroupParentNames(inDataRaw);
 
       // Use localStorage cache if it was populated this calendar month
       const lsCache = fxCacheLoad();
@@ -644,6 +653,12 @@ export function GrApp() {
   );
 
   // ── NOT READY SCREENS ──────────────────────────────────────────────────────
+  // CRITICAL: every hook in this component (useState/useEffect/useMemo/useRef/useCallback) must
+  // be declared ABOVE both early returns below, never after -- components/VaultApp.tsx hit this
+  // exact mistake live: a hook added after its own "if (!data) return ..." gate was skipped
+  // during the not-ready render but ran once ready, a hook-count mismatch that crashes React with
+  // a blank "Something went wrong" / minified error #310 screen. Two gates here means twice the
+  // risk of a new hook accidentally landing after one of them.
 
   if (phase === "init" || phase === "loading") {
     return (

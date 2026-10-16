@@ -46,13 +46,21 @@ export function PeriodCloseChecklist({
   const [plaidData, setPlaidData] = useState<{ accounts: PlaidAccountSummary[]; transactions: PlaidTxSummary[] } | null>(null);
   const showBankRecon = book !== "india";
 
+  const [fetchFailed, setFetchFailed] = useState(false);
   useEffect(() => {
     if (!showBankRecon) return;
     setFetching(true);
     apiFetch("/api/plaid/transactions")
       .then((r) => r.json() as Promise<{ transactions?: PlaidTxSummary[]; accounts?: PlaidAccountSummary[] }>)
       .then((d) => setPlaidData({ accounts: d.accounts ?? [], transactions: d.transactions ?? [] }))
-      .catch(() => setPlaidData({ accounts: [], transactions: [] }))
+      // Confirmed live: setting plaidData to an empty-but-non-null object here made a genuine
+      // Plaid API failure indistinguishable from "fetch succeeded, zero accounts connected" --
+      // both rendered "No Plaid-connected accounts to check" / ok:true, a false all-clear on a
+      // closing-period checklist. plaidData now stays null on failure (the SAME value it starts
+      // as) so the existing bankReconRows===null -> "Unavailable" branch below applies, same as
+      // components/reports/BankReconciliation.tsx's own sibling fetch already distinguishes via
+      // its separate status message.
+      .catch(() => setFetchFailed(true))
       .finally(() => setFetching(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showBankRecon]);
@@ -85,9 +93,11 @@ export function PeriodCloseChecklist({
       label: "Bank Reconciliation",
       status: fetching
         ? "Checking…"
-        : bankReconRows === null
-          ? "Unavailable"
-          : bankReconRows.length === 0
+        : fetchFailed
+          ? "Could not check — Plaid fetch failed, try again"
+          : bankReconRows === null
+            ? "Unavailable"
+            : bankReconRows.length === 0
             ? "No Plaid-connected accounts to check"
             : unmatchedAccounts.length === 0
               ? "All accounts matched"
