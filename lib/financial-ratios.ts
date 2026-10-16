@@ -1,6 +1,6 @@
 import type { Ledger } from "./vault-types";
-import { computeMultiYearTrend, type FyTrendPoint } from "./multi-year-trend";
-import { accountNature, ledgerBalanceAsOf } from "./vault-accounting";
+import { computeMultiYearTrend, type FyTrendPoint } from "./multi-year-trend.ts";
+import { accountNature, ledgerBalanceAsOf } from "./vault-accounting.ts";
 
 // Composer, not self-contained -- like lib/multi-year-trend.ts itself, this imports runtime
 // values from other lib/*.ts files (computeMultiYearTrend, ledgerBalanceAsOf, accountNature),

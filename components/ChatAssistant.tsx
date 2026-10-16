@@ -52,7 +52,11 @@ const DRAG_CLICK_THRESHOLD = 4;
 // Deliberately NOT built on FloatingWindow (used elsewhere for drilldowns): that component has no
 // drag-to-move at all (only corner-resize), and its full-page dimming overlay is a modal pattern
 // wrong for a widget meant to stay open alongside normal use, not block it.
-export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "india" }) {
+// nvdaPrice/nvdaPrevClose: VaultApp's own already-fetched live quote (for its Equity dashboard
+// card), passed down so get_equity_position/get_net_worth can use the SAME live price the
+// dashboard itself shows, instead of this component fetching (and potentially getting a
+// slightly different) quote a second time.
+export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = null }: { data: Ledger; book: "us" | "india"; nvdaPrice?: number | null; nvdaPrevClose?: number | null }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -302,7 +306,7 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
             // dying with a misleading error.
             let result: string;
             try {
-              result = executeTool(call.name, args, data, book, todayIso);
+              result = executeTool(call.name, args, data, book, todayIso, nvdaPrice, nvdaPrevClose);
             } catch (e) {
               result = `Tool "${call.name}" failed: ${e instanceof Error ? e.message : String(e)}`;
             }
@@ -357,9 +361,9 @@ export function ChatAssistant({ data, book }: { data: Ledger; book: "us" | "indi
           <div className="chat-assistant-messages" ref={listRef}>
             {messages.length === 0 && (
               <p style={{ opacity: 0.6, fontSize: 13 }}>
-                Ask about your balances, this month's spend, or (India book) your FBAR status. Drag the header to move
-                this panel, or its corners to resize -- both are remembered next time, same as dragging the bubble
-                itself when closed.
+                Ask about your balances, spending, salary, equity/stock position, net worth, trading gains, or
+                (India book) your FBAR status. Drag the header to move this panel, or its corners to resize -- both
+                are remembered next time, same as dragging the bubble itself when closed.
               </p>
             )}
             {messages.map((m, i) => (

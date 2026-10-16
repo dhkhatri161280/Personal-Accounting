@@ -1,4 +1,4 @@
-import { section24bHomeLoanInterestCap } from "./india-tax-slabs";
+import { section24bHomeLoanInterestCap } from "./india-tax-slabs.ts";
 
 export interface HousePropertyResult {
   isLetOut: boolean;

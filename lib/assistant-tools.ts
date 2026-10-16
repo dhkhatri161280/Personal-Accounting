@@ -3,6 +3,20 @@ import { ledgerBalanceAsOf, accountNature, fiscalYearOf } from "./vault-accounti
 import { computeFbarSummary } from "./fbar.ts";
 import { fmtDate } from "./format-date.ts";
 import { isSalaryVoucher, buildShadowPeriod } from "./payroll-match.ts";
+import { computePendingEsppCycles, compute401kLifetimeTotals, compute401kByYear } from "./payroll-401k.ts";
+import { computeHeldEquityValue } from "./equity-holdings.ts";
+import { computeNetWorthTrend } from "./net-worth-trend.ts";
+import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains } from "./tax-classify.ts";
+import { computeFinancialRatios } from "./financial-ratios.ts";
+import { computeCashFlowForecast } from "./cash-flow-forecast.ts";
+import { budgetVsActualRows } from "./budget.ts";
+import { computeMultiYearTrend } from "./multi-year-trend.ts";
+import { bookValue } from "./fixed-assets.ts";
+import { remainingBalance } from "./prepaid-expense.ts";
+import { currentLoanBalance } from "./loans-ledger.ts";
+import { computeYearTaxEstimate } from "./us-tax-estimate.ts";
+import type { UsFilingStatus } from "./tax-usa-rules.ts";
+import { estimateIndiaTaxForFy, fyOf } from "./india-tax-estimate.ts";
 
 // Phase 2 of the free chat assistant (see app/api/assistant and components/ChatAssistant.tsx).
 // Phase 1 (context-stuffing: build one big text snapshot, hand it to the model, ask it to read,
@@ -304,6 +318,320 @@ function getFbarStatus(data: Ledger, args: Record<string, unknown>, todayIso: st
   }, threshold $10,000 -- ${fbar.rate ? (fbar.thresholdExceeded ? "filing IS required" : "filing is NOT required") : "cannot determine yet"}.`;
 }
 
+// ---- tool: get_equity_position ---------------------------------------------------------------
+
+// Replicates EXACTLY the dashboard's own "Equity (NVDA)" card math (components/VaultApp.tsx,
+// the equityRsuMktValue/equityEsppMktValue/equityScheduledShares/equityDailyGL block) rather than
+// a different approximation -- confirmed this session (the ESPP account-blending and double-
+// negation bugs) that a plausible-looking but DIFFERENT formula from the real UI is exactly how a
+// wrong-but-confident chat answer happens. Needs a live stock price, which this module can't fetch
+// itself (no network access from a pure lib function) -- the caller (ChatAssistant.tsx) already
+// fetches it once on mount for the dashboard and passes it through here.
+function getEquityPosition(data: Ledger, livePrice: number | null, prevClose: number | null, todayIso: string): string {
+  if (!data.equity || (!data.equity.grants.length && !data.equity.esppPurchases.length)) {
+    return "get_equity_position: no RSU/ESPP equity data on file.";
+  }
+  if (!livePrice) {
+    return "get_equity_position: live stock price is currently unavailable, so market value can't be computed right now -- try again shortly.";
+  }
+  const cur = livePrice;
+  const grants = data.equity.grants;
+  const esppPurchases = data.equity.esppPurchases;
+
+  const equityPendingEsppShares = computePendingEsppCycles(esppPurchases, data.payroll, todayIso).reduce((s, c) => s + c.estimatedShares, 0);
+  const equityRsuHeldShares = grants.reduce((s, g) => s + g.vests.filter((v) => !v.pending).reduce((vs, v) => vs + v.sharesHeld, 0), 0);
+  const equityRsuMktValue = grants.reduce((s, g) => {
+    const actualVested = g.vests.filter((v) => !v.pending);
+    const pendingVests = g.vests.filter((v) => v.pending);
+    const vestedTotal = actualVested.reduce((vs, v) => vs + v.shares, 0);
+    const pendingShares = pendingVests.reduce((vs, v) => vs + v.shares, 0);
+    const unvested = Math.max(0, g.totalShares - vestedTotal - pendingShares);
+    return s + actualVested.reduce((vs, v) => vs + v.sharesHeld * cur, 0) + (pendingShares + unvested) * cur;
+  }, 0);
+  const equityEsppHeldShares = esppPurchases.reduce((s, e) => s + (e.sharesHeld || e.shares), 0);
+  const equityEsppMktValue = (equityEsppHeldShares + equityPendingEsppShares) * cur;
+  const equityMktValue = equityRsuMktValue + equityEsppMktValue;
+  const equityTotalShares =
+    equityRsuHeldShares +
+    equityEsppHeldShares +
+    grants.reduce((s, g) => {
+      const vestedTotal = g.vests.filter((v) => !v.pending).reduce((vs, v) => vs + v.shares, 0);
+      const pendingShares = g.vests.filter((v) => v.pending).reduce((vs, v) => vs + v.shares, 0);
+      return s + pendingShares + Math.max(0, g.totalShares - vestedTotal - pendingShares);
+    }, 0) +
+    equityPendingEsppShares;
+  const equityRsuScheduledShares = grants.reduce((s, g) => s + g.vests.filter((v) => v.pending).reduce((vs, v) => vs + v.shares, 0), 0);
+  const equityScheduledShares = equityRsuScheduledShares + equityPendingEsppShares;
+  const equityScheduledValue = equityScheduledShares * cur;
+  const equityDailyHeld =
+    grants.reduce((s, g) => s + g.vests.filter((v) => !v.pending).reduce((vs, v) => vs + v.sharesHeld, 0), 0) +
+    esppPurchases.reduce((s, e) => s + (e.sharesHeld || e.shares), 0);
+  const equityDailyGL = prevClose !== null ? equityDailyHeld * (cur - prevClose) : null;
+
+  const lines = [
+    `get_equity_position (live price $${cur.toFixed(2)}):`,
+    `RSU market value: ${equityRsuMktValue.toFixed(2)} ${data.currency}`,
+    `ESPP market value: ${equityEsppMktValue.toFixed(2)} ${data.currency}`,
+    `Total equity market value (RSU + ESPP, includes scheduled/unvested shares): ${equityMktValue.toFixed(2)} ${data.currency}`,
+    `Total shares (held + scheduled): ${equityTotalShares.toFixed(4)}`,
+    `Scheduled/pending future shares: ${equityScheduledShares.toFixed(4)}, value ${equityScheduledValue.toFixed(2)} ${data.currency}`,
+  ];
+  lines.push(
+    equityDailyGL !== null
+      ? `Today's gain/loss on HELD (already-vested, non-pending) shares vs previous close: ${equityDailyGL.toFixed(2)} ${data.currency}`
+      : "Today's gain/loss: unavailable (previous close not loaded)."
+  );
+  return lines.join("\n");
+}
+
+// ---- tool: get_net_worth -----------------------------------------------------------------------
+
+function getNetWorth(data: Ledger, livePrice: number | null, todayIso: string): string {
+  const trend = computeNetWorthTrend(data.accounts, data.transactions, data.groups || []);
+  if (!trend.length) return "get_net_worth: no transaction history to compute net worth from.";
+  const latest = trend[trend.length - 1];
+
+  // Confirmed in this app's own Net Worth report: ledger-only net worth already includes 401(k)/
+  // investment accounts at their BOOK value (cumulative contributions), and separately bolts on
+  // the LIVE market value of held RSU/ESPP shares (components/reports/NetWorthReport.tsx's
+  // equityHoldingsRow) when a live price is available -- same adjustment made here, using the
+  // SAME lib/equity-holdings.ts helper that report uses (held shares only, not pending/unvested,
+  // which is a DIFFERENT, broader figure than get_equity_position's dashboard-card total).
+  let netWorth = latest.netWorth;
+  let note = " -- ledger-only book value; a live stock price was not available to add RSU/ESPP market value on top.";
+  if (data.equity && livePrice) {
+    const held = computeHeldEquityValue(data.equity.grants, data.equity.esppPurchases, livePrice);
+    netWorth += held.totalValue;
+    note = ` -- includes live RSU/ESPP held value of ${held.totalValue.toFixed(2)} ${data.currency} on top of the ledger book value.`;
+  }
+  return [
+    `get_net_worth (as of ${latest.fyEndDate}, ${latest.label}):`,
+    `Assets: ${latest.assets.toFixed(2)} ${data.currency}`,
+    `Real liabilities (loans, credit cards, sundry creditors): ${latest.liabilities.toFixed(2)} ${data.currency}`,
+    `Net worth: ${netWorth.toFixed(2)} ${data.currency}${note}`,
+    "NOTE: this does NOT include a LIVE 401(k)/retirement brokerage balance (only the book value already counted in Assets above) -- that requires a live brokerage connection this assistant doesn't have access to, so it may read lower than the app's own Net Worth report by that difference.",
+  ].join("\n");
+}
+
+// ---- tool: get_trading_gains --------------------------------------------------------------------
+
+// REALIZED gains/losses from actual sales only (RSU sales, ESPP sales, and other brokerage trades)
+// -- NOT the live unrealized value of shares still held (that's get_equity_position). Reuses the
+// exact same classification/netting this app's own Tax Report uses (lib/tax-classify.ts), rather
+// than a second, possibly-inconsistent computation.
+function getTradingGains(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
+  const year = typeof args.year === "string" && /^\d{4}$/.test(args.year) ? args.year : todayIso.slice(0, 4);
+  const grants = data.equity?.grants ?? [];
+  const esppPurchases = data.equity?.esppPurchases ?? [];
+  const trades = data.trades ?? [];
+  const employerTickers = new Set<string>();
+  for (const g of grants) employerTickers.add(g.ticker);
+  for (const e of esppPurchases) employerTickers.add(e.ticker);
+
+  const events = [...classifyRsuSales(grants, year, 365), ...classifyEsppSales(esppPurchases, year, 365), ...classifyTradingSales(trades, year, 365, employerTickers)];
+  if (!events.length) return `get_trading_gains(CY${year}): 0 realized sale(s) found for this calendar year. This covers SALES only, not the current value of shares still held.`;
+
+  const summary = summarizeCapitalGains(events);
+  const lines = [
+    `get_trading_gains(CY${year}): ${events.length} realized sale(s) this calendar year. These are REALIZED gains/losses from actual sales ONLY -- NOT the live unrealized value of shares still held (use get_equity_position for that).`,
+    `PRECOMPUTED TOTALS (authoritative -- quote these exact numbers, do NOT recompute): net short-term ${summary.netShortTerm.toFixed(2)}, net long-term ${summary.netLongTerm.toFixed(2)}, short-term taxable ${summary.shortTermGainTaxable.toFixed(2)}, long-term taxable ${summary.longTermGainTaxable.toFixed(2)} ${data.currency}`,
+  ];
+  if (summary.ordinaryLossDeduction > 0) lines.push(`Ordinary-income loss deduction (capped at $3,000/yr): ${summary.ordinaryLossDeduction.toFixed(2)} ${data.currency}`);
+  if (summary.lossCarryforward > 0) lines.push(`Loss beyond the cap, informational only (not tracked to future years by this app): ${summary.lossCarryforward.toFixed(2)} ${data.currency}`);
+  return lines.join("\n");
+}
+
+// ---- tool: get_financial_ratios ----------------------------------------------------------------
+
+function getFinancialRatios(data: Ledger): string {
+  const points = computeFinancialRatios(data);
+  if (!points.length) return "get_financial_ratios: no fiscal-year history to compute ratios from.";
+  const latest = points[points.length - 1];
+  const pct = (v: number | null) => (v === null ? "n/a" : `${v.toFixed(1)}%`);
+  return [
+    `get_financial_ratios (latest: ${latest.label}, FY${latest.fy}; savingsRate/growth figures are already percentages):`,
+    `Income: ${latest.income.toFixed(2)}, Expense: ${latest.expense.toFixed(2)}, Savings rate: ${pct(latest.savingsRate)} ${data.currency}`,
+    `Liquid assets (Bank + Cash): ${latest.liquidAssets.toFixed(2)} ${data.currency}`,
+    `Total debt (all liabilities): ${latest.totalDebt.toFixed(2)} ${data.currency}`,
+    `Emergency fund: ${latest.emergencyFundMonths !== null ? `${latest.emergencyFundMonths.toFixed(1)} months of expenses covered by liquid assets` : "n/a (monthly expense ~0)"}`,
+    `Debt-to-income: ${latest.debtToIncome !== null ? latest.debtToIncome.toFixed(2) : "n/a (income ~0)"}`,
+    `Net worth growth vs prior year: ${latest.netWorthGrowthPct !== null ? pct(latest.netWorthGrowthPct) : "n/a (first year on file)"}`,
+    `(${points.length} fiscal year(s) of history available; this is the most recent, ${latest.label}.)`,
+  ].join("\n");
+}
+
+// ---- tool: get_cash_flow_forecast --------------------------------------------------------------
+
+function getCashFlowForecast(data: Ledger, args: Record<string, unknown>): string {
+  const months = typeof args.months === "number" && args.months > 0 && args.months <= 24 ? Math.round(args.months) : 6;
+  const forecast = computeCashFlowForecast(data, months);
+  if (!forecast.points.length) return "get_cash_flow_forecast: not enough data to project a forecast.";
+  const lines = [`get_cash_flow_forecast (next ${months} month(s), starting from today):`];
+  for (const p of forecast.points) {
+    lines.push(
+      `- ${p.label}: paycheck ${p.paycheckNet.toFixed(2)}, passive income ${p.passiveIncome.toFixed(2)}, living expenses ${p.livingExpenses.toFixed(2)}, recurring net ${p.recurringNet.toFixed(2)}, loan payments ${p.loanPayments.toFixed(2)}, yearly items ${p.yearlyNet.toFixed(2)} -> projected cash balance ${p.projectedCash.toFixed(2)} ${data.currency}`
+    );
+  }
+  if (forecast.budgetTieIn) {
+    const b = forecast.budgetTieIn;
+    lines.push(
+      `Budget tie-in (FY${b.fy}): budgeted net ${b.budgetedNet.toFixed(2)}, YTD actual net ${b.ytdActualNet.toFixed(2)}, projected remaining ${b.projectedRemainingNet.toFixed(2)}, projected full-year net ${b.projectedFYNet.toFixed(2)}, variance vs budget ${b.varianceVsBudget.toFixed(2)} ${data.currency}`
+    );
+  }
+  return lines.join("\n");
+}
+
+// ---- tool: get_budget_vs_actual ----------------------------------------------------------------
+
+function getBudgetVsActual(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
+  const fy = typeof args.fy === "string" && /^\d{4}$/.test(args.fy) ? args.fy : String(fiscalYearOf(todayIso));
+  const budget = (data.budgets ?? []).find((b) => b.fy === fy);
+  if (!budget) return `get_budget_vs_actual(FY${fy}): no budget saved for this fiscal year.`;
+  const { expenseRows } = budgetVsActualRows(data, budget, fy, "monthly");
+  const totalBudget = expenseRows.reduce((s, r) => s + r.totalBudget, 0);
+  const totalActual = expenseRows.reduce((s, r) => s + r.totalActual, 0);
+  const lines = [
+    `get_budget_vs_actual(FY${fy}): total expense budget ${totalBudget.toFixed(2)}, actual ${totalActual.toFixed(2)}, variance ${(totalActual - totalBudget).toFixed(2)} ${data.currency} (positive = over budget).`,
+  ];
+  const overBudget = expenseRows
+    .filter((r) => r.varianceAmt > 0.5)
+    .sort((a, b) => b.varianceAmt - a.varianceAmt)
+    .slice(0, 5);
+  if (overBudget.length) {
+    lines.push("Top over-budget expense categories:");
+    for (const r of overBudget) lines.push(`- ${r.name}: budget ${r.totalBudget.toFixed(2)}, actual ${r.totalActual.toFixed(2)}, over by ${r.varianceAmt.toFixed(2)} ${data.currency}`);
+  }
+  return lines.join("\n");
+}
+
+// ---- tool: get_multi_year_trend ----------------------------------------------------------------
+
+function getMultiYearTrend(data: Ledger): string {
+  const points = computeMultiYearTrend(data);
+  if (!points.length) return "get_multi_year_trend: no fiscal-year history on file.";
+  const lines = ["get_multi_year_trend (oldest to latest fiscal year):"];
+  for (const p of points) {
+    const growth = p.netWorthGrowthPct !== null ? ` (${p.netWorthGrowthPct >= 0 ? "+" : ""}${p.netWorthGrowthPct.toFixed(1)}% net worth vs prior year)` : "";
+    lines.push(`- ${p.label}: income ${p.income.toFixed(2)}, expense ${p.expense.toFixed(2)}, surplus ${p.surplus.toFixed(2)}, net worth ${p.netWorth.toFixed(2)} ${data.currency}${growth}`);
+  }
+  return lines.join("\n");
+}
+
+// ---- tool: get_401k_summary --------------------------------------------------------------------
+
+function get401kSummary(data: Ledger): string {
+  const byYear = compute401kByYear(data.payroll);
+  if (!byYear.length) return "get_401k_summary: no payroll/401k data on file.";
+  const lifetime = compute401kLifetimeTotals(data.payroll);
+  const lines = [
+    `get_401k_summary: lifetime self contributions ${lifetime.self.toFixed(2)}, lifetime employer match ${lifetime.employer.toFixed(2)}, lifetime total ${(lifetime.self + lifetime.employer).toFixed(2)} ${data.currency}.`,
+    "By year:",
+  ];
+  for (const y of byYear) lines.push(`- ${y.year}: self ${y.self.toFixed(2)}, employer match ${y.employer.toFixed(2)} ${data.currency}`);
+  return lines.join("\n");
+}
+
+// ---- tool: get_fixed_assets --------------------------------------------------------------------
+
+function getFixedAssets(data: Ledger, todayIso: string): string {
+  const assets = (data.fixedAssets ?? []).filter((a) => !a.disposed);
+  if (!assets.length) return "get_fixed_assets: no (non-disposed) fixed assets on file.";
+  let totalBook = 0;
+  const lines = ["get_fixed_assets (current book value, straight-line depreciation):"];
+  for (const a of assets) {
+    const bv = bookValue(a, todayIso);
+    totalBook += bv;
+    lines.push(`- ${a.name}${a.assetClass ? ` [${a.assetClass}]` : ""}: cost ${a.cost.toFixed(2)}, book value ${bv.toFixed(2)} ${data.currency}`);
+  }
+  lines.push(`PRECOMPUTED TOTAL book value across all assets: ${totalBook.toFixed(2)} ${data.currency}`);
+  return lines.join("\n");
+}
+
+// ---- tool: get_loans ----------------------------------------------------------------------------
+
+function getLoans(data: Ledger, todayIso: string): string {
+  const loans = (data.loans ?? []).filter((l) => !l.closed);
+  if (!loans.length) return "get_loans: no open loans on file.";
+  let totalOwed = 0;
+  const lines = ["get_loans (current balance owed):"];
+  for (const l of loans) {
+    const bal = currentLoanBalance(data, l, todayIso);
+    totalOwed += bal;
+    lines.push(`- ${l.name}: balance owed ${bal.toFixed(2)} ${data.currency}, rate ${(l.annualRate * 100).toFixed(2)}%, standard payment ${l.standardPayment.toFixed(2)}`);
+  }
+  lines.push(`PRECOMPUTED TOTAL owed across all open loans: ${totalOwed.toFixed(2)} ${data.currency}`);
+  return lines.join("\n");
+}
+
+// ---- tool: get_prepaid_expenses ----------------------------------------------------------------
+
+function getPrepaidExpenses(data: Ledger, todayIso: string): string {
+  const items = (data.prepaidExpenses ?? []).filter((p) => !p.writtenOff);
+  if (!items.length) return "get_prepaid_expenses: no (non-written-off) prepaid expenses on file.";
+  let totalRemaining = 0;
+  const lines = ["get_prepaid_expenses (remaining unamortized balance):"];
+  for (const p of items) {
+    const rem = remainingBalance(p, todayIso);
+    totalRemaining += rem;
+    lines.push(`- ${p.name}: original total ${p.totalAmount.toFixed(2)}, remaining ${rem.toFixed(2)} ${data.currency}`);
+  }
+  lines.push(`PRECOMPUTED TOTAL remaining prepaid balance: ${totalRemaining.toFixed(2)} ${data.currency}`);
+  return lines.join("\n");
+}
+
+// ---- tool: get_us_tax_estimate -----------------------------------------------------------------
+
+// Mirrors TaxReport.tsx's own call to computeYearTaxEstimate (filingStatus "mfj", hsaCoverage
+// "family" are that report's own UI defaults -- see lib/us-tax-estimate.ts's own comment for why
+// the underlying logic is a verbatim copy rather than a shared extraction).
+function getUsTaxEstimate(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
+  if (!data.payroll) return "get_us_tax_estimate: no payroll data on file.";
+  const year = typeof args.year === "string" && /^\d{4}$/.test(args.year) ? args.year : todayIso.slice(0, 4);
+  const rawYr = data.payroll.years.find((y) => y.year === year);
+  if (!rawYr) return `get_us_tax_estimate: no payroll data found for ${year}.`;
+  const filingStatus: UsFilingStatus = args.filingStatus === "single" ? "single" : "mfj";
+  const est = computeYearTaxEstimate(rawYr, data.transactions, data.accounts, data.equity, data.trades, filingStatus, "family");
+  const totalTax = est.estimatedFederalTax + est.estimatedStateTax;
+  return [
+    `get_us_tax_estimate(${est.year}, filing status: ${filingStatus}): AGI ${est.agi.toFixed(2)}, deduction used ${est.deductionUsed.toFixed(2)} (${est.usedItemized ? "itemized" : "standard"}), long-term capital gain ${est.longTermGain.toFixed(2)} ${data.currency}.`,
+    `PRECOMPUTED TOTALS (authoritative -- quote these exact numbers, do NOT recompute): estimated federal tax ${est.estimatedFederalTax.toFixed(2)}, federal withheld ${est.federalWithheld.toFixed(2)}, federal ${est.federalBalanceDue > 0 ? "balance due" : "refund"} ${Math.abs(est.federalBalanceDue || est.federalRefund).toFixed(2)} ${data.currency}.`,
+    `State: ${est.stateName} (${est.stateCode}), taxable income ${est.stateTaxableIncome.toFixed(2)}, estimated state tax ${est.estimatedStateTax.toFixed(2)}, state withheld ${est.stateWithheld.toFixed(2)}, state ${est.stateBalanceDue > 0 ? "balance due" : "refund"} ${Math.abs(est.stateBalanceDue || est.stateRefund).toFixed(2)} ${data.currency}.`,
+    `Combined estimated federal + state tax: ${totalTax.toFixed(2)} ${data.currency}.`,
+    "This is an ESTIMATE for planning purposes, not a filed return -- verify with a tax professional before relying on it.",
+  ].join("\n");
+}
+
+// ---- tool: get_india_tax_estimate --------------------------------------------------------------
+
+// Built on estimateIndiaTaxForFy (see lib/india-tax-estimate.ts's own comment on why that's a
+// deliberately simplified standalone, not a full replication of IndiaTaxReport.tsx's own
+// capital-gains-aware estimate logic).
+function getIndiaTaxEstimate(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
+  if (!data.indiaTax) return "get_india_tax_estimate: no India tax data (payslips/ITR) on file.";
+  const fy = typeof args.fy === "string" && /^\d{4}-\d{2}$/.test(args.fy) ? args.fy : fyOf(todayIso);
+  const months = data.indiaTax.payslips?.months ?? [];
+  const result = estimateIndiaTaxForFy(fy, months, data.indiaTax.itrYears);
+  // Three distinct cases, not just "real vs estimate": a filed ITR gives the real figure; no ITR
+  // but the year's slabs ARE modeled gives our own estimate; no ITR AND the slabs aren't modeled
+  // means the underlying 0 is neither a real figure nor a valid estimate -- must say so plainly
+  // rather than mislabeling that 0 as either.
+  const canEstimate = !result.hasFiledItr && result.isEstimate;
+  const cannotDetermine = !result.hasFiledItr && !result.isEstimate;
+  const taxLabel = result.hasFiledItr
+    ? " (real filed figure)"
+    : canEstimate
+      ? " (ESTIMATE -- ordinary slab rates only, does NOT account for capital-gains special rates)"
+      : " (cannot determine -- no ITR filed for this year and its tax slabs aren't modeled by this app)";
+  const lines = [
+    `get_india_tax_estimate(FY${result.fy}, AY${result.ay}): taxable income ${result.taxableIncome.toFixed(2)} ${data.currency} -- ${result.hasFiledItr ? "this year has a FILED ITR on record" : "NO ITR filed yet for this year"}.`,
+    `PRECOMPUTED TOTAL (authoritative -- quote this exact number, do NOT recompute): tax payable ${result.taxPayable.toFixed(2)} ${data.currency}${taxLabel}.`,
+    `Taxes already paid (TDS + advance + self-assessment): ${result.taxesPaidTotal.toFixed(2)} ${data.currency}. ${result.refund >= 0 ? "Refund" : "Balance due"}: ${Math.abs(result.refund).toFixed(2)} ${data.currency}.`,
+  ];
+  if (canEstimate) lines.push("This is an ESTIMATE for planning purposes, not a filed return -- verify with a tax professional before relying on it.");
+  if (cannotDetermine) lines.push("Say plainly that this year's tax can't be determined (no ITR on file, and this app doesn't model that year's tax slabs) -- do not state the taxable income or 0 as if it were an answer.");
+  return lines.join("\n");
+}
+
 // ---- tool schemas (sent to Workers AI's `tools` parameter) ------------------------------------
 
 const PERIOD_PARAM = {
@@ -369,6 +697,107 @@ export const TOOL_DEFS: { name: string; description: string; parameters: Record<
       required: [],
     },
   },
+  {
+    name: "get_equity_position",
+    description:
+      "Get the live market value of held RSU/ESPP stock (at today's live price), total shares (held + scheduled/pending), and today's gain/loss vs yesterday's close on held shares -- matches the app's own 'Equity' dashboard card exactly. Use this for 'what's my stock/equity worth', 'how many shares do I have', or 'what's my gain/loss today' questions about employer equity. This is the LIVE, UNREALIZED value of shares still held -- for gains from actual past SALES, use get_trading_gains instead.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_net_worth",
+    description:
+      "Get overall net worth (assets minus real liabilities), as of the most recent fiscal-year-end on file, including live RSU/ESPP market value on top of the ledger's book value when a live price is available. Use this for 'what's my net worth' questions. Does NOT include a live 401(k)/retirement brokerage balance (only its book value) -- say so if asked specifically about that.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_trading_gains",
+    description:
+      "Get REALIZED capital gains/losses (short-term and long-term, already netted per tax rules) from actual stock SALES this calendar year -- RSU sales, ESPP sales, and other brokerage trades. This is NOT the live value of shares still held (use get_equity_position for that). Use this for 'how much did I gain/lose from selling stock' or realized-gains/tax-related trading questions.",
+    parameters: {
+      type: "object",
+      properties: { year: { type: "string", description: "Calendar year as a 4-digit string, e.g. \"2026\". Defaults to the current calendar year if omitted." } },
+      required: [],
+    },
+  },
+  {
+    name: "get_financial_ratios",
+    description:
+      "Get the most recent fiscal year's financial health ratios: savings rate, liquid assets, total debt, emergency fund (months of expenses covered), debt-to-income, and net worth growth vs the prior year. Use this for 'how am I doing financially', 'what's my savings rate', 'how many months of emergency fund do I have' questions.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_cash_flow_forecast",
+    description:
+      "Get a projected month-by-month cash flow forecast starting from today: paycheck, passive income, living expenses, recurring items, loan payments, and the running projected cash balance. Use this for 'what's my cash flow going forward', 'will I have enough cash in N months' questions.",
+    parameters: {
+      type: "object",
+      properties: { months: { type: "number", description: "How many months ahead to project, 1-24. Defaults to 6 if omitted." } },
+      required: [],
+    },
+  },
+  {
+    name: "get_budget_vs_actual",
+    description:
+      "Compare budgeted vs actual expense spending for a fiscal year, with the top over-budget categories. Use this for 'am I on budget', 'where am I overspending' questions.",
+    parameters: {
+      type: "object",
+      properties: { fy: { type: "string", description: "Fiscal year as a 4-digit string (Apr-start), e.g. \"2026\" for FY2026 (Apr 2026 - Mar 2027). Defaults to the current fiscal year if omitted." } },
+      required: [],
+    },
+  },
+  {
+    name: "get_multi_year_trend",
+    description:
+      "Get income, expense, surplus, and net worth for every fiscal year on file, oldest to latest, with year-over-year growth. Use this for 'how has my income/spending/net worth trended over the years' questions.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_401k_summary",
+    description:
+      "Get lifetime and by-year 401(k) contribution totals: your own contributions and the employer match, separately. Use this for '401k contribution' questions. This is BOOK value from payroll records, not a live brokerage balance.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_fixed_assets",
+    description:
+      "Get every fixed asset (vehicle, furniture, equipment, etc, excluding disposed ones) with its cost and current straight-line-depreciated book value. Use this for 'what fixed assets do I have', 'what's my asset book value' questions.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_loans",
+    description:
+      "Get every open loan (excluding closed ones) with its current balance owed, interest rate, and standard payment. Use this for 'what do I owe on my loans', 'what's my loan balance' questions.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_prepaid_expenses",
+    description:
+      "Get every prepaid expense (insurance paid upfront, annual subscriptions, etc, excluding written-off ones) with its original amount and remaining unamortized balance. Use this for 'what prepaid expenses do I have', 'what's left on my prepaid insurance' questions.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_us_tax_estimate",
+    description:
+      "Get an ESTIMATED US federal + state income tax liability for a year (AGI, deduction used, estimated federal/state tax, withheld, refund or balance due) -- the same estimate this app's own Tax Report computes. Use this for 'what will I owe in taxes', 'am I getting a refund' questions (US book only). This is an estimate for planning, not a filed return.",
+    parameters: {
+      type: "object",
+      properties: {
+        year: { type: "string", description: "4-digit year, e.g. \"2025\". Defaults to the current year if omitted." },
+        filingStatus: { type: "string", enum: ["mfj", "single"], description: "Tax filing status -- only \"mfj\" (married filing jointly) and \"single\" are modeled by this app. Defaults to \"mfj\" if omitted, matching this app's own default." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_india_tax_estimate",
+    description:
+      "Get India income tax for a financial year: the REAL filed figure if an ITR is on record for that year, otherwise an ESTIMATE (ordinary slab rates only, no capital-gains special rates). Use this for 'what will I owe in India tax', 'what's my refund' questions (India book only).",
+    parameters: {
+      type: "object",
+      properties: { fy: { type: "string", description: "Financial year in \"YYYY-YY\" format (Apr-start), e.g. \"2025-26\". Defaults to the current financial year if omitted." } },
+      required: [],
+    },
+  },
 ];
 
 // Executes one tool call against the decrypted Ledger already in memory client-side -- the server
@@ -392,7 +821,19 @@ export function coerceToolArgs(raw: unknown): Record<string, unknown> {
   return {};
 }
 
-export function executeTool(name: string, args: Record<string, unknown>, data: Ledger, book: "us" | "india", todayIso: string): string {
+// livePrice/prevClose (optional) are the already-fetched NVDA quote ChatAssistant.tsx holds in
+// state for the dashboard's own Equity card -- threaded through here rather than fetched inside
+// this function, since a pure lib module has no network access and shouldn't gain one just for
+// this; the client already has the data, this just reuses it.
+export function executeTool(
+  name: string,
+  args: Record<string, unknown>,
+  data: Ledger,
+  book: "us" | "india",
+  todayIso: string,
+  livePrice?: number | null,
+  prevClose?: number | null
+): string {
   switch (name) {
     case "search_vouchers":
       return searchVouchers(data, args, todayIso);
@@ -404,6 +845,32 @@ export function executeTool(name: string, args: Record<string, unknown>, data: L
       return getAccountBalances(data, args, todayIso);
     case "get_fbar_status":
       return book === "india" ? getFbarStatus(data, args, todayIso) : "get_fbar_status is only available for the India book.";
+    case "get_equity_position":
+      return getEquityPosition(data, livePrice ?? null, prevClose ?? null, todayIso);
+    case "get_net_worth":
+      return getNetWorth(data, livePrice ?? null, todayIso);
+    case "get_trading_gains":
+      return getTradingGains(data, args, todayIso);
+    case "get_financial_ratios":
+      return getFinancialRatios(data);
+    case "get_cash_flow_forecast":
+      return getCashFlowForecast(data, args);
+    case "get_budget_vs_actual":
+      return getBudgetVsActual(data, args, todayIso);
+    case "get_multi_year_trend":
+      return getMultiYearTrend(data);
+    case "get_401k_summary":
+      return get401kSummary(data);
+    case "get_fixed_assets":
+      return getFixedAssets(data, todayIso);
+    case "get_loans":
+      return getLoans(data, todayIso);
+    case "get_prepaid_expenses":
+      return getPrepaidExpenses(data, todayIso);
+    case "get_us_tax_estimate":
+      return book === "india" ? "get_us_tax_estimate is only available for the US book -- use get_india_tax_estimate instead." : getUsTaxEstimate(data, args, todayIso);
+    case "get_india_tax_estimate":
+      return book === "us" ? "get_india_tax_estimate is only available for the India book -- use get_us_tax_estimate instead." : getIndiaTaxEstimate(data, args, todayIso);
     default:
       return `Unknown tool: "${name}". Valid tools are: ${TOOL_DEFS.map((t) => t.name).join(", ")}.`;
   }

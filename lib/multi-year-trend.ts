@@ -1,6 +1,6 @@
 import type { Ledger } from "./vault-types";
-import { computeNetWorthTrend } from "./net-worth-trend";
-import { buildIncomeExpenseColumns, type PeriodBoundary } from "./columnar-report";
+import { computeNetWorthTrend } from "./net-worth-trend.ts";
+import { buildIncomeExpenseColumns, type PeriodBoundary } from "./columnar-report.ts";
 
 export type FyTrendPoint = {
   fy: string; // e.g. "2025" -- Apr-start FY key, same convention used everywhere else this session

@@ -1,8 +1,8 @@
 import type { Account, Ledger, Loan, Tx } from "./vault-types";
-import { nextTransactionIds, nextVoucherNumber, ledgerBalanceAsOf } from "./vault-accounting";
-import { appendAuditEntry } from "./audit";
-import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity";
-import { computePaymentSplit } from "./loans";
+import { nextTransactionIds, nextVoucherNumber, ledgerBalanceAsOf } from "./vault-accounting.ts";
+import { appendAuditEntry } from "./audit.ts";
+import { findOrCreateAccount, registerOpeningBalance } from "./opening-balance-equity.ts";
+import { computePaymentSplit } from "./loans.ts";
 
 const LOANS_LIABILITY_GROUP_NAME = "Loans (Liability)";
 const EXPENSE_GROUP_NAME = "Indirect Expenses";

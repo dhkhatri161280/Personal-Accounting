@@ -1,6 +1,6 @@
 import type { Ledger } from "./vault-types";
-import { accountNature } from "./vault-accounting";
-import { FIXED_ASSETS_GROUP_NAME, ASSET_CLASS_SUGGESTIONS, UNCLASSIFIED_LABEL } from "./fixed-assets";
+import { accountNature } from "./vault-accounting.ts";
+import { FIXED_ASSETS_GROUP_NAME, ASSET_CLASS_SUGGESTIONS, UNCLASSIFIED_LABEL } from "./fixed-assets.ts";
 
 // Composer, not self-contained -- imports runtime values from other lib/*.ts files
 // (accountNature, fixed-assets constants), which node --test can't resolve across

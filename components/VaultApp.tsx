@@ -3480,7 +3480,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {status}
         </div>
       )}
-      {data && <ChatAssistant data={data} book={book} />}
+      {data && <ChatAssistant data={data} book={book} nvdaPrice={nvdaPrice} nvdaPrevClose={nvdaPrevClose} />}
       {isBlockingStatus && (
         <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
           <p className="vault-alert-message">{status}</p>

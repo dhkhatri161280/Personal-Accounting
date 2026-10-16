@@ -1,5 +1,5 @@
 import type { Ledger, Loan } from "./vault-types";
-import { standardMonthlyPayment, computePaymentSplit } from "./loans";
+import { standardMonthlyPayment, computePaymentSplit } from "./loans.ts";
 
 // Composer, not self-contained -- like lib/cash-flow-forecast.ts, this imports runtime values
 // (standardMonthlyPayment, computePaymentSplit, currentLoanBalance) from other lib/*.ts files,

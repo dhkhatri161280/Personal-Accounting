@@ -1,12 +1,12 @@
 import type { Ledger, PayrollData } from "./vault-types";
-import { accountNature, ledgerBalanceAsOf, fiscalYearOf } from "./vault-accounting";
-import { currentLoanBalance } from "./loans-ledger";
-import { computePaymentSplit } from "./loans";
-import { parsePeriodRange } from "./payroll-match";
-import { todayLocalIso, parseNarrationDate } from "./format-date";
-import { periodBoundariesForRange, buildIncomeExpenseColumns } from "./columnar-report";
-import { DEPRECIATION_EXPENSE_ACCOUNT_NAME } from "./fixed-assets";
-import { budgetVsActualRows } from "./budget";
+import { accountNature, ledgerBalanceAsOf, fiscalYearOf } from "./vault-accounting.ts";
+import { currentLoanBalance } from "./loans-ledger.ts";
+import { computePaymentSplit } from "./loans.ts";
+import { parsePeriodRange } from "./payroll-match.ts";
+import { todayLocalIso, parseNarrationDate } from "./format-date.ts";
+import { periodBoundariesForRange, buildIncomeExpenseColumns } from "./columnar-report.ts";
+import { DEPRECIATION_EXPENSE_ACCOUNT_NAME } from "./fixed-assets.ts";
+import { budgetVsActualRows } from "./budget.ts";
 
 // Composer, not self-contained -- like lib/multi-year-trend.ts/lib/financial-ratios.ts, this
 // imports runtime values from other lib/*.ts files, which node --test can't resolve across

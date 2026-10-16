@@ -51,6 +51,29 @@ CRITICAL: pick the right tool.
   get_account_balances. These are CUMULATIVE since the account opened, NOT a period total --
   never use this tool to answer a "how much did I spend/earn in period X" question.
 - FBAR / FinCEN Form 114 (India book only) -> get_fbar_status.
+- The CURRENT MARKET VALUE, worth, share count, or TODAY's gain/loss of employer stock/RSU/ESPP
+  still held (e.g. "what's my equity worth", "how many shares do I have", "what's my stock gain
+  today") -> get_equity_position. This is a LIVE, computed figure (today's stock price x shares),
+  NOT a ledger account balance -- do not confuse this with get_account_ledger("ESPP Deduction",
+  ...), which is the PAYROLL DEDUCTION amount recorded in the books, a completely different number.
+- Overall net worth ("what's my net worth") -> get_net_worth.
+- Gains or losses from actually SELLING stock (realized, tax-relevant, "how much did I gain/lose
+  selling X") -> get_trading_gains. Never use get_equity_position for this -- that tool is the
+  live value of shares NOT yet sold; get_trading_gains is realized gains from shares that WERE sold.
+- Financial health, savings rate, emergency fund, debt-to-income -> get_financial_ratios.
+- Projected future cash flow ("will I have enough cash", "what's my cash flow look like") ->
+  get_cash_flow_forecast.
+- Budget vs actual spending, over/under budget -> get_budget_vs_actual.
+- Multi-year trend in income/spending/net worth -> get_multi_year_trend.
+- 401(k) contributions (self + employer match, lifetime or by year) -> get_401k_summary. This is
+  BOOK value from payroll records, not a live brokerage balance.
+- Fixed assets (vehicles, equipment, furniture) and their book value -> get_fixed_assets.
+- Loans and their current balance owed -> get_loans.
+- Prepaid expenses and their remaining unamortized balance -> get_prepaid_expenses.
+- US income tax liability/refund (US book only) -> get_us_tax_estimate.
+- India income tax liability/refund (India book only) -> get_india_tax_estimate. Uses the REAL
+  filed ITR figure when one exists for that year; otherwise a labeled slab-based estimate. Both
+  tax tools are planning estimates, not filed returns -- always include that caveat.
 
 CRITICAL: "calendar year" and "fiscal year" are DIFFERENT periods and are NEVER the same thing --
 never say they're "also the same in this case". This app's books run Apr-Mar as the fiscal year,

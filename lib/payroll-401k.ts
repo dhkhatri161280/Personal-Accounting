@@ -1,5 +1,5 @@
 import type { PayrollData, PayrollRow, EsppPurchase } from "./vault-types";
-import { parsePeriodRange } from "./payroll-match";
+import { parsePeriodRange } from "./payroll-match.ts";
 
 function row(rows: PayrollRow[], label: string): PayrollRow | undefined {
   return rows.find((r) => r.label === label);

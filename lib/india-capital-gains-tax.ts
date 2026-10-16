@@ -1,4 +1,4 @@
-import { cessRateFor } from "./india-tax-slabs";
+import { cessRateFor } from "./india-tax-slabs.ts";
 
 export interface EquityCapitalGainsTax {
   stcgRate: number;

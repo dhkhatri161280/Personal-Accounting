@@ -1,5 +1,5 @@
 import type { Budget, BudgetLine, Ledger } from "./vault-types";
-import { buildIncomeExpenseColumns, isProfitLoss, natureFor, periodBoundariesForRange, type PeriodBoundary } from "./columnar-report";
+import { buildIncomeExpenseColumns, isProfitLoss, natureFor, periodBoundariesForRange, type PeriodBoundary } from "./columnar-report.ts";
 
 // The 12 monthly (or 4 quarterly) periods for a given Apr-start fiscal year -- shared by budget
 // generation and the actual-vs-budget comparison so both sides bucket by the exact same

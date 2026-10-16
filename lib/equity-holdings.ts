@@ -1,5 +1,5 @@
 import type { RsuGrant, EsppPurchase } from "./vault-types";
-import { todayLocalIso } from "./format-date";
+import { todayLocalIso } from "./format-date.ts";
 
 export interface PricePoint {
   date: string; // "YYYY-MM-DD"
