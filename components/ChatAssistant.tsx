@@ -30,7 +30,13 @@ const MIN_W = 280;
 const MIN_H = 220;
 const BUBBLE_SIZE = 52;
 const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
-const RECT_STORAGE_KEY = "dk-chat-assistant-rect";
+// Bumped to "-v2" once (confirmed live: narrowing the landscape default from 620 to 420 had no
+// visible effect, since a size saved under the OLD key keeps winning forever, even across closing
+// and reopening the tab -- that's the "remembered next time" feature working as designed, it's
+// just invisible from a default-width change alone). This makes the new default actually apply
+// once for everyone with an old saved size; do not bump it again for routine size tweaks, only if
+// this exact "default changed but nobody sees it" problem recurs.
+const RECT_STORAGE_KEY = "dk-chat-assistant-rect-v2";
 const BUBBLE_STORAGE_KEY = "dk-chat-assistant-bubble-pos";
 // A pointerdown->pointerup with less movement than this is treated as a click (open/close the
 // panel) rather than a drag -- without this, the bubble's own onClick would never fire at all
