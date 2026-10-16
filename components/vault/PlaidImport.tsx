@@ -1492,6 +1492,26 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   const [historicalBulkConfirming, setHistoricalBulkConfirming] = useState(false);
   const [pendingRows, setPendingRows] = useState<ImportRow[]>([]);
   const [savingPending, setSavingPending] = useState(false);
+  // Local draft text per entry-line amount input, keyed "tx-<rowIdx>-<entryIdx>" or
+  // "pending-<rowIdx>-<entryIdx>" -- confirmed live: the amount input's value was always
+  // `Math.abs(e.amount).toFixed(2)`, re-derived fresh on every keystroke. Typing "6" committed
+  // amount=6, which re-rendered the input's value as the reformatted "6.00" instead of the bare
+  // "6" just typed -- not what the user typed, so the next keystroke ("0", meaning "60") landed
+  // after that extra ".00" instead of continuing the number, making it impossible to type a
+  // multi-digit replacement at all. Same free-edit-then-commit-on-blur pattern as FbarReport's own
+  // manualDrafts (and this file's own newAccts flow) -- the field shows exactly what's typed while
+  // editing, and only reformats to 2 decimals once the user moves on.
+  const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
+  function commitAmountDraft(key: string, rawValue: string, commit: (abs: number) => void) {
+    const abs = Math.abs(Number(rawValue));
+    if (Number.isFinite(abs)) commit(abs);
+    setAmountDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
   const [expandedReconIdx, setExpandedReconIdx] = useState<number | null>(null);
   const [expandedUnclearedIdx, setExpandedUnclearedIdx] = useState<number | null>(null);
   const [showManualForm, setShowManualForm] = useState(false);
@@ -2605,11 +2625,10 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                           type="number"
                           step="0.01"
                           min="0"
-                          value={Math.abs(e.amount).toFixed(2)}
-                          onChange={(ev) => {
-                            const abs = Math.abs(+ev.target.value);
-                            updateEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs });
-                          }}
+                          value={amountDrafts[`tx-${idx}-${ei}`] ?? Math.abs(e.amount).toFixed(2)}
+                          onChange={(ev) => setAmountDrafts((prev) => ({ ...prev, [`tx-${idx}-${ei}`]: ev.target.value }))}
+                          onBlur={(ev) => commitAmountDraft(`tx-${idx}-${ei}`, ev.target.value, (abs) => updateEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs }))}
+                          onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
                         />
                       </div>
                     ))}
@@ -2851,11 +2870,10 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                             </select>
                             <input
                               type="number" step="0.01" min="0"
-                              value={Math.abs(e.amount).toFixed(2)}
-                              onChange={(ev) => {
-                                const abs = Math.abs(+ev.target.value);
-                                updatePendingEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs });
-                              }}
+                              value={amountDrafts[`pending-${idx}-${ei}`] ?? Math.abs(e.amount).toFixed(2)}
+                              onChange={(ev) => setAmountDrafts((prev) => ({ ...prev, [`pending-${idx}-${ei}`]: ev.target.value }))}
+                              onBlur={(ev) => commitAmountDraft(`pending-${idx}-${ei}`, ev.target.value, (abs) => updatePendingEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs }))}
+                              onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
                             />
                           </div>
                         ))}
