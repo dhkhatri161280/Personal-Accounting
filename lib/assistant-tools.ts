@@ -920,6 +920,18 @@ export const TOOL_DEFS: { name: string; description: string; parameters: Record<
       required: [],
     },
   },
+  {
+    name: "navigate_to_screen",
+    description:
+      "Switch the app's UI to a specific screen/report/tab the user explicitly asked to go to, open, or see (e.g. 'take me to the FBAR report', 'open ledgers', 'show budget vs actual', 'go to masters'). This is an ACTION, not a data lookup -- it does not return any figures. Only use this when the user is asking to NAVIGATE somewhere, never for a question about their data (use the other tools for that).",
+    parameters: {
+      type: "object",
+      properties: {
+        destination: { type: "string", description: "A short phrase naming the screen/report to go to, in the user's own words (e.g. \"FBAR report\", \"ledgers\", \"budget vs actual\", \"dashboard\", \"tax report\")." },
+      },
+      required: ["destination"],
+    },
+  },
 ];
 
 // Executes one tool call against the decrypted Ledger already in memory client-side -- the server

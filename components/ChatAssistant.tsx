@@ -62,7 +62,24 @@ const DRAG_CLICK_THRESHOLD = 4;
 // card), passed down so get_equity_position/get_net_worth can use the SAME live price the
 // dashboard itself shows, instead of this component fetching (and potentially getting a
 // slightly different) quote a second time.
-export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = null }: { data: Ledger; book: "us" | "india"; nvdaPrice?: number | null; nvdaPrevClose?: number | null }) {
+// onNavigate (optional): handles the one tool (navigate_to_screen) that isn't a data lookup --
+// executeTool only ever has the decrypted Ledger in scope, never VaultApp's own tab/report UI
+// state, so that one tool is special-cased below and handed to this callback instead. Confirmed
+// live: asked "can you take me to FBAR Report", the model correctly recognized none of its data
+// tools could do that ("The provided functions are insufficient...") -- this is what fixes that.
+export function ChatAssistant({
+  data,
+  book,
+  nvdaPrice = null,
+  nvdaPrevClose = null,
+  onNavigate,
+}: {
+  data: Ledger;
+  book: "us" | "india";
+  nvdaPrice?: number | null;
+  nvdaPrevClose?: number | null;
+  onNavigate?: (destination: string) => string;
+}) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -327,7 +344,12 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
             // dying with a misleading error.
             let result: string;
             try {
-              result = executeTool(call.name, args, data, book, todayIso, nvdaPrice, nvdaPrevClose);
+              result =
+                call.name === "navigate_to_screen"
+                  ? onNavigate
+                    ? onNavigate(String(args.destination ?? ""))
+                    : "navigate_to_screen is not available right now."
+                  : executeTool(call.name, args, data, book, todayIso, nvdaPrice, nvdaPrevClose);
             } catch (e) {
               result = `Tool "${call.name}" failed: ${e instanceof Error ? e.message : String(e)}`;
             }

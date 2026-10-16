@@ -2449,6 +2449,35 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setSearchQuery("");
   };
 
+  // The chat assistant's one UI-action tool (navigate_to_screen, see ChatAssistant.tsx's
+  // onNavigate prop) -- deliberately reuses this SAME searchDestinations list and the SAME
+  // label/keyword ranking the 🔍 search palette above already uses, rather than maintaining a
+  // second destination list that could silently drift from the real one (e.g. a report renamed
+  // here but not there). A destination that only exists in the OTHER book (e.g. asking for "FBAR"
+  // while in US Books) correctly finds no match, since searchDestinations itself is already
+  // book-filtered -- the message below says so explicitly rather than claiming a generic failure.
+  const navigateFromChat = (destinationQuery: string): string => {
+    const q = destinationQuery.trim().toLowerCase();
+    if (!q) return "navigate_to_screen: no destination given.";
+    const match = searchDestinations
+      .map((d) => {
+        const label = d.label.toLowerCase();
+        let rank = -1;
+        if (label.startsWith(q)) rank = 0;
+        else if (label.includes(q)) rank = 1;
+        else if (d.keywords.some((k) => k.toLowerCase().startsWith(q))) rank = 2;
+        else if (d.keywords.some((k) => k.toLowerCase().includes(q))) rank = 3;
+        return { d, rank };
+      })
+      .filter((r) => r.rank >= 0)
+      .sort((a, b) => a.rank - b.rank)[0]?.d;
+    if (!match) {
+      return `navigate_to_screen: no screen found matching "${destinationQuery}" in the current book (${book === "india" ? "India" : "US"} Books) -- it may only exist in the other book, or may not be a real screen. Tell the user plainly rather than guessing.`;
+    }
+    match.go();
+    return `navigate_to_screen: navigated to "${match.label}".`;
+  };
+
   const filteredActive = active
     .filter(
       (a) =>
@@ -3480,7 +3509,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           {status}
         </div>
       )}
-      {data && <ChatAssistant data={data} book={book} nvdaPrice={nvdaPrice} nvdaPrevClose={nvdaPrevClose} />}
+      {data && <ChatAssistant data={data} book={book} nvdaPrice={nvdaPrice} nvdaPrevClose={nvdaPrevClose} onNavigate={navigateFromChat} />}
       {isBlockingStatus && (
         <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
           <p className="vault-alert-message">{status}</p>
