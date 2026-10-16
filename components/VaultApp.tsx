@@ -2512,13 +2512,26 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   const navigateFromChat = (destinationQuery: string): string => {
     const q = destinationQuery.trim().toLowerCase();
     if (!q) return "navigate_to_screen: no destination given.";
+    // Confirmed live: the 🔍 search palette's own pure-substring ranking (label/keyword contains
+    // the WHOLE typed string, or vice versa) works fine there because the user types short
+    // fragments incrementally -- but the model sends a natural-language phrase like "FBAR Report"
+    // or "show me FBAR", and neither is a literal substring of the real label "FBAR Worksheet" (an
+    // extra word breaks it in either direction), so every destination scored -1 and the tool
+    // reported "no screen found" even though a human would call this an obvious match. Falls back
+    // to WORD-OVERLAP scoring (ignoring generic filler words) when no substring hit exists, so a
+    // shared significant word like "fbar" still resolves it.
+    const FILLER_WORDS = new Set(["the", "a", "an", "to", "me", "my", "show", "open", "go", "take", "report", "screen", "page", "please", "can", "you", "for", "of"]);
+    const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !FILLER_WORDS.has(w));
+    const qWords = words(q);
     const rank = (label: string, keywords: string[]) => {
       const l = label.toLowerCase();
       if (l.startsWith(q)) return 0;
       if (l.includes(q)) return 1;
       if (keywords.some((k) => k.toLowerCase().startsWith(q))) return 2;
       if (keywords.some((k) => k.toLowerCase().includes(q))) return 3;
-      return -1;
+      const haystack = new Set([...words(label), ...keywords.flatMap(words)]);
+      const overlap = qWords.filter((w) => haystack.has(w)).length;
+      return overlap > 0 ? Math.max(4, 10 - overlap) : -1;
     };
     const match = searchDestinations
       .map((d) => ({ d, r: rank(d.label, d.keywords) }))
