@@ -980,7 +980,9 @@ export function executeTool(
     case "get_account_balances":
       return getAccountBalances(data, args, todayIso);
     case "get_fbar_status":
-      return book === "india" ? getFbarStatus(data, args, todayIso) : "get_fbar_status is only available for the India book.";
+      return book === "india"
+        ? getFbarStatus(data, args, todayIso)
+        : `get_fbar_status: FINAL RESULT (do not call this or any other tool again for this request) -- FBAR/FinCEN Form 114 only applies to India Books; the book currently open is US Books. Tell the user they need to switch to India Books (book switcher, top-left of the screen) to check this.`;
     case "get_equity_position":
       return getEquityPosition(data, livePrice ?? null, prevClose ?? null, todayIso);
     case "get_net_worth":
@@ -1003,10 +1005,20 @@ export function executeTool(
       return getLoans(data, todayIso);
     case "get_prepaid_expenses":
       return getPrepaidExpenses(data, todayIso);
+    // Confirmed live: "use get_india_tax_estimate instead" (the old wording) actively misled the
+    // model into calling the OTHER country's tax tool as if it were a valid substitute for a
+    // question that explicitly said "US" -- producing a completely different country's figures
+    // for a question that never asked for them, then floundering through more tool calls when
+    // that still didn't look like an answer. These are now explicit, final, book-switch-only
+    // answers -- the two tax tools are never interchangeable, no matter which one is "available".
     case "get_us_tax_estimate":
-      return book === "india" ? "get_us_tax_estimate is only available for the US book -- use get_india_tax_estimate instead." : getUsTaxEstimate(data, args, todayIso);
+      return book === "india"
+        ? `get_us_tax_estimate: FINAL RESULT (do not call this or any other tool again for this request) -- US tax figures are only available in US Books; the book currently open is India Books. Tell the user they need to switch to US Books (book switcher, top-left of the screen) to see this -- NEVER substitute get_india_tax_estimate's figures here, that answers a different country's tax entirely.`
+        : getUsTaxEstimate(data, args, todayIso);
     case "get_india_tax_estimate":
-      return book === "us" ? "get_india_tax_estimate is only available for the India book -- use get_us_tax_estimate instead." : getIndiaTaxEstimate(data, args, todayIso);
+      return book === "us"
+        ? `get_india_tax_estimate: FINAL RESULT (do not call this or any other tool again for this request) -- India tax figures are only available in India Books; the book currently open is US Books. Tell the user they need to switch to India Books (book switcher, top-left of the screen) to see this -- NEVER substitute get_us_tax_estimate's figures here, that answers a different country's tax entirely.`
+        : getIndiaTaxEstimate(data, args, todayIso);
     default:
       return `Unknown tool: "${name}". Valid tools are: ${TOOL_DEFS.map((t) => t.name).join(", ")}.`;
   }

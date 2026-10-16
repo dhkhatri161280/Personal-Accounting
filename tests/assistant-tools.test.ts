@@ -324,7 +324,7 @@ test("get_account_balances: matches the real dashboard's sign exactly, not its d
 test("get_fbar_status: only available for the India book", () => {
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [] };
   const usResult = executeTool("get_fbar_status", { year: 2026 }, data, "us", "2026-10-15");
-  assert.ok(usResult.includes("only available for the India book"));
+  assert.ok(usResult.includes("only applies to India Books"));
   const indiaResult = executeTool("get_fbar_status", { year: 2026 }, data, "india", "2026-10-15");
   assert.ok(indiaResult.includes("FBAR"));
 });
@@ -667,7 +667,8 @@ test("get_us_tax_estimate: says plainly when there's no payroll data", () => {
 test("get_us_tax_estimate: is India-book-gated the same way get_fbar_status is US-book-gated", () => {
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [] };
   const result = executeTool("get_us_tax_estimate", {}, data, "india", "2026-10-15");
-  assert.ok(result.includes("only available for the US book"));
+  assert.ok(result.includes("only available in US Books"));
+  assert.ok(result.includes("NEVER substitute get_india_tax_estimate"), "must not let the model substitute the other country's tax figures");
 });
 
 // ---- get_india_tax_estimate --------------------------------------------------------------------
@@ -714,5 +715,6 @@ test("get_india_tax_estimate: says plainly when there's no India tax data at all
 test("get_india_tax_estimate: is US-book-gated the same way get_fbar_status is India-book-gated", () => {
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [] };
   const result = executeTool("get_india_tax_estimate", {}, data, "us", "2026-10-15");
-  assert.ok(result.includes("only available for the India book"));
+  assert.ok(result.includes("only available in India Books"));
+  assert.ok(result.includes("NEVER substitute get_us_tax_estimate"), "must not let the model substitute the other country's tax figures");
 });

@@ -94,14 +94,16 @@ CRITICAL: pick the right tool.
   the destination has NO such data tool (e.g. "show me the ledgers", "show me trial balance") or
   when the user clearly means the SCREEN itself ("take me to", "open", "go to", "navigate to").
 
-CRITICAL: navigate_to_screen's result is ALWAYS your final answer for that request, whether it
-succeeded or not -- never call it again with different wording, and never call a different tool
-hoping to resolve it some other way. If it says no screen was found, that result already tells you
-exactly what to say (including which other book to check); just relay it in your own words and
-stop. Confirmed live: a vaguer "not found" message once caused the model to keep calling more
-tools trying to resolve the ambiguity, burning through every round without ever answering, ending
-in a generic "couldn't settle on an answer" error instead of the simple, already-known fact that
-the screen lives in the other book.
+CRITICAL: any tool result starting with "FINAL RESULT" (navigate_to_screen's book-mismatch
+answers, get_us_tax_estimate/get_india_tax_estimate/get_fbar_status's wrong-book answers, ...) IS
+your complete, final answer for that request -- never call that tool again with different
+wording, and never call a DIFFERENT tool hoping to resolve it some other way (in particular: never
+call the OTHER country's tax tool as a "close enough" substitute when one tax tool says it's the
+wrong book -- US tax and India tax are different countries' figures, never interchangeable). Just
+relay the FINAL RESULT message in your own words and stop. Confirmed live: a vaguer version of
+this once caused the model to keep calling more tools trying to resolve the ambiguity, burning
+through every round without ever answering, ending in a generic "couldn't settle on an answer"
+error instead of the simple, already-known fact the tool result already gave you.
 
 CRITICAL: every request needs exactly one tool call that actually DOES something -- data lookup or
 navigation. Never respond by describing what a tool is for or what you "would" do instead of
