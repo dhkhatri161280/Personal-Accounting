@@ -78,6 +78,18 @@ export function FbarReport({
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   const summary = useMemo(() => computeFbarSummary(data, year), [data, year]);
+
+  // Every year's combined peak value side by side -- same "All Years" pattern as TaxReport.tsx's
+  // own collapsible summary table: collapsed by default so the single-year worksheet above stays
+  // the default view (no extra selector cluttering the main screen), expand only when wanted.
+  // Combined INR mirrors computeFbarSummary's own totalUsd filter exactly (skip "exclude" rows and
+  // any "manual" row still missing its value) so the two totals here are computed the same way the
+  // single-year total above always has been -- not a new, differently-filtered number.
+  const allYearsSummary = availableYears.map((y) => {
+    const s = computeFbarSummary(data, y);
+    const totalInr = s.rows.reduce((sum, r) => (r.treatment === "exclude" || r.needsManualValue ? sum : sum + r.maxBalanceNative), 0);
+    return { year: y, totalInr, totalUsd: s.totalUsd, rate: s.rate, thresholdExceeded: s.thresholdExceeded };
+  });
   const deadline = `April 15, ${year + 1} (automatically extended to October 15, ${year + 1} -- no request needed)`;
   const today = todayLocalIso();
   const extendedDeadlinePassed = today > `${year + 1}-10-15`;
@@ -372,11 +384,58 @@ export function FbarReport({
               Converted at {summary.rate.rate} INR/USD — {summary.rate.source}.
             </p>
           )}
+
+          {allYearsSummary.length > 1 && (
+            <details style={{ margin: "14px 0 0" }}>
+              <summary className="tax-summary-figure" style={{ fontSize: 12, cursor: "pointer", listStyle: "none", fontWeight: 600 }}>
+                All Years — Combined Peak Value ({allYearsSummary.length} years, click to expand)
+              </summary>
+              <div className="columnar-report-scroll" style={{ marginTop: "0.5rem" }}>
+                <table className="equity-table equity-drilldown-table">
+                  <thead>
+                    <tr>
+                      <th>Year</th>
+                      <th className="right">Combined Peak Value (INR)</th>
+                      <th className="right">USD Equivalent</th>
+                      <th>Rate Used</th>
+                      <th>Filing Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allYearsSummary.map((r) => (
+                      <tr key={r.year}>
+                        <td>
+                          <button type="button" style={linkBtnStyle} onClick={() => setYear(r.year)}>
+                            {r.year}
+                          </button>
+                        </td>
+                        <td className="right equity-amt">{r.rate ? fmtInr(r.totalInr) : "—"}</td>
+                        <td className="right equity-amt">{r.rate ? fmtUsd(r.totalUsd) : "—"}</td>
+                        <td>{r.rate ? `${r.rate.rate} INR/USD` : "no rate on file"}</td>
+                        <td>{!r.rate ? "—" : r.thresholdExceeded ? "Required" : "Not required"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td>Total</td>
+                      <td className="right equity-amt">{fmtInr(allYearsSummary.reduce((s, r) => s + r.totalInr, 0))}</td>
+                      <td className="right equity-amt">{fmtUsd(allYearsSummary.reduce((s, r) => s + r.totalUsd, 0))}</td>
+                      <td></td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </details>
+          )}
         </>
       )}
     </div>
   );
 }
+
+const linkBtnStyle: React.CSSProperties = { background: "none", border: "none", padding: 0, color: "#2563eb", cursor: "pointer", font: "inherit", textDecoration: "underline" };
 
 // Lives here (not Masters > Settings) deliberately -- both pieces are used ONLY from this report,
 // so bundling them into the app-wide Settings form made that already-long page heavier for every
