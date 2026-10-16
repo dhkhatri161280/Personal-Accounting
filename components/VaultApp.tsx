@@ -1646,6 +1646,30 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     return () => clearInterval(timer);
   }, [!!data, book]);
 
+  // Declared before the `if (!data)` early return below, like every other hook in this component
+  // must be (see showPeriodInfo's own comment above -- this is that exact mistake, made once more
+  // and caught the same way: a blank "Something went wrong" / React error #310 screen right after
+  // deploy). Consumes a cross-book chat-navigation request stashed by navigateFromChat (on the
+  // OTHER book's page, before this one even loaded) -- runs once this book's vault has actually
+  // finished unlocking (data exists), resolves the stashed id against THIS render's own real
+  // searchDestinations/go() callbacks (defined further down, but safe to reference here since the
+  // effect callback itself only runs after this whole render has finished executing), then clears
+  // the flag so it can never re-fire on a later, completely normal visit to this book.
+  useEffect(() => {
+    if (!data) return;
+    let pendingId: string | null = null;
+    try {
+      pendingId = localStorage.getItem(PENDING_CHAT_NAV_KEY);
+    } catch {
+      return;
+    }
+    if (!pendingId) return;
+    localStorage.removeItem(PENDING_CHAT_NAV_KEY);
+    const dest = searchDestinations.find((d) => d.id === pendingId);
+    if (dest) dest.go();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   if (!data)
     return (
       <UnlockScreen
@@ -2532,26 +2556,6 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // to retry, so there's nothing left to "figure out".
     return `navigate_to_screen: FINAL RESULT (do not call navigate_to_screen or any other tool again for this request) -- no screen named "${destinationQuery}" exists in either book. Tell the user this exact fact as your answer -- do not guess a different screen name.`;
   };
-
-  // Consumes a cross-book navigation request stashed by navigateFromChat (on the OTHER book's
-  // page, before this one even loaded) -- runs once this book's vault has actually finished
-  // unlocking (data exists), resolves the stashed id against THIS render's own real
-  // searchDestinations/go() callbacks, then clears the flag so it can never re-fire on a later,
-  // completely normal visit to this book.
-  useEffect(() => {
-    if (!data) return;
-    let pendingId: string | null = null;
-    try {
-      pendingId = localStorage.getItem(PENDING_CHAT_NAV_KEY);
-    } catch {
-      return;
-    }
-    if (!pendingId) return;
-    localStorage.removeItem(PENDING_CHAT_NAV_KEY);
-    const dest = searchDestinations.find((d) => d.id === pendingId);
-    if (dest) dest.go();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
 
   const filteredActive = active
     .filter(
