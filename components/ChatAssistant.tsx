@@ -338,17 +338,30 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
         onPointerDown={bubblePointerDown}
         onClick={bubbleClick}
         aria-label={open ? "Close chat assistant" : "Open chat assistant"}
-        title="Chat assistant (free, Cloudflare Workers AI) -- drag to move"
+        title="DiHiTwa -- chat assistant (free, Cloudflare Workers AI) -- drag to move"
       >
         {open ? "✕" : "💬"}
       </button>
+      {/* Name label under the bubble, following it to wherever it's dragged -- pointer-events:none
+          so it never steals the drag/click the bubble itself handles. */}
+      <div
+        className="chat-assistant-bubble-label"
+        style={bubblePos ? { top: bubblePos.top + 56, left: bubblePos.left } : { visibility: "hidden" }}
+      >
+        DiHiTwa
+      </div>
       {open && (
         <div className="chat-assistant-panel" style={rect ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height } : { visibility: "hidden" }}>
           <div className="chat-assistant-header" onPointerDown={startMove} style={{ cursor: "move" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-              <div>
-                <strong>Assistant</strong>
-                <div style={{ fontSize: 11, opacity: 0.6 }}>Free -- answers from your own data snapshot, not a tax/legal advisor</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <strong>DiHiTwa</strong>
+                <span
+                  style={{ fontSize: 12, opacity: 0.55, cursor: "help" }}
+                  title="Free -- answers from your own data snapshot, not a tax/legal advisor"
+                >
+                  ⓘ
+                </span>
               </div>
               {/* Confirmed live: the only close control was the floating bubble, which can end up
                   far from the panel once both are dragged independently -- the panel header has
