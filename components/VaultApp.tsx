@@ -2472,7 +2472,13 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .filter((r) => r.rank >= 0)
       .sort((a, b) => a.rank - b.rank)[0]?.d;
     if (!match) {
-      return `navigate_to_screen: no screen found matching "${destinationQuery}" in the current book (${book === "india" ? "India" : "US"} Books) -- it may only exist in the other book, or may not be a real screen. Tell the user plainly rather than guessing.`;
+      // Confirmed live: a vaguer version of this message ("it may only exist in the other book...
+      // tell the user plainly") led the model to keep calling MORE tools trying to resolve the
+      // ambiguity instead of just relaying it, until it hit the round cap and showed the generic
+      // "couldn't settle on an answer" error -- never actually telling the user what was wrong.
+      // This is now written as the literal final answer to give, with an explicit instruction not
+      // to retry, so there's nothing left to "figure out".
+      return `navigate_to_screen: FINAL RESULT (do not call navigate_to_screen or any other tool again for this request) -- no screen named "${destinationQuery}" exists in the currently open book (${book === "india" ? "India" : "US"} Books). A screen like FBAR Worksheet or India Tax Report only exists in India Books; a screen like Plaid Import or Schwab Import only exists in US Books. Tell the user this exact fact as your answer: either it's in the other book (name the book switcher they'd use, top-left of the screen) or it isn't a real screen in this app -- do not guess which.`;
     }
     match.go();
     return `navigate_to_screen: navigated to "${match.label}".`;
