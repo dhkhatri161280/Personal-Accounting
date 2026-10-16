@@ -214,6 +214,11 @@ export function FbarReport({
             </option>
           ))}
         </select>
+        {allYearsSummary.length > 1 && (
+          <button type="button" className="tr-refresh-btn" onClick={() => setShowAllYears((v) => !v)}>
+            {showAllYears ? "Hide all years" : `All Years (${allYearsSummary.length})`}
+          </button>
+        )}
         <ExportButton onExport={exportFbar} disabled={summary.rows.length === 0} />
         <button
           type="button"
@@ -227,11 +232,6 @@ export function FbarReport({
         <button type="button" className="tr-refresh-btn" onClick={() => setShowSettingsPanel((v) => !v)}>
           {showSettingsPanel ? "Hide filer profile & rates" : "Filer profile & rates"}
         </button>
-        {allYearsSummary.length > 1 && (
-          <button type="button" className="tr-refresh-btn" onClick={() => setShowAllYears((v) => !v)}>
-            {showAllYears ? "Hide all years" : `All Years (${allYearsSummary.length})`}
-          </button>
-        )}
       </div>
       {showAllYears && allYearsSummary.length > 1 && (
         <div style={{ margin: "0 0 14px" }}>
