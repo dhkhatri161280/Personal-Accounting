@@ -245,7 +245,11 @@ export function FbarReport({
               </thead>
               <tbody>
                 {allYearsSummary.map((r) => (
-                  <tr key={r.year}>
+                  // Same light-red/light-green convention as the single-year status banner above
+                  // (summary.thresholdExceeded's own background colors) -- a year with no Treasury
+                  // rate on file stays unstyled, since "Required"/"Not required" isn't actually
+                  // known for it yet.
+                  <tr key={r.year} style={!r.rate ? undefined : r.thresholdExceeded ? { background: "#fee2e2" } : { background: "#dcfce7" }}>
                     <td>
                       <button type="button" style={linkBtnStyle} onClick={() => setYear(r.year)}>
                         {r.year}
