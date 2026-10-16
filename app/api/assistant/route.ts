@@ -150,6 +150,77 @@ const MAX_MESSAGES = 40; // a handful of user turns, each possibly expanded into
 // don't quietly repeat this.
 const MAX_TOOLS = 30;
 
+type ModelResult = { response?: string; tool_calls?: unknown };
+
+function isQuotaExceeded(msg: string): boolean {
+  return /neuron|quota|limit/i.test(msg);
+}
+
+type FallbackAccount = { accountId: string; apiToken: string };
+
+function parseFallbackAccounts(raw: string | undefined): FallbackAccount[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (a): a is FallbackAccount => !!a && typeof a === "object" && typeof (a as FallbackAccount).accountId === "string" && typeof (a as FallbackAccount).apiToken === "string"
+    );
+  } catch {
+    // Malformed AI_FALLBACK_ACCOUNTS secret -- treat as "no fallback configured" rather than
+    // crashing the whole request over a secret that's only ever needed once the primary
+    // account's quota is already exhausted.
+    return [];
+  }
+}
+
+// Calls the SAME model via Cloudflare's own REST API under a DIFFERENT account's id/token,
+// instead of the env.AI binding (which can only ever reach the account this Worker lives in) --
+// see AI_FALLBACK_ACCOUNTS's own comment in lib/cloudflare-env.ts for why. The request body is
+// the same shape the binding takes; unverified against a live second account in this environment
+// (no test credentials available here), so this stays defensive about the response shape --
+// anything short of a clean { result: { response/tool_calls } } throws, which the caller treats
+// exactly like a failed account and just moves on to the next one (or the final error) rather
+// than crashing on a REST shape that turns out to differ from the binding's own return value.
+async function runViaRestApi(account: FallbackAccount, model: string, messages: unknown, tools: unknown): Promise<ModelResult> {
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account.accountId}/ai/run/${model}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${account.apiToken}` },
+    body: JSON.stringify({ messages, tools, max_tokens: 1024 }),
+  });
+  const json = (await res.json().catch(() => null)) as { success?: boolean; result?: ModelResult; errors?: unknown } | null;
+  if (!res.ok || !json || json.success === false || !json.result || typeof json.result !== "object") {
+    throw new Error(`fallback account ${account.accountId} failed (HTTP ${res.status}): ${JSON.stringify(json?.errors ?? (await res.text().catch(() => "")))}`);
+  }
+  return json.result;
+}
+
+// Tries the primary account's own native binding first (free, zero network surface, today's
+// quota) -- only on a QUOTA-specific failure does it fall through to AI_FALLBACK_ACCOUNTS, in
+// order, stopping at the first one that succeeds. A non-quota failure (bad request, model error)
+// is NOT retried against other accounts -- retrying a genuinely malformed request elsewhere would
+// just fail the same way N more times instead of surfacing the real problem.
+async function runModel(model: string, messages: unknown, tools: unknown): Promise<ModelResult> {
+  try {
+    return (await bindings.AI.run(model as Parameters<Ai["run"]>[0], { messages, tools, max_tokens: 1024 } as Parameters<Ai["run"]>[1])) as ModelResult;
+  } catch (e) {
+    const primaryMsg = e instanceof Error ? e.message : String(e);
+    if (!isQuotaExceeded(primaryMsg)) throw e;
+    const fallbacks = parseFallbackAccounts(bindings.AI_FALLBACK_ACCOUNTS);
+    for (const account of fallbacks) {
+      try {
+        return await runViaRestApi(account, model, messages, tools);
+      } catch {
+        // This account is also exhausted/misconfigured -- move on to the next one.
+      }
+    }
+    // No fallback configured, or every configured account also failed -- surface the ORIGINAL
+    // quota error, since that's the one the caller's isQuotaExceeded check (and its user-facing
+    // "resets at midnight UTC" message) already knows how to explain.
+    throw e;
+  }
+}
+
 function isApiMessage(v: unknown): v is ApiMessage {
   if (!v || typeof v !== "object") return false;
   const m = v as Record<string, unknown>;
@@ -181,10 +252,7 @@ export async function POST(request: Request) {
   const fullMessages = [{ role: "system", content: SYSTEM_PROMPT }, ...messages];
 
   try {
-    const result = (await bindings.AI.run(MODEL, { messages: fullMessages, tools, max_tokens: 1024 })) as {
-      response?: string;
-      tool_calls?: unknown;
-    };
+    const result = await runModel(MODEL, fullMessages, tools);
     // Defensive: only relay tool_calls entries shaped the way this route (and the client's
     // executeTool dispatch) expects -- a malformed entry from the model shouldn't propagate as a
     // crash on either side of the wire.
