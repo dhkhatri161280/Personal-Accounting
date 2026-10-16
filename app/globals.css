@@ -10919,11 +10919,11 @@ body.dark-mode {
   overflow: hidden;
 }
 .chat-assistant-header {
-  padding: 12px 14px;
+  /* Tight vertical padding -- this row holds only "DiHiTwa [i]" and the close button now (the old
+     subtitle line moved into that [i] icon's hover tooltip), so there's no reason for the bar to
+     be any taller than the text itself needs. */
+  padding: 6px 14px;
   border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   touch-action: none;
 }
 .chat-assistant-close-btn {
