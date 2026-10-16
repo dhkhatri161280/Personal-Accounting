@@ -368,7 +368,7 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
           onPointerDown={bubblePointerDown}
           onClick={bubbleClick}
           aria-label={open ? "Close chat assistant" : "Open chat assistant"}
-          title="DiHiTwa -- chat assistant (free, Cloudflare Workers AI) -- drag to move"
+          title="DiHiTwa - AI Agent"
         >
           {open ? "✕" : "💬"}
         </button>
