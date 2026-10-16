@@ -136,6 +136,14 @@ const BalanceConfirmationLetter = lazy(() => import("@/components/reports/Balanc
 
 const BIO_KEY = "personal-ledger-biometric-v1";
 
+// Cross-book chat navigation (see navigateFromChat/the pending-nav effect below): books are
+// separate routes (/vault, /india -- a full page navigation, not client-side routing), but once
+// unlocked, BOTH books' session keys are already cached in sessionStorage (see the "pw" writes a
+// few hundred lines down) -- so navigating books is already a same-tab, no-re-auth "screen swap"
+// by this app's own design, the user confirmed. This key survives that navigation (localStorage,
+// not sessionStorage) long enough for the OTHER book's freshly-loaded page to pick it up once.
+const PENDING_CHAT_NAV_KEY = "dk-chat-pending-nav";
+
 const VOUCHER_TYPE_ICONS: Record<string, string> = {
   payment: "💸",
   receipt: "💰",
@@ -2449,40 +2457,101 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     setSearchQuery("");
   };
 
+  // Names/keywords-only shadow of searchDestinations' own book-gated entries (no go() -- a match
+  // here means "ask the OTHER book's own page to navigate there", not something this render could
+  // call itself). Deliberately kept tiny and separate rather than refactoring searchDestinations
+  // into a book-parameterized function -- its real go() callbacks close over dozens of this
+  // component's own setters and only make sense for the book actually mounted right now; this
+  // list exists purely to recognize "that screen belongs to the other book" and redirect there.
+  // Keep in sync with searchDestinations' own `book === "india"`/`book !== "india"` entries above
+  // if either changes.
+  const CROSS_BOOK_ONLY: { book: "us" | "india"; id: string; label: string; keywords: string[] }[] = [
+    { book: "us", id: "import-plaid", label: "Plaid Import", keywords: ["bank", "plaid", "credit card", "checking"] },
+    { book: "us", id: "import-plaid-pending", label: "Plaid — Pending Transactions", keywords: ["pending", "unconfirmed"] },
+    { book: "us", id: "import-plaid-balances", label: "Plaid — Balances", keywords: ["balances", "account balance", "reconcile balance"] },
+    { book: "us", id: "import-schwab", label: "Schwab Import", keywords: ["schwab", "dividend", "brokerage", "interest"] },
+    { book: "us", id: "import-retirement", label: "Retirement Import", keywords: ["retirement", "401k", "ira", "hsa"] },
+    { book: "us", id: "report-trading", label: "Trading", keywords: ["stocks", "broker", "trades", "portfolio", "open positions"] },
+    { book: "us", id: "report-trading-closed", label: "Trading — Closed Positions", keywords: ["closed positions", "sold trades", "realized"] },
+    { book: "us", id: "report-trading-watchlist", label: "Trading — Watchlist", keywords: ["watchlist", "stocks to buy", "buy list"] },
+    { book: "us", id: "report-holdings", label: "Holdings", keywords: ["holdings", "total", "everything", "rsu", "espp", "cash balance", "net worth"] },
+    { book: "us", id: "report-bankrecon", label: "Bank Reconciliation", keywords: ["bank recon", "plaid", "unmatched", "outstanding", "balance"] },
+    { book: "india", id: "report-tax-all-years", label: "Tax — All Years", keywords: ["all years", "multi year", "history", "payroll history"] },
+    { book: "india", id: "report-fbar", label: "FBAR Worksheet", keywords: ["fbar", "fincen", "114", "foreign account", "treasury", "exchange rate"] },
+  ];
+
   // The chat assistant's one UI-action tool (navigate_to_screen, see ChatAssistant.tsx's
   // onNavigate prop) -- deliberately reuses this SAME searchDestinations list and the SAME
   // label/keyword ranking the 🔍 search palette above already uses, rather than maintaining a
   // second destination list that could silently drift from the real one (e.g. a report renamed
-  // here but not there). A destination that only exists in the OTHER book (e.g. asking for "FBAR"
-  // while in US Books) correctly finds no match, since searchDestinations itself is already
-  // book-filtered -- the message below says so explicitly rather than claiming a generic failure.
+  // here but not there).
   const navigateFromChat = (destinationQuery: string): string => {
     const q = destinationQuery.trim().toLowerCase();
     if (!q) return "navigate_to_screen: no destination given.";
+    const rank = (label: string, keywords: string[]) => {
+      const l = label.toLowerCase();
+      if (l.startsWith(q)) return 0;
+      if (l.includes(q)) return 1;
+      if (keywords.some((k) => k.toLowerCase().startsWith(q))) return 2;
+      if (keywords.some((k) => k.toLowerCase().includes(q))) return 3;
+      return -1;
+    };
     const match = searchDestinations
-      .map((d) => {
-        const label = d.label.toLowerCase();
-        let rank = -1;
-        if (label.startsWith(q)) rank = 0;
-        else if (label.includes(q)) rank = 1;
-        else if (d.keywords.some((k) => k.toLowerCase().startsWith(q))) rank = 2;
-        else if (d.keywords.some((k) => k.toLowerCase().includes(q))) rank = 3;
-        return { d, rank };
-      })
-      .filter((r) => r.rank >= 0)
-      .sort((a, b) => a.rank - b.rank)[0]?.d;
-    if (!match) {
-      // Confirmed live: a vaguer version of this message ("it may only exist in the other book...
-      // tell the user plainly") led the model to keep calling MORE tools trying to resolve the
-      // ambiguity instead of just relaying it, until it hit the round cap and showed the generic
-      // "couldn't settle on an answer" error -- never actually telling the user what was wrong.
-      // This is now written as the literal final answer to give, with an explicit instruction not
-      // to retry, so there's nothing left to "figure out".
-      return `navigate_to_screen: FINAL RESULT (do not call navigate_to_screen or any other tool again for this request) -- no screen named "${destinationQuery}" exists in the currently open book (${book === "india" ? "India" : "US"} Books). A screen like FBAR Worksheet or India Tax Report only exists in India Books; a screen like Plaid Import or Schwab Import only exists in US Books. Tell the user this exact fact as your answer: either it's in the other book (name the book switcher they'd use, top-left of the screen) or it isn't a real screen in this app -- do not guess which.`;
+      .map((d) => ({ d, r: rank(d.label, d.keywords) }))
+      .filter((x) => x.r >= 0)
+      .sort((a, b) => a.r - b.r)[0]?.d;
+    if (match) {
+      match.go();
+      return `navigate_to_screen: navigated to "${match.label}".`;
     }
-    match.go();
-    return `navigate_to_screen: navigated to "${match.label}".`;
+    // Confirmed live: asked for the FBAR report while in US Books, it only exists in India Books
+    // -- and since the user confirmed this app's unified-vault design means switching books never
+    // needs re-authentication (both books' sessionStorage keys are already populated once
+    // unlocked), a book-mismatch isn't a dead end -- it's resolved the same way the book switcher
+    // itself works (a same-tab navigation to the other book's route), just with the destination
+    // report stashed first so it opens automatically once that page's own vault finishes loading.
+    const otherBook = book === "india" ? "us" : "india";
+    const crossMatch = CROSS_BOOK_ONLY.filter((x) => x.book === otherBook)
+      .map((x) => ({ x, r: rank(x.label, x.keywords) }))
+      .filter((y) => y.r >= 0)
+      .sort((a, b) => a.r - b.r)[0]?.x;
+    if (crossMatch) {
+      try {
+        localStorage.setItem(PENDING_CHAT_NAV_KEY, crossMatch.id);
+      } catch {
+        // storage full/unavailable -- still navigate, just without the auto-open-report follow-through
+      }
+      window.location.href = otherBook === "india" ? "/india" : "/vault";
+      return `navigate_to_screen: FINAL RESULT (do not call navigate_to_screen or any other tool again for this request) -- "${crossMatch.label}" lives in ${otherBook === "india" ? "India" : "US"} Books, not the book currently open. Switching books now and opening it there. Tell the user exactly that -- you're taking them there, not asking them to do it themselves.`;
+    }
+    // Confirmed live: a vaguer version of this message ("it may only exist in the other book...
+    // tell the user plainly") led the model to keep calling MORE tools trying to resolve the
+    // ambiguity instead of just relaying it, until it hit the round cap and showed the generic
+    // "couldn't settle on an answer" error -- never actually telling the user what was wrong.
+    // This is now written as the literal final answer to give, with an explicit instruction not
+    // to retry, so there's nothing left to "figure out".
+    return `navigate_to_screen: FINAL RESULT (do not call navigate_to_screen or any other tool again for this request) -- no screen named "${destinationQuery}" exists in either book. Tell the user this exact fact as your answer -- do not guess a different screen name.`;
   };
+
+  // Consumes a cross-book navigation request stashed by navigateFromChat (on the OTHER book's
+  // page, before this one even loaded) -- runs once this book's vault has actually finished
+  // unlocking (data exists), resolves the stashed id against THIS render's own real
+  // searchDestinations/go() callbacks, then clears the flag so it can never re-fire on a later,
+  // completely normal visit to this book.
+  useEffect(() => {
+    if (!data) return;
+    let pendingId: string | null = null;
+    try {
+      pendingId = localStorage.getItem(PENDING_CHAT_NAV_KEY);
+    } catch {
+      return;
+    }
+    if (!pendingId) return;
+    localStorage.removeItem(PENDING_CHAT_NAV_KEY);
+    const dest = searchDestinations.find((d) => d.id === pendingId);
+    if (dest) dest.go();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const filteredActive = active
     .filter(
