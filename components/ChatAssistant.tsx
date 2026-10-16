@@ -374,6 +374,22 @@ export function ChatAssistant({
           continue;
         }
         if (j.reply) {
+          // Confirmed live, twice: asked to navigate somewhere, the model sometimes narrates
+          // having called navigate_to_screen ("The function `navigate_to_screen` has been called
+          // with the argument `destination` set to \"X\"...") as plain TEXT instead of actually
+          // emitting a tool call -- j.toolCalls is empty, nothing ever ran, the UI never moves.
+          // Recognized here and executed anyway rather than showing the user a description of an
+          // action that never happened -- the quoted destination (the backtick-quoted `arguments`/
+          // `destination` field names never match this since it's real quote characters, not
+          // backticks) is handed to the SAME onNavigate path a real tool call would have used.
+          const narratedNav = /navigate_to_screen[\s\S]*?["“']([^"”']{2,60})["”']/i.exec(j.reply);
+          if (narratedNav && onNavigate) {
+            const clean = onNavigate(narratedNav[1]);
+            const finalText = clean.includes(": FINAL RESULT (") ? clean.slice(clean.indexOf(") -- ") + 5) : clean;
+            answerCacheRef.current.set(cacheKey, { content: finalText, toolTrace: [...toolTrace, `navigate_to_screen(destination: "${narratedNav[1]}") [recovered from narrated-not-called reply]`] });
+            setMessages((prev) => [...prev, { role: "assistant", content: finalText, toolTrace: [...toolTrace, `navigate_to_screen(destination: "${narratedNav[1]}") [recovered from narrated-not-called reply]`] }]);
+            return;
+          }
           answerCacheRef.current.set(cacheKey, { content: j.reply, toolTrace: toolTrace.length ? toolTrace : undefined });
           setMessages((prev) => [...prev, { role: "assistant", content: j.reply!, toolTrace: toolTrace.length ? toolTrace : undefined }]);
           return;

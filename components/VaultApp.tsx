@@ -2523,6 +2523,26 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     const FILLER_WORDS = new Set(["the", "a", "an", "to", "me", "my", "show", "open", "go", "take", "report", "screen", "page", "please", "can", "you", "for", "of"]);
     const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !FILLER_WORDS.has(w));
     const qWords = words(q);
+    // "Tax" is a single screen (id report-tax) that exists in BOTH books -- unlike FBAR, which
+    // only exists in India Books and so is naturally caught by the CROSS_BOOK_ONLY check below,
+    // "Tax" would otherwise match the CURRENT book's own Tax screen even when the user explicitly
+    // named the OTHER country (confirmed live: "take me to US Tax Report" while in India Books
+    // just re-rendered the already-visible India Tax screen, silently ignoring "US"). Checked
+    // first, before the normal same-book match, so an explicit country name always wins.
+    if (qWords.includes("tax")) {
+      const wantsUs = qWords.some((w) => w === "us" || w === "usa" || w === "american");
+      const wantsIndia = qWords.some((w) => w === "india" || w === "indian");
+      const wantedBook = wantsUs ? "us" : wantsIndia ? "india" : null;
+      if (wantedBook && wantedBook !== book) {
+        try {
+          localStorage.setItem(PENDING_CHAT_NAV_KEY, "report-tax");
+        } catch {
+          // storage full/unavailable -- still navigate, just without the auto-open-report follow-through
+        }
+        window.location.href = wantedBook === "india" ? "/india" : "/vault";
+        return `navigate_to_screen: FINAL RESULT (do not call navigate_to_screen or any other tool again for this request) -- the ${wantedBook === "india" ? "India" : "US"} Tax report is in a different book than the one currently open. Switching books now and opening it there. Tell the user exactly that -- you're taking them there, not asking them to do it themselves.`;
+      }
+    }
     const rank = (label: string, keywords: string[]) => {
       const l = label.toLowerCase();
       if (l.startsWith(q)) return 0;
