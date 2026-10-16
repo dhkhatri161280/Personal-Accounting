@@ -346,7 +346,7 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
           so it never steals the drag/click the bubble itself handles. */}
       <div
         className="chat-assistant-bubble-label"
-        style={bubblePos ? { top: bubblePos.top + 56, left: bubblePos.left } : { visibility: "hidden" }}
+        style={bubblePos ? { top: bubblePos.top + 56, left: bubblePos.left + 26 } : { visibility: "hidden" }}
       >
         DiHiTwa
       </div>
