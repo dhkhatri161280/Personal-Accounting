@@ -183,6 +183,66 @@ test("get_account_ledger: an Investment-nature account's net total matches the r
   assert.ok(result.includes("(-772.78 USD)"), "the reversal must display negative, same sign the real Ledger report shows it with");
 });
 
+// ---- search_accounts ---------------------------------------------------------------------
+
+test("search_accounts: combines several named accounts into one authoritative total, with a per-account breakdown", () => {
+  // The user's own original ask: "Gas"/"Gasoline" spend could be recorded under Vehicle
+  // Maintenance, Travelling, OR House Hold -- one real purchase in each, this must find all three
+  // and sum them, while still showing which account each dollar came from.
+  const accounts = [
+    account(1, "Vehicle Maintenance", "Indirect Expenses"),
+    account(2, "Travelling Expenses", "Indirect Expenses"),
+    account(3, "House Hold Exps", "Indirect Expenses"),
+    account(999, "Citi Credit Card", "Bank Accounts"),
+  ];
+  const vehicle = tx(1, "2026-04-05", "Payment", "Gas station fill-up", [{ accountId: 1, amount: -40 }, { accountId: 999, amount: 40 }]);
+  const travel = tx(2, "2026-05-10", "Payment", "Rental car gasoline", [{ accountId: 2, amount: -25 }, { accountId: 999, amount: 25 }]);
+  const house = tx(3, "2026-06-01", "Payment", "Generator gasoline", [{ accountId: 3, amount: -15 }, { accountId: 999, amount: 15 }]);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [vehicle, travel, house] };
+  const result = executeTool(
+    "search_accounts",
+    { accountNames: ["Vehicle Maintenance", "Travelling Expenses", "House Hold Exps"], period: "current_fiscal_year" },
+    data, "us", "2026-10-15"
+  );
+  assert.ok(result.includes("3 voucher(s) across 3 account(s)"));
+  assert.ok(result.includes("PRECOMPUTED TOTAL") && result.includes("80.00 USD"), "total must be 40 + 25 + 15 = 80");
+  assert.ok(result.includes("Vehicle Maintenance: 40.00") && result.includes("Travelling Expenses: 25.00") && result.includes("House Hold Exps: 15.00"), "per-account breakdown must show each account's own contribution");
+});
+
+test("search_accounts: an optional narration term filters WITHIN the requested accounts, excluding unrelated vouchers in the same accounts", () => {
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses"), account(999, "Bank", "Bank Accounts")];
+  const gas = tx(1, "2026-04-05", "Payment", "Gasoline fill-up", [{ accountId: 1, amount: -40 }, { accountId: 999, amount: 40 }]);
+  const oilChange = tx(2, "2026-04-06", "Payment", "Oil change service", [{ accountId: 1, amount: -60 }, { accountId: 999, amount: 60 }]);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [gas, oilChange] };
+  const result = executeTool("search_accounts", { accountNames: ["Vehicle Maintenance"], terms: ["gas"], period: "current_fiscal_year" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("Gasoline fill-up"));
+  assert.ok(!result.includes("Oil change service"), "a narration term must exclude a voucher in the same account that doesn't match it");
+  assert.ok(result.includes("40.00 USD"));
+});
+
+test("search_accounts: resolves what it can and reports what it can't, without blending an ambiguous name's accounts together", () => {
+  const accounts = [
+    account(1, "Vehicle Maintenance", "Indirect Expenses"),
+    account(2, "ESPP Deduction", "Investments"),
+    account(3, "ESPP Shares Held", "Investments"),
+    account(999, "Bank", "Bank Accounts"),
+  ];
+  const real = tx(1, "2026-04-05", "Payment", "Gas", [{ accountId: 1, amount: -40 }, { accountId: 999, amount: 40 }]);
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [real] };
+  const result = executeTool("search_accounts", { accountNames: ["Vehicle Maintenance", "ESPP", "No Such Account"], period: "current_fiscal_year" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("1 account(s)"), "only the one unambiguously-resolved account should be used");
+  assert.ok(result.includes("40.00 USD"));
+  assert.ok(result.includes("ambiguous") && result.includes("ESPP Deduction") && result.includes("ESPP Shares Held"), "the ambiguous name must be reported, naming both real candidates, not guessed or blended");
+  assert.ok(result.includes("No Such Account"), "an unresolvable name must be reported too");
+});
+
+test("search_accounts: a clear error when no account name resolves at all", () => {
+  const accounts = [account(1, "Vehicle Maintenance", "Indirect Expenses")];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions: [] };
+  const result = executeTool("search_accounts", { accountNames: ["Nonexistent"], period: "current_fiscal_year" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("could not resolve"));
+});
+
 // ---- get_salary_summary -------------------------------------------------------------------
 
 test("get_salary_summary: take-home reads the real bank deposit, not a derived subtraction", () => {

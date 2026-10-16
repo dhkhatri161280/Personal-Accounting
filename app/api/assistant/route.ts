@@ -44,8 +44,17 @@ CRITICAL: pick the right tool.
   if two unrelated accounts both happen to contain the same word (e.g. one tracking a dollar
   deduction, another tracking a share count or market value), it silently blends numbers from BOTH
   into one nonsensical total. get_account_ledger is exact: one specific account, nothing else.
-- A merchant or category is named that is clearly NOT an account name (e.g. "Costco spending",
-  "gasoline") -> search_vouchers.
+- A merchant or category is named that is clearly NOT an account name (e.g. "Costco spending") ->
+  search_vouchers.
+- A category that commonly spans MULTIPLE real GL accounts (e.g. "gas"/"gasoline" could be
+  recorded under "Vehicle Maintenance", "Travelling Expenses", or "House Hold Exps" depending on
+  how it was logged) -> search_accounts with the list of real account names that plausibly make up
+  that category. If you don't already know the real account names from this conversation, call
+  get_account_balances first (no nameFilter, or a broad one) to see the actual chart of accounts,
+  then pick the ones relevant to the category and pass them to search_accounts together -- do not
+  guess account names that were never confirmed to exist. Prefer this over search_vouchers whenever
+  the category is naturally tied to a handful of specific accounts rather than one exact word; use
+  search_vouchers only for a true free-text/merchant-narration search with no obvious account tie.
 - Salary, paycheck, take-home, or tax-withheld -> get_salary_summary.
 - A balance question ("how much is in my bank account", "what's my NVDA balance") ->
   get_account_balances. These are CUMULATIVE since the account opened, NOT a period total --
@@ -123,7 +132,13 @@ type ToolCall = { name: string; arguments: Record<string, unknown> };
 
 const MAX_MESSAGE_CHARS = 8000; // a tool result can be a sizeable voucher list; generous but still bounded
 const MAX_MESSAGES = 40; // a handful of user turns, each possibly expanded into a few tool round-trips
-const MAX_TOOLS = 10;
+// Was 10 -- set back when this feature had ~6 tools. TOOL_DEFS has long since grown past that
+// (18 tools as of this comment, 19 with search_accounts) and this cap was silently dropping every
+// tool past position 10 in the array from what the model ever saw -- get_budget_vs_actual onward,
+// including BOTH tax tools, never reached it. Found while adding a new tool and confirming it
+// would actually be visible to the model; raised well above the real count so future additions
+// don't quietly repeat this.
+const MAX_TOOLS = 30;
 
 function isApiMessage(v: unknown): v is ApiMessage {
   if (!v || typeof v !== "object") return false;

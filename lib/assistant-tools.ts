@@ -252,6 +252,97 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
   return lines.join("\n");
 }
 
+// ---- tool: search_accounts -------------------------------------------------------------------
+
+// User's own original ask: "why is it when I say Gas or Gasoline, it should automatically check
+// all narration with GL account which are related to Gas - may be Travelling or Vehicle
+// Maintenance or House Hold?" -- a conceptual category can legitimately span SEVERAL distinct real
+// accounts, which neither existing tool handles well: search_vouchers is narration/account-name
+// substring matching across EVERY account (too broad, drowns in noise, confirmed live).
+// get_account_ledger is exactly ONE named account (too narrow for a category). This is the
+// multi-account version of get_account_ledger: the caller supplies the SPECIFIC real account
+// names that make up the category (the model is expected to know/discover them, e.g. via a prior
+// get_account_balances call), and each name is resolved to exactly one real account using the
+// SAME exact-match-wins / refuse-to-blend-on-ambiguity rule get_account_ledger already uses --
+// this is deliberately NOT fuzzy category guessing in code (that was the ESPP-blending bug class),
+// it's an explicit, named list of real accounts, each contributing its own clearly-labeled total.
+function searchAccounts(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
+  const namesArg = Array.isArray(args.accountNames)
+    ? args.accountNames.filter((n): n is string => typeof n === "string" && n.trim().length > 0)
+    : [];
+  if (!namesArg.length) return "search_accounts error: no accountNames given.";
+  const { period, note } = readPeriodArg(args);
+  const { from, to, label } = resolvePeriod(period, todayIso);
+  const terms = Array.isArray(args.terms)
+    ? args.terms.filter((t): t is string => typeof t === "string" && t.trim().length > 0).map((t) => t.toLowerCase().trim())
+    : [];
+
+  const resolved: { query: string; account: { id: number; name: string } }[] = [];
+  const problems: string[] = [];
+  for (const nameQuery of namesArg) {
+    const q = nameQuery.toLowerCase().trim();
+    const exact = data.accounts.filter((a) => a.name.toLowerCase() === q);
+    const candidates = exact.length ? exact : data.accounts.filter((a) => a.name.toLowerCase().includes(q));
+    if (!candidates.length) {
+      problems.push(`"${nameQuery}": no account found with that name`);
+      continue;
+    }
+    if (candidates.length > 1) {
+      problems.push(`"${nameQuery}": ambiguous -- matches ${candidates.map((a) => `"${a.name}"`).join(", ")}, none exact -- skipped rather than guessed`);
+      continue;
+    }
+    resolved.push({ query: nameQuery, account: candidates[0] });
+  }
+  if (!resolved.length) return `search_accounts: could not resolve any of the given account names to a real account. ${problems.join("; ")}.`;
+
+  const accountNameById = new Map(resolved.map((r) => [r.account.id, r.account.name]));
+  const matches = data.transactions
+    .filter((t) => !t.deleted && !t.cancelled && t.date >= from && t.date <= to)
+    .filter((t) => t.entries.some((e) => accountNameById.has(e.accountId)))
+    .filter((t) => !terms.length || terms.some((term) => t.narration.toLowerCase().includes(term)))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const resolvedNames = resolved.map((r) => r.account.name).join(", ");
+  const problemNote = problems.length ? ` [note: could not resolve ${problems.join("; ")}]` : "";
+  const header = `search_accounts(${resolvedNames}${terms.length ? `, narration matches [${terms.join(", ")}]` : ""}, ${label})`;
+  if (!matches.length) return `${header}: 0 vouchers found.${note}${problemNote}`;
+
+  // Same display formula as get_account_ledger (mirrors the real Ledger report's own math): sum
+  // this voucher's entries against each REQUESTED account, flip the sign. A voucher that happens
+  // to touch two of the requested accounts at once is counted once per account it touches (real,
+  // if rare, for inter-category transfers) -- never silently blended into one unlabeled figure.
+  let total = 0;
+  const perAccountTotal = new Map<number, number>();
+  const allLines: string[] = [];
+  for (const t of matches) {
+    let voucherAmt = 0;
+    const touchedNames = new Set<string>();
+    for (const e of t.entries) {
+      const name = accountNameById.get(e.accountId);
+      if (!name) continue;
+      const amt = -e.amount;
+      voucherAmt += amt;
+      perAccountTotal.set(e.accountId, (perAccountTotal.get(e.accountId) ?? 0) + amt);
+      touchedNames.add(name);
+    }
+    total += voucherAmt;
+    allLines.push(`- ${fmtDate(t.date)} ${t.type} #${t.number}: ${t.narration} [account: ${[...touchedNames].join(" / ")}] (${voucherAmt.toFixed(2)} ${data.currency})`);
+  }
+
+  const truncated = allLines.length > MAX_RESULTS;
+  const shownLines = truncated ? allLines.slice(0, MAX_RESULTS) : allLines;
+  const breakdown = resolved.map((r) => `${r.account.name}: ${(perAccountTotal.get(r.account.id) ?? 0).toFixed(2)}`).join(", ");
+  const lines = [
+    `${header}: ${matches.length} voucher(s) across ${resolved.length} account(s).${note}${problemNote}`,
+    `PRECOMPUTED TOTAL (authoritative, combined across all requested accounts -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
+    `Per-account breakdown (same combined total, split by account so you can see where it came from): ${breakdown} ${data.currency}`,
+    "",
+    truncated ? `Voucher list (showing the first ${MAX_RESULTS} of ${matches.length} -- the total above already covers all ${matches.length}):` : "Voucher list (for citing examples only -- the total above is already correct):",
+    ...shownLines,
+  ];
+  return lines.join("\n");
+}
+
 // ---- tool: get_salary_summary ----------------------------------------------------------------
 
 function getSalarySummary(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
@@ -686,6 +777,20 @@ export const TOOL_DEFS: { name: string; description: string; parameters: Record<
     },
   },
   {
+    name: "search_accounts",
+    description:
+      "Get EVERY voucher across SEVERAL SPECIFIC named accounts at once, combined into one authoritative total plus a per-account breakdown, within one time period. Use this when the user names a CATEGORY or MERCHANT that spans more than one real GL account (e.g. 'gas'/'gasoline' spend could live in 'Vehicle Maintenance', 'Travelling Expenses', AND 'House Hold Exps') -- call get_account_balances first if you don't already know the real account names to list, then pass each one here. This is the multi-account version of get_account_ledger; unlike search_vouchers it is never fuzzy narration matching across the whole chart of accounts, so it never silently blends an unrelated account in.",
+    parameters: {
+      type: "object",
+      properties: {
+        accountNames: { type: "array", items: { type: "string" }, description: "Two or more real account names (or exact substrings) that together make up the category, e.g. [\"Vehicle Maintenance\", \"Travelling Expenses\", \"House Hold Exps\"]." },
+        terms: { type: "array", items: { type: "string" }, description: "Optional: only include vouchers in those accounts whose narration also contains one of these words (e.g. [\"gas\",\"gasoline\"]). Omit to include every voucher in the listed accounts." },
+        period: PERIOD_PARAM,
+      },
+      required: ["accountNames", "period"],
+    },
+  },
+  {
     name: "get_salary_summary",
     description:
       "Get gross pay, tax deducted, 401k, medical, telephone, and net take-home (the real bank deposit) totals across every salary/paystub voucher in one time period. Use this for any salary, paycheck, take-home, or tax-withheld question.",
@@ -856,6 +961,8 @@ export function executeTool(
       return searchVouchers(data, args, todayIso);
     case "get_account_ledger":
       return getAccountLedger(data, args, todayIso);
+    case "search_accounts":
+      return searchAccounts(data, args, todayIso);
     case "get_salary_summary":
       return getSalarySummary(data, args, todayIso);
     case "get_account_balances":
