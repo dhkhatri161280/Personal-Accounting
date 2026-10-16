@@ -10856,11 +10856,15 @@ body.dark-mode {
    position avoids all of them; letting the user drag it wherever actually works is what
    generalizes). right/bottom:auto below only matter before that inline style is set (this rule's
    static right/bottom would otherwise still apply and fight the inline top/left). */
-.chat-assistant-bubble {
+.chat-assistant-bubble-wrap {
   position: fixed;
   right: auto;
   bottom: auto;
   z-index: 85;
+  display: inline-block;
+}
+.chat-assistant-bubble {
+  position: static;
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -10882,9 +10886,11 @@ body.dark-mode {
   background: #1e40af;
 }
 .chat-assistant-bubble-label {
-  position: fixed;
-  z-index: 85;
+  position: absolute;
+  top: 100%;
+  left: 50%;
   transform: translateX(-50%);
+  margin-top: 4px;
   text-align: center;
   font-size: 11px;
   font-weight: 600;

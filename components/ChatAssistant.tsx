@@ -331,24 +331,27 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
 
   return (
     <>
-      <button
-        type="button"
-        className="chat-assistant-bubble"
-        style={bubblePos ? { top: bubblePos.top, left: bubblePos.left, right: "auto", bottom: "auto" } : { visibility: "hidden" }}
-        onPointerDown={bubblePointerDown}
-        onClick={bubbleClick}
-        aria-label={open ? "Close chat assistant" : "Open chat assistant"}
-        title="DiHiTwa -- chat assistant (free, Cloudflare Workers AI) -- drag to move"
-      >
-        {open ? "✕" : "💬"}
-      </button>
-      {/* Name label under the bubble, following it to wherever it's dragged -- pointer-events:none
-          so it never steals the drag/click the bubble itself handles. */}
+      {/* Wrapping the bubble and its name label together -- rather than positioning the label at a
+          hardcoded offset from the bubble's own top/left -- means the label centers under whatever
+          the bubble's REAL rendered width turns out to be (left:50%/translateX(-50%) relative to
+          this wrapper), instead of assuming it's exactly the CSS's nominal 52px. Confirmed live the
+          hardcoded-offset version was still visibly off-center. */}
       <div
-        className="chat-assistant-bubble-label"
-        style={bubblePos ? { top: bubblePos.top + 56, left: bubblePos.left + 26 } : { visibility: "hidden" }}
+        className="chat-assistant-bubble-wrap"
+        style={bubblePos ? { top: bubblePos.top, left: bubblePos.left, right: "auto", bottom: "auto" } : { visibility: "hidden" }}
       >
-        DiHiTwa
+        <button
+          type="button"
+          className="chat-assistant-bubble"
+          onPointerDown={bubblePointerDown}
+          onClick={bubbleClick}
+          aria-label={open ? "Close chat assistant" : "Open chat assistant"}
+          title="DiHiTwa -- chat assistant (free, Cloudflare Workers AI) -- drag to move"
+        >
+          {open ? "✕" : "💬"}
+        </button>
+        {/* pointer-events:none so the label never steals the drag/click the bubble itself handles. */}
+        <div className="chat-assistant-bubble-label">DiHiTwa</div>
       </div>
       {open && (
         <div className="chat-assistant-panel" style={rect ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height } : { visibility: "hidden" }}>
