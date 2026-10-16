@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { Ledger } from "@/lib/vault-types";
-import { fiscalYearOf, accountNature } from "@/lib/vault-accounting";
+import { fiscalYearOf, accountNature, stripTallyPrimaryMarker } from "@/lib/vault-accounting";
 import { StatIcon, type IconKind } from "@/components/Icon";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
@@ -98,7 +98,12 @@ export function ReconReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
       const app = appByName.has(key) ? appByName.get(key)! : null;
       const t = tallyByName.get(key);
       const tally = t ? t.closingBalance : null;
-      const parent = accountParent.get(key) || t?.parent || "";
+      // data.accounts' own parent is already cleaned by backfillGroupParentNames on every vault
+      // load, but the Tally snapshot (t?.parent) is untouched raw sync data -- confirmed live
+      // showing "&#4; Primary" for "Profit & Loss A/c", a synthetic account with no real app-side
+      // parent (so the fallback to the raw snapshot value kicked in) -- stripped here too so
+      // EITHER source displays clean, regardless of which one ends up used.
+      const parent = accountParent.get(key) || stripTallyPrimaryMarker(t?.parent) || "";
       const displayName = data.accounts.find((a) => a.name.trim().toLowerCase() === key)?.name
         || snapshot?.balances.find((b) => b.name.trim().toLowerCase() === key)?.name
         || key;

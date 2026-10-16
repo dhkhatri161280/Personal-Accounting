@@ -189,10 +189,15 @@ export const backfillDividendNarrations = (ledger: Ledger): Ledger => {
 // backfillReversalLinks/backfillDividendNarrations above -- a no-op (same reference) once a vault
 // has been cleaned up once.
 const TALLY_PRIMARY_MARKER = /&#4;\s*/g;
+// Exported separately from backfillGroupParentNames below so any OTHER place that reads a raw
+// Tally parent name directly (e.g. components/reports/ReconReport.tsx's tallyLedgerSnapshot,
+// which is untouched raw sync data, never run through backfillGroupParentNames itself) can clean
+// it the same way at display time, instead of re-implementing this regex a second time.
+export const stripTallyPrimaryMarker = (s: string | undefined): string => (s || "").replace(TALLY_PRIMARY_MARKER, "").trim();
 export const backfillGroupParentNames = (ledger: Ledger): Ledger => {
   let changed = false;
   const clean = (s: string | undefined) => {
-    const c = (s || "").replace(TALLY_PRIMARY_MARKER, "").trim();
+    const c = stripTallyPrimaryMarker(s);
     return c === (s || "") ? s : c;
   };
   const groups = (ledger.groups || []).map((g) => {
