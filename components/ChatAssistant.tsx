@@ -73,6 +73,13 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
   const listRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ kind: "move"; startX: number; startY: number; rect: Rect } | { kind: "resize"; corner: Corner; startX: number; startY: number; rect: Rect } | null>(null);
   const bubbleDragRef = useRef<{ startX: number; startY: number; pos: Point; moved: boolean } | null>(null);
+  // Workers AI's Free plan has a real, hard daily quota (see app/api/assistant's own 10,000
+  // Neurons/day comment) -- an exact repeat of a question already answered this session (confirmed
+  // live: a "check thoroughly" double-check re-asking the same thing) is pure waste, so it's
+  // answered from this cache instead of spending another round-trip. Keyed on more than just the
+  // question text: book/today's date/live price can all change the real answer, so any of those
+  // changing must still produce a fresh lookup rather than a stale cached one.
+  const answerCacheRef = useRef(new Map<string, { content: string; toolTrace?: string[] }>());
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -278,12 +285,20 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
     setError(null);
     const nextMessages: ChatMessage[] = [...messages, { role: "user", content: message }];
     setMessages(nextMessages);
+
+    const todayIso = todayLocalIso();
+    const cacheKey = JSON.stringify([message.toLowerCase(), book, todayIso, nvdaPrice ?? null, nvdaPrevClose ?? null]);
+    const cached = answerCacheRef.current.get(cacheKey);
+    if (cached) {
+      setMessages((prev) => [...prev, { role: "assistant", content: cached.content, toolTrace: [...(cached.toolTrace ?? []), "(repeat of an earlier question this session -- answered from cache, no new AI usage spent)"] }]);
+      return;
+    }
+
     setSending(true);
     try {
       const priorHistory: ApiMessage[] = nextMessages.slice(0, -1).slice(-MAX_HISTORY_SENT);
       const apiMessages: ApiMessage[] = [...priorHistory, { role: "user", content: message }];
       const tools = TOOL_DEFS.filter((t) => book === "india" || t.name !== "get_fbar_status");
-      const todayIso = todayLocalIso();
       const toolTrace: string[] = [];
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -321,6 +336,7 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
           continue;
         }
         if (j.reply) {
+          answerCacheRef.current.set(cacheKey, { content: j.reply, toolTrace: toolTrace.length ? toolTrace : undefined });
           setMessages((prev) => [...prev, { role: "assistant", content: j.reply!, toolTrace: toolTrace.length ? toolTrace : undefined }]);
           return;
         }
