@@ -155,7 +155,7 @@ export function ChatAssistant({ data, book, nvdaPrice = null, nvdaPrevClose = nu
     // it), narrower-and-taller on a portrait/mobile screen -- a starting point, not a final
     // answer, since the user can now drag/resize it anywhere that works for their actual screen.
     const landscape = vw >= 900 && vw >= vh;
-    const width = Math.min(landscape ? 620 : 340, vw - 32);
+    const width = Math.min(landscape ? 420 : 340, vw - 32);
     const height = Math.min(landscape ? 320 : 440, vh - 32);
     const bubbleTop = bubblePos?.top ?? vh - 80;
     const top = Math.max(12, bubbleTop - 12 - height);
