@@ -2433,7 +2433,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     ...(book === "india"
       ? [
           { id: "report-tax-all-years", label: "Tax — All Years", group: "Reports", keywords: ["all years", "multi year", "history", "payroll history"], go: () => { setTaxViewMode("all"); setReport("tax"); setTab("reports"); } },
-          { id: "report-fbar", label: "FBAR Worksheet", group: "Reports", keywords: ["fbar", "fincen", "114", "foreign account", "treasury", "exchange rate"], go: () => { setReport("fbar"); setTab("reports"); } },
+          { id: "report-fbar", label: "FBAR Report", group: "Reports", keywords: ["fbar", "fincen", "114", "foreign account", "treasury", "exchange rate"], go: () => { setReport("fbar"); setTab("reports"); } },
         ]
       : []),
     { id: "report-recon", label: "Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
@@ -2501,7 +2501,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     { book: "us", id: "report-holdings", label: "Holdings", keywords: ["holdings", "total", "everything", "rsu", "espp", "cash balance", "net worth"] },
     { book: "us", id: "report-bankrecon", label: "Bank Reconciliation", keywords: ["bank recon", "plaid", "unmatched", "outstanding", "balance"] },
     { book: "india", id: "report-tax-all-years", label: "Tax — All Years", keywords: ["all years", "multi year", "history", "payroll history"] },
-    { book: "india", id: "report-fbar", label: "FBAR Worksheet", keywords: ["fbar", "fincen", "114", "foreign account", "treasury", "exchange rate"] },
+    { book: "india", id: "report-fbar", label: "FBAR Report", keywords: ["fbar", "fincen", "114", "foreign account", "treasury", "exchange rate"] },
   ];
 
   // The chat assistant's one UI-action tool (navigate_to_screen, see ChatAssistant.tsx's
@@ -2515,7 +2515,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // Confirmed live: the 🔍 search palette's own pure-substring ranking (label/keyword contains
     // the WHOLE typed string, or vice versa) works fine there because the user types short
     // fragments incrementally -- but the model sends a natural-language phrase like "FBAR Report"
-    // or "show me FBAR", and neither is a literal substring of the real label "FBAR Worksheet" (an
+    // or "show me FBAR", and neither is a literal substring of the real label "FBAR Report" (an
     // extra word breaks it in either direction), so every destination scored -1 and the tool
     // reported "no screen found" even though a human would call this an obvious match. Falls back
     // to WORD-OVERLAP scoring (ignoring generic filler words) when no substring hit exists, so a
@@ -4446,7 +4446,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     : []),
                   ...(book !== "india" ? [{ id: "holdings", label: "Holdings", onClick: () => setReport("holdings") }] : []),
                   { id: "tax", label: "Tax", onClick: () => { setTaxViewMode("yearly"); setReport("tax"); } },
-                  ...(book === "india" ? [{ id: "fbar", label: "FBAR Worksheet", onClick: () => setReport("fbar") }] : []),
+                  ...(book === "india" ? [{ id: "fbar", label: "FBAR Report", onClick: () => setReport("fbar") }] : []),
                 ],
               },
             ];

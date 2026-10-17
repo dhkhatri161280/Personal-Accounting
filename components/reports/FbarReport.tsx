@@ -142,7 +142,7 @@ export function FbarReport({
       ];
     });
     rows.push(["TOTAL", "", "", "", "", summary.totalUsd, "", "", "", "", "", "", "", "", ""]);
-    await exportWorkbook(`FBAR Worksheet CY${year}.xlsx`, [{ name: `FBAR CY${year}`, rows: [header, ...rows] }]);
+    await exportWorkbook(`FBAR Report CY${year}.xlsx`, [{ name: `FBAR CY${year}`, rows: [header, ...rows] }]);
   }
 
   const filerProfile = data.fbarFilerProfile;
@@ -177,7 +177,7 @@ export function FbarReport({
   return (
     <div className="data-panel">
       <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        FBAR Worksheet (FinCEN Form 114)
+        FBAR Report (FinCEN Form 114)
         <span className="info-icon-wrap" onMouseEnter={() => setShowInfo(true)} onMouseLeave={() => setShowInfo(false)}>
           <button type="button" className="info-icon-btn" aria-label="How this works" onClick={() => setShowInfo((v) => !v)}>
             ⓘ
