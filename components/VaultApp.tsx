@@ -2436,7 +2436,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           { id: "report-fbar", label: "FBAR Report", group: "Reports", keywords: ["fbar", "fincen", "114", "foreign account", "treasury", "exchange rate"], go: () => { setReport("fbar"); setTab("reports"); } },
         ]
       : []),
-    { id: "report-recon", label: "Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
+    { id: "report-recon", label: "Tally Recon", group: "Reports", keywords: ["reconciliation", "reconcile"], go: () => { setReport("recon"); setTab("reports"); } },
     ...(book !== "india"
       ? [
           { id: "report-bankrecon", label: "Bank Reconciliation", group: "Reports", keywords: ["bank recon", "plaid", "unmatched", "outstanding", "balance"], go: () => { setReport("bankrecon"); setTab("reports"); } },
@@ -4399,7 +4399,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 label: "Reconciliation",
                 items: [
                   ...(book !== "india" ? [{ id: "bankrecon", label: "Bank Recon", onClick: () => setReport("bankrecon") }] : []),
-                  { id: "recon", label: "Recon", onClick: () => setReport("recon") },
+                  { id: "recon", label: "Tally Recon", onClick: () => setReport("recon") },
                 ],
               },
               {

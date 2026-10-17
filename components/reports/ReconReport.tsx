@@ -160,7 +160,7 @@ export function ReconReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   async function exportRecon() {
     const header = ["Ledger", "Group", "App Balance", "Tally Balance", "Difference", "Status"];
     const body = filtered.map((r) => [r.name, r.parent || "", r.appBalance ?? "", r.tallyBalance ?? "", r.diff, statusLabel[r.status]]);
-    await exportWorkbook("Reconciliation — App vs Tally.xlsx", [{ name: "Recon", rows: [header, ...body] }]);
+    await exportWorkbook("Reconciliation — App vs Tally.xlsx", [{ name: "Tally Recon", rows: [header, ...body] }]);
   }
 
   const summaryCards: { label: string; value: number; icon: IconKind; color: string; format?: "count" | "money" }[] = [
