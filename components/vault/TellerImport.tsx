@@ -4,7 +4,7 @@ import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { apiFetch } from "@/lib/api-fetch";
-import { isCcAcct, isBankAcct } from "@/lib/plaid-classify";
+import { isCcAcct, isBankAcct, inferReversalVoucherType } from "@/lib/plaid-classify";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -113,6 +113,15 @@ function isPayroll(tx: TellerTxRaw) {
 // JavaScript, so a plain `amount < 0` test mislabels a genuine $0.00 Dr leg as "Cr".
 function isDrEntry(amount: number): boolean {
   return amount < 0 || Object.is(amount, -0);
+}
+
+// Same fix as components/vault/PlaidImport.tsx's own correctedVoucherType: self-correct Payment/
+// Receipt/Contra/Journal at save time from the entries actually on the row, the same rule Tally
+// itself enforces -- a row's voucherType is set once at classify time but the user can freely
+// re-pick accounts afterward via the dropdowns.
+const STANDARD_VOUCHER_TYPES = new Set(["Payment", "Receipt", "Contra", "Journal"]);
+function correctedVoucherType(voucherType: string, entries: { accountId: number; amount: number }[], accounts: Account[]): string {
+  return STANDARD_VOUCHER_TYPES.has(voucherType) ? inferReversalVoucherType(entries, accounts) : voucherType;
 }
 
 // ── Account finder helpers ─────────────────────────────────────────────────────
@@ -514,7 +523,7 @@ export function TellerImport({ data, onSave }: Props) {
       syncStatus: "pending" as const,
       date: r.tx.date,
       number: "",
-      type: r.voucherType,
+      type: correctedVoucherType(r.voucherType, r.entries, updatedAccounts),
       narration: r.narration,
       historical: false,
       cancelled: false,

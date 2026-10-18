@@ -11,7 +11,7 @@ import {
   MORTGAGE_INTEREST_ACCOUNT_NAMES,
   computeMortgagePaymentSplit,
 } from "@/lib/mortgage-amortization";
-import { isCcAcct, isBankAcct, enforceContraType, applyCategoryPrefix } from "@/lib/plaid-classify";
+import { isCcAcct, isBankAcct, enforceContraType, applyCategoryPrefix, inferReversalVoucherType } from "@/lib/plaid-classify";
 import {
   tokenise,
   buildHistoryIndex,
@@ -156,6 +156,21 @@ function fmtMoney(n: number): string {
 // where `<` and `===` both cannot.
 function isDrEntry(amount: number): boolean {
   return amount < 0 || Object.is(amount, -0);
+}
+
+// Self-correct Payment/Receipt/Contra/Journal at save time from the entries actually on the row,
+// the same rule Tally itself enforces (Payment needs Bank/Cash on credit, Receipt on debit, Contra
+// only Bank/Cash, Journal none) and silently rejects the sync for days later with no detail beyond
+// "App-to-Tally apply failed" if it's wrong. A row's voucherType is set once at classify time
+// (buildDraft) but the user can freely re-pick accounts afterward via the account dropdowns or
+// "+ Select accounts manually" -- confirmed live: a Kaiser refund deposit (Dr Bank Of America / Cr
+// Medical Expenses, money IN) kept its original "Payment" classification after the accounts were
+// hand-picked, and only got caught when Tally rejected it. Only overrides the 4 standard types this
+// function actually knows how to classify -- a custom voucherType (Masters lets a book define its
+// own) is left exactly as chosen.
+const STANDARD_VOUCHER_TYPES = new Set(["Payment", "Receipt", "Contra", "Journal"]);
+function correctedVoucherType(voucherType: string, entries: { accountId: number; amount: number }[], accounts: Account[]): string {
+  return STANDARD_VOUCHER_TYPES.has(voucherType) ? inferReversalVoucherType(entries, accounts) : voucherType;
 }
 
 // ── Payroll template constants ─────────────────────────────────────────────────
@@ -1976,7 +1991,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         createdAt: importedAt,
         date: r.effectiveDate ?? r.plaidTx.date,
         number: "",
-        type: r.voucherType,
+        type: correctedVoucherType(r.voucherType, r.entries, updatedAccounts),
         narration: r.narration,
         historical: false,
         cancelled: false,
@@ -2061,6 +2076,10 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
     const crAcc = data.accounts.find((a) => a.id === manualCrId);
     if (!drAcc || !crAcc) return;
     setSavingManual(true);
+    const entries = [
+      { accountId: manualDrId, accountName: drAcc.name, amount: -amt },
+      { accountId: manualCrId, accountName: crAcc.name, amount: amt },
+    ];
     const newTx: Tx = {
       id: nextTransactionIds(data.transactions, 1)[0],
       guid: crypto.randomUUID(),
@@ -2068,14 +2087,11 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       createdAt: new Date().toISOString(),
       date: manualDate,
       number: "",
-      type: "Payment",
+      type: correctedVoucherType("Payment", entries, data.accounts),
       narration: manualName.trim(),
       historical: false,
       cancelled: false,
-      entries: [
-        { accountId: manualDrId, accountName: drAcc.name, amount: -amt },
-        { accountId: manualCrId, accountName: crAcc.name, amount: amt },
-      ],
+      entries,
     };
     const next: Ledger = { ...data, transactions: [...data.transactions, newTx] };
     const ok = await onSave(next);
@@ -2135,7 +2151,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         createdAt: importedAt,
         date: r.effectiveDate ?? r.plaidTx.date,
         number: "",
-        type: r.voucherType,
+        type: correctedVoucherType(r.voucherType, r.entries, updatedAccounts),
         narration: r.narration,
         historical: false,
         cancelled: false,

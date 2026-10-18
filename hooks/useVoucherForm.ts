@@ -321,7 +321,18 @@ export function useVoucherForm({
       setStatus("Debit total and credit total must be equal.");
       return;
     }
-    const type = values.type,
+    // Self-correct Payment/Receipt/Contra/Journal from the entries actually picked, the same way
+    // a reversal's type is already inferred (see inferReversalVoucherType's own comment -- a
+    // voucher's type is a function of which side the bank/card account sits on, not a free
+    // choice). Tally enforces this as a hard rule (Payment needs Bank/Cash on credit, Receipt on
+    // debit, Contra only Bank/Cash, Journal none) and silently rejects the sync days later with no
+    // detail beyond "App-to-Tally apply failed" if it's wrong -- confirmed live: a Kaiser refund
+    // deposit (Dr Bank Of America / Cr Medical Expenses, money IN) got saved as "Payment" instead
+    // of "Receipt" and was only caught when Tally rejected it. Only overrides the 4 standard types
+    // this function actually knows how to classify -- a custom voucherType (Masters lets a book
+    // define its own) is left exactly as chosen.
+    const STANDARD_TYPES = new Set(["Payment", "Receipt", "Contra", "Journal"]);
+    const type = STANDARD_TYPES.has(values.type) ? inferReversalVoucherType(entries, data.accounts) : values.type,
       date = values.date;
     const tx: Tx = {
       id: editTx?.id || nextTransactionIds(data.transactions, 1)[0],
