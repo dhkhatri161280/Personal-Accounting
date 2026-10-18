@@ -888,7 +888,13 @@ function buildDraft(
     const sameCardFamily = (a?: Account) => a && cardAcc && /^credit card - bofa/i.test(a.name) && /^credit card - bofa/i.test(cardAcc.name);
     if (creditAcc && cardAcc && creditAcc.id !== cardAcc.id && sameCardFamily(creditAcc)) creditAcc = cardAcc;
     if (debitAcc && cardAcc && debitAcc.id !== cardAcc.id && sameCardFamily(debitAcc)) debitAcc = cardAcc;
-    if (debitAcc && creditAcc) {
+    // Confirmed live: a $0.00 BofA pending charge ("BKOFAMERICA MOBILE...") produced a voucher
+    // with BOTH entries on the same account (401K Investments), both shown as "Cr" -- a
+    // self-referencing Dr=Cr pair is never valid double-entry and must fall through to a lower-
+    // confidence match instead of posting as-is. debitAcc.id === creditAcc.id can happen either
+    // from a bad historical record (see lib/narration-match.ts's buildHistoryIndex fix) or from
+    // the two sameCardFamily corrections just above independently converging on the same cardAcc.
+    if (debitAcc && creditAcc && debitAcc.id !== creditAcc.id) {
       const amt = Math.abs(tx.amount);
       return {
         entries: [

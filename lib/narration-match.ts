@@ -83,6 +83,12 @@ export function buildHistoryIndex(ledger: Ledger): HistoryIndex {
     const debitE = v.entries.find((e) => e.amount < 0);
     const creditE = v.entries.find((e) => e.amount > 0);
     if (!debitE || !creditE) continue;
+    // Confirmed live: a self-referencing voucher (Dr and Cr both posted to the same account --
+    // e.g. a $0.00 degenerate entry) got indexed here and then replayed by matchFromHistory onto
+    // an unrelated new transaction, producing another same-account Dr=Cr voucher. A voucher that
+    // nets to zero against itself carries no real "where does this merchant belong" signal, so it
+    // must never be indexed as a pattern to repeat.
+    if (debitE.accountId === creditE.accountId) continue;
     const tokens = tokenise(v.narration || "");
     if (tokens.length) {
       const debitAcct = acctById.get(debitE.accountId);

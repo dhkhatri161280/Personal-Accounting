@@ -194,7 +194,11 @@ function matchFromHistory(
 
     const debitE = v.entries.find((e) => e.amount < 0);
     const creditE = v.entries.find((e) => e.amount > 0);
-    if (debitE && creditE) {
+    if (debitE && creditE && debitE.accountId !== creditE.accountId) {
+      // Same fix as lib/narration-match.ts's buildHistoryIndex (its own copy of this logic, kept
+      // separate from this file's local reimplementation): a self-referencing voucher (Dr and Cr
+      // both the same account, e.g. a degenerate $0.00 entry) carries no real "where does this
+      // merchant belong" signal and must never be indexed as a pattern to repeat.
       // Skip any historical voucher whose debit side is itself a bank/credit-card account (a
       // Contra/card-payoff transfer) -- a coincidental keyword hit against an old "Citi Credit
       // Card Payment" voucher would otherwise win and mislabel a genuine new expense as a card
