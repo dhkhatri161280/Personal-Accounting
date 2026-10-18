@@ -275,7 +275,7 @@ function matchFromHistoryByAmount(tx: PlaidTxRaw, index: HistoryIndex): { debitI
   // to leave briefly: only prints to the browser's own console, never sent anywhere. Remove once
   // the real cause is confirmed.
   if (typeof window !== "undefined") {
-    console.debug("[matchFromHistoryByAmount]", tx.name, "amt=", amt, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
+    console.log("[matchFromHistoryByAmount]", tx.name, "amt=", amt, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
   }
   if (bestCount < 2) return null; // one prior occurrence at this amount could still be a coincidence
   return { debitId: bestId, confidence: Math.min(0.5 + bestCount * 0.1, 0.75) };
@@ -300,7 +300,7 @@ function cardDefaultExpense(cardAccId: number, index: HistoryIndex): number | nu
   // out whether THIS later, amount-blind "most common expense on this card" fallback is the one
   // actually winning instead.
   if (typeof window !== "undefined") {
-    console.debug("[cardDefaultExpense]", "cardAccId=", cardAccId, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
+    console.log("[cardDefaultExpense]", "cardAccId=", cardAccId, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
   }
   return bestId || null;
 }
@@ -945,6 +945,9 @@ function buildDraft(
   if (tx.amount > 0 && cardAcc) {
     const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
     const debitAcc = amtMatch ? accounts.find((a) => a.id === amtMatch.debitId) : undefined;
+    if (typeof window !== "undefined") {
+      console.log("[amount-only branch]", tx.name, "cardAcc=", cardAcc.name, "amtMatch=", amtMatch, "resolved debitAcc=", debitAcc?.name ?? "(none -- falls through)");
+    }
     if (amtMatch && debitAcc) {
       const amt = Math.abs(tx.amount);
       return {
@@ -968,6 +971,9 @@ function buildDraft(
     const defaultDebitAcc = defaultDebitId === HOUSEHOLD_FAMILY_ID
       ? allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase())
       : defaultDebitId ? accounts.find((a) => a.id === defaultDebitId) : null;
+    if (typeof window !== "undefined") {
+      console.log("[card-default branch]", tx.name, "cardAcc=", cardAcc.name, "defaultDebitId=", defaultDebitId, "resolved defaultDebitAcc=", defaultDebitAcc?.name ?? "(none -- falls through)");
+    }
     if (defaultDebitAcc) {
       return {
         entries: [
