@@ -256,27 +256,12 @@ function matchFromHistoryByAmount(tx: PlaidTxRaw, index: HistoryIndex): { debitI
   const txIsReceipt = tx.amount < 0;
   const counts = new Map<number, number>();
   for (const { debitId, isReceipt, amount, debitIsFinancial } of index) {
-    // Confirmed live: the generic House Hold Exps catch-all absorbs purchases at every dollar
-    // amount across every month, so it routinely racked up more same-ballpark-amount "votes" than
-    // a real, specific recurring bill (a $147.42 Waste Management/Republic Services charge lost to
-    // the household bucket, which had unrelated purchases that just happened to also land within
-    // $1). Unlike the merchant-text matcher, where merging the household family across months is
-    // the whole point (same recurring bill, different months), a bare dollar-amount coincidence
-    // against that same noisy catch-all bucket is never a reliable signal -- excluded the same way
-    // debitIsFinancial already is, for the same reason.
-    if (isReceipt !== txIsReceipt || Math.abs(amount - amt) > 1 || debitIsFinancial || debitId === HOUSEHOLD_FAMILY_ID) continue;
+    if (isReceipt !== txIsReceipt || Math.abs(amount - amt) > 1 || debitIsFinancial) continue;
     counts.set(debitId, (counts.get(debitId) || 0) + 1);
   }
   let bestId = 0;
   let bestCount = 0;
   counts.forEach((c, id) => { if (c > bestCount) { bestCount = c; bestId = id; } });
-  // TEMPORARY diagnostic -- two fix attempts for the $147.42 Waste Management mismatch didn't
-  // change the visible result, so logging the actual vote tally instead of guessing again. Safe
-  // to leave briefly: only prints to the browser's own console, never sent anywhere. Remove once
-  // the real cause is confirmed.
-  if (typeof window !== "undefined") {
-    console.log("[matchFromHistoryByAmount]", tx.name, "amt=", amt, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
-  }
   if (bestCount < 2) return null; // one prior occurrence at this amount could still be a coincidence
   return { debitId: bestId, confidence: Math.min(0.5 + bestCount * 0.1, 0.75) };
 }
@@ -296,12 +281,6 @@ function cardDefaultExpense(cardAccId: number, index: HistoryIndex): number | nu
   }
   let bestId = 0, bestCount = 0;
   counts.forEach((c, id) => { if (c > bestCount) { bestCount = c; bestId = id; } });
-  // TEMPORARY diagnostic -- see matchFromHistoryByAmount's own comment above. Confirms or rules
-  // out whether THIS later, amount-blind "most common expense on this card" fallback is the one
-  // actually winning instead.
-  if (typeof window !== "undefined") {
-    console.log("[cardDefaultExpense]", "cardAccId=", cardAccId, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
-  }
   return bestId || null;
 }
 
@@ -877,9 +856,6 @@ function buildDraft(
     }
     let debitAcc = finalDebitId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalDebitId);
     let creditAcc = finalCreditId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalCreditId);
-    if (typeof window !== "undefined") {
-      console.log("[text-match branch]", tx.name, "voteCount=", match.voteCount, "confidence=", match.confidence, "debitAcc=", debitAcc?.name, "creditAcc=", creditAcc?.name);
-    }
     // Institution guard: for expense transactions the credit side must come from the same
     // institution as the Plaid transaction. If history suggested a card from a different bank
     // (e.g. Citi for a BofA charge), substitute cardAcc.
@@ -907,7 +883,7 @@ function buildDraft(
     if (tx.amount > 0 && match.voteCount === 1) {
       const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
       if (amtMatch && amtMatch.debitId !== debitAcc?.id) {
-        const amtDebitAcc = accounts.find((a) => a.id === amtMatch.debitId);
+        const amtDebitAcc = amtMatch.debitId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === amtMatch.debitId);
         if (amtDebitAcc) debitAcc = amtDebitAcc;
       }
     }
@@ -947,10 +923,12 @@ function buildDraft(
   // ── Amount-only match from vault history (no merchant-text overlap, but a repeat amount) ──
   if (tx.amount > 0 && cardAcc) {
     const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
-    const debitAcc = amtMatch ? accounts.find((a) => a.id === amtMatch.debitId) : undefined;
-    if (typeof window !== "undefined") {
-      console.log("[amount-only branch]", tx.name, "cardAcc=", cardAcc.name, "amtMatch=", amtMatch, "resolved debitAcc=", debitAcc?.name ?? "(none -- falls through)");
-    }
+    // Household month guard: matchFromHistoryByAmount can likewise return the HOUSEHOLD_FAMILY_ID
+    // sentinel (see the text-match branch's own comment above) -- resolve it the same way, not a
+    // direct accounts.find by a sentinel id that matches no real account.
+    const debitAcc = amtMatch
+      ? (amtMatch.debitId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === amtMatch.debitId))
+      : undefined;
     if (amtMatch && debitAcc) {
       const amt = Math.abs(tx.amount);
       return {
@@ -974,9 +952,6 @@ function buildDraft(
     const defaultDebitAcc = defaultDebitId === HOUSEHOLD_FAMILY_ID
       ? allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase())
       : defaultDebitId ? accounts.find((a) => a.id === defaultDebitId) : null;
-    if (typeof window !== "undefined") {
-      console.log("[card-default branch]", tx.name, "cardAcc=", cardAcc.name, "defaultDebitId=", defaultDebitId, "resolved defaultDebitAcc=", defaultDebitAcc?.name ?? "(none -- falls through)");
-    }
     if (defaultDebitAcc) {
       return {
         entries: [

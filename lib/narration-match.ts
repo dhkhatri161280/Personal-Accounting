@@ -137,15 +137,6 @@ export function matchFromHistory(
     if (!isReceipt) pairPaymentVotes.set(key, (pairPaymentVotes.get(key) || 0) + weight);
   }
 
-  // TEMPORARY diagnostic -- tracing a mismatch where a $147.42 Citi charge kept resolving to
-  // House Hold Exps instead of the real recurring account (Waste Management). Two amount-matcher
-  // fixes didn't change the result, and the amount-only/card-default branches in PlaidImport.tsx
-  // never even logged for this transaction -- meaning this earlier text-based matcher is the one
-  // actually winning. Safe to leave briefly: browser console only. Remove once confirmed.
-  if (typeof window !== "undefined") {
-    console.log("[matchFromHistory]", tx.merchant_name || tx.name, "tokens=", merchantTokens, "pairCounts=", Object.fromEntries(pairCounts));
-  }
-
   if (!pairCounts.size) return null;
 
   let bestKey = "";
