@@ -270,6 +270,13 @@ function matchFromHistoryByAmount(tx: PlaidTxRaw, index: HistoryIndex): { debitI
   let bestId = 0;
   let bestCount = 0;
   counts.forEach((c, id) => { if (c > bestCount) { bestCount = c; bestId = id; } });
+  // TEMPORARY diagnostic -- two fix attempts for the $147.42 Waste Management mismatch didn't
+  // change the visible result, so logging the actual vote tally instead of guessing again. Safe
+  // to leave briefly: only prints to the browser's own console, never sent anywhere. Remove once
+  // the real cause is confirmed.
+  if (typeof window !== "undefined") {
+    console.debug("[matchFromHistoryByAmount]", tx.name, "amt=", amt, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
+  }
   if (bestCount < 2) return null; // one prior occurrence at this amount could still be a coincidence
   return { debitId: bestId, confidence: Math.min(0.5 + bestCount * 0.1, 0.75) };
 }
@@ -289,6 +296,12 @@ function cardDefaultExpense(cardAccId: number, index: HistoryIndex): number | nu
   }
   let bestId = 0, bestCount = 0;
   counts.forEach((c, id) => { if (c > bestCount) { bestCount = c; bestId = id; } });
+  // TEMPORARY diagnostic -- see matchFromHistoryByAmount's own comment above. Confirms or rules
+  // out whether THIS later, amount-blind "most common expense on this card" fallback is the one
+  // actually winning instead.
+  if (typeof window !== "undefined") {
+    console.debug("[cardDefaultExpense]", "cardAccId=", cardAccId, "counts=", Object.fromEntries(counts), "bestId=", bestId, "bestCount=", bestCount);
+  }
   return bestId || null;
 }
 
