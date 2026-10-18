@@ -108,6 +108,13 @@ function isPayroll(tx: TellerTxRaw) {
   return PAYROLL_PATTERNS.some((p) => p.test(desc));
 }
 
+// Same fix as components/vault/PlaidImport.tsx's own isDrEntry: a $0.00 entry's debit leg can be
+// stored as `-amt`, which for amt=0 is IEEE-754 negative zero -- and `-0 < 0` is `false` in
+// JavaScript, so a plain `amount < 0` test mislabels a genuine $0.00 Dr leg as "Cr".
+function isDrEntry(amount: number): boolean {
+  return amount < 0 || Object.is(amount, -0);
+}
+
 // ── Account finder helpers ─────────────────────────────────────────────────────
 
 function findAcct(accounts: Account[], ...names: string[]): Account | undefined {
@@ -637,7 +644,7 @@ export function TellerImport({ data, onSave }: Props) {
                   <div className="plaid-entries">
                     {row.entries.map((e, ei) => (
                       <div key={ei} className="plaid-entry-line">
-                        <span className={e.amount < 0 ? "plaid-dr" : "plaid-cr"}>{e.amount < 0 ? "Dr" : "Cr"}</span>
+                        <span className={isDrEntry(e.amount) ? "plaid-dr" : "plaid-cr"}>{isDrEntry(e.amount) ? "Dr" : "Cr"}</span>
                         <select
                           value={e.accountId}
                           onChange={(ev) => {

@@ -48,6 +48,13 @@ export type VoucherRow = {
 };
 type SortKey = "date" | "type" | "number" | "debit" | "credit" | "narration" | "amount" | "debitAmount" | "creditAmount";
 
+// Same fix as components/vault/PlaidImport.tsx's own isDrEntry: a $0.00 entry's debit leg can be
+// stored as negative zero, and `-0 < 0` is `false` in JavaScript, so a plain `amount < 0` test
+// mislabels a genuine $0.00 Dr leg as "Cr".
+function isDrEntry(amount: number): boolean {
+  return amount < 0 || Object.is(amount, -0);
+}
+
 // Single source of truth for column sizing, shared by the DataGrid's own columns AND the
 // filter-input row above it (via FILTER_GRID_TEMPLATE below), so the two rows always line up.
 // Date/Type/#/Amount don't need to grow, so they stay fixed px; Debit/Credit/Narration flex to
@@ -245,7 +252,7 @@ function VoucherDetailEntries({
     <div className="voucher-detail-entries">
       {voucher.entries.map((e, i) => (
         <div className="voucher-detail-line" key={i}>
-          <span className={`voucher-detail-side ${e.amount < 0 ? "dr" : "cr"}`}>{e.amount < 0 ? "Dr" : "Cr"}</span>
+          <span className={`voucher-detail-side ${isDrEntry(e.amount) ? "dr" : "cr"}`}>{isDrEntry(e.amount) ? "Dr" : "Cr"}</span>
           <span className="voucher-detail-account">{text(e.accountName)}</span>
           {/* Menu-style dotted leader -- the account name and its amount can sit 1000px+ apart on
               a wide Day Book table (this cell spans every column from Debit Ledger through

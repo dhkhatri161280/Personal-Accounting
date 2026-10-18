@@ -150,6 +150,14 @@ function fmtMoney(n: number): string {
   return (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
 }
 
+// Confirmed live: a $0.00 entry's debit leg is stored as `-amt` (e.g. blankEntryPair below), which
+// for amt=0 is IEEE-754 negative zero -- and `-0 < 0` is `false` in JavaScript, so a plain
+// `amount < 0` test mislabels a genuine $0.00 Dr leg as "Cr". Object.is distinguishes -0 from +0
+// where `<` and `===` both cannot.
+function isDrEntry(amount: number): boolean {
+  return amount < 0 || Object.is(amount, -0);
+}
+
 // ── Payroll template constants ─────────────────────────────────────────────────
 
 const PAYROLL_PATTERNS = [/nvidia/i, /nviida/i, /adp.*payroll/i, /payroll.*nvidia/i];
@@ -828,6 +836,22 @@ function buildDraft(
     }
   }
 
+  // Household month guard: history matched the normalized "House Hold Exps" family (see
+  // HOUSEHOLD_FAMILY_ID) for a recurring merchant that's been expensed under several different
+  // months' accounts — substitute the CURRENT tx's own month's account, not a lookup by the
+  // (non-existent) sentinel id. Hoisted to function scope (was previously local to the
+  // text-match branch below) so the amount-only matcher's two call sites can share it -- see
+  // their own comment for why they needed it too.
+  const currentHH = () => allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase());
+  // matchFromHistoryByAmount returns a raw debitId that can likewise be the HOUSEHOLD_FAMILY_ID
+  // sentinel (many House Hold Exps vouchers across many different months and dollar amounts
+  // routinely outvote a genuine, specific recurring-amount match like a utility bill). Confirmed
+  // live: a recurring $147.42 Waste Management/Republic Services Citi charge failed to match at
+  // all -- not because the vote lost, but because the sentinel id won the vote and then resolved
+  // to no real account (`accounts.find(a => a.id === -1)` is always undefined), silently
+  // discarding the whole amount-based match instead of falling back to the next real account.
+  const resolveAmtDebitAcc = (id: number) => (id === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === id));
+
   // ── Pattern match from vault history ──
   const match = matchFromHistory(tx, historyIndex);
   if (match) {
@@ -838,11 +862,6 @@ function buildDraft(
       finalDebitId = match.creditId;
       finalCreditId = match.debitId;
     }
-    // Household month guard: history matched the normalized "House Hold Exps" family (see
-    // HOUSEHOLD_FAMILY_ID) for a recurring merchant that's been expensed under several different
-    // months' accounts — substitute the CURRENT tx's own month's account, not a lookup by the
-    // (non-existent) sentinel id.
-    const currentHH = () => allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase());
     let debitAcc = finalDebitId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalDebitId);
     let creditAcc = finalCreditId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalCreditId);
     // Institution guard: for expense transactions the credit side must come from the same
@@ -872,7 +891,7 @@ function buildDraft(
     if (tx.amount > 0 && match.voteCount === 1) {
       const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
       if (amtMatch && amtMatch.debitId !== debitAcc?.id) {
-        const amtDebitAcc = accounts.find((a) => a.id === amtMatch.debitId);
+        const amtDebitAcc = resolveAmtDebitAcc(amtMatch.debitId);
         if (amtDebitAcc) debitAcc = amtDebitAcc;
       }
     }
@@ -912,7 +931,7 @@ function buildDraft(
   // ── Amount-only match from vault history (no merchant-text overlap, but a repeat amount) ──
   if (tx.amount > 0 && cardAcc) {
     const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
-    const debitAcc = amtMatch ? accounts.find((a) => a.id === amtMatch.debitId) : undefined;
+    const debitAcc = amtMatch ? resolveAmtDebitAcc(amtMatch.debitId) : undefined;
     if (amtMatch && debitAcc) {
       const amt = Math.abs(tx.amount);
       return {
@@ -2629,7 +2648,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                   <div className="plaid-entries">
                     {row.entries.map((e, ei) => (
                       <div key={ei} className="plaid-entry-line">
-                        <span className={e.amount < 0 ? "plaid-dr" : "plaid-cr"}>{e.amount < 0 ? "Dr" : "Cr"}</span>
+                        <span className={isDrEntry(e.amount) ? "plaid-dr" : "plaid-cr"}>{isDrEntry(e.amount) ? "Dr" : "Cr"}</span>
                         <select
                           value={e.accountId}
                           onChange={(ev) => {
@@ -2876,7 +2895,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       <div className="plaid-entries">
                         {row.entries.map((e, ei) => (
                           <div key={ei} className="plaid-entry-line">
-                            <span className={e.amount < 0 ? "plaid-dr" : "plaid-cr"}>{e.amount < 0 ? "Dr" : "Cr"}</span>
+                            <span className={isDrEntry(e.amount) ? "plaid-dr" : "plaid-cr"}>{isDrEntry(e.amount) ? "Dr" : "Cr"}</span>
                             <select
                               value={e.accountId}
                               onChange={(ev) => {
@@ -3747,8 +3766,8 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                         <div key={j} className="plaid-recon-detail-item di-vault">
                                           <span className="di-date">{fmtDate(ve.date)}</span>
                                           <span className="di-name">{ve.narration}</span>
-                                          <span className={`di-amt ${ve.amount < 0 ? "debit" : "credit"}`}>
-                                            {ve.amount < 0 ? "Dr" : "Cr"} ${Math.abs(ve.amount).toFixed(2)}
+                                          <span className={`di-amt ${isDrEntry(ve.amount) ? "debit" : "credit"}`}>
+                                            {isDrEntry(ve.amount) ? "Dr" : "Cr"} ${Math.abs(ve.amount).toFixed(2)}
                                           </span>
                                           <span className="di-status">{ve.type}</span>
                                           <button
