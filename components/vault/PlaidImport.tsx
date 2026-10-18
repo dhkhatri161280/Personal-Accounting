@@ -877,6 +877,9 @@ function buildDraft(
     }
     let debitAcc = finalDebitId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalDebitId);
     let creditAcc = finalCreditId === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === finalCreditId);
+    if (typeof window !== "undefined") {
+      console.log("[text-match branch]", tx.name, "voteCount=", match.voteCount, "confidence=", match.confidence, "debitAcc=", debitAcc?.name, "creditAcc=", creditAcc?.name);
+    }
     // Institution guard: for expense transactions the credit side must come from the same
     // institution as the Plaid transaction. If history suggested a card from a different bank
     // (e.g. Citi for a BofA charge), substitute cardAcc.
