@@ -66,11 +66,11 @@ export function AuditLog({ data, onViewVoucher }: { data: Ledger; onViewVoucher:
                 <span style={{ opacity: 0.6, fontSize: 11, textTransform: "capitalize" }}>({e.entity})</span>
                 <br />
                 {tx ? (
-                  <button type="button" className="columnar-cell-btn" onClick={() => onViewVoucher(tx)}>
+                  <button type="button" className="columnar-cell-btn audit-log-summary" onClick={() => onViewVoucher(tx)}>
                     {e.summary}
                   </button>
                 ) : (
-                  <small>{e.summary}</small>
+                  <small className="audit-log-summary">{e.summary}</small>
                 )}
               </span>
               <span style={{ fontSize: 11, opacity: 0.6, whiteSpace: "nowrap" }}>

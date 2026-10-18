@@ -7914,6 +7914,7 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 
 /* Privacy mode — blur every financial figure */
 .privacy-mode .dashboard-card-main strong,
+.privacy-mode .dashboard-card-trend,
 .privacy-mode .equity-price-note,
 .privacy-mode .dashboard-card-highlights em,
 .privacy-mode .dashboard-card-period strong,
@@ -7928,6 +7929,8 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .voucher-balance-diff span,
 .privacy-mode .drill-summary strong,
 .privacy-mode .voucher-flow-card strong,
+.privacy-mode .voucher-flow-col-total span,
+.privacy-mode .voucher-flow-tally span,
 .privacy-mode .donut-center-value,
 .privacy-mode .donut-legend-value,
 .privacy-mode .voucher-card-group-header b,
@@ -7985,6 +7988,11 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .attention-item-detail,
 .privacy-mode .vault-status-text,
 .privacy-mode .voucher-line-balance-amt,
+.privacy-mode .voucher-detail-amount,
+.privacy-mode .bcl-balance-amt,
+.privacy-mode .schwab-sync-note,
+.privacy-mode .audit-log-summary,
+.privacy-mode .fw-title-amt,
 .privacy-mode .master-salvage-input,
 .privacy-mode .master-amount-input,
 .privacy-mode .cash-flow-tie-in-amt,
@@ -7993,11 +8001,10 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 .privacy-mode .tr-gain-pos,
 .privacy-mode .tr-gain-neg,
 .privacy-mode .tr-broker-gl,
-.privacy-mode .wl-target-val,
-.privacy-mode .wl-upside-pos,
-.privacy-mode .wl-upside-neg,
-.privacy-mode .wl-alert-detail,
-.privacy-mode .wl-ai-snapshot,
+/* wl-target-val / wl-upside-pos / wl-upside-neg / wl-alert-detail / wl-ai-snapshot intentionally
+   excluded -- the Trading Report's Watchlist tab is the one deliberate exception: those prices
+   are public market data (not account balances), and staying readable is the whole point of a
+   watchlist during a screen-share. See components/reports/TradingReport.tsx's watchlist tab. */
 .privacy-mode .tr-insight-amt,
 .privacy-mode .tax-parsed-grid,
 .privacy-mode .tax-tieout-msg,

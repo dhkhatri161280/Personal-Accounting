@@ -586,7 +586,7 @@ export function SchwabImport({ data, onSave }: Props) {
               <strong style={{ fontSize: 13 }}>
                 {a.symbol} — {a.kind === "new" ? "New position" : a.kind === "increase" ? "Add to position" : a.kind === "reduce" ? "Partial sale" : "Fully sold"}
               </strong>
-              <p style={{ fontSize: 12, margin: "0.3rem 0 0", color: "#334155" }}>{a.note}</p>
+              <p className="schwab-sync-note" style={{ fontSize: 12, margin: "0.3rem 0 0", color: "#334155" }}>{a.note}</p>
             </div>
           ))}
           <div className="equity-form-actions">
@@ -696,16 +696,16 @@ export function SchwabImport({ data, onSave }: Props) {
           <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "0.6rem 0.8rem", marginBottom: "0.8rem" }}>
             <h4 style={{ margin: "0 0 6px" }}>Schwab (cost basis + cash) vs. Vault</h4>
             <div style={{ display: "flex", gap: "1.4rem", fontSize: 13, flexWrap: "wrap" }}>
-              <span>Open cost basis (CST+CSS, excl. NVDA): <strong>{fmtMoney(openCostBasis)}</strong></span>
+              <span>Open cost basis (CST+CSS, excl. NVDA): <strong className="fund-summary-crosscheck-amt">{fmtMoney(openCostBasis)}</strong></span>
               <span>
-                + Live cash: <strong>{schwabCashBalance !== null ? fmtMoney(schwabCashBalance) : "—"}</strong>
+                + Live cash: <strong className="fund-summary-crosscheck-amt">{schwabCashBalance !== null ? fmtMoney(schwabCashBalance) : "—"}</strong>
                 {schwabCashError && <span style={{ color: "#dc2626" }} title={schwabCashError}> (unavailable — {schwabCashError})</span>}
               </span>
-              <span>= Expected: <strong>{expectedVaultBalance !== null ? fmtMoney(expectedVaultBalance) : "—"}</strong></span>
-              <span>Vault balance: <strong>{vaultSchwabBalance !== null ? fmtMoney(vaultSchwabBalance) : "select an account below"}</strong></span>
+              <span>= Expected: <strong className="fund-summary-crosscheck-amt">{expectedVaultBalance !== null ? fmtMoney(expectedVaultBalance) : "—"}</strong></span>
+              <span>Vault balance: <strong className="fund-summary-crosscheck-amt">{vaultSchwabBalance !== null ? fmtMoney(vaultSchwabBalance) : "select an account below"}</strong></span>
               <span>
                 Difference:{" "}
-                <strong style={{ color: schwabVaultDiff === null ? undefined : Math.abs(schwabVaultDiff) < 0.5 ? "#16a34a" : "#dc2626" }}>
+                <strong className="fund-summary-crosscheck-amt" style={{ color: schwabVaultDiff === null ? undefined : Math.abs(schwabVaultDiff) < 0.5 ? "#16a34a" : "#dc2626" }}>
                   {schwabVaultDiff !== null ? fmtMoney(schwabVaultDiff) : "—"}
                 </strong>
               </span>

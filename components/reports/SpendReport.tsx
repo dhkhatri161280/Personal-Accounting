@@ -5,6 +5,7 @@ import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
 import { FloatingWindow } from "@/components/FloatingWindow";
+import { useUiPrefs } from "@/hooks/useUiPrefs";
 import {
   computeCostcoRewardWindow,
   computeCostcoRewardEstimate,
@@ -351,7 +352,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                   </span>
                 </button>
                 {showCostcoDrilldown && (
-                  <FloatingWindow title={`Costco Executive — ${fmt(costcoLinesTotal)}`} onClose={() => setShowCostcoDrilldown(false)} wide>
+                  <FloatingWindow title={<>Costco Executive — <span className="fw-title-amt">{fmt(costcoLinesTotal)}</span></>} onClose={() => setShowCostcoDrilldown(false)} wide>
                     <SpendVoucherTable lines={costcoLines} total={costcoLinesTotal} fmt={fmt} color="#1d4ed8" />
                   </FloatingWindow>
                 )}
@@ -393,7 +394,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                         </span>
                       </button>
                       {showPrevCostcoDrilldown && (
-                        <FloatingWindow title={`Costco Executive (${fmtDate(prevCostcoReward.window.start)} – ${fmtDate(prevCostcoReward.window.end)}) — ${fmt(prevCostcoLinesTotal)}`} onClose={() => setShowPrevCostcoDrilldown(false)} wide>
+                        <FloatingWindow title={<>Costco Executive ({fmtDate(prevCostcoReward.window.start)} – {fmtDate(prevCostcoReward.window.end)}) — <span className="fw-title-amt">{fmt(prevCostcoLinesTotal)}</span></>} onClose={() => setShowPrevCostcoDrilldown(false)} wide>
                           <SpendVoucherTable lines={prevCostcoLines} total={prevCostcoLinesTotal} fmt={fmt} color="#1d4ed8" />
                         </FloatingWindow>
                       )}
@@ -426,6 +427,7 @@ export function SpendSection({
   color: string;
   emptyLabel: string;
 }) {
+  const { privacyMode } = useUiPrefs();
   const [expanded, setExpanded] = useState(false);
   // Which category's card was clicked, if any -- opens a floating drill-down window scoped to
   // just that category's lines, separate from the "Show N vouchers" button above (which still
@@ -452,7 +454,7 @@ export function SpendSection({
                   type="button"
                   key={name}
                   className="spend-category-chip"
-                  title={`${name}: ${fmt(amt)} — click for detail`}
+                  title={privacyMode ? `${name} — click for detail` : `${name}: ${fmt(amt)} — click for detail`}
                   onClick={() => setDrilldown(name)}
                 >
                   <span className="spend-category-chip-fill" style={{ width: `${pct}%`, background: color }} />
@@ -469,7 +471,7 @@ export function SpendSection({
           </button>
           {expanded && <SpendVoucherTable lines={lines} total={total} fmt={fmt} color={color} />}
           {drilldown && (
-            <FloatingWindow title={`${drilldown} — ${fmt(drilldownTotal)}`} onClose={() => setDrilldown(null)} wide>
+            <FloatingWindow title={<>{drilldown} — <span className="fw-title-amt">{fmt(drilldownTotal)}</span></>} onClose={() => setDrilldown(null)} wide>
               <SpendVoucherTable lines={drilldownLines} total={drilldownTotal} fmt={fmt} color={color} hideAccountColumn />
             </FloatingWindow>
           )}

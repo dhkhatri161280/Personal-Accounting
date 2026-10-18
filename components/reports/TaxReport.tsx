@@ -3284,7 +3284,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                   paddingTop: l.bold ? "0.4rem" : undefined,
                 }}
               >
-                <span>{l.label}</span>
+                <span className="tax-note-figure">{l.label}</span>
                 <span className="equity-amt">{fmt(l.value)}</span>
               </div>
             ))}

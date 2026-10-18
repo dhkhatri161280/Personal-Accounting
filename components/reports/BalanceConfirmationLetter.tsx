@@ -316,7 +316,7 @@ export function BalanceConfirmationLetter({ data, fmt }: { data: Ledger; fmt: (n
               <p>{greeting || "Dear Sir/Madam,"}</p>
               <p>
                 As per our books of accounts, the balance in your account with us as on <strong>{fmtDate(asOfDate)}</strong> stands at{" "}
-                <strong>
+                <strong className="bcl-balance-amt">
                   {fmt(Math.abs(balance))} ({sideLabel})
                 </strong>
                 .
@@ -354,7 +354,7 @@ export function BalanceConfirmationLetter({ data, fmt }: { data: Ledger; fmt: (n
                 <p className="bcl-slip-title">CONFIRMATION SLIP (To be returned to the sender)</p>
                 <p>
                   I/We hereby confirm that the balance of{" "}
-                  <strong>
+                  <strong className="bcl-balance-amt">
                     {fmt(Math.abs(balance))} ({sideLabel})
                   </strong>{" "}
                   as on <strong>{fmtDate(asOfDate)}</strong> in my/our account with {senderName || "________________"} is correct.
