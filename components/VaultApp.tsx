@@ -91,6 +91,7 @@ import { computeHeldEquityValueAsOf, priceAsOf, type PricePoint } from "@/lib/eq
 import { StatIcon } from "@/components/Icon";
 import { AutoFitAmount } from "@/components/AutoFitAmount";
 import { computeDashboardTrend } from "@/lib/dashboard-trend";
+import { computeReconRows } from "@/lib/tally-recon";
 import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
@@ -2272,6 +2273,24 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           });
         }
       }
+    }
+  }
+  // App-vs-Tally ledger differences, same comparison Reports → Reconciliation itself shows (see
+  // lib/tally-recon.ts, extracted from that report so both stay in exact agreement). Recomputed
+  // fresh every render straight from data.tallyLedgerSnapshot, so this clears itself the moment
+  // the snapshot catches up -- no separate "error" vs "resolved" state to track by hand. A
+  // difference right after a voucher syncs is often just the one-cycle lag between the sync
+  // engine's master-sync step (refreshes this snapshot) and its voucher-apply step (which runs
+  // after, in the same cycle) -- confirmed live, see Reports → Reconciliation's own "as of" time.
+  if (data?.tallyLedgerSnapshot) {
+    const diffRows = computeReconRows(data).filter((r) => r.status !== "matched");
+    if (diffRows.length) {
+      const totalDiff = diffRows.reduce((s, r) => s + Math.abs(r.diff), 0);
+      attentionItems.push({
+        label: "Tally Recon has differences",
+        detail: `${diffRows.length} ledger(s) off by ${fmt(totalDiff)} total vs Tally as of ${new Date(data.tallyLedgerSnapshot.asOf).toLocaleString()} — often just a one-cycle sync lag; check Reports → Reconciliation if it's still there after the next cycle.`,
+        action: { label: "Open", onClick: () => { setReport("recon"); setTab("reports"); } },
+      });
     }
   }
   const fyCloseCheck = data ? buildFiscalYearCloseVoucher(data, fiscalYearOf(todayStr)) : null;
