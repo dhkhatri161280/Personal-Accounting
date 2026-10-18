@@ -2663,7 +2663,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                           min="0"
                           value={amountDrafts[`tx-${idx}-${ei}`] ?? Math.abs(e.amount).toFixed(2)}
                           onChange={(ev) => setAmountDrafts((prev) => ({ ...prev, [`tx-${idx}-${ei}`]: ev.target.value }))}
-                          onBlur={(ev) => commitAmountDraft(`tx-${idx}-${ei}`, ev.target.value, (abs) => updateEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs }))}
+                          onBlur={(ev) => commitAmountDraft(`tx-${idx}-${ei}`, ev.target.value, (abs) => updateEntry(idx, ei, { amount: isDrEntry(e.amount) ? -abs : abs }))}
                           onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
                         />
                       </div>
@@ -2908,7 +2908,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                               type="number" step="0.01" min="0"
                               value={amountDrafts[`pending-${idx}-${ei}`] ?? Math.abs(e.amount).toFixed(2)}
                               onChange={(ev) => setAmountDrafts((prev) => ({ ...prev, [`pending-${idx}-${ei}`]: ev.target.value }))}
-                              onBlur={(ev) => commitAmountDraft(`pending-${idx}-${ei}`, ev.target.value, (abs) => updatePendingEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs }))}
+                              onBlur={(ev) => commitAmountDraft(`pending-${idx}-${ei}`, ev.target.value, (abs) => updatePendingEntry(idx, ei, { amount: isDrEntry(e.amount) ? -abs : abs }))}
                               onKeyDown={(ev) => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); }}
                             />
                           </div>

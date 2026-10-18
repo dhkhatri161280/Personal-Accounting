@@ -5,11 +5,16 @@ export const blankVoucherLines = (): VoucherLineDraft[] => [
   { id: crypto.randomUUID(), side: "credit", accountId: "", amount: "" },
 ];
 
+// Same fix as components/vault/PlaidImport.tsx's own isDrEntry: a $0.00 entry can be stored as
+// IEEE-754 negative zero, and `-0 < 0` is `false` in JavaScript, so a plain `amount < 0` test
+// mislabels a genuine $0.00 debit leg as credit when loading it into the editor.
+const isDrEntry = (amount: number): boolean => amount < 0 || Object.is(amount, -0);
+
 export const draftLinesFromTx = (tx: Tx | null): VoucherLineDraft[] =>
   tx?.entries?.length
     ? tx.entries.map((e) => ({
         id: crypto.randomUUID(),
-        side: e.amount < 0 ? ("debit" as const) : ("credit" as const),
+        side: isDrEntry(e.amount) ? ("debit" as const) : ("credit" as const),
         accountId: String(e.accountId),
         amount: String(Math.abs(e.amount)),
         assetTag: e.assetTag,

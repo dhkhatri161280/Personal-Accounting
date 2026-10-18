@@ -136,6 +136,12 @@ const emptySetup: SetupDraft = {
   tallyBackupPath: "",
 };
 
+// Same fix as components/vault/PlaidImport.tsx's own isDrEntry: a $0.00 entry can be stored as
+// IEEE-754 negative zero, and both `-0 < 0` and `-0 > 0` are `false` in JavaScript, so this
+// voucher's $0.00 debit leg went to neither the debit nor the credit field -- invisible, not just
+// mislabeled, when editing an existing voucher.
+const isDrEntry = (amount: number): boolean => amount < 0 || Object.is(amount, -0);
+
 const normalize = (value: unknown) =>
   String(value ?? "")
     .trim()
@@ -684,8 +690,8 @@ export function GenericHome() {
       lines: voucher.entries.map((entry) => ({
         id: lineId(),
         ledger: names.get(entry.accountId) || "",
-        debit: entry.amount < 0 ? String(Math.abs(entry.amount)) : "",
-        credit: entry.amount > 0 ? String(entry.amount) : "",
+        debit: isDrEntry(entry.amount) ? String(Math.abs(entry.amount)) : "",
+        credit: isDrEntry(entry.amount) ? "" : String(entry.amount),
       })),
     });
     setTab("voucher");

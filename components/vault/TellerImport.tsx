@@ -664,7 +664,7 @@ export function TellerImport({ data, onSave }: Props) {
                           onChange={(ev) => setAmountDrafts((prev) => ({ ...prev, [`${idx}-${ei}`]: ev.target.value }))}
                           onBlur={(ev) => {
                             const abs = Math.abs(Number(ev.target.value));
-                            if (Number.isFinite(abs)) updateEntry(idx, ei, { amount: e.amount < 0 ? -abs : abs });
+                            if (Number.isFinite(abs)) updateEntry(idx, ei, { amount: isDrEntry(e.amount) ? -abs : abs });
                             setAmountDrafts((prev) => {
                               const next = { ...prev };
                               delete next[`${idx}-${ei}`];
