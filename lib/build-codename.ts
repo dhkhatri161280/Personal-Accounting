@@ -44,7 +44,7 @@ export const CODENAMES: string[] = [
   "mithi-ghari", "khaas-ghari",
   "malai-basundi", "mithi-basundi",
   "chatpati-chakri", "kadak-chakri",
-  "chatpata-locho", "garmagaram-locho",
+  "chatakedar-locho", "garmagaram-locho",
 ];
 
 function fnv1aHash(input: string): number {

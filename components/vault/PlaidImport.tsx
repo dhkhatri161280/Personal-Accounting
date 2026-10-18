@@ -256,7 +256,15 @@ function matchFromHistoryByAmount(tx: PlaidTxRaw, index: HistoryIndex): { debitI
   const txIsReceipt = tx.amount < 0;
   const counts = new Map<number, number>();
   for (const { debitId, isReceipt, amount, debitIsFinancial } of index) {
-    if (isReceipt !== txIsReceipt || Math.abs(amount - amt) > 1 || debitIsFinancial) continue;
+    // Confirmed live: the generic House Hold Exps catch-all absorbs purchases at every dollar
+    // amount across every month, so it routinely racked up more same-ballpark-amount "votes" than
+    // a real, specific recurring bill (a $147.42 Waste Management/Republic Services charge lost to
+    // the household bucket, which had unrelated purchases that just happened to also land within
+    // $1). Unlike the merchant-text matcher, where merging the household family across months is
+    // the whole point (same recurring bill, different months), a bare dollar-amount coincidence
+    // against that same noisy catch-all bucket is never a reliable signal -- excluded the same way
+    // debitIsFinancial already is, for the same reason.
+    if (isReceipt !== txIsReceipt || Math.abs(amount - amt) > 1 || debitIsFinancial || debitId === HOUSEHOLD_FAMILY_ID) continue;
     counts.set(debitId, (counts.get(debitId) || 0) + 1);
   }
   let bestId = 0;
@@ -843,14 +851,6 @@ function buildDraft(
   // text-match branch below) so the amount-only matcher's two call sites can share it -- see
   // their own comment for why they needed it too.
   const currentHH = () => allAccounts.find((a) => a.name.toLowerCase() === houseHoldMonthName(tx.date).toLowerCase());
-  // matchFromHistoryByAmount returns a raw debitId that can likewise be the HOUSEHOLD_FAMILY_ID
-  // sentinel (many House Hold Exps vouchers across many different months and dollar amounts
-  // routinely outvote a genuine, specific recurring-amount match like a utility bill). Confirmed
-  // live: a recurring $147.42 Waste Management/Republic Services Citi charge failed to match at
-  // all -- not because the vote lost, but because the sentinel id won the vote and then resolved
-  // to no real account (`accounts.find(a => a.id === -1)` is always undefined), silently
-  // discarding the whole amount-based match instead of falling back to the next real account.
-  const resolveAmtDebitAcc = (id: number) => (id === HOUSEHOLD_FAMILY_ID ? currentHH() : accounts.find((a) => a.id === id));
 
   // ── Pattern match from vault history ──
   const match = matchFromHistory(tx, historyIndex);
@@ -891,7 +891,7 @@ function buildDraft(
     if (tx.amount > 0 && match.voteCount === 1) {
       const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
       if (amtMatch && amtMatch.debitId !== debitAcc?.id) {
-        const amtDebitAcc = resolveAmtDebitAcc(amtMatch.debitId);
+        const amtDebitAcc = accounts.find((a) => a.id === amtMatch.debitId);
         if (amtDebitAcc) debitAcc = amtDebitAcc;
       }
     }
@@ -931,7 +931,7 @@ function buildDraft(
   // ── Amount-only match from vault history (no merchant-text overlap, but a repeat amount) ──
   if (tx.amount > 0 && cardAcc) {
     const amtMatch = matchFromHistoryByAmount(tx, historyIndex);
-    const debitAcc = amtMatch ? resolveAmtDebitAcc(amtMatch.debitId) : undefined;
+    const debitAcc = amtMatch ? accounts.find((a) => a.id === amtMatch.debitId) : undefined;
     if (amtMatch && debitAcc) {
       const amt = Math.abs(tx.amount);
       return {
