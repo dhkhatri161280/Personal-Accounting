@@ -6,6 +6,14 @@ const MIN_W = 360;
 const MIN_H = 200;
 const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
 
+// Every overlay shares the same base z-index (200, set in globals.css) -- fine for a single
+// window, but when one FloatingWindow opens another on top of itself (e.g. a breakdown modal's
+// row opening a drill-down modal), stacking falls back to DOM order, which depends on where each
+// modal's JSX happens to sit in the file rather than which one opened later. A module-level
+// counter, bumped once per mounted window and applied as an inline z-index, makes the
+// most-recently-opened window always win regardless of source order.
+let fwZCounter = 200;
+
 interface Rect {
   top: number;
   left: number;
@@ -40,6 +48,7 @@ export function FloatingWindow({
   const [rect, setRect] = useState<Rect | null>(null);
   const dragRef = useRef<{ corner: Corner; startX: number; startY: number; rect: Rect } | null>(null);
   const userResizedRef = useRef(false);
+  const [zIndex] = useState(() => ++fwZCounter);
 
   useEffect(() => {
     const vw = window.innerWidth,
@@ -121,7 +130,7 @@ export function FloatingWindow({
   }
 
   return (
-    <div className="fw-overlay" onClick={onClose}>
+    <div className="fw-overlay" style={{ zIndex: zIndex }} onClick={onClose}>
       <div
         ref={panelRef}
         className={`fw-panel ${wide ? "fw-panel--wide" : ""}`}
