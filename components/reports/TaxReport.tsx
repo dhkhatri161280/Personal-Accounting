@@ -12,7 +12,7 @@ import { paystubDonutSegments } from "@/lib/paystub-donut";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
-import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains, sumInterestDividendIncome } from "@/lib/tax-classify";
+import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains, sumInterestDividendIncome, listInterestDividendEntries } from "@/lib/tax-classify";
 import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
 import { matchDeductionLedgers, deductionTotal, findHsaContributions } from "@/lib/tax-deductions";
@@ -650,7 +650,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   // "sub" caption text was the only explanation offered for how the number was computed. Every
   // line here reuses an already-computed field from taxEstimate/stateTaxEstimate, never
   // re-derives the math, so the modal can't drift from what's actually displayed on the card.
-  const [taxBreakdownModal, setTaxBreakdownModal] = useState<{ title: string; lines: { label: string; value: number; bold?: boolean }[] } | null>(null);
+  const [taxBreakdownModal, setTaxBreakdownModal] = useState<{ title: string; lines: { label: string; value: number; bold?: boolean; onClick?: () => void }[] } | null>(null);
+  // Second-level "how was THIS line derived" drill-down, opened from a clickable line inside the
+  // modal above (e.g. clicking "Gross Salary" inside "AGI — how it's derived" shows exactly which
+  // pay periods/RSU vests summed to it) -- stacks on top rather than replacing taxBreakdownModal,
+  // so the parent breakdown stays visible underneath when this closes.
+  const [drilldownModal, setDrilldownModal] = useState<{ title: string; rows: { label: string; amount: number }[]; total: number } | null>(null);
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
@@ -1279,6 +1284,46 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       sum += ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0);
     }
     return sum + vestGrossTotal;
+  }
+  // Per-period breakdown for a "how was this number derived" drill-down -- mirrors
+  // overriddenTotal/overriddenGrossTotal's exact computation (same three sources: Excel-imported
+  // periods with override substitution, voucher-derived periods, RSU vest dates), just one row
+  // per contributing period/vest instead of a single summed total, so the drill-down always ties
+  // out exactly to the figure it's explaining. grossMode handles Gross Salary's own slightly
+  // different shape (base+telephone, not a single named ManualPayrollPeriod field).
+  function periodBreakdown(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod, grossMode = false): { label: string; amount: number }[] {
+    const out: { label: string; amount: number }[] = [];
+    for (let i = 0; i < yr.periodLabels.length; i++) {
+      const ov = overrideByIndex.get(i);
+      const amount = grossMode
+        ? (ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0))
+        : (ov ? (Number(ov[field]) || 0) : (baseRowForField?.values[i] ?? 0));
+      if (Math.abs(amount) > 0.004) out.push({ label: yr.periodLabels[i], amount });
+    }
+    for (const m of voucherPeriods) {
+      const amount = grossMode ? m.base + m.telephone : (Number(m[field]) || 0);
+      if (Math.abs(amount) > 0.004) out.push({ label: m.label, amount });
+    }
+    // Mirrors vestStockTotal's own two branches exactly (see its definition above): a tax-field
+    // (federal/ssn/medicare/stateWH/stateSDI/totalTax) IS attributed per vest date, via vestTax's
+    // own per-date override; every other field (k401, espp, medical, ...) is NOT -- Excel's own
+    // Stocks column for those fields has no per-vest-date breakdown at all, so vestStockTotal
+    // sums the WHOLE stockValues array in one shot. Attributing it per vest-group index here
+    // instead would silently diverge from the real total whenever stockValues.length doesn't
+    // exactly match vestGroups.length (a stale/incomplete Excel import, a vest added after the
+    // last import, etc.) -- confirmed by re-reading vestStockTotal itself before shipping this.
+    if (grossMode || VEST_TAX_FIELDS.has(field as string)) {
+      for (const g of vestGroups) {
+        const amount = grossMode
+          ? g.items.reduce((s, { vest }) => s + (vest.pending ? 0 : vest.shares * vest.vestPrice), 0)
+          : ((vestTax(g.date, g.stockIdx) as unknown as Record<string, number | null>)[field as string] ?? 0);
+        if (Math.abs(amount) > 0.004) out.push({ label: `RSU vest ${fmtDate(g.date)}`, amount });
+      }
+    } else {
+      const vestBlob = baseRowForField?.stockValues?.reduce((s, v) => s + v, 0) ?? 0;
+      if (Math.abs(vestBlob) > 0.004) out.push({ label: "RSU vest-related (Excel Stocks column, not broken out per vest date)", amount: vestBlob });
+    }
+    return out;
   }
 
   // The most recently PAID period (by end date, not just latest index) -- used as the model
@@ -2420,20 +2465,46 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             onClick: () => setTaxBreakdownModal({
               title: "AGI — how it's derived",
               lines: [
-                { label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other)", value: totalGross },
-                { label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1)", value: -totalK401 },
+                {
+                  label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other)", value: totalGross,
+                  onClick: () => setDrilldownModal({ title: "Gross Salary — by pay period", rows: periodBreakdown(gross, "base", true), total: totalGross }),
+                },
+                {
+                  label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1)", value: -totalK401,
+                  onClick: () => setDrilldownModal({ title: "Employee 401(k) — by pay period", rows: periodBreakdown(k401, "k401"), total: totalK401 }),
+                },
                 { label: "= Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages, bold: true },
-                { label: "+ Taxable Interest & Dividends", value: interestDividendIncome },
-                { label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable },
-                { label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction },
+                {
+                  label: "+ Taxable Interest & Dividends", value: interestDividendIncome,
+                  onClick: () => {
+                    const entries = listInterestDividendEntries(transactions, accounts, yr.year);
+                    setDrilldownModal({
+                      title: "Taxable Interest & Dividends — by voucher",
+                      rows: entries.map((e) => ({ label: `${fmtDate(e.date)} — ${e.accountName}${e.narration ? ` (${e.narration})` : ""}`, amount: e.amount })),
+                      total: interestDividendIncome,
+                    });
+                  },
+                },
+                {
+                  label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable,
+                  onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+                },
+                {
+                  label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction,
+                  onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+                },
                 {
                   label: hsaContributionTotal > hsaDeduction
                     ? `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, capped at IRS annual limit)`
                     : `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, under the IRS annual limit)`,
                   value: -hsaDeduction,
+                  onClick: hsaContributions.length > 0 ? () => setShowDeductionsModal(true) : undefined,
                 },
                 { label: "= Ordinary Income", value: taxEstimate.ordinaryIncome, bold: true },
-                { label: "+ Long-Term Capital Gain", value: taxEstimate.longTermGain },
+                {
+                  label: "+ Long-Term Capital Gain", value: taxEstimate.longTermGain,
+                  onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+                },
                 { label: "= AGI", value: taxEstimate.agi, bold: true },
               ],
             }),
@@ -3277,18 +3348,48 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             {taxBreakdownModal.lines.map((l, i) => (
               <div
                 key={i}
+                onClick={l.onClick}
+                role={l.onClick ? "button" : undefined}
+                tabIndex={l.onClick ? 0 : undefined}
+                onKeyDown={l.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") l.onClick!(); } : undefined}
+                className={l.onClick ? "tax-breakdown-line-clickable" : undefined}
                 style={{
                   display: "flex", justifyContent: "space-between", gap: "1rem",
                   fontWeight: l.bold ? 700 : 400,
                   borderTop: l.bold ? "1px solid #e2e8f0" : undefined,
                   paddingTop: l.bold ? "0.4rem" : undefined,
+                  cursor: l.onClick ? "pointer" : undefined,
                 }}
               >
-                <span className="tax-note-figure">{l.label}</span>
+                <span className="tax-note-figure">{l.label}{l.onClick ? " →" : ""}</span>
                 <span className="equity-amt">{fmt(l.value)}</span>
               </div>
             ))}
           </div>
+          <p style={{ fontSize: 11, opacity: 0.6, marginTop: "0.75rem" }}>
+            Estimate only — not tax advice. See "Estimate only" above for full assumptions & limitations.
+          </p>
+        </Modal>
+      )}
+
+      {drilldownModal && (
+        <Modal title={drilldownModal.title} onClose={() => setDrilldownModal(null)}>
+          {drilldownModal.rows.length === 0 ? (
+            <p style={{ fontSize: 13, opacity: 0.7 }}>No contributing entries found for this figure.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+              {drilldownModal.rows.map((r, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "1rem", fontSize: 13 }}>
+                  <span className="tax-note-figure">{r.label}</span>
+                  <span className="equity-amt">{fmt(r.amount)}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", fontWeight: 700, borderTop: "1px solid #e2e8f0", paddingTop: "0.4rem" }}>
+                <span>Total</span>
+                <span className="equity-amt">{fmt(drilldownModal.total)}</span>
+              </div>
+            </div>
+          )}
           <p style={{ fontSize: 11, opacity: 0.6, marginTop: "0.75rem" }}>
             Estimate only — not tax advice. See "Estimate only" above for full assumptions & limitations.
           </p>

@@ -190,9 +190,21 @@ const PASSIVE_INCOME_RE = /dividend|interest/i;
  * would silently shift a real December-2025 dividend confirmed in 2026 into tax year 2026 instead
  * of 2025. Falls back to Tx.date for an account-name-only match (no descriptive narration to
  * parse) or any narration without the embedded date. */
-export function sumInterestDividendIncome(transactions: Tx[], accounts: Account[], year: string): number {
+export interface InterestDividendEntry {
+  txGuid: string;
+  date: string;
+  narration: string;
+  accountName: string;
+  amount: number;
+}
+
+/** Same matching rule as sumInterestDividendIncome, but returns the individual postings instead
+ * of just their total -- extracted so a "how was this number derived" drill-down (see
+ * components/reports/TaxReport.tsx) can show exactly which vouchers it's summing, guaranteed to
+ * tie out exactly since sumInterestDividendIncome now just totals this same list. */
+export function listInterestDividendEntries(transactions: Tx[], accounts: Account[], year: string): InterestDividendEntry[] {
   const incomeAccounts = new Map(accounts.filter((a) => a.category === "Income").map((a) => [a.id, a]));
-  let total = 0;
+  const out: InterestDividendEntry[] = [];
   for (const t of transactions) {
     if (t.deleted || t.cancelled) continue;
     const narrationMatches = PASSIVE_INCOME_RE.test(t.narration || "");
@@ -203,8 +215,12 @@ export function sumInterestDividendIncome(transactions: Tx[], accounts: Account[
       const acct = incomeAccounts.get(e.accountId);
       if (!acct) continue;
       if (!narrationMatches && !PASSIVE_INCOME_RE.test(acct.name)) continue;
-      total += e.amount;
+      out.push({ txGuid: t.guid, date: effectiveDate, narration: t.narration || "", accountName: acct.name, amount: e.amount });
     }
   }
-  return round2(total);
+  return out.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export function sumInterestDividendIncome(transactions: Tx[], accounts: Account[], year: string): number {
+  return round2(listInterestDividendEntries(transactions, accounts, year).reduce((s, e) => s + e.amount, 0));
 }

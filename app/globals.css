@@ -8533,6 +8533,9 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
    with the dollar values occluded (painted under the next card, same failure mode fixed
    elsewhere in the refreshed theme). Confirmed via live test: at 390px every card shrank to
    33px and every value was occluded. Below that breakpoint, wrap instead of forcing one row. */
+.tax-breakdown-line-clickable { border-radius: 6px; margin: 0 -8px; padding: 2px 8px !important; }
+.tax-breakdown-line-clickable:hover { background: #f1f5f9; }
+.tax-breakdown-line-clickable .tax-note-figure { color: #1d4ed8; }
 .tax-report .equity-summary-row { flex-wrap: nowrap; overflow-x: auto; gap: 0.4rem; }
 .tax-report .equity-summary-col { min-width: 0; }
 .tax-report .equity-summary-card { min-width: 108px; padding: 0.45rem 0.55rem; }
