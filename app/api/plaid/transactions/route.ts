@@ -143,15 +143,22 @@ export async function GET(request: Request) {
         // (confirmed directly: INVESTMENTS_REFRESH_LIMIT), so it's only fired for connections
         // that actually have an investment-type account -- otherwise every plain bank/card
         // connection burns quota that the accounts which actually need it could have used.
-        // Best-effort: ignore failures and give Plaid a moment to complete before reading.
+        // Best-effort: a refresh failure doesn't abort the fetch (transactions/get below still
+        // runs and returns whatever Plaid already has cached) -- give Plaid a moment to complete
+        // before reading.
         try {
           const hasInvestmentAccount = conn.hasInvestmentAccount === true;
 
           await Promise.all([
-            // .then(r => r.text()) always drains the body -- previously this only had a .catch,
-            // so a *successful* refresh left its response body completely unread, which is
-            // exactly the "fetch() several times without reading the bodies" condition
-            // Cloudflare's deadlock guard force-cancels the oldest of once too many pile up.
+            // Confirmed live: this response was being read (.then(r => r.text())) but its
+            // status/body were then thrown away unconditionally -- not checked, not logged, not
+            // even captured under ?debug=1. If Plaid's refresh call ever fails for one specific
+            // connection (rate limited, the item needs re-auth, a transient error, etc.), the
+            // user has no way to tell "the bank is just slow" apart from "the refresh silently
+            // failed" -- both look identical: no error banner, data just doesn't update. Now
+            // surfaced as a low-severity warning (not an itemError -- this alone doesn't mean the
+            // connection is broken, transactions/get below can still succeed) so that distinction
+            // is visible instead of invisible.
             fetchWithTimeout(`${plaidBase(bindings)}/transactions/refresh`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -160,7 +167,20 @@ export async function GET(request: Request) {
                 secret: PLAID_SECRET,
                 access_token: conn.access_token,
               }),
-            }, PLAID_FETCH_TIMEOUT_MS).then((r) => r.text()).catch(() => {}),
+            }, PLAID_FETCH_TIMEOUT_MS)
+              .then(async (r) => {
+                const body = await r.text();
+                if (debug) debugRefresh.push({ institution: conn.institution_name, item_id: conn.item_id, status: r.status, body });
+                if (!r.ok) {
+                  let detail = body;
+                  try { detail = JSON.parse(body).error_message || JSON.parse(body).error_code || body; } catch {}
+                  errors.push(`${conn.institution_name}: latest data may not have been fetched yet (refresh failed -- ${detail})`);
+                }
+              })
+              .catch((e) => {
+                if (debug) debugRefresh.push({ institution: conn.institution_name, item_id: conn.item_id, error: String(e) });
+                errors.push(`${conn.institution_name}: latest data may not have been fetched yet (refresh request failed -- ${e.message || e})`);
+              }),
             hasInvestmentAccount
               ? fetchWithTimeout(`${plaidBase(bindings)}/investments/refresh`, {
                   method: "POST",
