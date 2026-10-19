@@ -103,7 +103,7 @@ function GroupColumn({
         );
       })}
       {balancingRow && (
-        <div className="report-line report-line--balancing" style={{ fontWeight: 700 }}>
+        <div className="report-line report-line--balancing">
           <span>{balancingRow.label}</span>
           <strong style={{ color: balancingRow.color }}>{fmt(balancingRow.amount)}</strong>
         </div>

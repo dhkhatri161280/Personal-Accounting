@@ -1617,6 +1617,14 @@ td strong {
 .report-total strong {
   font-variant-numeric: tabular-nums;
 }
+/* Confirmed live: this row sits directly in .grouped-report, not nested inside a .report-group
+   like the ordinary ledger lines, so it was falling back to .report-line's own 2px right padding
+   instead of the 18px every sibling row (.group-heading, .report-grand) actually uses -- visually
+   off, not actually misaligned data. Matches .group-heading's own padding/weight exactly. */
+.report-line--balancing {
+  padding: 11px 18px;
+  font-weight: 800;
+}
 .report-total {
   font-size: var(--fs-sm);
   font-weight: 700;
