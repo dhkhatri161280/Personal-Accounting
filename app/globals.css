@@ -1592,7 +1592,17 @@ td strong {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 15px;
-  align-items: start;
+  /* stretch (not start) so both .grouped-report columns share the taller one's height -- combined
+     with .grouped-report's own column flex layout and .report-grand's margin-top:auto, this pins
+     both "Total ..." rows to the same bottom line regardless of which side has more groups/items,
+     instead of each column's total trailing right after its own last row. Confirmed live: the
+     user wants this always-equal-totals Income Statement to visually line up the same way
+     components/reports/BalanceSheetReport.tsx's own Total Assets/Total Liabilities rows do. */
+  align-items: stretch;
+}
+.grouped-report {
+  display: flex;
+  flex-direction: column;
 }
 .report-line,
 .report-total {
@@ -1934,6 +1944,7 @@ tfoot th {
   padding: 14px 18px;
   font-size: var(--fs-base);
   font-weight: 800;
+  margin-top: auto;
 }
 .report-grand strong {
   font-variant-numeric: tabular-nums;
@@ -1943,7 +1954,11 @@ tfoot th {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 15px;
-  align-items: start;
+  /* stretch (not start) so both .bs-col columns share the taller one's height -- combined with
+     .bs-col's own flex layout and .bs-total's margin-top:auto, this pins both "Total ..." rows to
+     the same bottom line regardless of which side has more sections expanded. Confirmed live: the
+     user wants Total Capital and Liabilities / Total Assets to always land on the same row. */
+  align-items: stretch;
 }
 .bs-col {
   background: #fff;
@@ -1951,6 +1966,8 @@ tfoot th {
   border-radius: 14px;
   box-shadow: 0 2px 10px #23365708;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .bs-col-head {
   background: #10223f;
@@ -2051,6 +2068,7 @@ tfoot th {
   padding: 13px 16px;
   font-size: var(--fs-base);
   font-weight: 800;
+  margin-top: auto;
 }
 .bs-total strong {
   font-variant-numeric: tabular-nums;

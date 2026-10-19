@@ -4880,6 +4880,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   fmt={fmt}
                   expandSignal={reportExpandAll.expandSignal}
                   collapseSignal={reportExpandAll.collapseSignal}
+                  showBalancingLine
                 />
               ) : (
                 <ColumnarIncomeExpenditure
