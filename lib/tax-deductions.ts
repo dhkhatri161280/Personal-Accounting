@@ -21,10 +21,19 @@ const CATEGORIES: DeductionCategory[] = [
   { key: "charitable", label: "Charitable Donations", keywords: /donation|charity|charitable/i },
 ];
 
+export interface DeductionEntry {
+  txGuid: string;
+  date: string;
+  narration: string;
+  ledgerName: string;
+  amount: number;
+}
+
 export interface DeductionMatch {
   key: DeductionCategory["key"];
   label: string;
   ledgers: { name: string; amount: number }[];
+  entries: DeductionEntry[];
   total: number;
   excludedCount?: number;
 }
@@ -44,6 +53,7 @@ export function matchDeductionLedgers(accounts: Account[], transactions: Tx[], y
   return CATEGORIES.map((cat) => {
     const ledgers = accounts.filter((a) => a.active !== false && cat.keywords.test(a.name));
     let excludedCount = 0;
+    const entries: DeductionEntry[] = [];
     const rows = ledgers
       .map((ledger) => {
         const amount = yearTx.reduce((s, t) => {
@@ -52,13 +62,18 @@ export function matchDeductionLedgers(accounts: Account[], transactions: Tx[], y
             if (hasEntry) excludedCount++;
             return s;
           }
-          return s + t.entries.filter((e) => e.accountName === ledger.name).reduce((es, e) => es + Math.max(0, -e.amount), 0);
+          return s + t.entries.filter((e) => e.accountName === ledger.name).reduce((es, e) => {
+            const amt = Math.max(0, -e.amount);
+            if (amt > 0.005) entries.push({ txGuid: t.guid, date: t.date, narration: t.narration || "", ledgerName: ledger.name, amount: amt });
+            return es + amt;
+          }, 0);
         }, 0);
         return { name: ledger.name, amount };
       })
       .filter((r) => r.amount > 0.005);
+    entries.sort((a, b) => b.date.localeCompare(a.date));
     return {
-      key: cat.key, label: cat.label, ledgers: rows, total: rows.reduce((s, r) => s + r.amount, 0),
+      key: cat.key, label: cat.label, ledgers: rows, entries, total: rows.reduce((s, r) => s + r.amount, 0),
       excludedCount: excludedCount > 0 ? excludedCount : undefined,
     };
   }).filter((m) => m.ledgers.length > 0);

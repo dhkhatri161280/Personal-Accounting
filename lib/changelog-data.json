@@ -1,7 +1,843 @@
 [
   {
+    "date": "2026-10-19",
+    "summary": "Itemized Deductions: drill-down to the contributing vouchers, HSA voucher links"
+  },
+  {
+    "date": "2026-10-19",
+    "summary": "Surface Plaid transactions/refresh failures instead of silently discarding them"
+  },
+  {
+    "date": "2026-10-19",
+    "summary": "Tax/Equity Report: complete the \"how it's derived\" drill-down rollout"
+  },
+  {
+    "date": "2026-10-19",
+    "summary": "Tax Report: drill-down for AGI breakdown lines (pay periods + vouchers)"
+  },
+  {
+    "date": "2026-10-19",
+    "summary": "Balances tab filters; align Cash Flow's Total inflows/outflows row"
+  },
+  {
+    "date": "2026-10-19",
+    "summary": "Fix Net Gain/Loss balancing row's alignment on Income Statement"
+  },
+  {
+    "date": "2026-10-19",
+    "summary": "Income Statement: add Tally-style Gain/Loss balancing line; align totals"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Surface Tally Recon differences in Needs Attention"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Self-correct Payment/Receipt/Contra/Journal at every voucher save"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Privacy mode: close every blur gap app-wide, exempt Watchlist"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Fix -0 Dr/Cr bug completely: the commit path, not just the label"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Revert household-exclusion regression; remove diagnostic logging"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Diagnostic logging: instrument the text-based matcher too"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Diagnostic logging: switch console.debug to console.log, add readable names"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Temporary: add diagnostic logging to Plaid amount-based matchers"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Exclude House Hold Exps from amount-only history matching; fix codename pairing"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Fix household-family vote resolution and -0 Dr/Cr mislabeling"
+  },
+  {
+    "date": "2026-10-18",
+    "summary": "Fix self-referencing Dr=Cr vouchers from history-based auto-match"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Rename Recon menu label to Tally Recon"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Rename FBAR Worksheet to FBAR Report"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Proactive sweep: fix 4 more bugs from the same patterns found live today"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Plaid import: fix entry amount field reformatting mid-typing"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Plaid import: rename Entertainment category prefix to \"Fun @ \""
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Plaid import: auto-prefix narration by category (Food @ / Travel @ / Entertainment @)"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: fix Tax cross-book navigation, recover narrated-not-called replies"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: enforce FINAL RESULT tool answers in code, not just prompt"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: never let a book-gated tax tool substitute the wrong country's figures"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: resolve \"show me\" ambiguity between data tools and navigation"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: navigate_to_screen falls back to word-overlap matching"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Fix blank \"Something went wrong\" / React error #310 after last deploy"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: navigate_to_screen now crosses books, not just stays put"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: make navigate_to_screen's \"not found\" result a clear final answer"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "FBAR Report: move All Years button next to the Calendar Year dropdown"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: add navigate_to_screen so DiHiTwa can actually go places"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "FBAR Report: fold All Years toggle into the main toolbar row"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "FBAR Report: color All Years rows by filing status"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Fix Reconciliation report showing raw \"&#4; Primary\" for synthetic accounts"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "FBAR Report: move All Years summary to top, matching Tax Report's placement"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "FBAR Report: add collapsible All Years combined peak value summary"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: shorten the bubble's hover tooltip"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: fall back to another Cloudflare account's free AI quota"
+  },
+  {
+    "date": "2026-10-16",
+    "summary": "Chat assistant: cache exact-repeat questions to stretch the free daily quota"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: trim the DiHiTwa header row's vertical padding"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: bump panel-size storage key so the narrower default actually applies"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: narrower default panel width on landscape screens"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: fix DiHiTwa bubble label centering for real this time"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: converge quickly on a double-check follow-up"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: center the DiHiTwa bubble label under the icon"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: rename to DiHiTwa, compact header, label under bubble"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: add search_accounts tool for multi-account category search"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix tax tools: \"owe\"/\"refund\" means net after withholding, not gross tax"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: add 10 more tools covering reports beyond accounting"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix get_account_balances double-negating every balance's sign"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: move the tool-call trace into a hover tooltip"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix get_account_ledger to match the real Ledger report's own sign math"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix get_account_ledger blending multiple accounts sharing a name"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: show which tool produced each answer, prefer the exact account tool"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: harden the tool-calling loop against malformed model output"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant phase 2: real tool-calling, replacing context-stuffing"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: add a real fiscal-year salary summary, stop conflating FY with CY"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix build codename spelling, retry the NVDA live price fetch once"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: precompute fiscal-year search totals, stop asking the model to sum"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: bound search to the current fiscal year, fix stopword leakage"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: real full-history search for wider-than-month questions"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: name each voucher's real accounts, disclose month-only scope"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: add a close button inside the panel header"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix and backfill Tally's stray \"&#4;\" marker on group/account parents"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: add a real year-to-date salary summary"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: take-home must be the real bank deposit, not derived"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: break salary vouchers into gross/tax/net, not one sum"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix chat assistant: paystub Receipt wrongly labeled a refund"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix chat assistant refund detection: it was inverted"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Make the chat bubble itself draggable, independent of the panel"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix chat assistant: refunds showed as spend, dates didn't match app format"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Make the chat assistant panel draggable and resizable"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Chat assistant: measure install-button position dynamically, size panel for landscape"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix chat assistant bubble overlapping install buttons, and two accuracy bugs"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Add a free in-app chat assistant (Cloudflare Workers AI)"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix FBAR rates table: confusable placeholder, and a superseded indicator"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Add an explicit Save button to the FBAR Treasury rates table"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Move FBAR filer profile & Treasury rates out of Settings, onto the FBAR Worksheet itself"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Add a self-service FBAR Treasury rate field (Masters > Settings)"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Revert \"Auto-fetch the FBAR Treasury rate once Treasury publishes it\""
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Auto-fetch the FBAR Treasury rate once Treasury publishes it"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Fix several unblurred dollar amounts in privacy mode"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Exclude Costco Shop Cards/gift cards from the Executive 2% Reward estimate"
+  },
+  {
+    "date": "2026-10-15",
+    "summary": "Retry the paystub PDF archive upload on transient network failure"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Add per-account City/State/Postal/Country for the FBAR PDF export"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Distinguish Inactive from Synced badge color; drain master-sync backlog in one cycle"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Fix FBAR PDF export writing data to the wrong XFA location"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Combine the FBAR deadline and filing-requirement banners into one line"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Show an accurate inline save confirmation on the Masters Settings form"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Add clear FBAR filing determination and pre-filled PDF export"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Tidy FBAR exchange-rate card layout, fix penda codename typo"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Surface the FBAR exchange rate in a summary card and table header"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Add Treasury year-end INR rates back to 2001, not just 2025"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Add bank/card account details to Masters, widen FBAR year picker"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Fix FBAR Treatment/manual-value edits kicking the user out to Masters"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Add per-account FBAR treatment (Include/Exclude/Manual value) tagging"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Add FBAR Worksheet report (FinCEN Form 114 prep) for India Books"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Fix Cash Flow Account filter attribution properly (source/destination model)"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Fix Cash Flow Account filter to apportion split-voucher amounts correctly"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Make the Edit/Copy/Reverse return-to-origin uniform across the app"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Widen the ledger drilldown popup to fit the table without scrolling"
+  },
+  {
+    "date": "2026-10-14",
+    "summary": "Fix Citi/Amex credit card payment auto-import to post as Contra"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add Mark-as-correct dismissal and a visible link to Categorization Review"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Make Categorization Review's evidence counts drillable"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Warn before closing a future period in Masters > Periods"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Fix two false-positive sources in Categorization Review"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Fix Edit from Cash Flow drilldown and return to it after save"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add Categorization Review report to catch weak/wrong auto-categorizations"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Scope columnar Cash Flow drilldown to the selected Account filter"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Make Costco reward cycle comparison a dropdown of real past cycles"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add previous cycle to Spend Report's Costco Executive 2% Reward card"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Fix build codename gender agreement: chatpato-chevdo"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Remove today-cap on Spend Report's To date"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add Monthly/Quarterly/Yearly periodic breakdown to GR Books' Cash Flow"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add Cost / Sh column to Holdings report table"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Replace Holdings report caption with the standard info-icon popover"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add Daily Gain column and summary cards to Holdings report"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Merge Holdings into one table with a single combined total"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add a consolidated Holdings report (NVDA RSU/ESPP + Trading + Schwab cash)"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Surface Schwab cash-balance fetch failures instead of silently disappearing"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Fix two more build codename entries: mitho-shrikhand, tikhu-farsaan"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Align the Schwab Needs Attention alert to fire the same day the badge turns urgent"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Fix gender agreement in a build codename: thanda-chaas -> thandi-chaas"
+  },
+  {
+    "date": "2026-10-13",
+    "summary": "Add a bank/card Account filter to Cash Flow, across all three books"
+  },
+  {
+    "date": "2026-10-12",
+    "summary": "Move the Costco reward card below Expense/Income, add a drill-down"
+  },
+  {
+    "date": "2026-10-12",
+    "summary": "Add a Costco Executive 2% Reward estimate to the Spend report"
+  },
+  {
+    "date": "2026-10-12",
+    "summary": "Fix GR Books' Trial Balance computing a different closing balance than Balance Sheet/drilldown"
+  },
+  {
+    "date": "2026-10-12",
+    "summary": "Match GR Books' ledger-drilldown period picker and modal width to US/India"
+  },
+  {
+    "date": "2026-10-12",
+    "summary": "Bring GR Books' ledger drilldown up to the same TransactionTable experience"
+  },
+  {
+    "date": "2026-10-11",
+    "summary": "Swap the Balances tab's Pending columns to Charges, then Payment"
+  },
+  {
+    "date": "2026-10-11",
+    "summary": "Fix a Plaid deposit defaulting to checking instead of the real savings account"
+  },
+  {
+    "date": "2026-10-11",
+    "summary": "Center the Balances tab's table headers"
+  },
+  {
+    "date": "2026-10-11",
+    "summary": "Group the Pending columns under one header, add a grand-total Difference"
+  },
+  {
+    "date": "2026-10-11",
+    "summary": "Split the Balances tab's Uncleared column into Payments Pending / Charges Pending"
+  },
+  {
+    "date": "2026-10-11",
+    "summary": "Split a credit card's pending Uncleared items into Payments vs Charges"
+  },
+  {
+    "date": "2026-10-07",
+    "summary": "Add a Total row to each grant's vest-by-vest table"
+  },
+  {
+    "date": "2026-10-07",
+    "summary": "Let loan accounts be always-reconciled, and add a direct per-voucher reconcile toggle"
+  },
+  {
+    "date": "2026-10-07",
+    "summary": "Let Bank Reconciliation's manual \"Mark reconciled\" set Day Book's Reconciled badge too"
+  },
+  {
+    "date": "2026-10-06",
+    "summary": "Replace flat-dollar underpayment heads-up with the real IRS/FTB safe-harbor test"
+  },
+  {
+    "date": "2026-10-06",
+    "summary": "Unify Cash Flow and columnar-report drilldowns with the ledger drilldown UX"
+  },
+  {
+    "date": "2026-10-06",
+    "summary": "Fix mobile overflow in long voucher-card group labels (Yearly/Quarterly view)"
+  },
+  {
+    "date": "2026-10-06",
+    "summary": "Fix mobile overflow in the portaled ledger-drilldown total"
+  },
+  {
+    "date": "2026-10-06",
+    "summary": "Ledger drilldown: fold the toolbar row into the FY row + summary cards"
+  },
+  {
+    "date": "2026-10-06",
+    "summary": "Ledger drilldown: default to Monthly view, relabel the grouping dropdown"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Fix sync-status write floor: refresh lastCheckedAt even when content is unchanged"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Flag a stale \"success\" Tally sync status, not just error/stuck-pending"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Apply the real mortgage interest acquisition-debt cap, federal and CA"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "1040/state preview: drop the \"Projected\" label once a tax year is fully paid out"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "1040/state preview: show projected full-year figures instead of YTD-actual"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Tax Report: add a line-by-line 1040 & state return preview modal"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Add backdoor Roth IRA scenario; golden-return test for the federal tax engine"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Recurring templates: gate monthly due-flagging by dayOfMonth, not the whole period"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Watchlist: only use the 50-day MA for buyBelow when it's actually below live"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Watchlist: derive buy/sell bands from real 50-day MA and 52-week high, not a flat +/-8%"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Equity price: use Yahoo's intraday series last tick, not the unreliable fulldayPrice field"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "HSA import: surface money-market sweep dividend as an importable Receipt"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Recurring templates: let an already-posted voucher satisfy a due period instead of forcing a duplicate"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Sort ledger-account dropdowns alphabetically; fix a mismatched build codename"
+  },
+  {
+    "date": "2026-10-05",
+    "summary": "Recurring templates: redirect House Hold Exps legs to the posting month's own sibling account"
+  },
+  {
+    "date": "2026-10-04",
+    "summary": "Equity price: use Yahoo's all-sessions price instead of Schwab's regular-hours-only quote"
+  },
+  {
+    "date": "2026-10-04",
+    "summary": "India ITR: add Exempt Income field, pre-filled from LIC maturity ledger"
+  },
+  {
+    "date": "2026-10-04",
+    "summary": "India Tax Report: current FY always selectable, pre-fill AY and Other Sources"
+  },
+  {
+    "date": "2026-10-04",
+    "summary": "India Tax Report: LIC annuity/maturity ledger suggestions, toolbar row merge"
+  },
+  {
+    "date": "2026-10-04",
+    "summary": "Add India tax slabs for AY2018-19 through AY2026-27"
+  },
+  {
+    "date": "2026-10-04",
+    "summary": "GR Day Book: footer says \"Displayed total\", not plain \"Total\""
+  },
+  {
+    "date": "2026-10-04",
+    "summary": "Day Book cap only applies to \"All periods\", consistent across US/India/GR"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Dashboard cards: soft-depth polish (shadow instead of border)"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Projected AGI card: drop the duplicated YTD-only derivation"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Projected AGI card: break Gross Salary into actual + remaining + RSU"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Tax Report: Projected AGI card matches AGI's full waterfall; fix engine gap"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Tax Report: Projected cards show full actual derivation + projected line"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Tax Report: Projected Full Year cards show actual + projected, normal popover"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Fix remaining mobile overflow in RSU Grants: vest table, totals rows"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Fix RSU grant row overflow on mobile; curate build codenames for real fit"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Fix Day Book footer total alignment; use real date for dividend tax-year"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Fix Schwab dividend narration losing its keyword, backfill existing ones"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Backfill reversalOf onto existing reversal vouchers"
+  },
+  {
+    "date": "2026-10-02",
+    "summary": "Auto-exclude reversal pairs from the Day Book's Unreconciled filter"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Fix FY 2026 subtitle: plain string instead of AutoFitAmount"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Fix India's Total Income dashboard card showing an empty drill-down panel"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Fix FY 2026 subtitle's font-size/color to match every other dashboard card"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Dashboard income card: shorten period subtitle to \"FY 2026\", not the full Apr-Mar range"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Spend Report: replace \"Last 30 days\" with \"Last Month\""
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "GR: reorder top tab bar to match US/India books (Reports before Ledgers)"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Plaid Import: surface investment-account interest as an importable row"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Plaid Import: make posting date editable on the Transactions tab"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "GR Fund Summary: consolidate House Hold Exps / Salary Income families"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Fund Summary: add Deposits (Asset) as its own Outgoing bucket"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Fix GR consolidation silently dropping accounts whose voucher-stored name drifted from the real ledger name"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "TEMP: round 3 GR Fund Summary diagnostic -- accounts invisible to every bucket"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "TEMP: focus GR Fund Summary diagnostic on Capital + uncategorized-Asset only"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "TEMP: broaden GR Fund Summary diagnostic to show every account's nature"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "TEMP: add diagnostic for GR Fund Summary's Liquidity Balance mismatch"
+  },
+  {
+    "date": "2026-10-01",
+    "summary": "Add Fund Summary report to GR Books"
+  },
+  {
     "date": "2026-09-30",
-    "summary": "Add a Gross-to-Box-1/3/5 reconciliation worksheet to W2 Preview"
+    "summary": "Fund Summary: remove Opening Capital line entirely"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Fund Summary: derive Opening Capital from Bank/Cash opening balances, remove debug banner"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "TEMP: add diagnostic banner to Fund Summary for Opening Capital debugging"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Fund Summary: exclude Profit & Loss A/c from Opening Capital"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Revert \"Fund Summary: count Capital-nature account transactions, not just the opening-balance field\""
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Fund Summary: count Capital-nature account transactions, not just the opening-balance field"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Fund Summary: exclude CCU Home Loan from Financing (already netted elsewhere)"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Fund Summary: split Loan Taken out of Incoming Fund into its own Financing line"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Fix 4 issues found by a fresh codebase scan"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Collapse 3 more permanent disclaimer paragraphs into the ⓘ pattern"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Collapse permanent disclaimer text into the ⓘ info-icon pattern"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Auto-grow FloatingWindow modal to fit expanding content"
+  },
+  {
+    "date": "2026-09-30",
+    "summary": "Add W2 reconciliation worksheet showing Gross -> Box 1/3/5"
   },
   {
     "date": "2026-09-30",

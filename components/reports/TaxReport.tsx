@@ -3609,9 +3609,26 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             </thead>
             <tbody>
               {deductionMatches.map((m) => (
-                <tr key={m.key}>
+                <tr
+                  key={m.key}
+                  className="tax-breakdown-line-clickable"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setDrilldownModal({
+                    title: `${m.label} — ${yr.year}`,
+                    rows: m.entries.map((e) => ({
+                      label: `${fmtDate(e.date)} — ${e.ledgerName}`,
+                      sublabel: e.narration,
+                      amount: e.amount,
+                      onViewVoucher: () => {
+                        const tx = transactions.find((t) => t.guid === e.txGuid);
+                        if (tx) openVoucherModal(tx);
+                      },
+                    })),
+                    total: m.total,
+                  })}
+                >
                   <td>
-                    {m.label}
+                    {m.label} →
                     {m.excludedCount ? (
                       <span title="Excluded from this total: transactions whose narration mentions HSA/FSA — those aren't separately deductible as a medical expense (they get their own above-the-line deduction, not modeled here).">
                         {" "}<em style={{ fontSize: 10, opacity: 0.6 }}>({m.excludedCount} HSA/FSA excluded)</em>
@@ -3657,21 +3674,30 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               <h5 style={{ marginTop: "1.25rem", marginBottom: "0.5rem" }}>HSA Contributions (above-the-line, federal only)</h5>
               <table className="equity-table">
                 <thead>
-                  <tr><th>Date</th><th>Narration</th><th className="right">Amount</th></tr>
+                  <tr><th>Date</th><th>Narration</th><th className="right">Amount</th><th></th></tr>
                 </thead>
                 <tbody>
-                  {hsaContributions.map((h) => (
-                    <tr key={h.txGuid}>
-                      <td>{fmtDate(h.date)}</td>
-                      <td>{h.narration}</td>
-                      <td className="right equity-amt">{fmt(h.amount)}</td>
-                    </tr>
-                  ))}
+                  {hsaContributions.map((h) => {
+                    const tx = transactions.find((t) => t.guid === h.txGuid);
+                    return (
+                      <tr key={h.txGuid}>
+                        <td>{fmtDate(h.date)}</td>
+                        <td>{h.narration}</td>
+                        <td className="right equity-amt">{fmt(h.amount)}</td>
+                        <td className="right">
+                          {tx && (
+                            <button type="button" className="tax-drilldown-voucher-link" onClick={() => openVoucherModal(tx)}>View voucher →</button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr>
                     <td colSpan={2}>Total</td>
                     <td className="right equity-amt">{fmt(hsaContributionTotal)}</td>
+                    <td></td>
                   </tr>
                 </tfoot>
               </table>
