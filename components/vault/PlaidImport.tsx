@@ -1565,6 +1565,14 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
   }
   const [expandedReconIdx, setExpandedReconIdx] = useState<number | null>(null);
   const [expandedUnclearedIdx, setExpandedUnclearedIdx] = useState<number | null>(null);
+  // Balances tab per-column filters -- same pattern as components/reports/ReconReport.tsx's own
+  // recon-filter-row (reuses its CSS class directly). Filters the underlying `groups` BEFORE the
+  // row-building map runs, not just which rendered <tr>s are hidden, so the footer's "Total
+  // liquidity" row sums only the filtered accounts -- e.g. filtering Type to "Credit Card" shows
+  // the combined Credit Card total, not the unfiltered grand total with some rows hidden under it.
+  const [fBalInst, setFBalInst] = useState("");
+  const [fBalAcct, setFBalAcct] = useState("");
+  const [fBalType, setFBalType] = useState("");
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualDate, setManualDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [manualName, setManualName] = useState("");
@@ -3126,6 +3134,30 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
             <div className="plaid-pending-empty">No account data yet. Fetch transactions first.</div>
           ) : (
             <>
+              {(() => {
+                // Distinct Type options from the FULL (unfiltered) account list, so the dropdown
+                // always offers every type actually present, computed once here since <thead> and
+                // <tbody> (where the matching filter runs, inside its own IIFE below) don't share
+                // a scope otherwise.
+                const balTypeOptions = [...new Set(plaidAccounts.map((a) => formatAcctSubtype(a.subtype || a.type)))].sort();
+                return (
+                  <div className="plaid-balances-filter-row">
+                    <input value={fBalInst} onChange={(e) => { setFBalInst(e.target.value); setExpandedReconIdx(null); setExpandedUnclearedIdx(null); }} placeholder="Filter Institution…" />
+                    <input value={fBalAcct} onChange={(e) => { setFBalAcct(e.target.value); setExpandedReconIdx(null); setExpandedUnclearedIdx(null); }} placeholder="Filter Account…" />
+                    <select value={fBalType} onChange={(e) => { setFBalType(e.target.value); setExpandedReconIdx(null); setExpandedUnclearedIdx(null); }}>
+                      <option value="">All Types</option>
+                      {balTypeOptions.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                    {(fBalInst || fBalAcct || fBalType) && (
+                      <button type="button" className="plaid-balances-filter-clear" onClick={() => { setFBalInst(""); setFBalAcct(""); setFBalType(""); }}>
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
               <table className="plaid-recon-table">
                 <thead>
                   <tr>
@@ -3242,6 +3274,13 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                       return (a.vaultAcct?.name || "").localeCompare(b.vaultAcct?.name || "");
                     });
 
+                    const filteredGroups = groups.filter((g) => {
+                      if (fBalInst && !g.institutions.join(", ").toLowerCase().includes(fBalInst.toLowerCase())) return false;
+                      if (fBalAcct && !g.names.join(" ").toLowerCase().includes(fBalAcct.toLowerCase())) return false;
+                      if (fBalType && g.types.map(formatAcctSubtype).join(" / ") !== fBalType) return false;
+                      return true;
+                    });
+
                     // Captured per-row so a "Total" row can sum the ALREADY correctly-signed
                     // per-card figures (refunds/credits netted against charges exactly the same
                     // way every other card's own row already computes it) for shared GL accounts.
@@ -3252,7 +3291,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                     // vouchers) so the total isn't silently missing real liquidity just because
                     // there's nothing to reconcile it against.
                     const columnTotals = { plaid: 0, payments: 0, charges: 0, vault: 0 };
-                    const realRows = groups.map((g, i) => {
+                    const realRows = filteredGroups.map((g, i) => {
                       // Shared: >1 physical Plaid account posts to this same GL account. There's
                       // no per-transaction attribution (see the comment on plaidBalSumByVaultId
                       // above), so this row's slice of the one real vault balance is allocated
@@ -3826,15 +3865,41 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                     // every other card's own row) so it reconciles directly against the one real GL
                     // balance for this shared account. Each individual card row above is a
                     // proportional estimate; this Total row is the exact real figure.
+                    // Indexed against filteredGroups, not the full groups -- realRows was built
+                    // from filteredGroups too (see above), so realRows[i] must line up with
+                    // filteredGroups[i], not an index from the unfiltered set. Confirmed live: with
+                    // a filter active, groups.length > filteredGroups.length, so indexing realRows
+                    // by the full set's own index pointed at the wrong row (or undefined) entirely.
                     const lastIndexForVaultId = new Map<number, number>();
-                    groups.forEach((g, i) => { if (g.vaultAcct) lastIndexForVaultId.set(g.vaultAcct.id, i); });
+                    // How many of a shared GL account's physical Plaid accounts are actually
+                    // visible under the current filter -- the subtotal row below sums every
+                    // visible member's own figures (via rowSummaries, also built from
+                    // filteredGroups), so it must only render when ALL of that account's members
+                    // are visible, not just however many survived the filter. Otherwise a filter
+                    // that hides one of two cards sharing a GL account would show a "Total" that's
+                    // silently missing the hidden card's contribution -- a real number, labeled
+                    // "Total", that doesn't actually total anything.
+                    const filteredVaultIdShareCount = new Map<number, number>();
+                    filteredGroups.forEach((g, i) => {
+                      if (!g.vaultAcct) return;
+                      lastIndexForVaultId.set(g.vaultAcct.id, i);
+                      filteredVaultIdShareCount.set(g.vaultAcct.id, (filteredVaultIdShareCount.get(g.vaultAcct.id) ?? 0) + 1);
+                    });
 
                     const finalRows: React.ReactNode[] = [];
-                    groups.forEach((g, i) => {
+                    if (filteredGroups.length === 0) {
+                      finalRows.push(
+                        <tr key="no-match">
+                          <td colSpan={8} className="plaid-pending-empty">No accounts match this filter.</td>
+                        </tr>
+                      );
+                    }
+                    filteredGroups.forEach((g, i) => {
                       finalRows.push(realRows[i]);
                       if (!g.vaultAcct) return;
                       const vid = g.vaultAcct.id;
-                      if ((vaultIdShareCount.get(vid) ?? 0) <= 1 || lastIndexForVaultId.get(vid) !== i) return;
+                      const fullShareCount = vaultIdShareCount.get(vid) ?? 0;
+                      if (fullShareCount <= 1 || filteredVaultIdShareCount.get(vid) !== fullShareCount || lastIndexForVaultId.get(vid) !== i) return;
 
                       const vName = g.vaultAcct.name;
                       const totalVaultBal = vaultBookBalance(vid, g.plaidType, data);
@@ -3866,7 +3931,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                     const grandTotalBalanced = Math.abs(grandTotalDiff) < 1;
                     finalRows.push(
                       <tr key="grand-total" className="plaid-recon-row plaid-recon-total-row plaid-recon-grand-total">
-                        <td colSpan={3}><strong>Total liquidity (Plaid)</strong></td>
+                        <td colSpan={3}><strong>Total liquidity (Plaid){(fBalInst || fBalAcct || fBalType) ? " — filtered" : ""}</strong></td>
                         <td className="plaid-recon-amt"><strong>${columnTotals.plaid.toFixed(2)}</strong></td>
                         <td className="plaid-recon-amt"><strong>{columnTotals.charges >= 0 ? "+" : ""}${columnTotals.charges.toFixed(2)}</strong></td>
                         <td className="plaid-recon-amt"><strong>{columnTotals.payments >= 0 ? "+" : ""}${columnTotals.payments.toFixed(2)}</strong></td>

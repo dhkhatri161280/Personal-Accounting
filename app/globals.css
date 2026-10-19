@@ -6046,6 +6046,13 @@ button.group-heading:hover {
   border-radius: 10px;
   overflow: hidden;
   background: #fff;
+  /* .cash-flow-columns (CSS Grid) already stretches both sides to equal height by default, but a
+     plain block container can't push its own child to the bottom via margin-top:auto -- that only
+     works inside a flex/grid formatting context. Same "Total" row -> same row" fix as
+     Income & Expenditure (.grouped-report) and the Balance Sheet (.bs-col); .report-grand already
+     carries the shared margin-top:auto those use. */
+  display: flex;
+  flex-direction: column;
 }
 .cash-flow-main-heading {
   background: #eef4ff;
@@ -8347,6 +8354,16 @@ html body .dk-setup-grid.clean-start .setup-submit .dk-primary {
 
 /* Plaid balance reconciliation */
 .plaid-recon-section { display: grid; gap: 12px; }
+.plaid-balances-filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.plaid-balances-filter-row input, .plaid-balances-filter-row select {
+  padding: 5px 9px;
+  font-size: var(--fs-base);
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  min-width: 160px;
+}
+.plaid-balances-filter-clear { font-size: var(--fs-base); color: #2563eb; background: none; border: 0; cursor: pointer; padding: 4px 2px; }
+.plaid-balances-filter-clear:hover { text-decoration: underline; }
 .plaid-recon-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .plaid-recon-table thead tr:last-child { border-bottom: 2px solid #dbeafe; }
 .plaid-recon-table th { text-align: center; padding: 8px 12px; font-size: var(--fs-base); font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
