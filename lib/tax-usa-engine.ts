@@ -16,6 +16,28 @@ export function applyBrackets(income: number, brackets: UsBracket[]): number {
   return tax;
 }
 
+export interface BracketStep { rate: number; from: number; to: number | null; taxedAmount: number; tax: number }
+
+/** Same walk as applyBrackets, but returns each bracket's own slice instead of just the total --
+ * for a "how was this tax number derived" drill-down (see components/reports/TaxReport.tsx) that
+ * shows the actual bracket-by-bracket math, not just the final figure. Only includes brackets
+ * that actually taxed some of the income (taxedAmount > 0), so a $0 income never pads the list
+ * with every unused higher bracket. */
+export function bracketBreakdown(income: number, brackets: UsBracket[]): BracketStep[] {
+  let remaining = Math.max(0, income);
+  let prev = 0;
+  const steps: BracketStep[] = [];
+  for (const b of brackets) {
+    const top = b.upTo ?? Number.POSITIVE_INFINITY;
+    const width = Math.max(0, Math.min(remaining, top - prev));
+    if (width > 0) steps.push({ rate: b.rate, from: prev, to: b.upTo ?? null, taxedAmount: width, tax: width * b.rate });
+    remaining -= width;
+    prev = top;
+    if (remaining <= 0) break;
+  }
+  return steps;
+}
+
 // Additional Medicare Tax (Form 8959) and NIIT (Form 8960) share the same threshold table.
 const ADDITIONAL_MEDICARE_THRESHOLD: Record<UsFilingStatus, number> = { mfj: 250_000, single: 200_000 };
 const ADDITIONAL_MEDICARE_RATE = 0.009;

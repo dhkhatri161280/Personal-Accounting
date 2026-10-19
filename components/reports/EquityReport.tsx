@@ -141,7 +141,7 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
   // this same row (Vested/Tax/Sold/ESPP Value, Scheduled) -- a roll-up total with no way to see
   // what it's built from. Reuses the same "how it's derived" breakdown pattern already shipped
   // for the Tax report's cards.
-  const [equityBreakdownModal, setEquityBreakdownModal] = useState<{ title: string; lines: { label: string; value: number; bold?: boolean }[] } | null>(null);
+  const [equityBreakdownModal, setEquityBreakdownModal] = useState<{ title: string; lines: { label: string; value: number; bold?: boolean; onClick?: () => void }[] } | null>(null);
 
   // ── Inline edit state (Mark Sold) ─────────────────────────────────────────
   const [editVest, setEditVest] = useState<{ grantId: string; vestId: string } | null>(null);
@@ -744,8 +744,14 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
               onClick={() => setEquityBreakdownModal({
                 title: "Total Holdings — how it's derived",
                 lines: [
-                  { label: "Vested Value (RSU held @ live price)", value: summaryVestedValue },
-                  { label: "+ ESPP Value (ESPP held @ live price)", value: summaryEsppValue },
+                  {
+                    label: "Vested Value (RSU held @ live price)", value: summaryVestedValue,
+                    onClick: () => { setEquityBreakdownModal(null); setSummaryFilter("vested"); setDrilldownDateFilter(null); setDrilldownGrantFilter(null); },
+                  },
+                  {
+                    label: "+ ESPP Value (ESPP held @ live price)", value: summaryEsppValue,
+                    onClick: () => { setEquityBreakdownModal(null); setSummaryFilter("espp"); setDrilldownDateFilter(null); setDrilldownGrantFilter(null); },
+                  },
                   { label: "= Total Holdings", value: summaryTotalHoldingsValue, bold: true },
                 ],
               })}
@@ -1471,14 +1477,20 @@ export function EquityReport({ grants, esppPurchases, payroll, onSave, onViewDoc
             {equityBreakdownModal.lines.map((l, i) => (
               <div
                 key={i}
+                onClick={l.onClick}
+                role={l.onClick ? "button" : undefined}
+                tabIndex={l.onClick ? 0 : undefined}
+                onKeyDown={l.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") l.onClick!(); } : undefined}
+                className={l.onClick ? "tax-breakdown-line-clickable" : undefined}
                 style={{
                   display: "flex", justifyContent: "space-between", gap: "1rem",
                   fontWeight: l.bold ? 700 : 400,
                   borderTop: l.bold ? "1px solid #e2e8f0" : undefined,
                   paddingTop: l.bold ? "0.4rem" : undefined,
+                  cursor: l.onClick ? "pointer" : undefined,
                 }}
               >
-                <span>{l.label}</span>
+                <span className="tax-note-figure">{l.label}{l.onClick ? " →" : ""}</span>
                 <span className="equity-amt">{fmt(l.value)}</span>
               </div>
             ))}

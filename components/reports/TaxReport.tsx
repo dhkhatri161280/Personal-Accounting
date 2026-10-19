@@ -12,8 +12,8 @@ import { paystubDonutSegments } from "@/lib/paystub-donut";
 import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
 import { useUiPrefs } from "@/hooks/useUiPrefs";
-import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains, sumInterestDividendIncome, listInterestDividendEntries } from "@/lib/tax-classify";
-import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, type HsaCoverage } from "@/lib/tax-usa-engine";
+import { classifyRsuSales, classifyEsppSales, classifyTradingSales, summarizeCapitalGains, sumInterestDividendIncome, listInterestDividendEntries, type InterestDividendEntry } from "@/lib/tax-classify";
+import { estimateUsFederalTax, computeItemizedDeduction, computeHsaDeduction, bracketBreakdown, type HsaCoverage } from "@/lib/tax-usa-engine";
 import { listUsTaxYears, type UsFilingStatus } from "@/lib/tax-usa-rules";
 import { matchDeductionLedgers, deductionTotal, findHsaContributions } from "@/lib/tax-deductions";
 import { estimateCaStateTax, computeCaItemizedDeduction } from "@/lib/tax-ca-engine";
@@ -655,7 +655,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   // modal above (e.g. clicking "Gross Salary" inside "AGI — how it's derived" shows exactly which
   // pay periods/RSU vests summed to it) -- stacks on top rather than replacing taxBreakdownModal,
   // so the parent breakdown stays visible underneath when this closes.
-  const [drilldownModal, setDrilldownModal] = useState<{ title: string; rows: { label: string; amount: number }[]; total: number } | null>(null);
+  const [drilldownModal, setDrilldownModal] = useState<{ title: string; rows: { label: string; sublabel?: string; amount: number; onViewVoucher?: () => void }[]; total: number } | null>(null);
   const attemptedGuidsRef = useRef<Set<string>>(new Set());
 
   const activeYearLabel = selectedYear ?? payroll?.years[0]?.year ?? null;
@@ -1291,18 +1291,28 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   // per contributing period/vest instead of a single summed total, so the drill-down always ties
   // out exactly to the figure it's explaining. grossMode handles Gross Salary's own slightly
   // different shape (base+telephone, not a single named ManualPayrollPeriod field).
-  function periodBreakdown(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod, grossMode = false): { label: string; amount: number }[] {
-    const out: { label: string; amount: number }[] = [];
+  function periodBreakdown(baseRowForField: PayrollRow | undefined, field: keyof ManualPayrollPeriod, grossMode = false): { label: string; amount: number; onViewVoucher?: () => void }[] {
+    const out: { label: string; amount: number; onViewVoucher?: () => void }[] = [];
     for (let i = 0; i < yr.periodLabels.length; i++) {
       const ov = overrideByIndex.get(i);
       const amount = grossMode
         ? (ov ? ov.base + ov.telephone : (gross?.values[i] ?? 0))
         : (ov ? (Number(ov[field]) || 0) : (baseRowForField?.values[i] ?? 0));
-      if (Math.abs(amount) > 0.004) out.push({ label: yr.periodLabels[i], amount });
+      if (Math.abs(amount) > 0.004) {
+        // Same lookup periodBreakdownModal's own "excel" viewPeriod branch already uses --
+        // not every period has a linked voucher (e.g. a period estimated before any paystub
+        // was ever imported for it), so this is deliberately best-effort, not a hard link.
+        const label = yr.periodLabels[i];
+        const linkedTx = label ? findPayrollVoucher(transactions, yr.year, label, yr.periodLabels, claimedTxGuids) : undefined;
+        out.push({ label, amount, onViewVoucher: linkedTx ? () => openVoucherModal(linkedTx) : undefined });
+      }
     }
     for (const m of voucherPeriods) {
       const amount = grossMode ? m.base + m.telephone : (Number(m[field]) || 0);
-      if (Math.abs(amount) > 0.004) out.push({ label: m.label, amount });
+      if (Math.abs(amount) > 0.004) {
+        const linkedTx = m.txGuid ? transactions.find((t) => t.guid === m.txGuid) : findPayrollVoucher(transactions, yr.year, m.label, yr.periodLabels, claimedTxGuids);
+        out.push({ label: m.label, amount, onViewVoucher: linkedTx ? () => openVoucherModal(linkedTx) : undefined });
+      }
     }
     // Mirrors vestStockTotal's own two branches exactly (see its definition above): a tax-field
     // (federal/ssn/medicare/stateWH/stateSDI/totalTax) IS attributed per vest date, via vestTax's
@@ -1324,6 +1334,35 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       if (Math.abs(vestBlob) > 0.004) out.push({ label: "RSU vest-related (Excel Stocks column, not broken out per vest date)", amount: vestBlob });
     }
     return out;
+  }
+  // Formats lib/tax-usa-engine.ts's bracketBreakdown() steps as drilldownModal rows -- same
+  // progressive-bracket math applyBrackets() itself does (Federal ordinary-income tax, every
+  // state's own Bracket Tax), just walked one bracket at a time instead of returning only the
+  // final total, so clicking "Tax on Ordinary Income (brackets)" shows exactly which bracket(s)
+  // the income landed in and how much each contributed.
+  function bracketRows(income: number, brackets: Parameters<typeof bracketBreakdown>[1]): { label: string; amount: number }[] {
+    return bracketBreakdown(income, brackets).map((s) => ({
+      label: `${s.rate * 100}% on ${fmt(s.from)}${s.to !== null ? ` – ${fmt(s.to)}` : "+"}`,
+      amount: s.tax,
+    }));
+  }
+  // Shows BOTH the effective date (what the tax math actually uses -- see listInterestDividendEntries's
+  // own doc comment) and the real posting date when they differ, instead of just the effective one --
+  // confirmed live: the user saw two vouchers posted today both showing an older date and (reasonably)
+  // wondered if that was a bug. It wasn't, but seeing only one date made that non-obvious. Also resolves
+  // each entry's real voucher so the drill-down can link straight to it (openVoucherModal's existing
+  // preview-then-"Edit in Daybook" flow), not just show figures with no way to trace further.
+  function interestDividendRows(entries: InterestDividendEntry[]): { label: string; sublabel?: string; amount: number; onViewVoucher?: () => void }[] {
+    return entries.map((e) => {
+      const tx = transactions.find((t) => t.guid === e.txGuid);
+      const postedNote = e.postedDate !== e.date ? ` · posted ${fmtDate(e.postedDate)}` : "";
+      return {
+        label: `${fmtDate(e.date)} — ${e.accountName}`,
+        sublabel: `${e.narration || "(no narration)"}${postedNote}`,
+        amount: e.amount,
+        onViewVoucher: tx ? () => openVoucherModal(tx) : undefined,
+      };
+    });
   }
 
   // The most recently PAID period (by end date, not just latest index) -- used as the model
@@ -1542,6 +1581,125 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             taxYear: taxEstimateYear, filingStatus, agi: stateAgi,
             itemizedDeduction: stateItemized, stateWithheld: totalStateWH,
           });
+
+  // Modal openers extracted out of the summary cards below (not inline onClick closures) so a
+  // DIFFERENT card's own breakdown -- e.g. Estimated Federal Refund, or the State Taxable Income
+  // modal's own "Federal AGI" line -- can cross-navigate into the exact same modal instead of
+  // duplicating its lines a second time and risking the two copies drifting apart.
+  function openAGIModal() {
+    setTaxBreakdownModal({
+      title: "AGI — how it's derived",
+      lines: [
+        {
+          label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other)", value: totalGross,
+          onClick: () => setDrilldownModal({ title: "Gross Salary — by pay period", rows: periodBreakdown(gross, "base", true), total: totalGross }),
+        },
+        {
+          label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1)", value: -totalK401,
+          onClick: () => setDrilldownModal({ title: "Employee 401(k) — by pay period", rows: periodBreakdown(k401, "k401"), total: totalK401 }),
+        },
+        { label: "= Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages, bold: true },
+        {
+          label: "+ Taxable Interest & Dividends", value: interestDividendIncome,
+          onClick: () => {
+            const entries = listInterestDividendEntries(transactions, accounts, yr.year);
+            setDrilldownModal({
+              title: "Taxable Interest & Dividends — by voucher",
+              rows: interestDividendRows(entries),
+              total: interestDividendIncome,
+            });
+          },
+        },
+        {
+          label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable,
+          onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+        },
+        {
+          label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction,
+          onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+        },
+        {
+          label: hsaContributionTotal > hsaDeduction
+            ? `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, capped at IRS annual limit)`
+            : `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, under the IRS annual limit)`,
+          value: -hsaDeduction,
+          onClick: hsaContributions.length > 0 ? () => setShowDeductionsModal(true) : undefined,
+        },
+        { label: "= Ordinary Income", value: taxEstimate.ordinaryIncome, bold: true },
+        {
+          label: "+ Long-Term Capital Gain", value: taxEstimate.longTermGain,
+          onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+        },
+        { label: "= AGI", value: taxEstimate.agi, bold: true },
+      ],
+    });
+  }
+  function openFederalTaxModal() {
+    setTaxBreakdownModal({
+      title: "Estimated Federal Tax — how it's derived",
+      lines: [
+        {
+          label: "Tax on Ordinary Income (brackets)", value: taxEstimate.ordinaryTax,
+          onClick: () => setDrilldownModal({
+            title: "Tax on Ordinary Income — by bracket",
+            rows: bracketRows(taxEstimate.taxableOrdinary, taxEstimate.rules.federalBrackets),
+            total: taxEstimate.ordinaryTax,
+          }),
+        },
+        { label: "Tax on Long-Term Capital Gain", value: taxEstimate.ltcgTax },
+        { label: "Additional Medicare Tax (0.9% over threshold)", value: taxEstimate.additionalMedicareTax },
+        { label: "Net Investment Income Tax (NIIT, 3.8%)", value: taxEstimate.niit },
+        { label: "= Estimated Federal Tax", value: taxEstimate.estimatedTax, bold: true },
+      ],
+    });
+  }
+  function openFederalWithheldModal() {
+    setTaxBreakdownModal({
+      title: "Federal Withheld — how it's derived",
+      lines: [
+        {
+          label: "Federal Income Tax Withheld (payroll)", value: taxEstimate.federalWithheld,
+          onClick: () => setDrilldownModal({ title: "Federal Income Tax Withheld — by pay period", rows: periodBreakdown(federal, "federal"), total: taxEstimate.federalWithheld }),
+        },
+        {
+          label: "Additional Medicare Tax Withheld", value: taxEstimate.additionalMedicareWithheld,
+          onClick: () => setDrilldownModal({
+            title: "Medicare Withheld — by pay period (feeds the Additional Medicare Tax formula above the IRS threshold)",
+            rows: periodBreakdown(medicare, "medicare"), total: totalMedicare,
+          }),
+        },
+        { label: "= Total Federal Withheld", value: taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld, bold: true },
+      ],
+    });
+  }
+  function openStateTaxModal() {
+    setTaxBreakdownModal({
+      title: `Estimated ${stateResidency.code} Tax — how it's derived`,
+      lines: [
+        {
+          label: "Bracket Tax", value: stateTaxEstimate.bracketTax,
+          onClick: () => setDrilldownModal({
+            title: `${stateResidency.code} Tax — by bracket`,
+            rows: bracketRows(stateTaxEstimate.taxableIncome, stateTaxEstimate.rules.brackets),
+            total: stateTaxEstimate.bracketTax,
+          }),
+        },
+        { label: "Mental Health Services Tax (1% over threshold)", value: stateTaxEstimate.mentalHealthTax },
+        { label: `= Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, bold: true },
+      ],
+    });
+  }
+  function openStateWithheldModal() {
+    setTaxBreakdownModal({
+      title: `${stateResidency.code} Withheld — how it's derived`,
+      lines: [
+        {
+          label: "State Income Tax Withheld (payroll, State W/H)", value: stateTaxEstimate.stateWithheld, bold: true,
+          onClick: () => setDrilldownModal({ title: `${stateResidency.code} Withheld — by pay period`, rows: periodBreakdown(stateWH, "stateWH"), total: stateTaxEstimate.stateWithheld }),
+        },
+      ],
+    });
+  }
 
   // Computed "what if" scenarios (own tax engine only, no external AI/data-sharing) -- see
   // lib/tax-planning.ts. Projects the rest of the tax year forward -- remaining semi-monthly
@@ -2462,52 +2620,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               ? `wages less 401(k) & ${fmt(hsaDeduction)} HSA + net capital gains`
               : `wages less ${fmt(totalK401)} 401(k) + net capital gains`) + " — click for details →",
             icon: "wallet" as IconKind, color: "#1e40af",
-            onClick: () => setTaxBreakdownModal({
-              title: "AGI — how it's derived",
-              lines: [
-                {
-                  label: "Gross Salary (Base + Bonus + Stock/RSU vested + ESPP + other)", value: totalGross,
-                  onClick: () => setDrilldownModal({ title: "Gross Salary — by pay period", rows: periodBreakdown(gross, "base", true), total: totalGross }),
-                },
-                {
-                  label: "Less: Employee 401(k) (pre-tax, not in W-2 Box 1)", value: -totalK401,
-                  onClick: () => setDrilldownModal({ title: "Employee 401(k) — by pay period", rows: periodBreakdown(k401, "k401"), total: totalK401 }),
-                },
-                { label: "= Wages (W-2, incl. RSU/ESPP ordinary income)", value: taxableWages, bold: true },
-                {
-                  label: "+ Taxable Interest & Dividends", value: interestDividendIncome,
-                  onClick: () => {
-                    const entries = listInterestDividendEntries(transactions, accounts, yr.year);
-                    setDrilldownModal({
-                      title: "Taxable Interest & Dividends — by voucher",
-                      rows: entries.map((e) => ({ label: `${fmtDate(e.date)} — ${e.accountName}${e.narration ? ` (${e.narration})` : ""}`, amount: e.amount })),
-                      total: interestDividendIncome,
-                    });
-                  },
-                },
-                {
-                  label: "Short-Term Capital Gain (taxed as ordinary income)", value: gainTotals.shortTermGainTaxable,
-                  onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
-                },
-                {
-                  label: "Less: Capital Loss Deduction", value: -gainTotals.ordinaryLossDeduction,
-                  onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
-                },
-                {
-                  label: hsaContributionTotal > hsaDeduction
-                    ? `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, capped at IRS annual limit)`
-                    : `Less: HSA Deduction (${fmt(hsaContributionTotal)} contributed, under the IRS annual limit)`,
-                  value: -hsaDeduction,
-                  onClick: hsaContributions.length > 0 ? () => setShowDeductionsModal(true) : undefined,
-                },
-                { label: "= Ordinary Income", value: taxEstimate.ordinaryIncome, bold: true },
-                {
-                  label: "+ Long-Term Capital Gain", value: taxEstimate.longTermGain,
-                  onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
-                },
-                { label: "= AGI", value: taxEstimate.agi, bold: true },
-              ],
-            }),
+            onClick: openAGIModal,
           },
           {
             label: "Deduction Used", value: taxEstimate.deductionUsed,
@@ -2528,16 +2641,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             label: "Estimated Federal Tax", value: taxEstimate.estimatedTax,
             sub: `ordinary ${fmt(taxEstimate.ordinaryTax)} + LTCG ${fmt(taxEstimate.ltcgTax)} + Medicare ${fmt(taxEstimate.additionalMedicareTax)} + NIIT ${fmt(taxEstimate.niit)} — click for details →`,
             icon: "receipt" as IconKind, color: "#dc2626",
-            onClick: () => setTaxBreakdownModal({
-              title: "Estimated Federal Tax — how it's derived",
-              lines: [
-                { label: "Tax on Ordinary Income (brackets)", value: taxEstimate.ordinaryTax },
-                { label: "Tax on Long-Term Capital Gain", value: taxEstimate.ltcgTax },
-                { label: "Additional Medicare Tax (0.9% over threshold)", value: taxEstimate.additionalMedicareTax },
-                { label: "Net Investment Income Tax (NIIT, 3.8%)", value: taxEstimate.niit },
-                { label: "= Estimated Federal Tax", value: taxEstimate.estimatedTax, bold: true },
-              ],
-            }),
+            onClick: openFederalTaxModal,
           },
           {
             label: "Federal Withheld", value: taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld,
@@ -2545,14 +2649,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
               ? `${fmt(taxEstimate.federalWithheld)} income tax + ${fmt(taxEstimate.additionalMedicareWithheld)} Medicare`
               : "from payroll") + " — click for details →",
             icon: "shield" as IconKind, color: "#16a34a",
-            onClick: () => setTaxBreakdownModal({
-              title: "Federal Withheld — how it's derived",
-              lines: [
-                { label: "Federal Income Tax Withheld (payroll)", value: taxEstimate.federalWithheld },
-                { label: "Additional Medicare Tax Withheld", value: taxEstimate.additionalMedicareWithheld },
-                { label: "= Total Federal Withheld", value: taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld, bold: true },
-              ],
-            }),
+            onClick: openFederalWithheldModal,
           },
           taxEstimate.refund > 0
             ? {
@@ -2561,8 +2658,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 onClick: () => setTaxBreakdownModal({
                   title: "Estimated Federal Refund — how it's derived",
                   lines: [
-                    { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax },
-                    { label: "Less: Total Federal Withheld", value: -(taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld) },
+                    { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax, onClick: openFederalTaxModal },
+                    { label: "Less: Total Federal Withheld", value: -(taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld), onClick: openFederalWithheldModal },
                     { label: "= Estimated Refund", value: taxEstimate.refund, bold: true },
                   ],
                 }),
@@ -2573,8 +2670,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 onClick: () => setTaxBreakdownModal({
                   title: "Estimated Federal Balance Due — how it's derived",
                   lines: [
-                    { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax },
-                    { label: "Less: Total Federal Withheld", value: -(taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld) },
+                    { label: "Estimated Federal Tax", value: taxEstimate.estimatedTax, onClick: openFederalTaxModal },
+                    { label: "Less: Total Federal Withheld", value: -(taxEstimate.federalWithheld + taxEstimate.additionalMedicareWithheld), onClick: openFederalWithheldModal },
                     { label: "= Estimated Balance Due", value: taxEstimate.balanceDue, bold: true },
                   ],
                 }),
@@ -2616,7 +2713,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             onClick: () => setTaxBreakdownModal({
               title: `${stateResidency.code} Taxable Income — how it's derived`,
               lines: [
-                { label: "Federal AGI", value: taxEstimate.agi },
+                { label: "Federal AGI", value: taxEstimate.agi, onClick: openAGIModal },
                 ...(stateResidency.code === "AZ" ? [] : [
                   { label: `+ HSA Deduction Added Back (${stateResidency.name} doesn't conform to federal HSA treatment)`, value: taxEstimate.aboveLineDeduction },
                 ]),
@@ -2630,24 +2727,12 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax,
             sub: (stateTaxEstimate.mentalHealthTax > 0 ? `incl. ${fmt(stateTaxEstimate.mentalHealthTax)} Mental Health Services Tax` : "brackets only") + " — click for details →",
             icon: "receipt" as IconKind, color: "#dc2626",
-            onClick: () => setTaxBreakdownModal({
-              title: `Estimated ${stateResidency.code} Tax — how it's derived`,
-              lines: [
-                { label: "Bracket Tax", value: stateTaxEstimate.bracketTax },
-                { label: "Mental Health Services Tax (1% over threshold)", value: stateTaxEstimate.mentalHealthTax },
-                { label: `= Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, bold: true },
-              ],
-            }),
+            onClick: openStateTaxModal,
           },
           {
             label: `${stateResidency.code} Withheld`, value: stateTaxEstimate.stateWithheld, sub: "from payroll (State W/H) — click for details →",
             icon: "shield" as IconKind, color: "#16a34a",
-            onClick: () => setTaxBreakdownModal({
-              title: `${stateResidency.code} Withheld — how it's derived`,
-              lines: [
-                { label: "State Income Tax Withheld (payroll, State W/H)", value: stateTaxEstimate.stateWithheld, bold: true },
-              ],
-            }),
+            onClick: openStateWithheldModal,
           },
           stateTaxEstimate.refund > 0
             ? {
@@ -2656,8 +2741,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 onClick: () => setTaxBreakdownModal({
                   title: `Estimated ${stateResidency.code} Refund — how it's derived`,
                   lines: [
-                    { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax },
-                    { label: `Less: ${stateResidency.code} Withheld`, value: -stateTaxEstimate.stateWithheld },
+                    { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, onClick: openStateTaxModal },
+                    { label: `Less: ${stateResidency.code} Withheld`, value: -stateTaxEstimate.stateWithheld, onClick: openStateWithheldModal },
                     { label: "= Estimated Refund", value: stateTaxEstimate.refund, bold: true },
                   ],
                 }),
@@ -2668,8 +2753,8 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
                 onClick: () => setTaxBreakdownModal({
                   title: `Estimated ${stateResidency.code} Balance Due — how it's derived`,
                   lines: [
-                    { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax },
-                    { label: `Less: ${stateResidency.code} Withheld`, value: -stateTaxEstimate.stateWithheld },
+                    { label: `Estimated ${stateResidency.code} Tax`, value: stateTaxEstimate.estimatedTax, onClick: openStateTaxModal },
+                    { label: `Less: ${stateResidency.code} Withheld`, value: -stateTaxEstimate.stateWithheld, onClick: openStateWithheldModal },
                     { label: "= Estimated Balance Due", value: stateTaxEstimate.balanceDue, bold: true },
                   ],
                 }),
@@ -2699,33 +2784,48 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           projected line, instead of a bare "Actual $X / Projected $Y" with no derivation. */}
       {taxYearIsOpenForPlanning && (() => {
         const federalTaxYtdLines = [
-          { label: "Tax on Ordinary Income (brackets)", value: taxEstimate.ordinaryTax },
+          {
+            label: "Tax on Ordinary Income (brackets)", value: taxEstimate.ordinaryTax,
+            onClick: () => setDrilldownModal({ title: "Tax on Ordinary Income — by bracket", rows: bracketRows(taxEstimate.taxableOrdinary, taxEstimate.rules.federalBrackets), total: taxEstimate.ordinaryTax }),
+          },
           { label: "Tax on Long-Term Capital Gain", value: taxEstimate.ltcgTax },
           { label: "Additional Medicare Tax (0.9% over threshold)", value: taxEstimate.additionalMedicareTax },
           { label: "Net Investment Income Tax (NIIT, 3.8%)", value: taxEstimate.niit },
           { label: "= Estimated Federal Tax (YTD)", value: taxEstimate.estimatedTax, bold: true },
         ];
         const federalWithheldYtdLines = [
-          { label: "Federal Income Tax Withheld (payroll, YTD)", value: taxEstimate.federalWithheld },
-          { label: "Additional Medicare Tax Withheld (YTD)", value: taxEstimate.additionalMedicareWithheld },
+          {
+            label: "Federal Income Tax Withheld (payroll, YTD)", value: taxEstimate.federalWithheld,
+            onClick: () => setDrilldownModal({ title: "Federal Income Tax Withheld — by pay period", rows: periodBreakdown(federal, "federal"), total: taxEstimate.federalWithheld }),
+          },
+          {
+            label: "Additional Medicare Tax Withheld (YTD)", value: taxEstimate.additionalMedicareWithheld,
+            onClick: () => setDrilldownModal({ title: "Medicare Withheld — by pay period (feeds the Additional Medicare Tax formula)", rows: periodBreakdown(medicare, "medicare"), total: totalMedicare }),
+          },
           { label: "= Total Federal Withheld (YTD)", value: actualFederalWithheld, bold: true },
         ];
         const federalBalanceYtdLines = [
-          { label: "Estimated Federal Tax (YTD)", value: taxEstimate.estimatedTax },
-          { label: "Less: Total Federal Withheld (YTD)", value: -actualFederalWithheld },
+          { label: "Estimated Federal Tax (YTD)", value: taxEstimate.estimatedTax, onClick: openFederalTaxModal },
+          { label: "Less: Total Federal Withheld (YTD)", value: -actualFederalWithheld, onClick: openFederalWithheldModal },
           { label: `= Actual ${actualFederalBalance > 0 ? "Balance Due" : "Refund"} (YTD)`, value: actualFederalBalance, bold: true },
         ];
         const stateTaxYtdLines = [
-          { label: "Bracket Tax (YTD)", value: stateTaxEstimate.bracketTax },
+          {
+            label: "Bracket Tax (YTD)", value: stateTaxEstimate.bracketTax,
+            onClick: () => setDrilldownModal({ title: `${stateResidency.code} Tax — by bracket`, rows: bracketRows(stateTaxEstimate.taxableIncome, stateTaxEstimate.rules.brackets), total: stateTaxEstimate.bracketTax }),
+          },
           { label: "Mental Health Services Tax (1% over threshold, YTD)", value: stateTaxEstimate.mentalHealthTax },
           { label: `= Estimated ${stateResidency.code} Tax (YTD)`, value: stateTaxEstimate.estimatedTax, bold: true },
         ];
         const stateWithheldYtdLines = [
-          { label: `State Income Tax Withheld (payroll, State W/H, YTD)`, value: actualStateWithheld, bold: true },
+          {
+            label: `State Income Tax Withheld (payroll, State W/H, YTD)`, value: actualStateWithheld, bold: true,
+            onClick: () => setDrilldownModal({ title: `${stateResidency.code} Withheld — by pay period`, rows: periodBreakdown(stateWH, "stateWH"), total: actualStateWithheld }),
+          },
         ];
         const stateBalanceYtdLines = [
-          { label: `Estimated ${stateResidency.code} Tax (YTD)`, value: stateTaxEstimate.estimatedTax },
-          { label: `Less: ${stateResidency.code} Withheld (YTD)`, value: -actualStateWithheld },
+          { label: `Estimated ${stateResidency.code} Tax (YTD)`, value: stateTaxEstimate.estimatedTax, onClick: openStateTaxModal },
+          { label: `Less: ${stateResidency.code} Withheld (YTD)`, value: -actualStateWithheld, onClick: openStateWithheldModal },
           { label: `= Actual ${actualStateBalance > 0 ? "Balance Due" : "Refund"} (YTD)`, value: actualStateBalance, bold: true },
         ];
         // Same shape as the AGI card's own waterfall above (Gross -> less 401(k) -> Wages ->
@@ -2742,7 +2842,10 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         // Projected AGI reconciling exactly with the Projected Tax cards below, not independently
         // re-derived with a different HSA assumption.
         const agiProjectedLines = [
-          { label: "Actual Gross Salary (right now, YTD)", value: totalGross },
+          {
+            label: "Actual Gross Salary (right now, YTD)", value: totalGross,
+            onClick: () => setDrilldownModal({ title: "Gross Salary — by pay period", rows: periodBreakdown(gross, "base", true), total: totalGross }),
+          },
           { label: "+ Remaining Paychecks (projected, modeled on your most recent paystub)", value: taxPlanningProjection.projectedRemainingGross },
           ...(taxPlanningProjection.futureVestShares > 0 && taxPlanningProjection.livePriceUsed
             ? [{ label: `+ Scheduled RSU Vests (${taxPlanningProjection.futureVestShares.toLocaleString()} sh @ today's $${taxPlanningProjection.livePriceUsed.toFixed(2)})`, value: taxPlanningProjection.futureVestValue }]
@@ -2750,12 +2853,34 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           { label: "= Projected Gross Salary (full year)", value: taxPlanningProjection.fullYearGross, bold: true },
           { label: "Less: Projected Employee 401(k) (full year, capped at IRS limit)", value: -taxPlanningProjection.fullYearK401 },
           { label: "= Projected Wages (full year)", value: taxPlanningProjection.projectedTaxableWages, bold: true },
-          { label: "+ Taxable Interest & Dividends (YTD, not projected)", value: interestDividendIncome },
-          { label: "Short-Term Capital Gain (YTD, not projected)", value: gainTotals.shortTermGainTaxable },
-          { label: "Less: Capital Loss Deduction (YTD, not projected)", value: -gainTotals.ordinaryLossDeduction },
-          { label: "Less: HSA Deduction (YTD, not extrapolated -- see note below)", value: -taxPlanningProjection.projectedHsaDeduction },
+          {
+            label: "+ Taxable Interest & Dividends (YTD, not projected)", value: interestDividendIncome,
+            onClick: () => {
+              const entries = listInterestDividendEntries(transactions, accounts, yr.year);
+              setDrilldownModal({
+                title: "Taxable Interest & Dividends — by voucher",
+                rows: interestDividendRows(entries),
+                total: interestDividendIncome,
+              });
+            },
+          },
+          {
+            label: "Short-Term Capital Gain (YTD, not projected)", value: gainTotals.shortTermGainTaxable,
+            onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+          },
+          {
+            label: "Less: Capital Loss Deduction (YTD, not projected)", value: -gainTotals.ordinaryLossDeduction,
+            onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+          },
+          {
+            label: "Less: HSA Deduction (YTD, not extrapolated -- see note below)", value: -taxPlanningProjection.projectedHsaDeduction,
+            onClick: hsaContributions.length > 0 ? () => setShowDeductionsModal(true) : undefined,
+          },
           { label: "= Projected Ordinary Income (full year)", value: taxPlanningProjection.projectedOrdinaryIncome, bold: true },
-          { label: "+ Long-Term Capital Gain (YTD, not projected)", value: taxPlanningProjection.projectedLongTermGain },
+          {
+            label: "+ Long-Term Capital Gain (YTD, not projected)", value: taxPlanningProjection.projectedLongTermGain,
+            onClick: gainEvents.length > 0 ? () => setShowGainEventsModal(true) : undefined,
+          },
           { label: "= Projected AGI (full year)", value: taxPlanningProjection.projectedAgi, bold: true },
         ];
         return (
@@ -3373,22 +3498,42 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       )}
 
       {drilldownModal && (
-        <Modal title={drilldownModal.title} onClose={() => setDrilldownModal(null)}>
+        <Modal title={drilldownModal.title} onClose={() => setDrilldownModal(null)} wide>
           {drilldownModal.rows.length === 0 ? (
             <p style={{ fontSize: 13, opacity: 0.7 }}>No contributing entries found for this figure.</p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-              {drilldownModal.rows.map((r, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "1rem", fontSize: 13 }}>
-                  <span className="tax-note-figure">{r.label}</span>
-                  <span className="equity-amt">{fmt(r.amount)}</span>
-                </div>
-              ))}
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", fontWeight: 700, borderTop: "1px solid #e2e8f0", paddingTop: "0.4rem" }}>
-                <span>Total</span>
-                <span className="equity-amt">{fmt(drilldownModal.total)}</span>
-              </div>
-            </div>
+            <table className="equity-table equity-drilldown-table">
+              <thead>
+                <tr>
+                  <th>Entry</th>
+                  <th className="right">Amount</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {drilldownModal.rows.map((r, i) => (
+                  <tr key={i}>
+                    <td>
+                      {r.label}
+                      {r.sublabel && <div style={{ fontSize: 11, opacity: 0.6 }}>{r.sublabel}</div>}
+                    </td>
+                    <td className="right">{fmt(r.amount)}</td>
+                    <td className="right">
+                      {r.onViewVoucher && (
+                        <button type="button" className="tax-drilldown-voucher-link" onClick={r.onViewVoucher}>View voucher →</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td className="right">{fmt(drilldownModal.total)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
           )}
           <p style={{ fontSize: 11, opacity: 0.6, marginTop: "0.75rem" }}>
             Estimate only — not tax advice. See "Estimate only" above for full assumptions & limitations.

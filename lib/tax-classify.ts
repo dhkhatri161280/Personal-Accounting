@@ -192,7 +192,8 @@ const PASSIVE_INCOME_RE = /dividend|interest/i;
  * parse) or any narration without the embedded date. */
 export interface InterestDividendEntry {
   txGuid: string;
-  date: string;
+  date: string; // effective date -- parsed from the narration when present, see below
+  postedDate: string; // the voucher's own Tx.date -- the day it was actually recorded in the vault
   narration: string;
   accountName: string;
   amount: number;
@@ -215,7 +216,7 @@ export function listInterestDividendEntries(transactions: Tx[], accounts: Accoun
       const acct = incomeAccounts.get(e.accountId);
       if (!acct) continue;
       if (!narrationMatches && !PASSIVE_INCOME_RE.test(acct.name)) continue;
-      out.push({ txGuid: t.guid, date: effectiveDate, narration: t.narration || "", accountName: acct.name, amount: e.amount });
+      out.push({ txGuid: t.guid, date: effectiveDate, postedDate: t.date, narration: t.narration || "", accountName: acct.name, amount: e.amount });
     }
   }
   return out.sort((a, b) => b.date.localeCompare(a.date));
