@@ -3453,14 +3453,19 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                 // Whether a pending bill PAYMENT is already reflected in the issuer's running
                                 // "current balance" or not is genuinely issuer-dependent -- confirmed directly
                                 // both ways on the same day (Citi: balance already dropped by the full payment
-                                // while the transaction still said pending; AMEX: name/category matched
+                                // while the transaction still said pending, AND separately, for a payment Plaid
+                                // never reports a transaction for at all; AMEX: name/category matched
                                 // isCardPayment's loose heuristic on what was actually a regular +$51 CHARGE --
                                 // a real bill payment can only ever be a Dr/balance-reducing entry in this
                                 // app's sign convention, never a Cr, so that alone was a false positive). So
-                                // this can't be a blanket rule; only genuine Dr candidates (isCardPayment AND
-                                // balance-reducing) are even considered, and each is kept out of Uncleared only
-                                // if doing so actually brings this group's own diff closer to zero -- an
-                                // empirical, per-item decision, not a name/category guess.
+                                // this can't be a blanket rule; every candidate (Plaid-matched-but-pending, OR a
+                                // vault-only Contra with no Plaid transaction at all -- see below) is kept out
+                                // of Uncleared unless doing so actually brings this group's own diff closer to
+                                // zero -- an empirical, per-item decision, not a name/category or "no Plaid
+                                // match" guess. A first version of the vault-only case skipped this test and
+                                // always included it, which double-counted a Citi payment whose balance (unlike
+                                // AMEX's) had ALREADY dropped by the full amount with no transaction ever
+                                // appearing -- confirmed live, it pushed Difference to -$150 instead of $0.
                                 const chargeItems = pendingMatches
                                   .filter(({ vi, pi }) => !(isCardPayment(plaidTxsForGroup[pi].plaidTx) && recentVaultEntries[vi].amount < 0))
                                   .map(({ vi, pi }) => ({
@@ -3470,20 +3475,35 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                     matched: true,
                                     kind: "charge" as const,
                                   }));
-                                const paymentCandidates = pendingMatches.filter(
-                                  ({ vi, pi }) => isCardPayment(plaidTxsForGroup[pi].plaidTx) && recentVaultEntries[vi].amount < 0
-                                );
-                                const rawGap = (g.plaidBal ?? 0) - (vaultBal ?? 0);
-                                const baseline = rawGap + chargeItems.reduce((s, u) => s + u.amount, 0);
-                                const includedPayments = paymentCandidates
-                                  .filter(({ vi }) => Math.abs(baseline + recentVaultEntries[vi].amount) < Math.abs(baseline))
+                                const matchedPaymentCandidates = pendingMatches
+                                  .filter(({ vi, pi }) => isCardPayment(plaidTxsForGroup[pi].plaidTx) && recentVaultEntries[vi].amount < 0)
                                   .map(({ vi, pi }) => ({
                                     date: plaidTxsForGroup[pi].plaidTx.date,
                                     name: plaidTxsForGroup[pi].plaidTx.name,
                                     amount: recentVaultEntries[vi].amount,
-                                    matched: true,
-                                    kind: "payment" as const,
                                   }));
+                                // Mirror of the depository side's own Contra handling below: a card payment's
+                                // CHECKING leg routinely settles on Plaid within a day or two, but the CARD's
+                                // own leg can sit with no matching Plaid transaction at all (not even a pending
+                                // one) far longer -- confirmed live both ways (AMEX, Citi). Same contraCutoff
+                                // grace window as depository for an unmatched-but-recent payment; a "Mark as
+                                // reconciled" entry is included regardless of age, since that's the user's
+                                // explicit confirmation this is real and Plaid will never independently report
+                                // it -- but still only a CANDIDATE, subject to the same closer-to-zero test
+                                // below, not an automatic include.
+                                const creditContraCutoff = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+                                const unmatchedPaymentCandidates = recentVaultEntries
+                                  .map((ve, vi) => ({ ve, vi }))
+                                  .filter(({ ve, vi }) => {
+                                    if (matchedVaultIdx.has(vi) || ve.type.toLowerCase() !== "contra" || ve.amount >= 0) return false;
+                                    return reconExceptionKeys.has(vaultExceptionKey(ve.guid)) || ve.date >= creditContraCutoff;
+                                  })
+                                  .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: ve.amount }));
+                                const rawGap = (g.plaidBal ?? 0) - (vaultBal ?? 0);
+                                const baseline = rawGap + chargeItems.reduce((s, u) => s + u.amount, 0);
+                                const includedPayments = [...matchedPaymentCandidates, ...unmatchedPaymentCandidates]
+                                  .filter((c) => Math.abs(baseline + c.amount) < Math.abs(baseline))
+                                  .map((c) => ({ ...c, matched: true, kind: "payment" as const }));
                                 return [...chargeItems, ...includedPayments];
                               })(),
                               ...pendingTxs
@@ -3499,28 +3519,6 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                   matched: false,
                                   kind: (isCardPayment(tx) ? "payment" : "charge") as "payment" | "charge",
                                 })),
-                              // Mirror of the depository side's own Contra handling below: a card payment's
-                              // CHECKING leg routinely settles on Plaid within a day or two, but the CARD's own
-                              // leg can sit with no matching Plaid transaction far longer -- confirmed live, an
-                              // AMEX payment's checking-side debit posted overnight while AMEX itself never
-                              // produced a distinct "payment received" transaction at all, leaving the vault's
-                              // own unmatched Contra permanently unaccounted for in Uncleared (it only ever
-                              // showed up in the "In vault, no Plaid match" diagnostic list below, which is
-                              // informational only -- marking it "Reconciled" there silenced the list but never
-                              // touched this Difference number, so the gap stayed stuck at the payment amount
-                              // forever no matter how long you waited or how many times you reconciled it).
-                              // Same contraCutoff grace window as depository for an unmatched-but-recent
-                              // payment; a "Mark as reconciled" entry is included regardless of age, since
-                              // that's the user's explicit confirmation this is real and Plaid will never
-                              // independently report it.
-                              ...recentVaultEntries
-                                .map((ve, vi) => ({ ve, vi }))
-                                .filter(({ ve, vi }) => {
-                                  if (matchedVaultIdx.has(vi) || ve.type.toLowerCase() !== "contra" || ve.amount >= 0) return false;
-                                  const creditContraCutoff = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
-                                  return reconExceptionKeys.has(vaultExceptionKey(ve.guid)) || ve.date >= creditContraCutoff;
-                                })
-                                .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: ve.amount, matched: true, kind: "payment" as const })),
                             ]
                           : g.plaidType === "investment"
                             ? recentVaultEntries
