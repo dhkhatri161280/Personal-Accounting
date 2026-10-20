@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { detectRecurringCandidates, templateFromCandidate, type DetectTx, type DetectAccount } from "../lib/recurring-detect.ts";
+import { detectRecurringCandidates, templateFromCandidate, diagnoseLedger, type DetectTx, type DetectAccount } from "../lib/recurring-detect.ts";
 import type { RecurringTemplate } from "../lib/vault-types.ts";
 
 const accounts: DetectAccount[] = [
@@ -174,4 +174,44 @@ test("templateFromCandidate pre-links the current period's own matching occurren
     { accountId: 2, amount: -15.99 },
     { accountId: 1, amount: 15.99 },
   ]);
+});
+
+test("diagnoseLedger reports 'accepted' with the real computed gap stats for a clean monthly pattern", () => {
+  const txs: DetectTx[] = [monthlyTx("2026-04-05", "g1"), monthlyTx("2026-05-05", "g2"), monthlyTx("2026-06-06", "g3"), monthlyTx("2026-07-05", "g4")];
+  const results = diagnoseLedger(txs, accounts, [], none, 60, "2026-07-10", "Netflix");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].verdict, "accepted");
+  assert.equal(results[0].occurrences.length, 4);
+  assert.ok(results[0].avgGapDays !== null && results[0].avgGapDays > 29 && results[0].avgGapDays < 31);
+});
+
+test("diagnoseLedger explains a rejection with the actual gap numbers, not just 'no'", () => {
+  const txs: DetectTx[] = [monthlyTx("2026-01-03", "g1"), monthlyTx("2026-01-08", "g2"), monthlyTx("2026-04-21", "g3")];
+  const results = diagnoseLedger(txs, accounts, [], none, 60, "2026-07-10", "Netflix");
+  assert.equal(results.length, 1);
+  assert.match(results[0].verdict, /rejected/);
+  assert.match(results[0].reason, /\d/); // contains the actual numbers, not a vague message
+});
+
+test("diagnoseLedger reports why a multi-leg (3+ entries) voucher never gets considered", () => {
+  const txs: DetectTx[] = [
+    { guid: "s1", date: "2026-04-05", type: "Payment", narration: "Netflix+tax", entries: [{ accountId: 2, amount: -15 }, { accountId: 4, amount: -0.99 }, { accountId: 1, amount: 15.99 }] },
+  ];
+  const results = diagnoseLedger(txs, accounts, [], none, 60, "2026-07-10", "Netflix");
+  assert.equal(results.length, 1);
+  assert.match(results[0].verdict, /not a simple 2-leg voucher/);
+});
+
+test("diagnoseLedger reports why House Hold Exps is excluded", () => {
+  const txs: DetectTx[] = [
+    { guid: "h1", date: "2026-04-03", entries: [{ accountId: 8, amount: -60 }, { accountId: 1, amount: 60 }] },
+    { guid: "h2", date: "2026-04-10", entries: [{ accountId: 8, amount: -55 }, { accountId: 1, amount: 55 }] },
+  ];
+  const results = diagnoseLedger(txs, accounts, [], none, 60, "2026-07-10", "House Hold");
+  assert.equal(results.length, 1);
+  assert.match(results[0].verdict, /House Hold Exps/);
+});
+
+test("diagnoseLedger returns nothing for an empty query", () => {
+  assert.deepEqual(diagnoseLedger([monthlyTx("2026-04-05", "g1")], accounts, [], none, 60, "2026-07-10", ""), []);
 });

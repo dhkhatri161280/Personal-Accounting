@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-20",
+    "summary": "Recurring: \"Diagnose a ledger\" tool explains exactly why a bill did or didn't surface"
+  },
+  {
+    "date": "2026-10-20",
     "summary": "Recurring scan: view and restore dismissed suggestions"
   },
   {

@@ -205,6 +205,139 @@ export function detectRecurringCandidates(
   return out.sort((a, b) => b.occurrences.length - a.occurrences.length);
 }
 
+export interface DiagnosticEntry {
+  key: string;
+  debitAccountName: string;
+  creditAccountName: string;
+  occurrences: { date: string; amount: number }[];
+  avgGapDays: number | null;
+  maxGapDeviation: number | null;
+  verdict: string;
+  reason: string;
+}
+
+/** Traces the exact same logic as detectRecurringCandidates, but for every 2-leg transaction
+ * touching an account whose name matches `query` -- and instead of silently dropping a
+ * non-qualifying group, explains WHY, with the actual computed numbers. Built because "why isn't
+ * my bill showing up" can't be debugged from outside the app (no access to the live, encrypted
+ * vault data) -- this answers it directly, in the app itself, instead of more guessing. */
+export function diagnoseLedger(
+  transactions: DetectTx[],
+  accounts: DetectAccount[],
+  existingTemplates: RecurringTemplate[],
+  dismissedKeys: Set<string>,
+  lookbackMonths: number,
+  asOfDate: string,
+  query: string
+): DiagnosticEntry[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const cutoff = monthsAgo(asOfDate, lookbackMonths);
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const matchingAccountIds = new Set(accounts.filter((a) => a.name.toLowerCase().includes(q)).map((a) => a.id));
+  const existingKeys = new Set(
+    existingTemplates.map((t) => {
+      const d = t.entries.find((e) => e.amount < 0);
+      const c = t.entries.find((e) => e.amount > 0);
+      return d && c ? identityKey(d.accountId, c.accountId, accountById) : "";
+    })
+  );
+
+  const groups = new Map<string, DetectTx[]>();
+  const excludedByWindow: string[] = [];
+  const excludedByLegCount: string[] = [];
+  for (const t of transactions) {
+    const touchesMatch = t.entries.some((e) => matchingAccountIds.has(e.accountId));
+    if (!touchesMatch) continue;
+    if (t.deleted || t.cancelled) continue;
+    if (t.date < cutoff) { excludedByWindow.push(t.guid || t.date); continue; }
+    if (t.entries.length !== 2) { excludedByLegCount.push(t.guid || t.date); continue; }
+    const [a, b] = t.entries;
+    if (Math.abs(a.amount + b.amount) > 0.01) { excludedByLegCount.push(t.guid || t.date); continue; }
+    const debitEntry = a.amount < 0 ? a : b;
+    const creditEntry = a.amount < 0 ? b : a;
+    const key = identityKey(debitEntry.accountId, creditEntry.accountId, accountById);
+    const list = groups.get(key);
+    if (list) list.push(t);
+    else groups.set(key, [t]);
+  }
+
+  const out: DiagnosticEntry[] = [];
+  if (excludedByWindow.length) {
+    out.push({
+      key: "~excluded-window", debitAccountName: "", creditAccountName: "",
+      occurrences: [], avgGapDays: null, maxGapDeviation: null,
+      verdict: "excluded (outside lookback window)",
+      reason: `${excludedByWindow.length} transaction(s) matching "${query}" fall before the ${lookbackMonths}-month cutoff (${cutoff}) and aren't considered at all.`,
+    });
+  }
+  if (excludedByLegCount.length) {
+    out.push({
+      key: "~excluded-legs", debitAccountName: "", creditAccountName: "",
+      occurrences: [], avgGapDays: null, maxGapDeviation: null,
+      verdict: "excluded (not a simple 2-leg voucher)",
+      reason: `${excludedByLegCount.length} transaction(s) matching "${query}" have more than 2 entries (a split voucher) and aren't considered -- a recurring template only models one fixed debit/credit pair.`,
+    });
+  }
+
+  for (const [key, txs] of groups) {
+    const sorted = txs.slice().sort((a, b) => a.date.localeCompare(b.date));
+    const debitLeg = (t: DetectTx) => t.entries.find((e) => e.amount < 0)!;
+    const creditLeg = (t: DetectTx) => t.entries.find((e) => e.amount > 0)!;
+    const last = sorted[sorted.length - 1];
+    const debit = accountById.get(debitLeg(last).accountId);
+    const credit = accountById.get(creditLeg(last).accountId);
+    const debitName = debit?.name || `(unknown account ${debitLeg(last).accountId})`;
+    const creditName = credit?.name || `(unknown account ${creditLeg(last).accountId})`;
+    const occurrences = sorted.map((t) => ({ date: t.date, amount: Math.abs(debitLeg(t).amount) }));
+
+    if (HOUSEHOLD_EXPS_RE.test(debitName) || HOUSEHOLD_EXPS_RE.test(creditName)) {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: null, maxGapDeviation: null,
+        verdict: "excluded (House Hold Exps family)", reason: "This is the special monthly-rotating House Hold Exps ledger, excluded outright as noise." });
+      continue;
+    }
+    if (existingKeys.has(key)) {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: null, maxGapDeviation: null,
+        verdict: "skipped (already templated)", reason: "A recurring template already covers this exact bill identity." });
+      continue;
+    }
+    if (dismissedKeys.has(key)) {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: null, maxGapDeviation: null,
+        verdict: "skipped (dismissed)", reason: "You previously dismissed this suggestion -- restore it from \"Show dismissed\" to bring it back." });
+      continue;
+    }
+    if (!debit || !credit) {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: null, maxGapDeviation: null,
+        verdict: "rejected (unresolvable account)", reason: "One side of this voucher references an account id that no longer exists in the ledger list." });
+      continue;
+    }
+    if (sorted.length < 2) {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: null, maxGapDeviation: null,
+        verdict: "rejected (too few occurrences)", reason: `Only ${sorted.length} matching transaction(s) in the window -- needs at least 2.` });
+      continue;
+    }
+
+    const gaps: number[] = [];
+    for (let i = 1; i < sorted.length; i++) gaps.push(daysBetween(sorted[i - 1].date, sorted[i].date));
+    const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+    const maxGapDeviation = sorted.length === 2 ? 0 : Math.max(...gaps.map((g) => Math.abs(g - avgGap)));
+    const standard = STANDARD_FREQUENCIES.find((f) => Math.abs(avgGap - f.days) <= f.tolerance && maxGapDeviation <= f.tolerance * 2.2);
+
+    if (standard) {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: avgGap, maxGapDeviation,
+        verdict: "accepted", reason: `Matches ${standard.frequency} (avg gap ${avgGap.toFixed(1)} days, target ${standard.days} ± ${standard.tolerance}).` });
+    } else if (sorted.length >= 3 && maxGapDeviation <= Math.max(avgGap * 0.35, 12)) {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: avgGap, maxGapDeviation,
+        verdict: "accepted", reason: `Regular custom interval (~${Math.round(avgGap / 30.4)} month(s), avg gap ${avgGap.toFixed(1)} days).` });
+    } else {
+      out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: avgGap, maxGapDeviation,
+        verdict: "rejected (irregular interval)",
+        reason: `Avg gap ${avgGap.toFixed(1)} days, but swings by up to ${maxGapDeviation.toFixed(1)} days between occurrences -- ${sorted.length < 3 ? "and a 2-occurrence candidate needs to land tightly on a standard monthly/bimonthly/quarterly/yearly cadence, not a custom one" : "too irregular to call this a consistent cycle"}.` });
+    }
+  }
+  return out;
+}
+
 /** Builds a draft RecurringTemplate from a candidate, with its most recent matching period
  * pre-linked as already-posted if one exists in the candidate's own occurrence history -- without
  * this, creating a template for a bill that was JUST paid this period would immediately show up

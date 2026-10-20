@@ -11,7 +11,7 @@ import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { frequencyLabel, lastPaidDate } from "@/lib/recurring";
-import { detectRecurringCandidates, templateFromCandidate, type RecurringCandidate } from "@/lib/recurring-detect";
+import { detectRecurringCandidates, templateFromCandidate, diagnoseLedger, type RecurringCandidate, type DiagnosticEntry } from "@/lib/recurring-detect";
 import {
   monthlyDepreciation,
   accumulatedDepreciation,
@@ -577,6 +577,8 @@ export function MastersPanel({
     [recurringCandidates, setRecurringCandidates] = useState<RecurringCandidate[] | null>(null),
     [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set()),
     [showDismissedCandidates, setShowDismissedCandidates] = useState(false),
+    [diagnoseQuery, setDiagnoseQuery] = useState(""),
+    [diagnosticResults, setDiagnosticResults] = useState<DiagnosticEntry[] | null>(null),
     [search, setSearch] = useState(""),
     // Fixed Assets master data (name/class/useful life/salvage) -- Cost/Fixed Asset #/purchase
     // date stay read-only here since they're derived facts from the real ledger/tag, not
@@ -1171,6 +1173,23 @@ export function MastersPanel({
       `Restored "${label}" — it'll be suggested again next scan.`
     );
   };
+  // Answers "why isn't X showing up as a recurring bill" directly, since there's no way to
+  // inspect the live encrypted vault from outside the app -- traces the exact same logic the
+  // scan uses, but explains every group's verdict instead of silently dropping the ones that
+  // don't qualify.
+  const runDiagnosis = () => {
+    setDiagnosticResults(
+      diagnoseLedger(
+        data.transactions || [],
+        data.accounts,
+        data.recurringTemplates || [],
+        new Set(data.dismissedRecurringCandidates || []),
+        60,
+        todayLocalIso(),
+        diagnoseQuery
+      )
+    );
+  };
   const toggleCandidateSelected = (key: string) => {
     setSelectedCandidateKeys((prev) => {
       const next = new Set(prev);
@@ -1527,6 +1546,58 @@ export function MastersPanel({
               </button>
             </div>
           </div>
+          <div className="master-toolbar">
+            <input
+              placeholder='Diagnose a ledger — e.g. "Electric & Gas"'
+              value={diagnoseQuery}
+              onChange={(e) => setDiagnoseQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runDiagnosis()}
+              style={{ flex: 1, maxWidth: 360 }}
+            />
+            <button onClick={runDiagnosis} disabled={!diagnoseQuery.trim()}>
+              Diagnose
+            </button>
+          </div>
+          {diagnosticResults && (
+            <div className="data-panel" style={{ marginBottom: 16 }}>
+              <strong style={{ fontSize: 13 }}>
+                Why "{diagnoseQuery}" {diagnosticResults.length === 0 ? "found nothing" : "did or didn't surface"}:
+              </strong>
+              {diagnosticResults.length === 0 ? (
+                <p style={{ fontSize: 13, opacity: 0.7, margin: "0.5rem 0 0" }}>
+                  No ledger name contains "{diagnoseQuery}", or no 2-leg transaction through it exists in the last 60
+                  months.
+                </p>
+              ) : (
+                <table style={{ marginTop: "0.5rem" }}>
+                  <thead>
+                    <tr>
+                      <th>Ledgers</th>
+                      <th>Occurrences</th>
+                      <th>Avg gap</th>
+                      <th>Verdict</th>
+                      <th>Why</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diagnosticResults.map((d, i) => (
+                      <tr key={i}>
+                        <td>{d.debitAccountName && d.creditAccountName ? `${d.debitAccountName} / ${d.creditAccountName}` : "—"}</td>
+                        <td>
+                          {d.occurrences.length > 0
+                            ? d.occurrences.map((o) => fmtDate(o.date)).join(", ")
+                            : "—"}
+                        </td>
+                        <td>{d.avgGapDays != null ? `${d.avgGapDays.toFixed(1)}d (±${d.maxGapDeviation?.toFixed(1)})` : "—"}</td>
+                        <td style={{ fontWeight: 600, color: d.verdict === "accepted" ? "#16a34a" : "#dc2626" }}>{d.verdict}</td>
+                        <td style={{ fontSize: 12, opacity: 0.8 }}>{d.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
           {showDismissedCandidates && (
             <div className="data-panel" style={{ marginBottom: 16 }}>
               <strong style={{ fontSize: 13 }}>Dismissed suggestions — won't be re-proposed by a scan unless restored:</strong>
