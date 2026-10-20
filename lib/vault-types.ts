@@ -606,6 +606,11 @@ export type Ledger = {
   budgets?: Budget[];
   // User-defined recurring bills/expenses/income. See lib/recurring.ts.
   recurringTemplates?: RecurringTemplate[];
+  // Account-pair keys ("${debitAccountId}|${creditAccountId}") the user explicitly said NOT to
+  // suggest again from Masters -> Recurring's "Scan for recurring bills" (lib/recurring-detect.ts)
+  // -- without this, a re-scan would keep re-proposing the same irrelevant pattern (e.g. two
+  // coincidentally similar-interval but unrelated transactions) every time.
+  dismissedRecurringCandidates?: string[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];

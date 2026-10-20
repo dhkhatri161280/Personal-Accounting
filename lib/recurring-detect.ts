@@ -35,11 +35,14 @@ export interface RecurringCandidate {
   suggestedAnchorMonth?: string;
 }
 
+// Wider than a textbook calendar interval -- confirmed live, real bills jitter: a yearly renewal
+// can land a month+ off the prior year's date depending on processing time, and a monthly bill
+// can skip a few days around a weekend/holiday.
 const STANDARD_FREQUENCIES: { frequency: RecurringTemplate["frequency"]; days: number; tolerance: number }[] = [
-  { frequency: "monthly", days: 30.4, tolerance: 6 },
-  { frequency: "bimonthly", days: 60.8, tolerance: 8 },
-  { frequency: "quarterly", days: 91.3, tolerance: 10 },
-  { frequency: "yearly", days: 365, tolerance: 20 },
+  { frequency: "monthly", days: 30.4, tolerance: 8 },
+  { frequency: "bimonthly", days: 60.8, tolerance: 10 },
+  { frequency: "quarterly", days: 91.3, tolerance: 14 },
+  { frequency: "yearly", days: 365, tolerance: 35 },
 ];
 
 function daysBetween(a: string, b: string): number {
@@ -68,16 +71,22 @@ function inferLabel(debitName: string, creditName: string, narration: string): s
 }
 
 /** Scans the Day Book for a regularly-repeating, simple 2-leg voucher pattern (same account pair,
- * similar amount, roughly evenly spaced dates) and proposes it as a recurring template -- the
- * "automatically find my recurring bills" entry point for Masters -> Recurring's own "Scan"
- * button. Deliberately conservative: requires at least 3 occurrences AND a fairly consistent gap
- * between them before calling something "recurring", so a couple of coincidentally similar,
- * unrelated transactions don't get proposed as a bogus bill. Already-templated account pairs are
- * excluded so re-scanning doesn't keep re-suggesting what's already set up. */
+ * roughly evenly spaced dates) and proposes it as a recurring template -- the "automatically find
+ * my recurring bills" entry point for Masters -> Recurring's own "Scan" button. Amount is
+ * deliberately NOT a tight filter -- confirmed live, a usage-based bill (electricity, water) can
+ * legitimately swing 2x+ cycle to cycle, and the account pair itself (a dedicated bill ledger
+ * paired with a bank/card) is already a strong signal on its own; interval regularity is the
+ * primary thing that makes something "recurring", not amount consistency. Requires at least 2
+ * occurrences, but a 2-occurrence candidate only qualifies if its one gap lands tightly on a
+ * standard cadence (monthly/bimonthly/quarterly/yearly) -- a single gap can't confidently imply a
+ * non-standard custom interval, so that still needs 3+ occurrences. Already-templated and
+ * explicitly dismissed account pairs are excluded so re-scanning doesn't keep re-suggesting what's
+ * already set up or what the user already said isn't a real recurring bill. */
 export function detectRecurringCandidates(
   transactions: DetectTx[],
   accounts: DetectAccount[],
   existingTemplates: RecurringTemplate[],
+  dismissedKeys: Set<string>,
   lookbackMonths: number,
   asOfDate: string
 ): RecurringCandidate[] {
@@ -107,34 +116,31 @@ export function detectRecurringCandidates(
 
   const out: RecurringCandidate[] = [];
   for (const [key, txs] of groups) {
-    if (existingKeys.has(key) || txs.length < 3) continue;
+    if (existingKeys.has(key) || dismissedKeys.has(key) || txs.length < 2) continue;
     const sorted = txs.slice().sort((a, b) => a.date.localeCompare(b.date));
     const debitLeg = (t: DetectTx) => t.entries.find((e) => e.amount < 0)!;
     const creditLeg = (t: DetectTx) => t.entries.find((e) => e.amount > 0)!;
 
     const amounts = sorted.map((t) => Math.abs(debitLeg(t).amount));
     const avgAmount = amounts.reduce((s, a) => s + a, 0) / amounts.length;
-    const maxAmountDeviation = Math.max(...amounts.map((a) => Math.abs(a - avgAmount)));
-    // Too scattered in amount to plausibly be the same recurring bill (e.g. two unrelated grocery
-    // trips through the same two ledgers) -- skip rather than propose a misleading "recurring" tag.
-    if (maxAmountDeviation > Math.max(avgAmount * 0.35, 10)) continue;
 
     const gaps: number[] = [];
     for (let i = 1; i < sorted.length; i++) gaps.push(daysBetween(sorted[i - 1].date, sorted[i].date));
     const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-    const maxGapDeviation = Math.max(...gaps.map((g) => Math.abs(g - avgGap)));
+    const maxGapDeviation = sorted.length === 2 ? 0 : Math.max(...gaps.map((g) => Math.abs(g - avgGap)));
 
-    const standard = STANDARD_FREQUENCIES.find((f) => Math.abs(avgGap - f.days) <= f.tolerance && maxGapDeviation <= f.tolerance * 1.8);
+    const standard = STANDARD_FREQUENCIES.find((f) => Math.abs(avgGap - f.days) <= f.tolerance && maxGapDeviation <= f.tolerance * 2.2);
     let frequency: RecurringTemplate["frequency"];
     let intervalMonths: number | undefined;
     if (standard) {
       frequency = standard.frequency;
-    } else if (maxGapDeviation <= Math.max(avgGap * 0.25, 10)) {
-      // Regular, but not one of the standard buckets -- a custom N-month interval.
+    } else if (sorted.length >= 3 && maxGapDeviation <= Math.max(avgGap * 0.35, 12)) {
+      // Regular, but not one of the standard buckets -- a custom N-month interval. Needs 3+
+      // occurrences (2+ observed gaps) to trust a non-standard cadence with any confidence.
       frequency = "custom";
       intervalMonths = Math.max(1, Math.round(avgGap / 30.4));
     } else {
-      continue; // gaps too irregular to call this a recurring pattern
+      continue; // gaps too irregular (or too few data points) to call this a recurring pattern
     }
 
     const last = sorted[sorted.length - 1];

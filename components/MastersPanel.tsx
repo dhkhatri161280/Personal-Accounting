@@ -96,6 +96,7 @@ export type MasterLedger = {
     guid?: string;
   }>;
   recurringTemplates?: RecurringTemplate[];
+  dismissedRecurringCandidates?: string[];
   auditLog?: AuditEntry[];
   fixedAssets?: FixedAsset[];
   documents?: VaultDocument[];
@@ -1126,11 +1127,30 @@ export function MastersPanel({
       data.transactions || [],
       data.accounts,
       data.recurringTemplates || [],
+      new Set(data.dismissedRecurringCandidates || []),
       60,
       todayLocalIso()
     );
     setRecurringCandidates(candidates);
     setSelectedCandidateKeys(new Set());
+  };
+  // Persists the dismissal (not just a local filter) so a future scan doesn't keep re-proposing
+  // the same pattern the user already said isn't a real recurring bill -- e.g. a one-off pair of
+  // similar-amount charges that happened to land on a plausible-looking interval.
+  const dismissCandidates = (candidates: RecurringCandidate[]) => {
+    if (!candidates.length) return;
+    const keys = candidates.map((c) => c.key);
+    onSave(
+      { ...data, dismissedRecurringCandidates: [...new Set([...(data.dismissedRecurringCandidates || []), ...keys])] },
+      candidates.length === 1 ? `Dismissed "${candidates[0].suggestedLabel}" — won't suggest it again.` : `Dismissed ${candidates.length} suggestions.`
+    );
+    const dismissedSet = new Set(keys);
+    setRecurringCandidates((prev) => (prev ? prev.filter((c) => !dismissedSet.has(c.key)) : prev));
+    setSelectedCandidateKeys((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) next.delete(k);
+      return next;
+    });
   };
   const toggleCandidateSelected = (key: string) => {
     setSelectedCandidateKeys((prev) => {
@@ -1492,17 +1512,30 @@ export function MastersPanel({
                 </p>
               ) : (
                 <>
+                  <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.5rem" }}>
+                    These are reminders only, not a posting rule — the real voucher still comes from wherever it
+                    actually gets paid (Tally sync, Plaid, manual entry). "Create" just sets up the due-date check;
+                    amount can vary cycle to cycle without affecting it.
+                  </p>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                     <strong style={{ fontSize: 13 }}>
-                      {recurringCandidates.length} possible recurring bill(s) found — review and create the ones that are real:
+                      {recurringCandidates.length} possible recurring bill(s) found — review, create the real ones, dismiss the rest:
                     </strong>
-                    <button
-                      className="primary"
-                      disabled={selectedCandidateKeys.size === 0}
-                      onClick={() => createTemplatesFromCandidates(recurringCandidates.filter((c) => selectedCandidateKeys.has(c.key)))}
-                    >
-                      Create {selectedCandidateKeys.size || ""} selected
-                    </button>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button
+                        disabled={selectedCandidateKeys.size === 0}
+                        onClick={() => dismissCandidates(recurringCandidates.filter((c) => selectedCandidateKeys.has(c.key)))}
+                      >
+                        Dismiss {selectedCandidateKeys.size || ""} selected
+                      </button>
+                      <button
+                        className="primary"
+                        disabled={selectedCandidateKeys.size === 0}
+                        onClick={() => createTemplatesFromCandidates(recurringCandidates.filter((c) => selectedCandidateKeys.has(c.key)))}
+                      >
+                        Create {selectedCandidateKeys.size || ""} selected
+                      </button>
+                    </div>
                   </div>
                   <table>
                     <thead>
@@ -1548,9 +1581,14 @@ export function MastersPanel({
                             {c.occurrences.length}&times;, last {fmtDate(c.occurrences[c.occurrences.length - 1].date)}
                           </td>
                           <td>
-                            <button className="master-edit" onClick={() => createTemplatesFromCandidates([c])}>
-                              Create
-                            </button>
+                            <div className="master-actions">
+                              <button className="master-edit" onClick={() => createTemplatesFromCandidates([c])}>
+                                Create
+                              </button>
+                              <button className="master-delete" onClick={() => dismissCandidates([c])}>
+                                Dismiss
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

@@ -5,6 +5,8 @@ import {
   dueTemplates,
   buildVoucherFromTemplate,
   matchRecurringTemplate,
+  isTemplateSatisfiedForPeriod,
+  type RecurringCheckTx,
 } from "../lib/recurring.ts";
 import type { Account, RecurringTemplate } from "../lib/vault-types.ts";
 
@@ -111,6 +113,56 @@ test("dueTemplates keeps the whole-period behavior for a MONTHLY template with n
 test("dueTemplates does NOT gate a YEARLY template by dayOfMonth -- its period has no stored month to anchor a day against", () => {
   const t = template({ frequency: "yearly", dayOfMonth: 20 });
   assert.equal(dueTemplates([t], "2026-01-01").length, 1, "yearly stays due for the whole year, even day 1");
+});
+
+test("isTemplateSatisfiedForPeriod is satisfied by ANY matching transaction in the period, regardless of amount -- not a hard posting rule", () => {
+  const t = template(); // Netflix: debit 9, credit 1, $15.99 typical
+  // A usage-based bill varies cycle to cycle -- a real posted transaction for a wildly different
+  // amount still satisfies the period; the amount on the template is only a display default, never
+  // enforced.
+  const txs: RecurringCheckTx[] = [
+    { date: "2026-09-18", entries: [{ accountId: 9, amount: -42.17 }, { accountId: 1, amount: 42.17 }] },
+  ];
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2026-09", txs), true);
+});
+
+test("isTemplateSatisfiedForPeriod is NOT satisfied by a transaction outside the period's date range", () => {
+  const t = template();
+  const txs: RecurringCheckTx[] = [{ date: "2026-08-30", entries: [{ accountId: 9, amount: -15.99 }, { accountId: 1, amount: 15.99 }] }];
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2026-09", txs), false);
+});
+
+test("isTemplateSatisfiedForPeriod is NOT satisfied by a transaction through the wrong account pair", () => {
+  const t = template();
+  const txs: RecurringCheckTx[] = [{ date: "2026-09-10", entries: [{ accountId: 9, amount: -15.99 }, { accountId: 2, amount: 15.99 }] }];
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2026-09", txs), false);
+});
+
+test("isTemplateSatisfiedForPeriod ignores a deleted or cancelled transaction", () => {
+  const t = template();
+  const txs: RecurringCheckTx[] = [
+    { date: "2026-09-10", deleted: true, entries: [{ accountId: 9, amount: -15.99 }, { accountId: 1, amount: 15.99 }] },
+    { date: "2026-09-12", cancelled: true, entries: [{ accountId: 9, amount: -15.99 }, { accountId: 1, amount: 15.99 }] },
+  ];
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2026-09", txs), false);
+});
+
+test("isTemplateSatisfiedForPeriod honors an explicit posting even with no matching transaction passed in", () => {
+  const t = template({ postings: [{ periodKey: "2026-09", txGuid: "v1", postedAt: "2026-09-10" }] });
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2026-09", []), true);
+});
+
+test("isTemplateSatisfiedForPeriod covers a quarterly template's whole 3-month bucket, not just one month", () => {
+  const t = template({ frequency: "quarterly", anchorMonth: "2026-01" });
+  const txs: RecurringCheckTx[] = [{ date: "2026-02-15", entries: [{ accountId: 9, amount: -500 }, { accountId: 1, amount: 500 }] }];
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2026-01", txs), true, "Feb falls inside the Jan-Mar bucket");
+});
+
+test("dueTemplates (with transactions) is quiet once a real transaction lands, even though nothing was ever explicitly linked or Posted", () => {
+  const t = template({ dayOfMonth: 1 });
+  const txs: RecurringCheckTx[] = [{ date: "2026-10-05", entries: [{ accountId: 9, amount: -18.5 }, { accountId: 1, amount: 18.5 }] }];
+  assert.equal(dueTemplates([t], "2026-10-20", []).length, 1, "no transactions passed -- still shows as due");
+  assert.equal(dueTemplates([t], "2026-10-20", txs).length, 0, "a real, un-linked transaction already covers this period");
 });
 
 test("buildVoucherFromTemplate interpolates {month}/{year} and resolves account names", () => {

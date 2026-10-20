@@ -81,15 +81,62 @@ function periodLabelFor(template: RecurringTemplate, periodKey: string): string 
   return startY === endY ? `${startName}–${endName} ${startY}` : `${startName} ${startY}–${endName} ${endY}`;
 }
 
-// Active templates not yet posted for the current period. A MONTHLY (or bimonthly/quarterly/
-// custom) template with a dayOfMonth set is due starting that day of the month, not from the
-// 1st -- flagging "HOA due" on the 1st when the bill isn't actually due until the 6th defeats the
-// point of the reminder (confirmed live: the user wants it to show up ON the due day, not
-// two-plus weeks early). For a multi-month cycle, the day is checked against the LAST month of
-// that cycle's own period -- a quarterly bill shouldn't flag on day 1 of the FIRST month of its
-// quarter. No dayOfMonth set, or a YEARLY template (whose period has no stored month to anchor a
-// day against -- see dayOfMonth's comment in vault-types.ts), keeps the old whole-period behavior.
-export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string): DueTemplate[] {
+// Minimal transaction shape this module needs for live period-satisfaction checking --
+// deliberately narrower than the real Tx type so it works from either the full vault-types.ts
+// Ledger or MastersPanel.tsx's own narrower MasterLedger view (both are structurally compatible).
+export interface RecurringCheckTx {
+  date: string;
+  deleted?: boolean;
+  cancelled?: boolean;
+  entries: { accountId: number; amount: number }[];
+}
+
+// The calendar span a periodKey covers -- the whole month for monthly, the whole year for
+// yearly, or the N-month bucket for bimonthly/quarterly/custom.
+function periodDateRange(template: RecurringTemplate, periodKey: string): { start: string; end: string } {
+  if (template.frequency === "yearly") return { start: `${periodKey}-01-01`, end: `${periodKey}-12-31` };
+  const n = intervalMonthsFor(template);
+  const endIdx = monthIndex(periodKey) + n - 1;
+  const [endY, endM] = ymOf(endIdx).split("-").map(Number);
+  const lastDayOfEndMonth = new Date(Date.UTC(endY, endM, 0)).getUTCDate();
+  return { start: `${periodKey}-01`, end: `${ymOf(endIdx)}-${String(lastDayOfEndMonth).padStart(2, "0")}` };
+}
+
+// A template counts as satisfied for a period once EITHER it has an explicit posting link
+// (manual "Post", "Already posted...", or a Plaid auto-match) OR -- the actual fix here -- any
+// real transaction already touches the same two ledgers within the period's own date range, no
+// matter how it got there (Tally sync, Plaid import, manual entry) and no matter the amount. This
+// template is a reminder, not the system of record for the posting itself: the real voucher
+// always comes from whichever payment source actually handled it (confirmed live: a usage-based
+// bill like electricity or water varies every cycle, so requiring an amount match, or requiring
+// the user to click "Already posted..." by hand each time, would either miss it or nag forever
+// even once it's genuinely paid).
+export function isTemplateSatisfiedForPeriod(template: RecurringTemplate, periodKey: string, transactions: RecurringCheckTx[]): boolean {
+  if (template.postings.some((p) => p.periodKey === periodKey)) return true;
+  const debit = template.entries.find((e) => e.amount < 0);
+  const credit = template.entries.find((e) => e.amount > 0);
+  if (!debit || !credit) return false;
+  const { start, end } = periodDateRange(template, periodKey);
+  return transactions.some((t) => {
+    if (t.deleted || t.cancelled || t.date < start || t.date > end) return false;
+    const hasDebit = t.entries.some((e) => e.accountId === debit.accountId && e.amount < 0);
+    const hasCredit = t.entries.some((e) => e.accountId === credit.accountId && e.amount > 0);
+    return hasDebit && hasCredit;
+  });
+}
+
+// Active templates not yet satisfied for the current period (see isTemplateSatisfiedForPeriod).
+// A MONTHLY (or bimonthly/quarterly/custom) template with a dayOfMonth set is due starting that
+// day of the month, not from the 1st -- flagging "HOA due" on the 1st when the bill isn't
+// actually due until the 6th defeats the point of the reminder (confirmed live: the user wants it
+// to show up ON the due day, not two-plus weeks early). For a multi-month cycle, the day is
+// checked against the LAST month of that cycle's own period -- a quarterly bill shouldn't flag on
+// day 1 of the FIRST month of its quarter. No dayOfMonth set, or a YEARLY template (whose period
+// has no stored month to anchor a day against -- see dayOfMonth's comment in vault-types.ts),
+// keeps the old whole-period behavior. `transactions` is optional for backward compatibility with
+// any caller that hasn't been updated to pass it -- omitting it falls back to only checking
+// explicit postings, same as before this function gained live matching.
+export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string, transactions?: RecurringCheckTx[]): DueTemplate[] {
   const todayOfMonth = Number(asOfDate.slice(8, 10));
   const todayIdx = monthIndex(asOfDate.slice(0, 7));
   return (templates ?? [])
@@ -108,7 +155,7 @@ export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDat
       const periodKey = currentPeriodKey(t, asOfDate);
       return { template: t, periodKey, periodLabel: periodLabelFor(t, periodKey) };
     })
-    .filter(({ template, periodKey }) => !template.postings.some((p) => p.periodKey === periodKey));
+    .filter(({ template, periodKey }) => !isTemplateSatisfiedForPeriod(template, periodKey, transactions ?? []));
 }
 
 // What a template's voucher looks like -- shared by the manual "Post" button and the Plaid-match
