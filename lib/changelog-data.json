@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-10-20",
+    "summary": "Balances tab: fold unmatched card payments into Payments Pending, not Difference"
+  },
+  {
+    "date": "2026-10-19",
+    "summary": "Fix nested FloatingWindow modals stacking behind their opener"
+  },
+  {
     "date": "2026-10-19",
     "summary": "Itemized Deductions: drill-down to the contributing vouchers, HSA voucher links"
   },

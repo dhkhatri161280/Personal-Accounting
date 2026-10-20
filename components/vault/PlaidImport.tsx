@@ -3499,6 +3499,28 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                                   matched: false,
                                   kind: (isCardPayment(tx) ? "payment" : "charge") as "payment" | "charge",
                                 })),
+                              // Mirror of the depository side's own Contra handling below: a card payment's
+                              // CHECKING leg routinely settles on Plaid within a day or two, but the CARD's own
+                              // leg can sit with no matching Plaid transaction far longer -- confirmed live, an
+                              // AMEX payment's checking-side debit posted overnight while AMEX itself never
+                              // produced a distinct "payment received" transaction at all, leaving the vault's
+                              // own unmatched Contra permanently unaccounted for in Uncleared (it only ever
+                              // showed up in the "In vault, no Plaid match" diagnostic list below, which is
+                              // informational only -- marking it "Reconciled" there silenced the list but never
+                              // touched this Difference number, so the gap stayed stuck at the payment amount
+                              // forever no matter how long you waited or how many times you reconciled it).
+                              // Same contraCutoff grace window as depository for an unmatched-but-recent
+                              // payment; a "Mark as reconciled" entry is included regardless of age, since
+                              // that's the user's explicit confirmation this is real and Plaid will never
+                              // independently report it.
+                              ...recentVaultEntries
+                                .map((ve, vi) => ({ ve, vi }))
+                                .filter(({ ve, vi }) => {
+                                  if (matchedVaultIdx.has(vi) || ve.type.toLowerCase() !== "contra" || ve.amount >= 0) return false;
+                                  const creditContraCutoff = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+                                  return reconExceptionKeys.has(vaultExceptionKey(ve.guid)) || ve.date >= creditContraCutoff;
+                                })
+                                .map(({ ve }) => ({ date: ve.date, name: ve.narration || ve.type, amount: ve.amount, matched: true, kind: "payment" as const })),
                             ]
                           : g.plaidType === "investment"
                             ? recentVaultEntries
