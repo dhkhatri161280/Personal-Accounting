@@ -239,8 +239,8 @@ export function RetirementReport({
               const summaryBody = [
                 ["Employee (payroll deduction)", k401Self],
                 ["Employer Match", k401Employer],
-                ["Current balance (Fidelity + Merrill + Other)", totalBalance],
                 ["Growth / (loss)", totalBalance - k401Contributions],
+                ["Current balance (Fidelity + Merrill + Other)", totalBalance],
               ];
               await exportWorkbook("Retirement.xlsx", [
                 { name: "Accounts", rows: [header, ...body, ...otherBody] },
@@ -331,14 +331,14 @@ export function RetirementReport({
                   <strong className="equity-amt">{fmt(k401Employer)}</strong>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity + Merrill{otherInvestmentsTotal > 0 ? " + Other" : ""})</div>
-                  <strong className="equity-amt">{fmt(totalBalance)}</strong>
-                </div>
-                <div>
                   <div style={{ fontSize: 11, opacity: 0.7 }}>Growth / (loss)</div>
                   <strong className="equity-amt" style={{ color: totalBalance - k401Contributions >= 0 ? "#16a34a" : "#dc2626" }}>
                     {fmt(totalBalance - k401Contributions)}
                   </strong>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, opacity: 0.7 }}>Current balance (Fidelity + Merrill{otherInvestmentsTotal > 0 ? " + Other" : ""})</div>
+                  <strong className="equity-amt">{fmt(totalBalance)}</strong>
                 </div>
               </div>
             </div>

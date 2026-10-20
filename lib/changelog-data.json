@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-20",
+    "summary": "Retirement: reorder contributions-vs-balance row so Growth precedes Current balance"
+  },
+  {
+    "date": "2026-10-20",
     "summary": "Fix double-counted card payment when Plaid's balance already absorbed it"
   },
   {
