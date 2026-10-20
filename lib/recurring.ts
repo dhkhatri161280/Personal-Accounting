@@ -3,32 +3,107 @@ import { currentMonthSiblingAccount } from "./vault-accounting.ts";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-// "YYYY-MM" for monthly templates, "YYYY" for yearly -- the unit a template's postings are
-// tracked against. A monthly template is due once per calendar month regardless of what day it
-// actually gets posted on; a yearly one is due once per calendar year.
+// Short human label for a template's frequency -- shared by the Masters list and the Recurring
+// report's own template list, so both read the same way instead of each hand-rolling the same
+// ternary chain (the original only handled "monthly"/"yearly" and silently mislabeled every new
+// frequency added here as "Monthly").
+export function frequencyLabel(template: RecurringTemplate): string {
+  switch (template.frequency) {
+    case "yearly":
+      return "Yearly";
+    case "bimonthly":
+      return "Every 2 months";
+    case "quarterly":
+      return "Quarterly";
+    case "custom":
+      return `Every ${template.intervalMonths ?? 1} month(s)`;
+    default:
+      return "Monthly";
+  }
+}
+
+// Fixed interval for every frequency except "custom", which carries its own intervalMonths.
+function intervalMonthsFor(template: RecurringTemplate): number {
+  switch (template.frequency) {
+    case "bimonthly":
+      return 2;
+    case "quarterly":
+      return 3;
+    case "yearly":
+      return 12;
+    case "custom":
+      return Math.max(1, template.intervalMonths ?? 1);
+    default:
+      return 1;
+  }
+}
+
+function monthIndex(ym: string): number {
+  const [y, m] = ym.split("-").map(Number);
+  return y * 12 + (m - 1);
+}
+function ymOf(index: number): string {
+  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+}
+
+// "YYYY-MM" for monthly templates, "YYYY" for yearly, and for bimonthly/quarterly/custom the
+// "YYYY-MM" of whichever N-month bucket asOfDate falls in -- bucketed from the template's own
+// anchorMonth (or, lacking one, asOfDate's own month) so periods land on the bill's real cycle
+// rather than an arbitrary offset. monthly is the N=1 special case of the same bucketing, so it's
+// unaffected by anchor choice. The unit a template's postings are tracked against -- a monthly
+// template is due once per calendar month regardless of what day it actually gets posted on; a
+// yearly one is due once per calendar year; a quarterly one once per 3-month bucket.
 export function currentPeriodKey(template: RecurringTemplate, asOfDate: string): string {
-  return template.frequency === "yearly" ? asOfDate.slice(0, 4) : asOfDate.slice(0, 7);
+  if (template.frequency === "yearly") return asOfDate.slice(0, 4);
+  const n = intervalMonthsFor(template);
+  if (n === 1) return asOfDate.slice(0, 7);
+  const anchorIdx = monthIndex(template.anchorMonth || asOfDate.slice(0, 7));
+  const todayIdx = monthIndex(asOfDate.slice(0, 7));
+  const bucketIndex = Math.floor((todayIdx - anchorIdx) / n);
+  return ymOf(anchorIdx + bucketIndex * n);
 }
 
 export type DueTemplate = { template: RecurringTemplate; periodKey: string; periodLabel: string };
 
 function periodLabelFor(template: RecurringTemplate, periodKey: string): string {
   if (template.frequency === "yearly") return periodKey;
-  const [y, m] = periodKey.split("-");
-  return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+  const n = intervalMonthsFor(template);
+  const startIdx = monthIndex(periodKey);
+  if (n === 1) {
+    const [y, m] = periodKey.split("-");
+    return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+  }
+  const [startY] = periodKey.split("-").map(Number);
+  const endIdx = startIdx + n - 1;
+  const [endY] = ymOf(endIdx).split("-").map(Number);
+  const startName = MONTH_NAMES[startIdx % 12].slice(0, 3);
+  const endName = MONTH_NAMES[endIdx % 12].slice(0, 3);
+  return startY === endY ? `${startName}–${endName} ${startY}` : `${startName} ${startY}–${endName} ${endY}`;
 }
 
-// Active templates not yet posted for the current period. A MONTHLY template with a dayOfMonth
-// set is due starting that day of the month, not from the 1st -- flagging "HOA due" on the 1st
-// when the bill isn't actually due until the 6th defeats the point of the reminder (confirmed
-// live: the user wants it to show up ON the due day, not two-plus weeks early). No dayOfMonth
-// set, or a YEARLY template (whose period has no stored month to anchor a day against -- see
-// dayOfMonth's comment in vault-types.ts), keeps the old whole-period behavior.
+// Active templates not yet posted for the current period. A MONTHLY (or bimonthly/quarterly/
+// custom) template with a dayOfMonth set is due starting that day of the month, not from the
+// 1st -- flagging "HOA due" on the 1st when the bill isn't actually due until the 6th defeats the
+// point of the reminder (confirmed live: the user wants it to show up ON the due day, not
+// two-plus weeks early). For a multi-month cycle, the day is checked against the LAST month of
+// that cycle's own period -- a quarterly bill shouldn't flag on day 1 of the FIRST month of its
+// quarter. No dayOfMonth set, or a YEARLY template (whose period has no stored month to anchor a
+// day against -- see dayOfMonth's comment in vault-types.ts), keeps the old whole-period behavior.
 export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string): DueTemplate[] {
   const todayOfMonth = Number(asOfDate.slice(8, 10));
+  const todayIdx = monthIndex(asOfDate.slice(0, 7));
   return (templates ?? [])
     .filter((t) => t.active)
-    .filter((t) => t.frequency !== "monthly" || t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth)
+    .filter((t) => {
+      if (t.frequency === "yearly") return true;
+      const n = intervalMonthsFor(t);
+      if (n === 1) return t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth;
+      const periodKey = currentPeriodKey(t, asOfDate);
+      const lastMonthIdx = monthIndex(periodKey) + n - 1;
+      if (todayIdx < lastMonthIdx) return false;
+      if (todayIdx === lastMonthIdx) return t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth;
+      return true; // past the period's last month entirely -- definitely due
+    })
     .map((t) => {
       const periodKey = currentPeriodKey(t, asOfDate);
       return { template: t, periodKey, periodLabel: periodLabelFor(t, periodKey) };

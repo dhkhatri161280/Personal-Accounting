@@ -10,6 +10,8 @@ import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
+import { frequencyLabel } from "@/lib/recurring";
+import { detectRecurringCandidates, templateFromCandidate, type RecurringCandidate } from "@/lib/recurring-detect";
 import {
   monthlyDepreciation,
   accumulatedDepreciation,
@@ -85,6 +87,13 @@ export type MasterLedger = {
     deleted?: boolean;
     cancelled?: boolean;
     entries: Array<{ accountId: number; amount: number }>;
+    // Present on the real Ledger this is always structurally assigned from (see VaultApp.tsx's
+    // <MastersPanel data={data} ... /> -- `data` there is a full Ledger, this type is just this
+    // panel's own narrower view of it) -- widened here so the recurring-bill detector (which
+    // needs them) doesn't have to cast.
+    narration?: string;
+    type?: string;
+    guid?: string;
   }>;
   recurringTemplates?: RecurringTemplate[];
   auditLog?: AuditEntry[];
@@ -564,6 +573,8 @@ export function MastersPanel({
     [accountId, setAccountId] = useState<number | null>(null),
     [groupName, setGroupName] = useState<string | null>(null),
     [recurringTemplateId, setRecurringTemplateId] = useState<string | null>(null),
+    [recurringCandidates, setRecurringCandidates] = useState<RecurringCandidate[] | null>(null),
+    [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set()),
     [search, setSearch] = useState(""),
     // Fixed Assets master data (name/class/useful life/salvage) -- Cost/Fixed Asset #/purchase
     // date stay read-only here since they're derived facts from the real ledger/tag, not
@@ -1052,6 +1063,10 @@ export function MastersPanel({
   const saveRecurringTemplate = (form: FormData) => {
     const label = normalize(String(form.get("label") || "")),
       frequency = String(form.get("frequency") || "monthly") as RecurringTemplate["frequency"],
+      intervalMonths = frequency === "custom" ? Math.max(1, Number(form.get("intervalMonths") || 1)) : undefined,
+      anchorMonth = frequency === "bimonthly" || frequency === "quarterly" || frequency === "custom"
+        ? normalize(String(form.get("anchorMonth") || "")) || undefined
+        : undefined,
       dayOfMonth = form.get("dayOfMonth") ? Number(form.get("dayOfMonth")) : undefined,
       voucherType = String(form.get("voucherType") || "Payment"),
       narrationTemplate = normalize(String(form.get("narrationTemplate") || `{month} ${label}`)),
@@ -1075,6 +1090,8 @@ export function MastersPanel({
       label,
       active,
       frequency,
+      intervalMonths,
+      anchorMonth,
       dayOfMonth,
       voucherType,
       narrationTemplate,
@@ -1098,6 +1115,48 @@ export function MastersPanel({
       { ...data, recurringTemplates: (data.recurringTemplates || []).filter((x) => x.id !== t.id) },
       `Recurring template ${t.label} deleted.`
     );
+  };
+  // "Scan for recurring bills" -- scans the last 60 months of the Day Book for a regularly
+  // repeating 2-leg voucher pattern (see lib/recurring-detect.ts) and proposes it as a template,
+  // instead of the user having to remember and hand-type every bill. Nothing is created until the
+  // user reviews and confirms -- a coincidental repeat (two unrelated similar-amount charges)
+  // could otherwise get proposed as a bogus "recurring" bill with no human check.
+  const scanForRecurringBills = () => {
+    const candidates = detectRecurringCandidates(
+      data.transactions || [],
+      data.accounts,
+      data.recurringTemplates || [],
+      60,
+      todayLocalIso()
+    );
+    setRecurringCandidates(candidates);
+    setSelectedCandidateKeys(new Set());
+  };
+  const toggleCandidateSelected = (key: string) => {
+    setSelectedCandidateKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const createTemplatesFromCandidates = (candidates: RecurringCandidate[]) => {
+    if (!candidates.length) return;
+    const today = todayLocalIso();
+    const newTemplates = candidates.map((c) => templateFromCandidate(c, today));
+    onSave(
+      { ...data, recurringTemplates: [...(data.recurringTemplates || []), ...newTemplates] },
+      candidates.length === 1
+        ? `Created recurring template ${candidates[0].suggestedLabel}.`
+        : `Created ${candidates.length} recurring templates.`
+    );
+    const createdKeys = new Set(candidates.map((c) => c.key));
+    setRecurringCandidates((prev) => (prev ? prev.filter((c) => !createdKeys.has(c.key)) : prev));
+    setSelectedCandidateKeys((prev) => {
+      const next = new Set(prev);
+      for (const k of createdKeys) next.delete(k);
+      return next;
+    });
   };
   const documentsList = data.documents ?? [];
   const documentSearchQuery = documentSearch.trim().toLowerCase();
@@ -1417,10 +1476,90 @@ export function MastersPanel({
         <>
           <div className="master-toolbar">
             <span>{(data.recurringTemplates || []).length} recurring template(s)</span>
-            <button className="primary" onClick={() => setRecurringTemplateId("")}>
-              + New Recurring Template
-            </button>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button onClick={scanForRecurringBills}>Scan for recurring bills</button>
+              <button className="primary" onClick={() => setRecurringTemplateId("")}>
+                + New Recurring Template
+              </button>
+            </div>
           </div>
+          {recurringCandidates && (
+            <div className="data-panel" style={{ marginBottom: 16 }}>
+              {recurringCandidates.length === 0 ? (
+                <p style={{ fontSize: 13, opacity: 0.7, margin: 0 }}>
+                  No new recurring patterns found in the last 60 months — either everything regular is
+                  already templated, or nothing in the Day Book repeats on a consistent interval yet.
+                </p>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <strong style={{ fontSize: 13 }}>
+                      {recurringCandidates.length} possible recurring bill(s) found — review and create the ones that are real:
+                    </strong>
+                    <button
+                      className="primary"
+                      disabled={selectedCandidateKeys.size === 0}
+                      onClick={() => createTemplatesFromCandidates(recurringCandidates.filter((c) => selectedCandidateKeys.has(c.key)))}
+                    >
+                      Create {selectedCandidateKeys.size || ""} selected
+                    </button>
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>
+                          <input
+                            type="checkbox"
+                            checked={selectedCandidateKeys.size === recurringCandidates.length}
+                            onChange={(e) =>
+                              setSelectedCandidateKeys(e.target.checked ? new Set(recurringCandidates.map((c) => c.key)) : new Set())
+                            }
+                          />
+                        </th>
+                        <th>Label</th>
+                        <th>Interval</th>
+                        <th>Amount</th>
+                        <th>Ledgers</th>
+                        <th>Seen</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recurringCandidates.map((c) => (
+                        <tr key={c.key}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selectedCandidateKeys.has(c.key)}
+                              onChange={() => toggleCandidateSelected(c.key)}
+                            />
+                          </td>
+                          <td>{c.suggestedLabel}</td>
+                          <td>
+                            {c.suggestedFrequency === "custom"
+                              ? `Every ${c.suggestedIntervalMonths} month(s)`
+                              : frequencyLabel({ frequency: c.suggestedFrequency } as RecurringTemplate)}
+                          </td>
+                          <td className="right">{c.avgAmount.toFixed(2)}</td>
+                          <td>
+                            {c.debitAccountName} / {c.creditAccountName}
+                          </td>
+                          <td>
+                            {c.occurrences.length}&times;, last {fmtDate(c.occurrences[c.occurrences.length - 1].date)}
+                          </td>
+                          <td>
+                            <button className="master-edit" onClick={() => createTemplatesFromCandidates([c])}>
+                              Create
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+          )}
           <table>
             <thead>
               <tr>
@@ -1440,7 +1579,7 @@ export function MastersPanel({
                 .map((t) => (
                   <tr key={t.id}>
                     <td>{t.label}</td>
-                    <td>{t.frequency === "yearly" ? "Yearly" : "Monthly"}</td>
+                    <td>{frequencyLabel(t)}</td>
                     <td className="right">{Math.abs(t.entries.find((e) => e.amount < 0)?.amount ?? 0).toFixed(2)}</td>
                     <td>{t.plaidMatch ? t.plaidMatch.institutionPattern : "Manual only"}</td>
                     <td>
@@ -2167,8 +2306,19 @@ export function MastersPanel({
               Frequency
               <select name="frequency" defaultValue={recurringTemplate?.frequency || "monthly"}>
                 <option value="monthly">Monthly</option>
+                <option value="bimonthly">Every 2 months</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="custom">Custom interval (months)</option>
                 <option value="yearly">Yearly</option>
               </select>
+            </label>
+            <label>
+              Custom interval, in months (only for "Custom interval" above)
+              <input name="intervalMonths" type="number" min={1} max={24} defaultValue={recurringTemplate?.intervalMonths ?? 4} />
+            </label>
+            <label>
+              Anchor month, YYYY-MM (only for every-2-months/quarterly/custom -- any month the bill was actually due, so the cycle lines up correctly)
+              <input name="anchorMonth" type="month" defaultValue={recurringTemplate?.anchorMonth} />
             </label>
             <label>
               Usually due on (day of month, optional)

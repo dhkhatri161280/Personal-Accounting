@@ -30,6 +30,55 @@ test("currentPeriodKey is YYYY-MM for monthly, YYYY for yearly", () => {
   assert.equal(currentPeriodKey(template({ frequency: "yearly" }), "2026-09-15"), "2026");
 });
 
+test("currentPeriodKey buckets a quarterly template from its anchorMonth, not an arbitrary offset", () => {
+  const t = template({ frequency: "quarterly", anchorMonth: "2026-01" });
+  assert.equal(currentPeriodKey(t, "2026-01-05"), "2026-01", "first month of the Jan/Apr/Jul/Oct cycle");
+  assert.equal(currentPeriodKey(t, "2026-03-31"), "2026-01", "still inside the Jan-Mar bucket");
+  assert.equal(currentPeriodKey(t, "2026-04-01"), "2026-04", "rolled into the next bucket");
+  assert.equal(currentPeriodKey(t, "2026-10-15"), "2026-10");
+});
+
+test("currentPeriodKey buckets a bimonthly template (every 2 months) from its anchor", () => {
+  const t = template({ frequency: "bimonthly", anchorMonth: "2026-02" });
+  assert.equal(currentPeriodKey(t, "2026-02-01"), "2026-02");
+  assert.equal(currentPeriodKey(t, "2026-03-28"), "2026-02", "still inside the Feb-Mar bucket");
+  assert.equal(currentPeriodKey(t, "2026-04-01"), "2026-04");
+});
+
+test("currentPeriodKey honors a custom intervalMonths", () => {
+  const t = template({ frequency: "custom", intervalMonths: 4, anchorMonth: "2026-01" });
+  assert.equal(currentPeriodKey(t, "2026-04-30"), "2026-01");
+  assert.equal(currentPeriodKey(t, "2026-05-01"), "2026-05");
+});
+
+test("currentPeriodKey falls back to asOfDate's own month as anchor when none is set", () => {
+  const t = template({ frequency: "quarterly" });
+  assert.equal(currentPeriodKey(t, "2026-06-15"), "2026-06");
+});
+
+test("dueTemplates withholds a quarterly template until the LAST month of its bucket, even past dayOfMonth in an earlier month", () => {
+  const t = template({ frequency: "quarterly", anchorMonth: "2026-01", dayOfMonth: 1 });
+  assert.equal(dueTemplates([t], "2026-02-15").length, 0, "Feb is inside the Jan-Mar bucket, but not its last month");
+  assert.equal(dueTemplates([t], "2026-03-01").length, 1, "Mar is the bucket's last month, day 1 >= dayOfMonth 1");
+});
+
+test("dueTemplates gates a quarterly template's dayOfMonth within the bucket's last month", () => {
+  const t = template({ frequency: "quarterly", anchorMonth: "2026-01", dayOfMonth: 10 });
+  assert.equal(dueTemplates([t], "2026-03-05").length, 0, "last month of the bucket, but before the 10th");
+  assert.equal(dueTemplates([t], "2026-03-10").length, 1, "last month of the bucket, due day reached");
+});
+
+test("dueTemplates is due again once a quarterly template's next bucket starts", () => {
+  const t = template({
+    frequency: "quarterly",
+    anchorMonth: "2026-01",
+    postings: [{ periodKey: "2026-01", txGuid: "v1", postedAt: "2026-03-10" }],
+  });
+  assert.equal(dueTemplates([t], "2026-03-15").length, 0, "already posted for the Jan-Mar bucket");
+  assert.equal(dueTemplates([t], "2026-04-01").length, 0, "new Apr-Jun bucket has started, but not yet in its last month");
+  assert.equal(dueTemplates([t], "2026-06-01").length, 1, "Jun is the new bucket's last month, not yet posted");
+});
+
 test("dueTemplates excludes inactive templates and ones already posted this period", () => {
   const active = template();
   const inactive = template({ id: "t2", active: false });

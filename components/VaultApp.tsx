@@ -77,7 +77,7 @@ import {
 } from "@/lib/fixed-assets";
 import { autoSyncTaggedAssets, tagExistingAsset } from "@/lib/fixed-assets-ledger";
 import type { BudgetRow } from "@/lib/budget";
-import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, type DueTemplate } from "@/lib/recurring";
+import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, frequencyLabel, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
 import { exportWorkbook } from "@/lib/export-excel";
 import { apiFetch, getAccessToken } from "@/lib/api-fetch";
@@ -5318,7 +5318,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                           <span>
                             {t.label}{" "}
                             <small style={{ opacity: 0.7 }}>
-                              {t.frequency === "yearly" ? "Yearly" : "Monthly"} · {t.postings.length} posted
+                              {frequencyLabel(t)} · {t.postings.length} posted
                               {t.plaidMatch ? " · Plaid-matched" : ""}
                             </small>
                           </span>

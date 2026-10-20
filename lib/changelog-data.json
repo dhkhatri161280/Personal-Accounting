@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-20",
+    "summary": "Recurring: quarterly/bi-monthly/custom frequencies, auto-scan Day Book for bills to template"
+  },
+  {
+    "date": "2026-10-20",
     "summary": "Retirement: reorder contributions-vs-balance row so Growth precedes Current balance"
   },
   {
