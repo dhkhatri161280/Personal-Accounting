@@ -1793,9 +1793,10 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     cashHighlights = (
       book === "us"
         ? [
-            compact("AMEX", rows, /^AMEX Credit Card$/i),
             compact("BofA", rows, /^Bank Of America$/i),
+            compact("AMEX", rows, /^AMEX Credit Card$/i),
             compact("Citi", rows, /^Citi Credit Card$/i),
+            compact("BofA H", rows, /^Credit Card - BofA - Hiral$/i),
           ]
         : [
             compact("Axis", rows, /^Axis Bank$/i),

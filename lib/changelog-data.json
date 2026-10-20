@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-20",
+    "summary": "Dashboard: reorder Cash and Bank chips, add BofA Hiral card"
+  },
+  {
+    "date": "2026-10-20",
     "summary": "Balances tab: fold unmatched card payments into Payments Pending, not Difference"
   },
   {
