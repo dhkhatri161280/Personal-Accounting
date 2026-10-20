@@ -154,18 +154,29 @@ export function lastPaidDate(template: RecurringTemplate, transactions: Recurrin
 // actually due until the 6th defeats the point of the reminder (confirmed live: the user wants it
 // to show up ON the due day, not two-plus weeks early). For a multi-month cycle, the day is
 // checked against the LAST month of that cycle's own period -- a quarterly bill shouldn't flag on
-// day 1 of the FIRST month of its quarter. No dayOfMonth set, or a YEARLY template (whose period
-// has no stored month to anchor a day against -- see dayOfMonth's comment in vault-types.ts),
-// keeps the old whole-period behavior. `transactions` is optional for backward compatibility with
-// any caller that hasn't been updated to pass it -- omitting it falls back to only checking
-// explicit postings, same as before this function gained live matching.
+// day 1 of the FIRST month of its quarter. A YEARLY template with an anchorMonth set (the month
+// it's actually due, e.g. "2024-12" for a December home insurance renewal) is gated the exact
+// same way -- confirmed live: without this, a December-due bill showed as "due" starting every
+// January 1st, nagging for 11 months before it was ever actually due. A YEARLY template with NO
+// anchorMonth (its period has no stored month to anchor a day against -- see dayOfMonth's comment
+// in vault-types.ts) keeps the old whole-year behavior, since there's genuinely no known due
+// month to gate on. `transactions` is optional for backward compatibility with any caller that
+// hasn't been updated to pass it -- omitting it falls back to only checking explicit postings,
+// same as before this function gained live matching.
 export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string, transactions?: RecurringCheckTx[]): DueTemplate[] {
   const todayOfMonth = Number(asOfDate.slice(8, 10));
   const todayIdx = monthIndex(asOfDate.slice(0, 7));
   return (templates ?? [])
     .filter((t) => t.active)
     .filter((t) => {
-      if (t.frequency === "yearly") return true;
+      if (t.frequency === "yearly") {
+        if (!t.anchorMonth) return true;
+        const dueMonth = Number(t.anchorMonth.slice(5, 7));
+        const todayMonth = Number(asOfDate.slice(5, 7));
+        if (todayMonth < dueMonth) return false;
+        if (todayMonth === dueMonth) return t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth;
+        return true; // past the due month entirely -- definitely due
+      }
       const n = intervalMonthsFor(t);
       if (n === 1) return t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth;
       const periodKey = currentPeriodKey(t, asOfDate);

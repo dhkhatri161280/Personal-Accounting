@@ -212,7 +212,11 @@ export function detectRecurringCandidates(
       suggestedFrequency: frequency,
       suggestedIntervalMonths: intervalMonths,
       suggestedDayOfMonth: Number(last.date.slice(8, 10)),
-      suggestedAnchorMonth: frequency === "monthly" || frequency === "yearly" ? undefined : last.date.slice(0, 7),
+      // For yearly this is the month it's actually due (e.g. "2024-12" for a December renewal),
+      // so dueTemplates() can gate it to that month instead of flagging it due all year -- see
+      // vault-types.ts's anchorMonth comment. Monthly needs no anchor (every month is its own
+      // period regardless).
+      suggestedAnchorMonth: frequency === "monthly" ? undefined : last.date.slice(0, 7),
     });
   }
   return out.sort((a, b) => b.occurrences.length - a.occurrences.length);

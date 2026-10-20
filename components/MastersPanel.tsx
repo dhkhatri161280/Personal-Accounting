@@ -1068,9 +1068,9 @@ export function MastersPanel({
     const label = normalize(String(form.get("label") || "")),
       frequency = String(form.get("frequency") || "monthly") as RecurringTemplate["frequency"],
       intervalMonths = frequency === "custom" ? Math.max(1, Number(form.get("intervalMonths") || 1)) : undefined,
-      anchorMonth = frequency === "bimonthly" || frequency === "quarterly" || frequency === "custom"
-        ? normalize(String(form.get("anchorMonth") || "")) || undefined
-        : undefined,
+      anchorMonth = frequency === "monthly"
+        ? undefined
+        : normalize(String(form.get("anchorMonth") || "")) || undefined,
       dayOfMonth = form.get("dayOfMonth") ? Number(form.get("dayOfMonth")) : undefined,
       voucherType = String(form.get("voucherType") || "Payment"),
       narrationTemplate = normalize(String(form.get("narrationTemplate") || `{month} ${label}`)),
@@ -2495,7 +2495,8 @@ export function MastersPanel({
               <input name="intervalMonths" type="number" min={1} max={24} defaultValue={recurringTemplate?.intervalMonths ?? 4} />
             </label>
             <label>
-              Anchor month, YYYY-MM (only for every-2-months/quarterly/custom -- any month the bill was actually due, so the cycle lines up correctly)
+              Anchor month, YYYY-MM (not used for Monthly) — for Yearly, the month it's actually due (e.g. December);
+              for every-2-months/quarterly/custom, any month the bill was actually due, so the cycle lines up correctly
               <input name="anchorMonth" type="month" defaultValue={recurringTemplate?.anchorMonth} />
             </label>
             <label>

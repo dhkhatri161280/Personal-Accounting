@@ -409,18 +409,21 @@ export type RecurringTemplate = {
   // for a bill due every 4 months). monthly/bimonthly/quarterly/yearly each have a fixed interval
   // (1/2/3/12) and ignore this field.
   intervalMonths?: number;
-  // "YYYY-MM" -- a month known to be on-cycle for a multi-month frequency (bimonthly/quarterly/
-  // custom), so lib/recurring.ts's period buckets land on the bill's own real cycle (e.g. a
-  // quarterly bill last due July anchors to "2026-07" so buckets fall Jan/Apr/Jul/Oct, not an
-  // arbitrary offset from whenever the template happened to be created). Ignored by
-  // monthly/yearly, which need no anchor.
+  // "YYYY-MM" -- a month known to be on-cycle, so lib/recurring.ts's period buckets (and, for
+  // YEARLY, the due-month gate in dueTemplates()) land on the bill's own real cycle instead of an
+  // arbitrary offset from whenever the template happened to be created. For bimonthly/quarterly/
+  // custom this anchors which months the N-month buckets fall on (e.g. a quarterly bill last due
+  // July anchors to "2026-07" so buckets fall Jan/Apr/Jul/Oct). For YEARLY, only the month part is
+  // used -- it's the month the bill is actually due (e.g. "2024-12" for a December home insurance
+  // renewal), so dueTemplates() doesn't flag it as due starting every January 1st. Ignored by
+  // monthly, which needs no anchor (every month is its own period regardless).
   anchorMonth?: string;
-  // "Usually due on the Nth" -- for a MONTHLY (or bimonthly/quarterly/custom) template, this
-  // gates when dueTemplates() starts flagging it (see lib/recurring.ts): due from this day of the
-  // month onward, not from the 1st -- for a multi-month cycle, checked against the LAST month of
-  // that cycle's period, not its first. Purely informational for a YEARLY template (its period
-  // has no stored month to anchor a day against), so it stays due for the whole year once
-  // unposted, same as before.
+  // "Usually due on the Nth" -- for a MONTHLY (or bimonthly/quarterly/custom/yearly-with-
+  // anchorMonth) template, this gates when dueTemplates() starts flagging it (see
+  // lib/recurring.ts): due from this day of the month onward, not from the 1st -- for a
+  // multi-month cycle, checked against the LAST month of that cycle's period, not its first; for
+  // YEARLY, checked against its anchorMonth. A YEARLY template with no anchorMonth set has no
+  // known due month to gate against, so it stays due for the whole year once unposted.
   dayOfMonth?: number;
   voucherType: string;
   narrationTemplate: string; // e.g. "{month} rent" -- {month}/{year} interpolated at post time

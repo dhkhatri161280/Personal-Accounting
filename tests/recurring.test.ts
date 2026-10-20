@@ -111,9 +111,44 @@ test("dueTemplates keeps the whole-period behavior for a MONTHLY template with n
   assert.equal(dueTemplates([t], "2026-10-01").length, 1);
 });
 
-test("dueTemplates does NOT gate a YEARLY template by dayOfMonth -- its period has no stored month to anchor a day against", () => {
+test("dueTemplates does NOT gate a YEARLY template with no anchorMonth -- there's no known due month to anchor a day against", () => {
   const t = template({ frequency: "yearly", dayOfMonth: 20 });
   assert.equal(dueTemplates([t], "2026-01-01").length, 1, "yearly stays due for the whole year, even day 1");
+});
+
+test("dueTemplates gates a YEARLY template with an anchorMonth to that due month, not the whole year", () => {
+  // A December-due bill (home insurance, say) shouldn't show as "due" starting every January 1st.
+  const t = template({ frequency: "yearly", anchorMonth: "2024-12" });
+  assert.equal(dueTemplates([t], "2026-01-01").length, 0, "January -- not due yet");
+  assert.equal(dueTemplates([t], "2026-06-15").length, 0, "June -- still not due yet");
+  assert.equal(dueTemplates([t], "2026-12-01").length, 1, "December -- now due");
+});
+
+test("dueTemplates stays due for the rest of the SAME year once a yearly template's due month has passed", () => {
+  // A March-due bill, still unposted by June of the same year -- overdue, not forgotten.
+  const t = template({ frequency: "yearly", anchorMonth: "2024-03" });
+  assert.equal(dueTemplates([t], "2026-06-15").length, 1);
+});
+
+test("dueTemplates resets a YEARLY template's due-month gate on the new calendar year, not carried over from last year's miss", () => {
+  // currentPeriodKey for yearly is always the CURRENT calendar year -- once the year rolls over,
+  // last year's unresolved period is simply no longer "the current period" (same as the
+  // pre-existing yearly behavior this builds on); the new year's own cycle hasn't reached its due
+  // month yet either, so it correctly goes quiet again until December comes around.
+  const t = template({ frequency: "yearly", anchorMonth: "2024-12" });
+  assert.equal(dueTemplates([t], "2027-01-15").length, 0);
+});
+
+test("dueTemplates gates a YEARLY template's anchorMonth by dayOfMonth too, within that due month", () => {
+  const t = template({ frequency: "yearly", anchorMonth: "2024-12", dayOfMonth: 15 });
+  assert.equal(dueTemplates([t], "2026-12-10").length, 0, "December, before the 15th");
+  assert.equal(dueTemplates([t], "2026-12-15").length, 1, "December, due day reached");
+});
+
+test("dueTemplates is quiet once a YEARLY anchored template's due-month period is satisfied by a real transaction", () => {
+  const t = template({ frequency: "yearly", anchorMonth: "2024-12" });
+  const txs: RecurringCheckTx[] = [{ date: "2026-12-05", entries: [{ accountId: 9, amount: -1050.01 }, { accountId: 1, amount: 1050.01 }] }];
+  assert.equal(dueTemplates([t], "2026-12-20", txs).length, 0);
 });
 
 test("isTemplateSatisfiedForPeriod is satisfied by ANY matching transaction in the period, regardless of amount -- not a hard posting rule", () => {

@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-20",
+    "summary": "Recurring: yearly templates gate due-status to their real due month, not the whole year"
+  },
+  {
+    "date": "2026-10-20",
     "summary": "Recurring scan: judge regularity from recent occurrences, not a bill's whole history"
   },
   {

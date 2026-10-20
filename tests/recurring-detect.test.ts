@@ -70,6 +70,18 @@ test("detectRecurringCandidates accepts 2 occurrences when the single gap tightl
   const candidates = detectRecurringCandidates(txs, accounts, [], none, 60, "2026-07-10");
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].suggestedFrequency, "yearly");
+  assert.equal(candidates[0].suggestedAnchorMonth, "2026-03", "yearly now gets its real due month, not undefined");
+});
+
+test("templateFromCandidate carries the due month through for a yearly candidate, so it isn't flagged due all year", () => {
+  const txs: DetectTx[] = [
+    { guid: "d1", date: "2024-12-10", type: "Payment", narration: "Home Insurance", entries: [{ accountId: 6, amount: -1050 }, { accountId: 1, amount: 1050 }] },
+    { guid: "d2", date: "2025-12-14", type: "Payment", narration: "Home Insurance", entries: [{ accountId: 6, amount: -1050 }, { accountId: 1, amount: 1050 }] },
+  ];
+  const candidates = detectRecurringCandidates(txs, accounts, [], none, 60, "2026-07-10");
+  const template = templateFromCandidate(candidates[0], "2026-07-10");
+  assert.equal(template.frequency, "yearly");
+  assert.equal(template.anchorMonth, "2025-12");
 });
 
 test("detectRecurringCandidates rejects 2 occurrences whose gap doesn't land on a standard cadence", () => {
