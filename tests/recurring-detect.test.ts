@@ -215,3 +215,51 @@ test("diagnoseLedger reports why House Hold Exps is excluded", () => {
 test("diagnoseLedger returns nothing for an empty query", () => {
   assert.deepEqual(diagnoseLedger([monthlyTx("2026-04-05", "g1")], accounts, [], none, 60, "2026-07-10", ""), []);
 });
+
+// Real-world shape: a bill with an irregular stretch years ago (missed payment, provider change)
+// followed by a long, perfectly regular recent run -- regularity should be judged from the recent
+// occurrences, not dragged down by old history. Mirrors the real Waste Management/Electric & Gas
+// case confirmed live: both had a rough patch long ago but have been clean for 2+ years since.
+function quarterlyTx(date: string, guid: string, amount = 147.42): DetectTx {
+  return { guid, date, type: "Payment", narration: "Republic Services", entries: [{ accountId: 10, amount: -amount }, { accountId: 7, amount }] };
+}
+const accountsWithWaste: DetectAccount[] = [...accounts, { id: 10, name: "Waste Management" }];
+
+test("detectRecurringCandidates judges regularity from RECENT occurrences, not dragged down by an old irregular stretch", () => {
+  const txs: DetectTx[] = [
+    // An irregular early stretch, including one big ~192-day gap.
+    quarterlyTx("2023-02-15", "w1"),
+    quarterlyTx("2023-04-10", "w2"),
+    quarterlyTx("2023-07-03", "w3"),
+    quarterlyTx("2023-10-06", "w4"),
+    quarterlyTx("2024-04-15", "w5"), // ~192 days after w4 -- a real gap in payment history
+    // Then a long, perfectly regular quarterly run.
+    quarterlyTx("2024-07-18", "w6"),
+    quarterlyTx("2024-10-18", "w7"),
+    quarterlyTx("2025-01-17", "w8"),
+    quarterlyTx("2025-04-17", "w9"),
+    quarterlyTx("2025-07-18", "w10"),
+    quarterlyTx("2025-10-18", "w11"),
+    quarterlyTx("2026-01-17", "w12"),
+    quarterlyTx("2026-04-17", "w13"),
+    quarterlyTx("2026-07-17", "w14"),
+    quarterlyTx("2026-10-18", "w15"),
+  ];
+  const candidates = detectRecurringCandidates(txs, accountsWithWaste, [], none, 60, "2026-10-20");
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].suggestedFrequency, "quarterly");
+  assert.equal(candidates[0].occurrences.length, 15, "still reports the FULL occurrence history, not just the recent window");
+});
+
+test("diagnoseLedger accepts the same old-irregular/recently-clean pattern and notes it used a recent window", () => {
+  const txs: DetectTx[] = [
+    quarterlyTx("2023-02-15", "w1"), quarterlyTx("2023-04-10", "w2"), quarterlyTx("2023-07-03", "w3"), quarterlyTx("2023-10-06", "w4"),
+    quarterlyTx("2024-04-15", "w5"), quarterlyTx("2024-07-18", "w6"), quarterlyTx("2024-10-18", "w7"), quarterlyTx("2025-01-17", "w8"),
+    quarterlyTx("2025-04-17", "w9"), quarterlyTx("2025-07-18", "w10"), quarterlyTx("2025-10-18", "w11"), quarterlyTx("2026-01-17", "w12"),
+    quarterlyTx("2026-04-17", "w13"), quarterlyTx("2026-07-17", "w14"), quarterlyTx("2026-10-18", "w15"),
+  ];
+  const results = diagnoseLedger(txs, accountsWithWaste, [], none, 60, "2026-10-20", "Waste Management");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].verdict, "accepted");
+  assert.match(results[0].reason, /recent 8 of 15 occurrences/);
+});

@@ -45,6 +45,18 @@ const STANDARD_FREQUENCIES: { frequency: RecurringTemplate["frequency"]; days: n
   { frequency: "yearly", days: 365, tolerance: 35 },
 ];
 
+// Regularity is judged from the RECENT occurrences, not a bill's entire history -- confirmed
+// live: a real utility bill with years of otherwise rock-solid monthly/quarterly cycles had one
+// rough stretch early on (a missed payment, a provider change, whatever happened back then), and
+// averaging gaps across the WHOLE multi-year history let that one old irregular patch drag down
+// the verdict for a pattern that's been perfectly regular for the last two years. What matters for
+// "is this still a recurring bill right now" is the current cadence, not whether it's been
+// flawless since the ledger's first entry.
+const RECENT_OCCURRENCES_WINDOW = 8;
+function recentWindow<T>(sorted: T[]): T[] {
+  return sorted.length > RECENT_OCCURRENCES_WINDOW ? sorted.slice(-RECENT_OCCURRENCES_WINDOW) : sorted;
+}
+
 function daysBetween(a: string, b: string): number {
   return Math.round((new Date(`${b}T00:00:00Z`).getTime() - new Date(`${a}T00:00:00Z`).getTime()) / 86400000);
 }
@@ -161,17 +173,18 @@ export function detectRecurringCandidates(
     const amounts = sorted.map((t) => Math.abs(debitLeg(t).amount));
     const avgAmount = amounts.reduce((s, a) => s + a, 0) / amounts.length;
 
+    const recentSorted = recentWindow(sorted);
     const gaps: number[] = [];
-    for (let i = 1; i < sorted.length; i++) gaps.push(daysBetween(sorted[i - 1].date, sorted[i].date));
+    for (let i = 1; i < recentSorted.length; i++) gaps.push(daysBetween(recentSorted[i - 1].date, recentSorted[i].date));
     const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-    const maxGapDeviation = sorted.length === 2 ? 0 : Math.max(...gaps.map((g) => Math.abs(g - avgGap)));
+    const maxGapDeviation = recentSorted.length === 2 ? 0 : Math.max(...gaps.map((g) => Math.abs(g - avgGap)));
 
     const standard = STANDARD_FREQUENCIES.find((f) => Math.abs(avgGap - f.days) <= f.tolerance && maxGapDeviation <= f.tolerance * 2.2);
     let frequency: RecurringTemplate["frequency"];
     let intervalMonths: number | undefined;
     if (standard) {
       frequency = standard.frequency;
-    } else if (sorted.length >= 3 && maxGapDeviation <= Math.max(avgGap * 0.35, 12)) {
+    } else if (recentSorted.length >= 3 && maxGapDeviation <= Math.max(avgGap * 0.35, 12)) {
       // Regular, but not one of the standard buckets -- a custom N-month interval. Needs 3+
       // occurrences (2+ observed gaps) to trust a non-standard cadence with any confidence.
       frequency = "custom";
@@ -317,22 +330,24 @@ export function diagnoseLedger(
       continue;
     }
 
+    const recentSorted = recentWindow(sorted);
+    const recentNote = recentSorted.length < sorted.length ? ` (based on the most recent ${recentSorted.length} of ${sorted.length} occurrences)` : "";
     const gaps: number[] = [];
-    for (let i = 1; i < sorted.length; i++) gaps.push(daysBetween(sorted[i - 1].date, sorted[i].date));
+    for (let i = 1; i < recentSorted.length; i++) gaps.push(daysBetween(recentSorted[i - 1].date, recentSorted[i].date));
     const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-    const maxGapDeviation = sorted.length === 2 ? 0 : Math.max(...gaps.map((g) => Math.abs(g - avgGap)));
+    const maxGapDeviation = recentSorted.length === 2 ? 0 : Math.max(...gaps.map((g) => Math.abs(g - avgGap)));
     const standard = STANDARD_FREQUENCIES.find((f) => Math.abs(avgGap - f.days) <= f.tolerance && maxGapDeviation <= f.tolerance * 2.2);
 
     if (standard) {
       out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: avgGap, maxGapDeviation,
-        verdict: "accepted", reason: `Matches ${standard.frequency} (avg gap ${avgGap.toFixed(1)} days, target ${standard.days} ± ${standard.tolerance}).` });
-    } else if (sorted.length >= 3 && maxGapDeviation <= Math.max(avgGap * 0.35, 12)) {
+        verdict: "accepted", reason: `Matches ${standard.frequency} (avg gap ${avgGap.toFixed(1)} days, target ${standard.days} ± ${standard.tolerance})${recentNote}.` });
+    } else if (recentSorted.length >= 3 && maxGapDeviation <= Math.max(avgGap * 0.35, 12)) {
       out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: avgGap, maxGapDeviation,
-        verdict: "accepted", reason: `Regular custom interval (~${Math.round(avgGap / 30.4)} month(s), avg gap ${avgGap.toFixed(1)} days).` });
+        verdict: "accepted", reason: `Regular custom interval (~${Math.round(avgGap / 30.4)} month(s), avg gap ${avgGap.toFixed(1)} days)${recentNote}.` });
     } else {
       out.push({ key, debitAccountName: debitName, creditAccountName: creditName, occurrences, avgGapDays: avgGap, maxGapDeviation,
         verdict: "rejected (irregular interval)",
-        reason: `Avg gap ${avgGap.toFixed(1)} days, but swings by up to ${maxGapDeviation.toFixed(1)} days between occurrences -- ${sorted.length < 3 ? "and a 2-occurrence candidate needs to land tightly on a standard monthly/bimonthly/quarterly/yearly cadence, not a custom one" : "too irregular to call this a consistent cycle"}.` });
+        reason: `Avg gap ${avgGap.toFixed(1)} days, but swings by up to ${maxGapDeviation.toFixed(1)} days between occurrences${recentNote} -- ${recentSorted.length < 3 ? "and a 2-occurrence candidate needs to land tightly on a standard monthly/bimonthly/quarterly/yearly cadence, not a custom one" : "too irregular to call this a consistent cycle"}.` });
     }
   }
   return out;

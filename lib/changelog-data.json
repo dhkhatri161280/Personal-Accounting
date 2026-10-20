@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-20",
+    "summary": "Recurring scan: judge regularity from recent occurrences, not a bill's whole history"
+  },
+  {
+    "date": "2026-10-20",
     "summary": "Recurring: \"Diagnose a ledger\" tool explains exactly why a bill did or didn't surface"
   },
   {
