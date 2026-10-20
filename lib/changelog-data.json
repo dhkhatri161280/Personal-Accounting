@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-20",
+    "summary": "Recurring scan: view and restore dismissed suggestions"
+  },
+  {
+    "date": "2026-10-20",
     "summary": "Recurring scan: group by bill ledger not payment source, exclude House Hold Exps, add Last Paid"
   },
   {

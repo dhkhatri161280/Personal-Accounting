@@ -576,6 +576,7 @@ export function MastersPanel({
     [recurringTemplateId, setRecurringTemplateId] = useState<string | null>(null),
     [recurringCandidates, setRecurringCandidates] = useState<RecurringCandidate[] | null>(null),
     [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set()),
+    [showDismissedCandidates, setShowDismissedCandidates] = useState(false),
     [search, setSearch] = useState(""),
     // Fixed Assets master data (name/class/useful life/salvage) -- Cost/Fixed Asset #/purchase
     // date stay read-only here since they're derived facts from the real ledger/tag, not
@@ -1152,6 +1153,24 @@ export function MastersPanel({
       return next;
     });
   };
+  // Shows what's currently dismissed, with a Restore action -- dismissing was previously a
+  // one-way, invisible action (no way to see or undo it), which is risky: a wrong click (or a
+  // broad "Dismiss selected" with the wrong rows checked) would silently and permanently suppress
+  // a real bill from ever being suggested again, with no way to tell it had even happened. Re-runs
+  // the detector with an EMPTY dismissed set (so dismissed candidates aren't excluded) and filters
+  // down to just the ones actually on the dismissed list, since that list only stores opaque keys,
+  // not labels.
+  const dismissedCandidates = showDismissedCandidates
+    ? detectRecurringCandidates(data.transactions || [], data.accounts, data.recurringTemplates || [], new Set(), 60, todayLocalIso()).filter(
+        (c) => (data.dismissedRecurringCandidates || []).includes(c.key)
+      )
+    : [];
+  const restoreCandidate = (key: string, label: string) => {
+    onSave(
+      { ...data, dismissedRecurringCandidates: (data.dismissedRecurringCandidates || []).filter((k) => k !== key) },
+      `Restored "${label}" — it'll be suggested again next scan.`
+    );
+  };
   const toggleCandidateSelected = (key: string) => {
     setSelectedCandidateKeys((prev) => {
       const next = new Set(prev);
@@ -1498,11 +1517,56 @@ export function MastersPanel({
             <span>{(data.recurringTemplates || []).length} recurring template(s)</span>
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button onClick={scanForRecurringBills}>Scan for recurring bills</button>
+              {(data.dismissedRecurringCandidates || []).length > 0 && (
+                <button onClick={() => setShowDismissedCandidates((v) => !v)}>
+                  {showDismissedCandidates ? "Hide" : "Show"} dismissed ({(data.dismissedRecurringCandidates || []).length})
+                </button>
+              )}
               <button className="primary" onClick={() => setRecurringTemplateId("")}>
                 + New Recurring Template
               </button>
             </div>
           </div>
+          {showDismissedCandidates && (
+            <div className="data-panel" style={{ marginBottom: 16 }}>
+              <strong style={{ fontSize: 13 }}>Dismissed suggestions — won't be re-proposed by a scan unless restored:</strong>
+              {dismissedCandidates.length === 0 ? (
+                <p style={{ fontSize: 13, opacity: 0.7, margin: "0.5rem 0 0" }}>
+                  Nothing dismissed currently matches a detectable pattern (it may no longer repeat regularly, or the
+                  underlying ledger changed).
+                </p>
+              ) : (
+                <table style={{ marginTop: "0.5rem" }}>
+                  <thead>
+                    <tr>
+                      <th>Label</th>
+                      <th>Ledgers</th>
+                      <th>Seen</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dismissedCandidates.map((c) => (
+                      <tr key={c.key}>
+                        <td>{c.suggestedLabel}</td>
+                        <td>
+                          {c.debitAccountName} / {c.creditAccountName}
+                        </td>
+                        <td>
+                          {c.occurrences.length}&times;, last {fmtDate(c.occurrences[c.occurrences.length - 1].date)}
+                        </td>
+                        <td>
+                          <button className="master-edit" onClick={() => restoreCandidate(c.key, c.suggestedLabel)}>
+                            Restore
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
           {recurringCandidates && (
             <div className="data-panel" style={{ marginBottom: 16 }}>
               {recurringCandidates.length === 0 ? (
