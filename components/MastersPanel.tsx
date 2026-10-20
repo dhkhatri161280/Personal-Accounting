@@ -10,7 +10,7 @@ import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
 import { appendAuditEntry, diffFields, summarize } from "@/lib/audit";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
-import { frequencyLabel } from "@/lib/recurring";
+import { frequencyLabel, lastPaidDate } from "@/lib/recurring";
 import { detectRecurringCandidates, templateFromCandidate, type RecurringCandidate } from "@/lib/recurring-detect";
 import {
   monthlyDepreciation,
@@ -1606,6 +1606,7 @@ export function MastersPanel({
                 <th>Amount</th>
                 <th>Plaid Match</th>
                 <th>Status</th>
+                <th>Last Paid</th>
                 <th>Postings</th>
                 <th>Action</th>
               </tr>
@@ -1625,6 +1626,10 @@ export function MastersPanel({
                         {t.active ? "Active" : "Inactive"}
                       </span>
                     </td>
+                    <td>{(() => {
+                      const paid = lastPaidDate(t, data.transactions || []);
+                      return paid ? fmtDate(paid) : "—";
+                    })()}</td>
                     <td>{t.postings.length}</td>
                     <td>
                       <div className="master-actions">

@@ -19,7 +19,7 @@ export interface DetectTx {
 }
 
 export interface RecurringCandidate {
-  key: string; // `${debitAccountId}|${creditAccountId}` -- also the de-dup key against existing templates
+  key: string; // grouping/de-dup key -- see identityKey() below
   debitAccountId: number;
   debitAccountName: string;
   creditAccountId: number;
@@ -55,33 +55,67 @@ function monthsAgo(asOfDate: string, months: number): string {
   return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+const MONEY_ACCOUNT_RE = /bank|credit card|checking|savings|cash-in-hand|^cash\b/i;
+// "House Hold Exps" is a special, hardcoded ledger family that auto-provisions a BRAND NEW
+// account every single calendar month (see vault-accounting.ts's currentMonthSiblingAccount) --
+// transactions within one of those months look like tight, short-interval "recurring" clusters
+// (regular grocery/household spending against that one month's envelope account), but it's not a
+// bill at all, just noise from this app's own monthly-rotating-ledger mechanic. Excluded outright
+// rather than relying on the interval/amount heuristics to rule it out (confirmed live: it kept
+// surfacing as several bogus "monthly" candidates, one per calendar month it ever existed).
+const HOUSEHOLD_EXPS_RE = /^House\s*Hold\s*Exps\b/i;
+
+function looksLikeMoneyAccount(name: string): boolean {
+  return MONEY_ACCOUNT_RE.test(name);
+}
+
+// Strips a trailing "- Mon YY" style month suffix some ledger families carry (e.g. "House Hold
+// Exps - Apr 26") -- that's the account's own per-month identity, not part of a bill's name.
+function stripMonthSuffix(name: string): string {
+  return name.replace(/\s*-\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s*['’]?\d{2,4}$/i, "").trim();
+}
+
 // Prefer the expense/liability/income side's own name (usually descriptive, e.g. "Netflix
 // Subscription", "Car EMI", "HOA Dues") over the bank/credit-card/cash side it was paid from or
 // into, which is almost never a useful label for the bill itself.
 function inferLabel(debitName: string, creditName: string, narration: string): string {
-  const looksLikeMoneyAccount = (n: string) => /bank|credit card|checking|savings|cash-in-hand|^cash\b/i.test(n);
   const base = looksLikeMoneyAccount(debitName) && !looksLikeMoneyAccount(creditName)
     ? creditName
     : looksLikeMoneyAccount(creditName) && !looksLikeMoneyAccount(debitName)
       ? debitName
       : narration || debitName;
-  // Strip a trailing "- Mon YY" style month suffix some ledger families carry (e.g. "House Hold
-  // Exps - Apr 26") -- that's the account's own per-month identity, not part of the bill's name.
-  return base.replace(/\s*-\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s*['’]?\d{2,4}$/i, "").trim() || "Recurring bill";
+  return stripMonthSuffix(base) || "Recurring bill";
 }
 
-/** Scans the Day Book for a regularly-repeating, simple 2-leg voucher pattern (same account pair,
- * roughly evenly spaced dates) and proposes it as a recurring template -- the "automatically find
- * my recurring bills" entry point for Masters -> Recurring's own "Scan" button. Amount is
- * deliberately NOT a tight filter -- confirmed live, a usage-based bill (electricity, water) can
- * legitimately swing 2x+ cycle to cycle, and the account pair itself (a dedicated bill ledger
- * paired with a bank/card) is already a strong signal on its own; interval regularity is the
- * primary thing that makes something "recurring", not amount consistency. Requires at least 2
- * occurrences, but a 2-occurrence candidate only qualifies if its one gap lands tightly on a
- * standard cadence (monthly/bimonthly/quarterly/yearly) -- a single gap can't confidently imply a
- * non-standard custom interval, so that still needs 3+ occurrences. Already-templated and
- * explicitly dismissed account pairs are excluded so re-scanning doesn't keep re-suggesting what's
- * already set up or what the user already said isn't a real recurring bill. */
+// The "identity" of a bill is whichever leg ISN'T a bank/card/cash account -- a dedicated
+// expense/liability/income ledger like "PG&E Electric" or "Car EMI". Grouping by that one account
+// alone (not the exact debit+credit pair) means a bill paid from a different card some months
+// (switched primary cards, autopay moved banks, etc.) still gets recognized as the same recurring
+// bill instead of silently splitting into several under-threshold groups that never individually
+// reach the occurrence minimum -- confirmed live: this is exactly why a genuinely monthly utility
+// bill wasn't surfacing. Falls back to the exact pair when BOTH legs are money accounts (a Contra
+// bank transfer) or NEITHER is (unusual), where there's no single "identity" side to anchor on.
+function identityKey(debitAccountId: number, creditAccountId: number, accountById: Map<number, DetectAccount>): string {
+  const debitIsMoney = looksLikeMoneyAccount(accountById.get(debitAccountId)?.name || "");
+  const creditIsMoney = looksLikeMoneyAccount(accountById.get(creditAccountId)?.name || "");
+  if (debitIsMoney && !creditIsMoney) return `id:${creditAccountId}`;
+  if (creditIsMoney && !debitIsMoney) return `id:${debitAccountId}`;
+  return `pair:${debitAccountId}|${creditAccountId}`;
+}
+
+/** Scans the Day Book for a regularly-repeating bill and proposes it as a recurring template --
+ * the "automatically find my recurring bills" entry point for Masters -> Recurring's own "Scan"
+ * button. Groups by the bill's own ledger (identityKey() above), not the exact debit+credit pair
+ * -- a bill paid from a different card some months still counts as the same recurring bill.
+ * Amount is deliberately NOT a tight filter -- confirmed live, a usage-based bill (electricity,
+ * water) can legitimately swing 2x+ cycle to cycle; interval regularity is the primary thing that
+ * makes something "recurring", not amount consistency. Requires at least 2 occurrences, but a
+ * 2-occurrence candidate only qualifies if its one gap lands tightly on a standard cadence
+ * (monthly/bimonthly/quarterly/yearly) -- a single gap can't confidently imply a non-standard
+ * custom interval, so that still needs 3+ occurrences. Already-templated and explicitly dismissed
+ * bills are excluded so re-scanning doesn't keep re-suggesting what's already set up or what the
+ * user already said isn't a real recurring bill. The "House Hold Exps" family (a new ledger every
+ * calendar month, by this app's own design) is excluded outright as pure noise. */
 export function detectRecurringCandidates(
   transactions: DetectTx[],
   accounts: DetectAccount[],
@@ -96,7 +130,7 @@ export function detectRecurringCandidates(
     existingTemplates.map((t) => {
       const d = t.entries.find((e) => e.amount < 0);
       const c = t.entries.find((e) => e.amount > 0);
-      return d && c ? `${d.accountId}|${c.accountId}` : "";
+      return d && c ? identityKey(d.accountId, c.accountId, accountById) : "";
     })
   );
 
@@ -108,7 +142,10 @@ export function detectRecurringCandidates(
     if (Math.abs(a.amount + b.amount) > 0.01) continue; // not a simple balanced 2-leg voucher
     const debitEntry = a.amount < 0 ? a : b;
     const creditEntry = a.amount < 0 ? b : a;
-    const key = `${debitEntry.accountId}|${creditEntry.accountId}`;
+    const debitName = accountById.get(debitEntry.accountId)?.name || "";
+    const creditName = accountById.get(creditEntry.accountId)?.name || "";
+    if (HOUSEHOLD_EXPS_RE.test(debitName) || HOUSEHOLD_EXPS_RE.test(creditName)) continue;
+    const key = identityKey(debitEntry.accountId, creditEntry.accountId, accountById);
     const list = groups.get(key);
     if (list) list.push(t);
     else groups.set(key, [t]);

@@ -6,6 +6,7 @@ import {
   buildVoucherFromTemplate,
   matchRecurringTemplate,
   isTemplateSatisfiedForPeriod,
+  lastPaidDate,
   type RecurringCheckTx,
 } from "../lib/recurring.ts";
 import type { Account, RecurringTemplate } from "../lib/vault-types.ts";
@@ -150,6 +151,26 @@ test("isTemplateSatisfiedForPeriod ignores a deleted or cancelled transaction", 
 test("isTemplateSatisfiedForPeriod honors an explicit posting even with no matching transaction passed in", () => {
   const t = template({ postings: [{ periodKey: "2026-09", txGuid: "v1", postedAt: "2026-09-10" }] });
   assert.equal(isTemplateSatisfiedForPeriod(t, "2026-09", []), true);
+});
+
+test("lastPaidDate picks the most recent matching transaction's date", () => {
+  const t = template();
+  const txs: RecurringCheckTx[] = [
+    { date: "2026-07-18", entries: [{ accountId: 9, amount: -15.99 }, { accountId: 1, amount: 15.99 }] },
+    { date: "2026-08-19", entries: [{ accountId: 9, amount: -17.5 }, { accountId: 1, amount: 17.5 }] },
+    { date: "2026-06-20", entries: [{ accountId: 9, amount: -15.99 }, { accountId: 1, amount: 15.99 }] },
+  ];
+  assert.equal(lastPaidDate(t, txs), "2026-08-19");
+});
+
+test("lastPaidDate falls back to the most recent explicit posting when no live transaction is passed", () => {
+  const t = template({ postings: [{ periodKey: "2026-07", txGuid: "v1", postedAt: "2026-07-05" }, { periodKey: "2026-08", txGuid: "v2", postedAt: "2026-08-05" }] });
+  assert.equal(lastPaidDate(t, []), "2026-08-05");
+});
+
+test("lastPaidDate is undefined when there's no sign of the bill ever being paid", () => {
+  const t = template();
+  assert.equal(lastPaidDate(t, []), undefined);
 });
 
 test("isTemplateSatisfiedForPeriod covers a quarterly template's whole 3-month bucket, not just one month", () => {

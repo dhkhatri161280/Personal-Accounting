@@ -10,6 +10,9 @@ const accounts: DetectAccount[] = [
   { id: 4, name: "Groceries" },
   { id: 5, name: "PG&E Electric" },
   { id: 6, name: "DMV Registration" },
+  { id: 7, name: "Citi Credit Card" },
+  { id: 8, name: "House Hold Exps - Apr 26" },
+  { id: 9, name: "House Hold Exps - May 26" },
 ];
 
 const none = new Set<string>();
@@ -88,7 +91,7 @@ test("detectRecurringCandidates skips an account pair that already has a templat
 
 test("detectRecurringCandidates skips an account pair the user already dismissed", () => {
   const txs: DetectTx[] = [monthlyTx("2026-04-05", "g1"), monthlyTx("2026-05-05", "g2"), monthlyTx("2026-06-05", "g3")];
-  assert.equal(detectRecurringCandidates(txs, accounts, [], new Set(["2|1"]), 60, "2026-07-10").length, 0);
+  assert.equal(detectRecurringCandidates(txs, accounts, [], new Set(["id:2"]), 60, "2026-07-10").length, 0);
 });
 
 test("detectRecurringCandidates tolerates large usage-based amount swings as long as the interval is regular", () => {
@@ -101,6 +104,47 @@ test("detectRecurringCandidates tolerates large usage-based amount swings as lon
   const candidates = detectRecurringCandidates(txs, accounts, [], none, 60, "2026-07-10");
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].suggestedFrequency, "monthly");
+});
+
+test("detectRecurringCandidates still recognizes a bill paid from a DIFFERENT card some months as the same recurring bill", () => {
+  // Same bill ledger (PG&E), different payment-source accounts across occurrences -- this is
+  // exactly the case that used to silently split into under-threshold groups and never surface.
+  const txs: DetectTx[] = [
+    { guid: "e1", date: "2026-01-10", type: "Payment", narration: "PG&E", entries: [{ accountId: 5, amount: -90 }, { accountId: 1, amount: 90 }] },
+    { guid: "e2", date: "2026-02-09", type: "Payment", narration: "PG&E", entries: [{ accountId: 5, amount: -110 }, { accountId: 7, amount: 110 }] },
+    { guid: "e3", date: "2026-03-11", type: "Payment", narration: "PG&E", entries: [{ accountId: 5, amount: -95 }, { accountId: 7, amount: 95 }] },
+  ];
+  const candidates = detectRecurringCandidates(txs, accounts, [], none, 60, "2026-07-10");
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].debitAccountId, 5);
+  assert.equal(candidates[0].occurrences.length, 3);
+  assert.equal(candidates[0].suggestedFrequency, "monthly");
+  // Credit side defaults to the MOST RECENT occurrence's actual payment source.
+  assert.equal(candidates[0].creditAccountId, 7);
+});
+
+test("detectRecurringCandidates excludes the House Hold Exps family entirely, even though it rotates to a new ledger each month", () => {
+  const txs: DetectTx[] = [
+    { guid: "h1", date: "2026-04-03", type: "Payment", narration: "Groceries", entries: [{ accountId: 8, amount: -60 }, { accountId: 1, amount: 60 }] },
+    { guid: "h2", date: "2026-04-10", type: "Payment", narration: "Groceries", entries: [{ accountId: 8, amount: -55 }, { accountId: 1, amount: 55 }] },
+    { guid: "h3", date: "2026-04-17", type: "Payment", narration: "Groceries", entries: [{ accountId: 8, amount: -58 }, { accountId: 1, amount: 58 }] },
+    { guid: "h4", date: "2026-05-04", type: "Payment", narration: "Groceries", entries: [{ accountId: 9, amount: -60 }, { accountId: 1, amount: 60 }] },
+  ];
+  assert.equal(detectRecurringCandidates(txs, accounts, [], none, 60, "2026-07-10").length, 0);
+});
+
+test("detectRecurringCandidates de-dups against an existing template by bill identity, not the exact stored pair -- a template paid from a different card still counts as already set up", () => {
+  const txs: DetectTx[] = [
+    { guid: "e1", date: "2026-01-10", type: "Payment", narration: "PG&E", entries: [{ accountId: 5, amount: -90 }, { accountId: 7, amount: 90 }] },
+    { guid: "e2", date: "2026-02-09", type: "Payment", narration: "PG&E", entries: [{ accountId: 5, amount: -110 }, { accountId: 7, amount: 110 }] },
+  ];
+  const existing: RecurringTemplate[] = [
+    {
+      id: "t1", label: "PG&E", active: true, frequency: "monthly", voucherType: "Payment",
+      narrationTemplate: "{month} PG&E", entries: [{ accountId: 5, amount: -100 }, { accountId: 1, amount: 100 }], postings: [],
+    },
+  ];
+  assert.equal(detectRecurringCandidates(txs, accounts, existing, none, 60, "2026-07-10").length, 0);
 });
 
 test("detectRecurringCandidates ignores a genuinely irregular, non-recurring pattern even with wide gap tolerance", () => {

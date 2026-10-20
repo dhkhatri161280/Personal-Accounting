@@ -125,6 +125,29 @@ export function isTemplateSatisfiedForPeriod(template: RecurringTemplate, period
   });
 }
 
+// Most recent date this template's bill was actually paid/accounted for -- the later of its most
+// recent explicit posting link and the most recent real transaction through its own two ledgers
+// (so it reflects reality even for a bill that's never had an explicit "Post"/"Already posted..."
+// click, now that isTemplateSatisfiedForPeriod above auto-recognizes those too). Undefined when
+// there's no sign of it ever having been paid yet.
+export function lastPaidDate(template: RecurringTemplate, transactions: RecurringCheckTx[]): string | undefined {
+  const debit = template.entries.find((e) => e.amount < 0);
+  const credit = template.entries.find((e) => e.amount > 0);
+  let latest: string | undefined;
+  if (debit && credit) {
+    for (const t of transactions) {
+      if (t.deleted || t.cancelled) continue;
+      const hasDebit = t.entries.some((e) => e.accountId === debit.accountId && e.amount < 0);
+      const hasCredit = t.entries.some((e) => e.accountId === credit.accountId && e.amount > 0);
+      if (hasDebit && hasCredit && (!latest || t.date > latest)) latest = t.date;
+    }
+  }
+  for (const p of template.postings) {
+    if (!latest || p.postedAt > latest) latest = p.postedAt;
+  }
+  return latest;
+}
+
 // Active templates not yet satisfied for the current period (see isTemplateSatisfiedForPeriod).
 // A MONTHLY (or bimonthly/quarterly/custom) template with a dayOfMonth set is due starting that
 // day of the month, not from the 1st -- flagging "HOA due" on the 1st when the bill isn't
