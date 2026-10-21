@@ -162,6 +162,29 @@ export function NetWorthReport({
   const zeroY = PLOT_BOTTOM - ((0 - min) / range) * plotHeight;
   const lineColor = netWorth >= 0 ? "#16a34a" : "#dc2626";
 
+  // Bar chart on a log scale, each bar's own dashed reference line ending exactly at its top --
+  // on a linear scale, the early years of a long growth history are a tiny fraction of the final
+  // value and get squashed to a sliver a few pixels tall, which drags every label/gridline into
+  // an unreadable pile at the bottom no matter how much label decluttering is layered on top
+  // (confirmed through several iterations live). Log scale gives every bar real, legible height.
+  // Only usable when every value is strictly positive -- log of zero or a negative net worth
+  // (realistic for early-career years with more debt than assets) is undefined, so that case
+  // falls back to the original line chart below instead of silently breaking.
+  const canUseLogBars = hasTrend && vals.every((v) => v > 0);
+  const logVals = canUseLogBars ? vals.map((v) => Math.log10(v)) : [];
+  const logMin = canUseLogBars ? Math.min(...logVals) : 0;
+  const logMax = canUseLogBars ? Math.max(...logVals, logMin + 0.0001) : 1;
+  const logRange = logMax - logMin || 1;
+  const barTopY = (v: number) => PLOT_BOTTOM - ((Math.log10(v) - logMin) / logRange) * plotHeight;
+  // A separate, wider left margin from the line chart's PAD_X -- each bar's own axis label shows
+  // the full formatted currency amount (e.g. "₹49,49,23,336.80"), not a short tick like a
+  // conventional axis, so it needs real room rather than the few px the line chart's edge
+  // padding ever had to reserve.
+  const BAR_PAD_LEFT = 110;
+  const barStepX = trend.length > 1 ? (W - BAR_PAD_LEFT - PAD_X) / (trend.length - 1) : 0;
+  const barX = (i: number) => BAR_PAD_LEFT + i * barStepX;
+  const barWidth = Math.min(barStepX * 0.6, 18);
+
   async function exportNetWorth() {
     const summaryHeader = ["Metric", "Amount"];
     const summaryBody = summaryCards.map((c) => [c.label, c.value]);
@@ -210,19 +233,40 @@ export function NetWorthReport({
             <div className="data-panel" style={{ height: "100%" }}>
               <h4 style={{ margin: "0 0 0.75rem" }}>Net Worth Over Time</h4>
               <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ overflow: "visible" }}>
-                <line x1={PAD_X} y1={zeroY} x2={W - PAD_X} y2={zeroY} stroke="#cbd5e1" strokeDasharray="4 4" />
-                <path d={pathD} fill="none" stroke={lineColor} strokeWidth={2} />
-                {trend.map((p, i) => {
-                  const [x, y] = xy(i, p.netWorth);
-                  return (
-                    <g key={p.label}>
-                      <circle cx={x} cy={y} r={3} fill={p.netWorth >= 0 ? "#16a34a" : "#dc2626"} />
-                      <text x={x} y={LABEL_Y} fontSize={10} fill="#64748b" textAnchor="end" transform={`rotate(-40 ${x} ${LABEL_Y})`}>
-                        {p.label}
-                      </text>
-                    </g>
-                  );
-                })}
+                {canUseLogBars ? (
+                  trend.map((p, i) => {
+                    const x = barX(i);
+                    const yTop = barTopY(p.netWorth);
+                    return (
+                      <g key={p.label}>
+                        <rect x={x - barWidth / 2} y={yTop} width={barWidth} height={Math.max(0, PLOT_BOTTOM - yTop)} rx={2} fill={lineColor} />
+                        <line x1={BAR_PAD_LEFT} y1={yTop} x2={x} y2={yTop} stroke="#cbd5e1" strokeDasharray="3 3" />
+                        <text x={BAR_PAD_LEFT - 6} y={yTop} fontSize={9} fill="#64748b" textAnchor="end" dominantBaseline="middle">
+                          {fmt(p.netWorth)}
+                        </text>
+                        <text x={x} y={LABEL_Y} fontSize={10} fill="#64748b" textAnchor="end" transform={`rotate(-40 ${x} ${LABEL_Y})`}>
+                          {p.label}
+                        </text>
+                      </g>
+                    );
+                  })
+                ) : (
+                  <>
+                    <line x1={PAD_X} y1={zeroY} x2={W - PAD_X} y2={zeroY} stroke="#cbd5e1" strokeDasharray="4 4" />
+                    <path d={pathD} fill="none" stroke={lineColor} strokeWidth={2} />
+                    {trend.map((p, i) => {
+                      const [x, y] = xy(i, p.netWorth);
+                      return (
+                        <g key={p.label}>
+                          <circle cx={x} cy={y} r={3} fill={p.netWorth >= 0 ? "#16a34a" : "#dc2626"} />
+                          <text x={x} y={LABEL_Y} fontSize={10} fill="#64748b" textAnchor="end" transform={`rotate(-40 ${x} ${LABEL_Y})`}>
+                            {p.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </>
+                )}
               </svg>
             </div>
           </div>

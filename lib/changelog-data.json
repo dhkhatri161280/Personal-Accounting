@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-21",
+    "summary": "Net Worth Over Time: log-scale bar chart with per-bar reference lines"
+  },
+  {
+    "date": "2026-10-21",
     "summary": "Masters: Direct Deposit tab replaces hardcoded paycheck-split constants"
   },
   {
