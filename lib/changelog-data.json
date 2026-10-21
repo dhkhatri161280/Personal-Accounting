@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-21",
+    "summary": "Net Worth Over Time: compact K/L/C labels on each bar, wider bars, no left-axis clutter"
+  },
+  {
+    "date": "2026-10-21",
     "summary": "Net Worth Over Time: log-scale bar chart with per-bar reference lines"
   },
   {

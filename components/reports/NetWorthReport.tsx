@@ -5,6 +5,7 @@ import { DonutChart, DONUT_PALETTE } from "@/components/DonutChart";
 import type { NetWorthPoint } from "@/lib/net-worth-trend";
 import { exportWorkbook } from "@/lib/export-excel";
 import { ExportButton } from "@/components/ExportButton";
+import { compactCurrency } from "@/lib/compact-currency";
 
 interface NWRow {
   id: number | string;
@@ -79,6 +80,7 @@ export function NetWorthReport({
   liabilities,
   trend,
   fmt,
+  currency = "INR",
   onSelectAccount,
   onNavigateSource,
 }: {
@@ -86,6 +88,11 @@ export function NetWorthReport({
   liabilities: NWRow[];
   trend: NetWorthPoint[];
   fmt: (n: number) => string;
+  // Drives the Net Worth Over Time bar chart's per-bar label abbreviation (Lakh/Crore for INR,
+  // K/M/B otherwise -- see lib/compact-currency.ts). Defaults to INR since every current caller
+  // (GR Consolidated is always INR; the main book defaults there too) is INR today, but a caller
+  // on a USD book should pass "USD" explicitly rather than get Lakh/Crore labels on dollars.
+  currency?: string;
   onSelectAccount?: (id: number) => void;
   onNavigateSource?: (tab: "retirement" | "equity") => void;
 }) {
@@ -162,28 +169,29 @@ export function NetWorthReport({
   const zeroY = PLOT_BOTTOM - ((0 - min) / range) * plotHeight;
   const lineColor = netWorth >= 0 ? "#16a34a" : "#dc2626";
 
-  // Bar chart on a log scale, each bar's own dashed reference line ending exactly at its top --
+  // Bar chart on a log scale, each bar labeled with its own compact value directly above it --
   // on a linear scale, the early years of a long growth history are a tiny fraction of the final
-  // value and get squashed to a sliver a few pixels tall, which drags every label/gridline into
-  // an unreadable pile at the bottom no matter how much label decluttering is layered on top
-  // (confirmed through several iterations live). Log scale gives every bar real, legible height.
-  // Only usable when every value is strictly positive -- log of zero or a negative net worth
-  // (realistic for early-career years with more debt than assets) is undefined, so that case
-  // falls back to the original line chart below instead of silently breaking.
+  // value and get squashed to a sliver a few pixels tall. A left-axis-plus-reference-line layout
+  // (an earlier iteration of this chart) still crammed every label into one shared vertical lane
+  // and became unreadable with 20+ years of real data -- labeling each bar at its own position
+  // sidesteps that entirely, since labels then follow the bars' horizontal spacing instead of
+  // stacking vertically. Log scale still matters on its own: it's what gives every bar real,
+  // legible height regardless of magnitude. Only usable when every value is strictly positive --
+  // log of zero or a negative net worth (realistic for early-career years with more debt than
+  // assets) is undefined, so that case falls back to the original line chart below instead of
+  // silently breaking.
   const canUseLogBars = hasTrend && vals.every((v) => v > 0);
   const logVals = canUseLogBars ? vals.map((v) => Math.log10(v)) : [];
   const logMin = canUseLogBars ? Math.min(...logVals) : 0;
   const logMax = canUseLogBars ? Math.max(...logVals, logMin + 0.0001) : 1;
   const logRange = logMax - logMin || 1;
-  const barTopY = (v: number) => PLOT_BOTTOM - ((Math.log10(v) - logMin) / logRange) * plotHeight;
-  // A separate, wider left margin from the line chart's PAD_X -- each bar's own axis label shows
-  // the full formatted currency amount (e.g. "₹49,49,23,336.80"), not a short tick like a
-  // conventional axis, so it needs real room rather than the few px the line chart's edge
-  // padding ever had to reserve.
-  const BAR_PAD_LEFT = 110;
-  const barStepX = trend.length > 1 ? (W - BAR_PAD_LEFT - PAD_X) / (trend.length - 1) : 0;
-  const barX = (i: number) => BAR_PAD_LEFT + i * barStepX;
-  const barWidth = Math.min(barStepX * 0.6, 18);
+  // Reserves headroom above the tallest bar for its own label, which sits above the bar top
+  // rather than inside/below it.
+  const BAR_LABEL_HEADROOM = 16;
+  const barPlotTop = PLOT_TOP + BAR_LABEL_HEADROOM;
+  const barPlotHeight = PLOT_BOTTOM - barPlotTop;
+  const barTopY = (v: number) => PLOT_BOTTOM - ((Math.log10(v) - logMin) / logRange) * barPlotHeight;
+  const barWidth = Math.min(stepX * 0.78, 24);
 
   async function exportNetWorth() {
     const summaryHeader = ["Metric", "Amount"];
@@ -235,14 +243,13 @@ export function NetWorthReport({
               <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ overflow: "visible" }}>
                 {canUseLogBars ? (
                   trend.map((p, i) => {
-                    const x = barX(i);
+                    const x = PAD_X + i * stepX;
                     const yTop = barTopY(p.netWorth);
                     return (
                       <g key={p.label}>
                         <rect x={x - barWidth / 2} y={yTop} width={barWidth} height={Math.max(0, PLOT_BOTTOM - yTop)} rx={2} fill={lineColor} />
-                        <line x1={BAR_PAD_LEFT} y1={yTop} x2={x} y2={yTop} stroke="#cbd5e1" strokeDasharray="3 3" />
-                        <text x={BAR_PAD_LEFT - 6} y={yTop} fontSize={9} fill="#64748b" textAnchor="end" dominantBaseline="middle">
-                          {fmt(p.netWorth)}
+                        <text x={x} y={yTop - 5} fontSize={9} fill="#64748b" textAnchor="middle">
+                          {compactCurrency(p.netWorth, currency)}
                         </text>
                         <text x={x} y={LABEL_Y} fontSize={10} fill="#64748b" textAnchor="end" transform={`rotate(-40 ${x} ${LABEL_Y})`}>
                           {p.label}

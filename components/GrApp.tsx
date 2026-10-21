@@ -1882,7 +1882,7 @@ export function GrApp() {
                 <p className="gr-report-note">
                   All-time closing balances in INR, across both books.
                 </p>
-                <NetWorthReport assets={nwAssets} liabilities={nwLiabs} trend={nwTrend} fmt={fmt} />
+                <NetWorthReport assets={nwAssets} liabilities={nwLiabs} trend={nwTrend} fmt={fmt} currency="INR" />
               </div>
             );
           })()}

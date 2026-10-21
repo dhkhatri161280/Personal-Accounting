@@ -5349,6 +5349,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 liabilities={realLiabilityRows}
                 trend={netWorthTrendWithEquity}
                 fmt={fmt}
+                currency={data.currency}
                 onSelectAccount={(id) => setSelected(id)}
                 onNavigateSource={(dest) => {
                   if (dest === "retirement") {
