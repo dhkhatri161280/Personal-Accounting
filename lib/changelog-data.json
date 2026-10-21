@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-10-21",
+    "summary": "Masters: Direct Deposit tab replaces hardcoded paycheck-split constants"
+  },
+  {
     "date": "2026-10-20",
     "summary": "Recurring: yearly templates gate due-status to their real due month, not the whole year"
   },

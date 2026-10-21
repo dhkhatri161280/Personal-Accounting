@@ -5,6 +5,7 @@ import type { Ledger, Tx, Account } from "@/lib/vault-types";
 import { nextVoucherNumber, nextTransactionIds, currentMonthSiblingAccount } from "@/lib/vault-accounting";
 import { apiFetch } from "@/lib/api-fetch";
 import { matchPayrollPeriod, rowValue } from "@/lib/payroll-match";
+import { computePayrollDepositSplits } from "@/lib/payroll-direct-deposit";
 import {
   MORTGAGE_STANDARD_PAYMENT,
   MORTGAGE_HOME_ACCOUNT_NAMES,
@@ -189,13 +190,14 @@ const PAYROLL_MEDICAL = 184.50; // Medical + Dental + Vision, combined (Legal Pl
 const PAYROLL_401K = 813.33;
 const PAYROLL_LEGAL = 9.00;
 
-// NVIDIA's direct deposit always splits a fixed amount into a second account (e.g. $1,500 +
-// $500 into two Chase sub-accounts, tracked here as one combined "Chase Bank" line) -- only
-// the primary (Plaid-linked) account shows up as its own pending transaction, so this second
-// leg has to be added to the draft manually since there's no separate feed for it. If the
-// split amount or destination ever changes, update these two constants.
-const PAYROLL_SECONDARY_BANK = "Chase Bank";
-const PAYROLL_SECONDARY_AMOUNT = 2_000.00;
+// NVIDIA's direct deposit used to always split a fixed amount into a second account (Chase,
+// via two sub-accounts tracked here as one combined "Chase Bank" line) -- only the primary
+// (Plaid-linked) account showed up as its own pending transaction, so that second leg had to
+// be added to the draft manually since there was no separate feed for it. As of the paystub
+// portal update confirmed 2026-10-21, the full paycheck now deposits into Bank of America
+// only (Chase/Chime/Capital One all archived on the portal) -- no more split, so this is
+// retired rather than repointed. If a split destination is ever reintroduced, restore this
+// constant pair and the two usages below it used to feed.
 
 function isPayroll(tx: PlaidTxRaw) {
   if (tx.amount >= 0) return false; // must be a deposit (money in)
@@ -396,10 +398,16 @@ function buildDraft(
     const k401Acc = findAcct(accounts, "401K Investments", "401k");
     const legalAcc = findAcct(accounts, "Legal Plan - Nvidia", "Legal Plan");
     const esppAcc = findAcct(accounts, "ESPP Deduction", "ESPP");
+    // Masters -> Direct Deposit (ledger.payrollDirectDeposit) is the user-editable source of
+    // truth for how a paycheck splits across bank accounts -- replaces the old hardcoded
+    // Chase-split constants. Falls back to the single Plaid-matched institution account when
+    // nothing's configured there (e.g. a fresh vault, or deposits that have always gone to one
+    // account only).
     const bankAcc = findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America");
-    const secondaryBankAcc = findAcct(accounts, PAYROLL_SECONDARY_BANK);
+    const splitLegs = computePayrollDepositSplits(ledger.payrollDirectDeposit, netDeposit, accounts);
+    const depositLegs = splitLegs.length > 0 ? splitLegs : bankAcc ? [{ accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit }] : [];
 
-    if (salaryAcc && taxAcc && medAcc && k401Acc && bankAcc) {
+    if (salaryAcc && taxAcc && medAcc && k401Acc && depositLegs.length > 0) {
       // Prefer the actual imported paystub numbers (Reports → Tax) for this pay period over
       // the hardcoded fallback constants -- but only when that period actually has real
       // (non-zero) data. A period row that exists but hasn't been filled in yet (e.g. the
@@ -444,15 +452,11 @@ function buildDraft(
         }
       }
       const legal = PAYROLL_LEGAL;
-      const secondaryAmount = secondaryBankAcc ? PAYROLL_SECONDARY_AMOUNT : 0;
-      // Without a real imported tax figure, solve for whatever balances the FULL paycheck
-      // (both destination accounts combined) -- not just this one bank line, which would
-      // silently misattribute the other account's share to "tax" once a paycheck splits
-      // across two accounts. ESPP must be subtracted here too (it's a real employee-side payroll
-      // deduction that reduces net pay, unlike the employer 401k match) -- leaving it out made
-      // this plug silently absorb the ESPP amount into "Tax Deduction" instead.
+      // ESPP must be subtracted here too (it's a real employee-side payroll deduction that
+      // reduces net pay, unlike the employer 401k match) -- leaving it out made this plug
+      // silently absorb the ESPP amount into "Tax Deduction" instead.
       if (!haveRealTax) {
-        tax = Math.max(0, base + telephone - medical - k401 - legal - espp - netDeposit - secondaryAmount);
+        tax = Math.max(0, base + telephone - medical - k401 - legal - espp - netDeposit);
       }
       const entries: EntryDraft[] = [
         { accountId: salaryAcc.id, accountName: salaryAcc.name, amount: base },
@@ -462,8 +466,7 @@ function buildDraft(
         { accountId: k401Acc.id, accountName: k401Acc.name, amount: -k401 },
         ...(legalAcc ? [{ accountId: legalAcc.id, accountName: legalAcc.name, amount: -legal }] : []),
         ...(esppAcc && espp > 0.004 ? [{ accountId: esppAcc.id, accountName: esppAcc.name, amount: -espp }] : []),
-        { accountId: bankAcc.id, accountName: bankAcc.name, amount: -netDeposit },
-        ...(secondaryBankAcc ? [{ accountId: secondaryBankAcc.id, accountName: secondaryBankAcc.name, amount: -secondaryAmount }] : []),
+        ...depositLegs.map((l) => ({ accountId: l.accountId, accountName: l.accountName, amount: -l.amount })),
       ];
       return { entries, voucherType: "Receipt", narration: "Salary Income - Semi Monthly", confidence: matched ? 0.98 : 0.9, source: "payroll" };
     }

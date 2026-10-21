@@ -434,6 +434,21 @@ export type RecurringTemplate = {
   postings: { periodKey: string; txGuid: string; postedAt: string }[];
 };
 
+// How a paycheck's net deposit actually splits across bank accounts -- mirrors the employer
+// payroll portal's own "direct deposit" setup (account, fixed $ amount or "available balance" /
+// remainder, active/archived), so this is user-editable in Masters instead of hardcoded constants
+// in the Plaid import composer that needed a code change + redeploy every time the real-world
+// split changed. Exactly one ACTIVE split should be "remainder" at a time (the account that
+// receives whatever's left after every active "fixed" split is subtracted) -- the UI warns, but
+// doesn't hard-block, more than one.
+export type PayrollDirectDepositSplit = {
+  id: string;
+  accountId: number;
+  amountType: "fixed" | "remainder";
+  amount?: number; // only meaningful for amountType "fixed"
+  active: boolean;
+};
+
 export type BudgetLine = {
   id: string;
   accountId: number;
@@ -614,6 +629,10 @@ export type Ledger = {
   // -- without this, a re-scan would keep re-proposing the same irrelevant pattern (e.g. two
   // coincidentally similar-interval but unrelated transactions) every time.
   dismissedRecurringCandidates?: string[];
+  // How a paycheck's net deposit splits across bank accounts, editable in Masters -> Direct
+  // Deposit -- see PayrollDirectDepositSplit above. Empty/unset falls back to depositing the
+  // whole paycheck in whichever account the Plaid transaction's own institution matches.
+  payrollDirectDeposit?: PayrollDirectDepositSplit[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];

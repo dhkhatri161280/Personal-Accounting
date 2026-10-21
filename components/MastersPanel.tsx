@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, AuditEntry, FixedAsset, Ledger, VaultDocument } from "@/lib/vault-types";
+import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument } from "@/lib/vault-types";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -97,6 +97,7 @@ export type MasterLedger = {
   }>;
   recurringTemplates?: RecurringTemplate[];
   dismissedRecurringCandidates?: string[];
+  payrollDirectDeposit?: PayrollDirectDepositSplit[];
   auditLog?: AuditEntry[];
   fixedAssets?: FixedAsset[];
   documents?: VaultDocument[];
@@ -551,7 +552,7 @@ export function MastersPanel({
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
-  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings";
+  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "settings";
   // Applies a Fixed Asset # to every voucher already posted on an untagged asset's own ledger --
   // routed through a dedicated prop (not the generic onSave above) because it needs to exempt
   // those (possibly closed-period) vouchers from the closed-period check, the same way
@@ -567,7 +568,7 @@ export function MastersPanel({
   // local hook so a standalone render (e.g. a QA route) still works without this prop.
   privacyMode?: boolean;
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "fixedassets" | "documents" | "settings">(initialSection ?? "ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "settings">(initialSection ?? "ledgers"),
     // Inline confirmation/error for the Settings form's own Save button -- see that form's
     // onSubmit and onSave's doc comment above for why this exists alongside the global toast.
     [settingsSaveState, setSettingsSaveState] = useState<"saving" | "saved" | "error" | null>(null),
@@ -579,6 +580,7 @@ export function MastersPanel({
     [showDismissedCandidates, setShowDismissedCandidates] = useState(false),
     [diagnoseQuery, setDiagnoseQuery] = useState(""),
     [diagnosticResults, setDiagnosticResults] = useState<DiagnosticEntry[] | null>(null),
+    [directDepositId, setDirectDepositId] = useState<string | null>(null),
     [search, setSearch] = useState(""),
     // Fixed Assets master data (name/class/useful life/salvage) -- Cost/Fixed Asset #/purchase
     // date stay read-only here since they're derived facts from the real ledger/tag, not
@@ -1190,6 +1192,30 @@ export function MastersPanel({
       )
     );
   };
+  // Direct Deposit -- editable replacement for the hardcoded split constants that used to live
+  // in PlaidImport.tsx's payroll composer (lib/payroll-direct-deposit.ts now reads this instead),
+  // modeled on the employer payroll portal's own account/amount/status table.
+  const directDepositSplit = (data.payrollDirectDeposit || []).find((s) => s.id === directDepositId);
+  const saveDirectDepositSplit = (form: FormData) => {
+    const accountId = Number(form.get("accountId") || 0),
+      amountType = String(form.get("amountType") || "fixed") as PayrollDirectDepositSplit["amountType"],
+      amount = amountType === "fixed" ? Math.abs(Number(form.get("amount") || 0)) : undefined,
+      active = form.get("active") === "on";
+    if (!accountId || (amountType === "fixed" && !amount)) return;
+    const existing = (data.payrollDirectDeposit || []).find((s) => s.id === directDepositId);
+    const split: PayrollDirectDepositSplit = { id: existing?.id || crypto.randomUUID(), accountId, amountType, amount, active };
+    const others = (data.payrollDirectDeposit || []).filter((s) => s.id !== split.id);
+    onSave({ ...data, payrollDirectDeposit: [...others, split] }, `${existing ? "Updated" : "Added"} direct deposit split.`);
+    setDirectDepositId(null);
+  };
+  const deleteDirectDepositSplit = (s: PayrollDirectDepositSplit) => {
+    const name = data.accounts.find((a) => a.id === s.accountId)?.name || "this account";
+    if (!confirm(`Remove the direct deposit split to ${name}?`)) return;
+    onSave(
+      { ...data, payrollDirectDeposit: (data.payrollDirectDeposit || []).filter((x) => x.id !== s.id) },
+      "Direct deposit split removed."
+    );
+  };
   const toggleCandidateSelected = (key: string) => {
     setSelectedCandidateKeys((prev) => {
       const next = new Set(prev);
@@ -1356,6 +1382,12 @@ export function MastersPanel({
           onClick={() => setSection("recurring")}
         >
           Recurring Templates
+        </button>
+        <button
+          className={section === "directdeposit" ? "selected" : ""}
+          onClick={() => setSection("directdeposit")}
+        >
+          Direct Deposit
         </button>
         <button
           className={section === "fixedassets" ? "selected" : ""}
@@ -1782,6 +1814,133 @@ export function MastersPanel({
           </table>
         </>
       )}
+      {section === "directdeposit" && (() => {
+        const splits = data.payrollDirectDeposit || [];
+        const activeRemainderCount = splits.filter((s) => s.active && s.amountType === "remainder").length;
+        const bankAccounts = [...data.accounts]
+          .filter((a) => a.active !== false && (a.category === "Bank" || a.category === "Cash"))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return (
+          <>
+            <div className="master-toolbar">
+              <span>{splits.length} direct deposit split(s)</span>
+              <button className="primary" onClick={() => setDirectDepositId("")}>
+                + New Split
+              </button>
+            </div>
+            <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 0.75rem" }}>
+              How a paycheck's net deposit splits across bank accounts — mirrors your employer payroll
+              portal's own setup. Each active "Fixed $" split is taken off the top; whatever's left goes
+              to the one account marked "Remainder". Archive (uncheck Active) an account here the same
+              way your portal archives it — nothing historical is affected, only future paychecks.
+            </p>
+            {activeRemainderCount > 1 && (
+              <p style={{ fontSize: 12, color: "#b45309", margin: "0 0 0.75rem" }}>
+                ⚠ {activeRemainderCount} active splits are marked "Remainder" — only the first one (by
+                creation order) actually receives the leftover amount. Fix this so there's exactly one.
+              </p>
+            )}
+            {splits.length === 0 ? (
+              <p style={{ opacity: 0.7 }}>
+                No direct deposit splits configured yet — new paychecks deposit in full to whichever
+                account the Plaid transaction's own institution matches.
+              </p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {splits.map((s) => {
+                    const acct = data.accounts.find((a) => a.id === s.accountId);
+                    return (
+                      <tr key={s.id}>
+                        <td>{acct?.name || `(deleted account ${s.accountId})`}</td>
+                        <td className="right">{s.amountType === "remainder" ? "Remainder" : `$${(s.amount ?? 0).toFixed(2)}`}</td>
+                        <td>
+                          <span className={`master-status ${s.active ? "synced" : "pending"}`}>
+                            {s.active ? "Active" : "Archived"}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="master-actions">
+                            <button className="master-edit" onClick={() => setDirectDepositId(s.id)}>
+                              Edit
+                            </button>
+                            <button className="master-delete" onClick={() => deleteDirectDepositSplit(s)}>
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            {directDepositId !== null && (
+              <FloatingWindow
+                title={`${directDepositSplit ? "Edit" : "Add"} Direct Deposit Split`}
+                onClose={() => setDirectDepositId(null)}
+              >
+                <form
+                  className="master-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    saveDirectDepositSplit(new FormData(e.currentTarget));
+                  }}
+                >
+                  <label>
+                    Account
+                    <select name="accountId" defaultValue={directDepositSplit?.accountId || ""} required>
+                      <option value="" disabled>
+                        Select bank/cash ledger
+                      </option>
+                      {bankAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Amount type
+                    <select name="amountType" defaultValue={directDepositSplit?.amountType || "fixed"}>
+                      <option value="fixed">Fixed $ amount</option>
+                      <option value="remainder">Remainder (whatever's left)</option>
+                    </select>
+                  </label>
+                  <label>
+                    Amount (only used for Fixed $)
+                    <input
+                      name="amount"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      className="master-amount-input"
+                      defaultValue={directDepositSplit?.amount || undefined}
+                    />
+                  </label>
+                  <label className="check-label">
+                    <input name="active" type="checkbox" defaultChecked={directDepositSplit?.active !== false} /> Active
+                  </label>
+                  <div>
+                    <button type="button" onClick={() => setDirectDepositId(null)}>
+                      Cancel
+                    </button>
+                    <button className="primary">Save split</button>
+                  </div>
+                </form>
+              </FloatingWindow>
+            )}
+          </>
+        );
+      })()}
       {section === "periods" && (
         <PeriodControlPanel
           fiscalYearStartMonth={fiscalYearStartMonth}
