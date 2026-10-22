@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-10-22",
+    "summary": "Plaid import: auto-skip $0-2 card-verification auth + reversal pairs (no real income/expense)"
+  },
+  {
     "date": "2026-10-21",
     "summary": "Net Worth Over Time: compact K/L/C labels on each bar, wider bars, no left-axis clutter"
   },

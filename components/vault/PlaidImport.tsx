@@ -370,6 +370,41 @@ function flagCrossFeedDuplicates(draftRows: ImportRow[], existingVaultTxs: Tx[])
   }
 }
 
+// Card-issuer "verification hold": adding a card to a wallet (Google Pay/Apple Pay) or to a
+// merchant's saved-card list triggers a tiny ($0–2) authorization that's immediately reversed by
+// an equal-and-opposite refund, usually same day, sometimes a day apart while still pending. Net
+// cash impact is exactly zero, so posting the "charge" leg to an expense ledger and the "refund"
+// leg to income (today's naive per-row default) fabricates equal fake income and expense that
+// never happened. Detect same-card pairs within this batch that cancel each other out and skip
+// both, rather than making the user spot and uncheck them one at a time every time a card is
+// re-verified.
+function flagCardVerificationHolds(rows: ImportRow[]): void {
+  const CENTS = 0.01;
+  const MAX_AMOUNT = 2.0;
+  for (let i = 0; i < rows.length; i++) {
+    const a = rows[i];
+    if (a.skip || a.entries.length !== 2) continue;
+    for (let j = i + 1; j < rows.length; j++) {
+      const b = rows[j];
+      if (b.skip || b.entries.length !== 2) continue;
+      // A shared account that nets to zero between the two rows (one Dr, one Cr, same |amount|).
+      const shared = a.entries.find((ae) =>
+        b.entries.some((be) => be.accountId === ae.accountId && Math.abs(be.amount + ae.amount) < CENTS)
+      );
+      if (!shared) continue;
+      const amt = Math.abs(shared.amount);
+      if (amt <= 0 || amt > MAX_AMOUNT) continue;
+      const msA = new Date(a.plaidTx.date + "T12:00:00Z").getTime();
+      const msB = new Date(b.plaidTx.date + "T12:00:00Z").getTime();
+      if (Math.abs(msA - msB) / 86400000 > 3) continue;
+      a.skip = true;
+      b.skip = true;
+      a.narration = `Card verification hold — $${amt.toFixed(2)} auth + reversal cancel out, skipped (${a.narration})`;
+      b.narration = `Card verification hold — $${amt.toFixed(2)} auth + reversal cancel out, skipped (${b.narration})`;
+    }
+  }
+}
+
 // ── Build draft entries for a Plaid transaction ────────────────────────────────
 
 function buildDraft(
@@ -1720,6 +1755,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         return { plaidTx: tx, skip: imported || isBofaPaymentDuplicate(tx), alreadyImported: imported, ...draft };
       });
       flagCrossFeedDuplicates(draftPendingRows, data.transactions);
+      flagCardVerificationHolds(draftPendingRows);
       setPendingRows(draftPendingRows);
       const draftRows: ImportRow[] = pending.map((tx) => {
         const draft = enforceContraType(buildDraft(tx, data, acctsToCreate, historyIndex, plaidAcctMap), data.accounts);
@@ -1732,6 +1768,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
         };
       });
       flagCrossFeedDuplicates(draftRows, data.transactions);
+      flagCardVerificationHolds(draftRows);
       const investmentWithdrawalRows = buildInvestmentWithdrawalRows(
         investmentTransactions ?? [],
         plaidAcctMap,
