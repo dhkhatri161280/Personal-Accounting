@@ -138,6 +138,36 @@ function daysApart(a: string, b: string): number {
   return Math.abs(new Date(`${a}T00:00:00Z`).getTime() - new Date(`${b}T00:00:00Z`).getTime()) / 86400000;
 }
 
+// Card-issuer "verification hold" pairs (see flagCardVerificationHolds in PlaidImport.tsx) are
+// deliberately never posted to the vault -- they have no real cash impact, so there's nothing to
+// book. Left unfiltered here, that means they'd sit in `unmatchedPlaid` forever: Plaid reports
+// both legs, the vault has neither, and date/amount matching only ever looks for a VAULT
+// counterpart, not a same-account Plaid-side one. Mirrors that same detection (same account,
+// opposite sign, equal small amount, within a few days) so the two screens agree on what counts
+// as "nothing to reconcile" instead of Bank Recon re-flagging what Plaid Import already decided
+// to skip.
+const VERIFICATION_HOLD_MAX_AMOUNT = 2.0;
+const VERIFICATION_HOLD_MAX_DAYS_APART = 3;
+function filterVerificationHoldPairs(txs: PlaidTxSummary[]): PlaidTxSummary[] {
+  const excluded = new Set<string>();
+  for (let i = 0; i < txs.length; i++) {
+    const a = txs[i];
+    if (excluded.has(a.transaction_id)) continue;
+    const amtA = Math.abs(a.amount);
+    if (amtA <= 0 || amtA > VERIFICATION_HOLD_MAX_AMOUNT) continue;
+    for (let j = i + 1; j < txs.length; j++) {
+      const b = txs[j];
+      if (excluded.has(b.transaction_id)) continue;
+      if (Math.abs(a.amount + b.amount) >= 0.005) continue; // opposite sign, equal magnitude
+      if (daysApart(a.date, b.date) > VERIFICATION_HOLD_MAX_DAYS_APART) continue;
+      excluded.add(a.transaction_id);
+      excluded.add(b.transaction_id);
+      break;
+    }
+  }
+  return txs.filter((t) => !excluded.has(t.transaction_id));
+}
+
 // Net amount a vault Tx moves through one specific account (sum of that account's own entries,
 // since a split voucher can touch the same account more than once) -- compared against Plaid's
 // single-line transaction amount (sign-flipped: Plaid positive = money out = a vault debit).
@@ -218,6 +248,7 @@ export function reconciliationStatusForAccounts(
       // "Mark as reconciled" exceptions -- a Plaid-side entry the user has said will never get a
       // vault voucher (e.g. a bank fee they don't book) stops being flagged, permanently.
       .filter((pt) => !exceptionKeys.has(plaidExceptionKey(pt.account_id, pt.transaction_id)));
+    const unmatchedPlaidFiltered = filterVerificationHoldPairs(unmatchedPlaid);
     const noPlaidTransactionFeed = acctPlaidTxs.length === 0;
     const unmatchedVault = noPlaidTransactionFeed
       ? []
@@ -256,7 +287,7 @@ export function reconciliationStatusForAccounts(
     }, 0);
     const diff = plaidBalance - vaultBalance + uncleared;
 
-    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid, unmatchedVault, pendingPlaid, uncleared, noPlaidTransactionFeed });
+    results.push({ account, plaidAccounts: paGroup, plaidBalance, vaultBalance, diff, unmatchedPlaid: unmatchedPlaidFiltered, unmatchedVault, pendingPlaid, uncleared, noPlaidTransactionFeed });
   }
   return results.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 }

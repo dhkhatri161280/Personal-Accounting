@@ -91,6 +91,37 @@ test("reconciliationStatusForAccounts: flags an unmatched Plaid transaction and 
   assert.equal(status.unmatchedPlaid.length, 1);
 });
 
+test("reconciliationStatusForAccounts: a $1 card-verification auth + reversal pair is NOT flagged as unmatched, even though neither leg ever gets a vault voucher", () => {
+  const ledger = baseLedger({
+    accounts: [{ id: 4, name: "Credit Card - BofA", parent: "Current Liabilities", category: "Liability", currency: "USD", openingBalance: 0 }],
+    transactions: [],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "c1", type: "credit", subtype: "credit card", name: "Customized Cash Rewards Visa Signature", institution_name: "Bank Of America", balances: { current: 0 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-10-22", name: "ANDROID TEMP", amount: -1, account_id: "c1" },
+    { transaction_id: "t2", date: "2026-10-22", name: "Google", amount: 1, account_id: "c1" },
+  ];
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-10-22");
+  assert.equal(status.unmatchedPlaid.length, 0);
+});
+
+test("reconciliationStatusForAccounts: a genuine $1 charge with no reversal still gets flagged (not swallowed by the verification-hold filter)", () => {
+  const ledger = baseLedger({
+    accounts: [{ id: 4, name: "Credit Card - BofA", parent: "Current Liabilities", category: "Liability", currency: "USD", openingBalance: 0 }],
+    transactions: [],
+  });
+  const plaidAccounts: PlaidAccountSummary[] = [
+    { account_id: "c1", type: "credit", subtype: "credit card", name: "Customized Cash Rewards Visa Signature", institution_name: "Bank Of America", balances: { current: 1 } },
+  ];
+  const plaidTransactions: PlaidTxSummary[] = [
+    { transaction_id: "t1", date: "2026-10-22", name: "Vending Machine", amount: 1, account_id: "c1" },
+  ];
+  const [status] = reconciliationStatusForAccounts(ledger, plaidAccounts, plaidTransactions, "2026-10-22");
+  assert.equal(status.unmatchedPlaid.length, 1);
+});
+
 test("reconciliationStatusForAccounts: a real matching pair (interest earned) is NOT flagged as unmatched on either side -- regression for the mirror-imaged sign bug seen live", () => {
   const ledger = baseLedger({
     accounts: [
