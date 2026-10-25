@@ -495,6 +495,13 @@ export function TransactionTable({
   const [subtotalPeriod, setSubtotalPeriod] = useState<SubtotalPeriod>(
     (openingBalance !== undefined && selectedLedgerName) || enableGrouping ? "month" : "none"
   );
+  // Card view's stand-in for the per-column filter row above (that 7-field grid has nowhere to go
+  // at phone width, so `useCards` skips rendering it entirely -- see the comment below it). A
+  // single free-text box, OR-matched across Date/Type/#/Debit/Credit/Narration, same as the old
+  // top-level Day Book search box that was removed in favor of the column filters: removing it
+  // without a mobile replacement left the phone app with literally no way to search Day Book at
+  // all (confirmed live: a user at Costco couldn't find their last Costco purchase from the app).
+  const [cardSearch, setCardSearch] = useState("");
   // "Reconciled" status filter -- same three signals the inline expand's "✓ Reconciled" badge
   // itself checks (plaidTxId, the original "bank-pending" import marker, or an explicit
   // confirmed-matches entry), so this filter always agrees with what the badge shows rather than
@@ -580,6 +587,13 @@ export function TransactionTable({
         .filter((t) =>
           reconciledFilter === "all" ? true : reconciledFilter === "reconciled" ? isReconciled(t) : !isReconciled(t)
         )
+        .filter((t) => {
+          const q = useCards ? cardSearch.trim().toLowerCase() : "";
+          if (!q) return true;
+          return (["date", "type", "number", "debit", "credit", "narration", "amount"] as SortKey[]).some((key) =>
+            String(value(t, key)).toLowerCase().includes(q)
+          );
+        })
         .sort((a, b) => {
           if (sort.key === "date") {
             const av = String(value(a, "date")), bv = String(value(b, "date"));
@@ -607,7 +621,7 @@ export function TransactionTable({
                   : String(av).localeCompare(String(bv), undefined, { numeric: true });
           return sort.direction === "asc" ? result : -result;
         }),
-    [transactions, filters, sort, selectedLedgerName, reconciledFilter, matchedVoucherIds]
+    [transactions, filters, sort, selectedLedgerName, reconciledFilter, matchedVoucherIds, useCards, cardSearch]
   );
   const filteredTotal = useMemo(
     () => rows.reduce((sum, t) => sum + ledgerSignedAmount(t, selectedLedgerName), 0),
@@ -910,6 +924,7 @@ export function TransactionTable({
       <button
         onClick={() => {
           setFilters({ date: "", type: "", number: "", debit: "", credit: "", narration: "", amount: "", debitAmount: "", creditAmount: "" });
+          setCardSearch("");
           setReconciledFilter("all");
           onClearSearch?.();
         }}
@@ -964,8 +979,22 @@ export function TransactionTable({
           COLUMN_SPECS' own DataGrid-flex widths to begin with). Building the template from
           colWidths here instead means both rows are always driven by the one live source of
           truth, in sync automatically -- no separate constant to remember to update.
-          Skipped in the card view -- a 7-field filter grid has nowhere to go on a phone width, and
-          Day Book already has its own full-text search box above this component. */}
+          Skipped in the card view -- a 7-field filter grid has nowhere to go on a phone width;
+          cardSearch (just below) is its mobile replacement, a single free-text box OR-matched
+          across Date/Type/#/Debit/Credit/Narration. */}
+      {useCards && (
+        <div style={{ padding: "0 4px 8px" }}>
+          <input
+            type="search"
+            inputMode="search"
+            placeholder="Search Day Book (merchant, account, amount, date…)"
+            aria-label="Search Day Book"
+            value={cardSearch}
+            onChange={(e) => setCardSearch(e.target.value)}
+            style={{ width: "100%", padding: "8px 10px", fontSize: 14, borderRadius: 8, border: "1px solid #cbd5e1" }}
+          />
+        </div>
+      )}
       {!useCards && (
         <div
           className="table-filters grid-aligned-filters"

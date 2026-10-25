@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-10-25",
+    "summary": "Day Book: phone app gets a real search box back (merchant, account, amount, date)"
+  },
+  {
     "date": "2026-10-22",
     "summary": "Bank Reconciliation: card-verification auth + reversal pairs no longer show as unmatched"
   },
