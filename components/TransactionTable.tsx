@@ -914,9 +914,24 @@ export function TransactionTable({
   ) : (
     <>
       <strong>Displayed total: {formatAmount(filteredTotal)}</strong>
-      <span>
-        {rows.length} of {transactions.length} vouchers
-      </span>
+      {useCards ? (
+        // Reuses the voucher-count text's own slot in this SAME toolbar row instead of adding a
+        // new row below it -- a phone screen has little enough vertical space already without a
+        // dedicated search bar eating another line just for this.
+        <input
+          type="search"
+          inputMode="search"
+          placeholder="Search…"
+          aria-label="Search Day Book"
+          value={cardSearch}
+          onChange={(e) => setCardSearch(e.target.value)}
+          style={{ flex: "1 1 auto", minWidth: 0, padding: "4px 8px", fontSize: 13, borderRadius: 6, border: "1px solid #cbd5e1" }}
+        />
+      ) : (
+        <span>
+          {rows.length} of {transactions.length} vouchers
+        </span>
+      )}
     </>
   );
   const actionsBlock = (
@@ -980,21 +995,9 @@ export function TransactionTable({
           colWidths here instead means both rows are always driven by the one live source of
           truth, in sync automatically -- no separate constant to remember to update.
           Skipped in the card view -- a 7-field filter grid has nowhere to go on a phone width;
-          cardSearch (just below) is its mobile replacement, a single free-text box OR-matched
-          across Date/Type/#/Debit/Credit/Narration. */}
-      {useCards && (
-        <div style={{ padding: "0 4px 8px" }}>
-          <input
-            type="search"
-            inputMode="search"
-            placeholder="Search Day Book (merchant, account, amount, date…)"
-            aria-label="Search Day Book"
-            value={cardSearch}
-            onChange={(e) => setCardSearch(e.target.value)}
-            style={{ width: "100%", padding: "8px 10px", fontSize: 14, borderRadius: 8, border: "1px solid #cbd5e1" }}
-          />
-        </div>
-      )}
+          cardSearch (in totalBlock above, same toolbar row) is its mobile replacement, a single
+          free-text box OR-matched across Date/Type/#/Debit/Credit/Narration/Amount -- deliberately
+          NOT its own row, to avoid costing phone users another line of vertical space. */}
       {!useCards && (
         <div
           className="table-filters grid-aligned-filters"

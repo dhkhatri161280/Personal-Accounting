@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-25",
-    "summary": "Day Book: phone app gets a real search box back (merchant, account, amount, date)"
+    "summary": "Day Book: phone search box shares the existing toolbar row, no extra vertical space"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Day Book: phone app gets a real search box back"
   },
   {
     "date": "2026-10-22",
