@@ -317,6 +317,18 @@ export function ChatAssistant({
       const apiMessages: ApiMessage[] = [...priorHistory, { role: "user", content: message }];
       const tools = TOOL_DEFS.filter((t) => book === "india" || t.name !== "get_fbar_status");
       const toolTrace: string[] = [];
+      // Confirmed live: the free model's function-calling doesn't reliably know when to STOP
+      // calling a tool and start answering in text -- asked "when was my last Costco purchase",
+      // it called search_vouchers(terms: ["costco"], period: "all_time") -- the exactly correct
+      // call -- six times in a row with identical arguments, never once reading the (perfectly
+      // good) result it already had, burning the whole round cap on a generic error. Rather than
+      // keep hoping prompt wording fixes a small model's own limitation, this detects the EXACT
+      // same (tool, arguments) pair repeating and, on the second occurrence, stops asking the
+      // model entirely and relays the tool's own real result straight to the user -- guaranteed
+      // useful (it's real, already-computed data) and guaranteed to terminate, instead of either
+      // trusting the model to eventually answer or discarding a correct result as "couldn't settle".
+      let lastCallSignature: string | null = null;
+      let repeatStreak = 0;
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const r = await apiFetch("/api/assistant", {
@@ -337,6 +349,12 @@ export function ChatAssistant({
             // property access on a string silently no-op every argument.
             const args = coerceToolArgs(call.arguments);
             toolTrace.push(`${call.name}(${Object.entries(args).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")})`);
+            const signature = `${call.name}:${JSON.stringify(args)}`;
+            if (signature === lastCallSignature) repeatStreak++;
+            else {
+              repeatStreak = 0;
+              lastCallSignature = signature;
+            }
             apiMessages.push({ role: "assistant", content: JSON.stringify({ name: call.name, arguments: args }) });
             // Isolated from the outer try/catch's generic "Network error" message -- a thrown error
             // HERE is a tool-execution bug, not a network failure, and the model can usefully react
@@ -352,6 +370,15 @@ export function ChatAssistant({
                   : executeTool(call.name, args, data, book, todayIso, nvdaPrice, nvdaPrevClose);
             } catch (e) {
               result = `Tool "${call.name}" failed: ${e instanceof Error ? e.message : String(e)}`;
+            }
+            // Second identical call in a row -- the model is stuck, not making progress. Stop
+            // asking it and hand the user the tool's own real result directly (see this loop's
+            // own header comment for why).
+            if (repeatStreak >= 1) {
+              const fallback = `I found this but couldn't put it into words on my own -- here's the exact result:\n\n${result}`;
+              answerCacheRef.current.set(cacheKey, { content: fallback, toolTrace: [...toolTrace] });
+              setMessages((prev) => [...prev, { role: "assistant", content: fallback, toolTrace: [...toolTrace] }]);
+              return;
             }
             // Several tool results (navigate_to_screen's book-mismatch answers, the book-gated
             // tax/FBAR tools' own mismatch answers) are already-complete, deterministic answers --

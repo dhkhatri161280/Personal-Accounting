@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Assistant: show what tools it actually tried when it can't settle on an answer"
+    "summary": "Assistant: detect a stuck repeated tool call and answer directly instead of looping to the cap"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Assistant: show what it actually tried when it can't settle on an answer"
   },
   {
     "date": "2026-10-25",
