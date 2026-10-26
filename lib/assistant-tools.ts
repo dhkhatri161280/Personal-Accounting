@@ -165,12 +165,20 @@ function searchVouchers(data: Ledger, args: Record<string, unknown>, todayIso: s
   for (const t of matches) total += classifyVoucher(data, masterGroups, t).amt;
 
   const truncated = matches.length > MAX_RESULTS;
-  const shown = truncated ? matches.slice(0, MAX_RESULTS) : matches;
+  // Keep the MOST RECENT MAX_RESULTS, not the first/oldest -- matches is sorted ascending by
+  // date, so slice(0, N) silently kept only the OLDEST entries and cut off anything recent
+  // whenever a merchant/account had more than MAX_RESULTS matches. Confirmed live: this broke
+  // "when was my last Costco purchase" outright (every example shown to the model was old,
+  // nothing in the list could ever answer the question), and would have quietly understated
+  // "most recent" for any other high-volume search the same way.
+  const shown = truncated ? matches.slice(-MAX_RESULTS) : matches;
   const lines = [
     `search_vouchers(${quoted}, ${label}): ${matches.length} matching voucher(s).${note}`,
     `PRECOMPUTED TOTAL (authoritative, refunds already subtracted -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
     "",
-    truncated ? `Voucher list (showing the first ${MAX_RESULTS} of ${matches.length} -- the total above already covers all ${matches.length}):` : "Voucher list (every match, for citing examples only -- the total above is already correct):",
+    truncated
+      ? `Voucher list (showing the ${MAX_RESULTS} MOST RECENT of ${matches.length} -- the total above already covers all ${matches.length}; the oldest ${matches.length - MAX_RESULTS} aren't listed but ARE included in the total):`
+      : "Voucher list (every match, for citing examples only -- the total above is already correct):",
   ];
   for (const t of shown) {
     const { amt, isRefund, acctNames } = classifyVoucher(data, masterGroups, t);
@@ -241,12 +249,16 @@ function getAccountLedger(data: Ledger, args: Record<string, unknown>, todayIso:
   }
 
   const truncated = matches.length > MAX_RESULTS;
-  const shownLines = truncated ? allLines.slice(0, MAX_RESULTS) : allLines;
+  // Keep the MOST RECENT MAX_RESULTS, not the first/oldest -- see search_vouchers' own comment
+  // on this exact pattern for why (allLines is built in the same ascending-date order as matches).
+  const shownLines = truncated ? allLines.slice(-MAX_RESULTS) : allLines;
   const lines = [
     `get_account_ledger("${args.accountName}", ${label}): ${matches.length} voucher(s).${note}`,
     `PRECOMPUTED TOTAL (authoritative -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
     "",
-    truncated ? `Voucher list (showing the first ${MAX_RESULTS} of ${matches.length} -- the total above already covers all ${matches.length}):` : "Voucher list (every voucher in this account for the period, for citing examples only):",
+    truncated
+      ? `Voucher list (showing the ${MAX_RESULTS} MOST RECENT of ${matches.length} -- the total above already covers all ${matches.length}; the oldest ${matches.length - MAX_RESULTS} aren't listed but ARE included in the total):`
+      : "Voucher list (every voucher in this account for the period, for citing examples only):",
     ...shownLines,
   ];
   return lines.join("\n");
@@ -330,14 +342,18 @@ function searchAccounts(data: Ledger, args: Record<string, unknown>, todayIso: s
   }
 
   const truncated = allLines.length > MAX_RESULTS;
-  const shownLines = truncated ? allLines.slice(0, MAX_RESULTS) : allLines;
+  // Keep the MOST RECENT MAX_RESULTS, not the first/oldest -- see search_vouchers' own comment
+  // on this exact pattern for why (allLines is built in the same ascending-date order as matches).
+  const shownLines = truncated ? allLines.slice(-MAX_RESULTS) : allLines;
   const breakdown = resolved.map((r) => `${r.account.name}: ${(perAccountTotal.get(r.account.id) ?? 0).toFixed(2)}`).join(", ");
   const lines = [
     `${header}: ${matches.length} voucher(s) across ${resolved.length} account(s).${note}${problemNote}`,
     `PRECOMPUTED TOTAL (authoritative, combined across all requested accounts -- quote this exact number, do NOT add up the voucher lines yourself): ${total.toFixed(2)} ${data.currency}`,
     `Per-account breakdown (same combined total, split by account so you can see where it came from): ${breakdown} ${data.currency}`,
     "",
-    truncated ? `Voucher list (showing the first ${MAX_RESULTS} of ${matches.length} -- the total above already covers all ${matches.length}):` : "Voucher list (for citing examples only -- the total above is already correct):",
+    truncated
+      ? `Voucher list (showing the ${MAX_RESULTS} MOST RECENT of ${matches.length} -- the total above already covers all ${matches.length}; the oldest ${matches.length - MAX_RESULTS} aren't listed but ARE included in the total):`
+      : "Voucher list (for citing examples only -- the total above is already correct):",
     ...shownLines,
   ];
   return lines.join("\n");

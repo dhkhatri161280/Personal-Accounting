@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolvePeriod, executeTool, TOOL_DEFS, coerceToolArgs } from "../lib/assistant-tools.ts";
+import { fmtDate } from "../lib/format-date.ts";
 import type { Account, Tx, Ledger, RsuGrant, Trade, Budget, FixedAsset, Loan, PrepaidExpense, PayrollData, PayrollYear, IndiaPayslipMonth, IndiaItrYear } from "../lib/vault-types.ts";
 
 function account(id: number, name: string, parent: string, openingBalance = 0): Account {
@@ -90,6 +91,29 @@ test("search_vouchers: the precomputed total covers EVERY real match, not just t
   const result = executeTool("search_vouchers", { terms: ["costco"], period: "current_fiscal_year" }, data, "us", "2026-10-15");
   assert.ok(result.includes("6 matching voucher(s)"));
   assert.ok(result.includes("60.00 USD"), "total must cover all 6 vouchers (6 x 10.00)");
+});
+
+test("search_vouchers: a truncated voucher list shows the MOST RECENT matches, not the oldest", () => {
+  // 105 matches > MAX_RESULTS (100) -- regression for a real bug: matches is sorted ascending by
+  // date, and the old truncation (slice(0, MAX_RESULTS)) kept the FIRST 100, i.e. the OLDEST,
+  // silently cutting off anything recent. Confirmed live: this broke "when was my last Costco
+  // purchase" outright, since the shown examples never included the actual most recent one.
+  const accounts = [account(1, "Shopping", "Indirect Expenses"), account(999, "Citi Credit Card", "Bank Accounts")];
+  const transactions: Tx[] = Array.from({ length: 105 }, (_, i) => {
+    const d = new Date(Date.UTC(2026, 3, 1)); // 2026-04-01
+    d.setUTCDate(d.getUTCDate() + i);
+    const date = d.toISOString().slice(0, 10);
+    return tx(i + 1, date, "Payment", "Shopping @ Costco", [{ accountId: 1, amount: -10 }, { accountId: 999, amount: 10 }]);
+  });
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts, transactions };
+  const result = executeTool("search_vouchers", { terms: ["costco"], period: "current_fiscal_year" }, data, "us", "2026-10-15");
+  assert.ok(result.includes("105 matching voucher(s)"));
+  // The most recent voucher (105th, latest date) must be listed...
+  const lastDate = new Date(Date.UTC(2026, 3, 1));
+  lastDate.setUTCDate(lastDate.getUTCDate() + 104);
+  assert.ok(result.includes(fmtDate(lastDate.toISOString().slice(0, 10))), "the most recent match must appear in the shown list");
+  // ...while the very first (oldest) voucher must NOT be, since only 100 of 105 are shown.
+  assert.ok(!result.includes("#1:"), "the oldest match should have been cut, not the newest");
 });
 
 test("search_vouchers: a match outside the fiscal year is excluded", () => {

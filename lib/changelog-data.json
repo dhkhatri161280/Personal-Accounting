@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Price Match Watchlist: $2 apparel warehouse estimate, Difference column/total, clears returned items"
+    "summary": "Assistant: fix \"when was my last X\" questions -- truncation was cutting off the most recent matches"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Price Match Watchlist: apparel estimate, Difference column, return-clearing"
   },
   {
     "date": "2026-10-25",
