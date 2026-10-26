@@ -1,0 +1,4 @@
+# Real purchase data and live browser session cookies -- never commit these.
+.profiles/
+.captures/
+node_modules/
