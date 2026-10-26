@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Day Book: fixed phone search box being clipped off-screen by a non-wrapping toolbar"
+    "summary": "Day Book: phone toolbar down to 2 compact rows, Export/Expand-all hidden there"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Day Book: fix phone search box being clipped off-screen"
   },
   {
     "date": "2026-10-25",

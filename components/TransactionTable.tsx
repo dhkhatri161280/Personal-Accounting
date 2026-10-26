@@ -913,7 +913,10 @@ export function TransactionTable({
     </>
   ) : (
     <>
-      <strong>Displayed total: {formatAmount(filteredTotal)}</strong>
+      {/* "Displayed total:" label dropped on mobile (just the figure stays) -- every character
+          here is width the search box next to it doesn't get, on a toolbar row that's already
+          tight enough to wrap at phone width. */}
+      <strong>{useCards ? formatAmount(filteredTotal) : `Displayed total: ${formatAmount(filteredTotal)}`}</strong>
       {useCards ? (
         // Reuses the voucher-count text's own slot in this SAME toolbar row instead of adding a
         // new row below it -- a phone screen has little enough vertical space already without a
@@ -956,8 +959,14 @@ export function TransactionTable({
           </select>
         </label>
       )}
-      <ExportButton onExport={exportRows} />
-      {expandableGuids.length > 0 && (
+      {/* Export and "expand all splits" are desktop power-user actions -- on a phone, showing
+          them meant a THIRD toolbar row every time (confirmed live: Export + Expand all splits
+          wrapped onto their own line below Clear filters/Reconciled, well past what "Displayed
+          total" + Search already cost). Still reachable via the voucher view/edit screen and the
+          per-voucher inline expand respectively -- nothing here is actually lost, just hidden
+          from a view that has no room for it. */}
+      {!useCards && <ExportButton onExport={exportRows} />}
+      {!useCards && expandableGuids.length > 0 && (
         <button onClick={toggleAllExpanded}>
           {allExpanded ? "Collapse all" : `Expand all splits (${expandableGuids.length})`}
         </button>
