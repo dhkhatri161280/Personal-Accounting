@@ -1,7 +1,11 @@
 [
   {
+    "date": "2026-10-26",
+    "summary": "Day Book: fixed phone search box being clipped off-screen by a non-wrapping toolbar"
+  },
+  {
     "date": "2026-10-25",
-    "summary": "Day Book: phone search box shares the existing toolbar row, no extra vertical space"
+    "summary": "Day Book: phone search box shares the existing toolbar row"
   },
   {
     "date": "2026-10-25",

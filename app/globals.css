@@ -3439,6 +3439,19 @@ tfoot th {
   color: #66758c;
   font-size: var(--fs-sm);
 }
+/* nowrap + justify-content:flex-end packs this row from the right -- fine on desktop, where it
+   always fits, but on a phone-width Day Book the combined totalBlock + actionsBlock content is
+   wider than the screen, and flex-end clips the overflow off the LEFT edge instead of wrapping:
+   confirmed live, "Displayed total" and the card view's search box (both in totalBlock, rendered
+   first) were invisible while "Clear all filters"/"Reconciled" (actionsBlock, rendered last)
+   stayed pinned to the visible right edge. Matches useIsNarrowViewport's own 640px breakpoint so
+   this only changes behavior exactly where the card layout (and its search box) is actually in
+   play -- wraps instead of clipping, at the cost of a second line when the row doesn't fit. */
+@media (max-width: 640px) {
+  .excel-toolbar {
+    flex-wrap: wrap;
+  }
+}
 .excel-toolbar button {
   padding: 6px 9px;
   margin: 0;
