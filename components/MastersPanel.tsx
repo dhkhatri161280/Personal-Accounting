@@ -4,8 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt } from "@/lib/vault-types";
-import { mergeCostcoReceipts, parseCostcoReceiptsUpload } from "@/lib/costco-receipts";
+import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt, CostcoPriceCheck } from "@/lib/vault-types";
+import { mergeCostcoReceipts, parseCostcoReceiptsUpload, mergeCostcoPriceChecks, parseCostcoPriceChecksUpload } from "@/lib/costco-receipts";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -104,6 +104,7 @@ export type MasterLedger = {
   fixedAssets?: FixedAsset[];
   documents?: VaultDocument[];
   costcoReceipts?: CostcoReceipt[];
+  costcoPriceChecks?: CostcoPriceCheck[];
 };
 
 const standard: MasterGroup[] = [
@@ -1251,6 +1252,25 @@ export function MastersPanel({
       "Receipt removed."
     );
   };
+  // Same client-side-only read as importCostcoReceipts above -- price-checks.json comes from
+  // tools/costco-receipts/check-prices.mjs, a REAL live lookup against costco.com driven through
+  // an already-authenticated Chrome session (not a guess, not generic web search -- confirmed
+  // unreliable earlier). mergeCostcoPriceChecks dedupes by item number, newest check wins.
+  async function importCostcoPriceChecks(file: File) {
+    setUploadingCostcoReceipts(true);
+    setCostcoReceiptsError("");
+    try {
+      const text = await file.text();
+      const parsed = parseCostcoPriceChecksUpload(JSON.parse(text));
+      const merged = mergeCostcoPriceChecks((data.costcoPriceChecks || []) as CostcoPriceCheck[], parsed);
+      const drops = parsed.filter((p) => p.priceDropped).length;
+      onSave({ ...data, costcoPriceChecks: merged }, `Imported ${parsed.length} price check(s) -- ${drops} show a lower current price.`);
+    } catch (err) {
+      setCostcoReceiptsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid price-checks.json?");
+    } finally {
+      setUploadingCostcoReceipts(false);
+    }
+  }
   const toggleCandidateSelected = (key: string) => {
     setSelectedCandidateKeys((prev) => {
       const next = new Set(prev);
@@ -2479,13 +2499,29 @@ export function MastersPanel({
                   }}
                 />
               </label>
+              <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
+                {uploadingCostcoReceipts ? "Importing…" : "Import price-checks.json…"}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  disabled={uploadingCostcoReceipts}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importCostcoPriceChecks(file);
+                  }}
+                />
+              </label>
             </div>
             <p className="field-hint" style={{ margin: "0 0 0.75rem" }}>
               Real itemized Costco receipts, captured straight from Costco&apos;s own order-history API (see{" "}
               <code>tools/costco-receipts/</code> in the repo) -- not guessed from Day Book narration. This is
               the one source for both the Costco Executive 2% Reward calculation and the Price Match
               Watchlist on the Spend Report. Re-importing the same file is safe -- receipts are deduped by
-              their own warehouse/register/transaction number.
+              their own warehouse/register/transaction number. <code>price-checks.json</code> (from{" "}
+              <code>check-prices.mjs</code>) adds real, live current prices to the watchlist -- {data.costcoPriceChecks?.length || 0}{" "}
+              on file.
             </p>
             {costcoReceiptsError && <p className="equity-pdf-error">{costcoReceiptsError}</p>}
             {receipts.length === 0 ? (

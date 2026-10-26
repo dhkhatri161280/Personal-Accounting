@@ -151,11 +151,25 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
 
   // Items from real receipts still inside Costco's price-adjustment window (>= 30 days --
   // see costcoPriceMatchWatchlist's own comment on why this is a floor, not an exact cutoff).
-  const costcoWatchlist = useMemo(
-    () => (data.costcoReceipts?.length ? costcoPriceMatchWatchlist(data.costcoReceipts, todayLocalIso()) : []),
-    [data.costcoReceipts]
-  );
+  // Joined against data.costcoPriceChecks (Masters -> Costco Receipts -> import price-checks.json,
+  // a REAL live costco.com lookup from tools/costco-receipts/check-prices.mjs) by item number, so
+  // a watchlist item shows its actual current price once checked -- undefined/not-yet-checked
+  // until then, not silently treated as "no match".
+  const costcoWatchlist = useMemo(() => {
+    if (!data.costcoReceipts?.length) return [];
+    const lines = costcoPriceMatchWatchlist(data.costcoReceipts, todayLocalIso());
+    const checksByItem = new Map((data.costcoPriceChecks ?? []).map((c) => [c.itemNumber, c]));
+    return lines.map((l) => ({ ...l, priceCheck: checksByItem.get(l.itemNumber) ?? null }));
+  }, [data.costcoReceipts, data.costcoPriceChecks]);
   const [showWatchlistInfo, setShowWatchlistInfo] = useState(false);
+  // "Only show items with a confirmed price match" filter -- the whole point of requesting this
+  // was to cut through a long watchlist straight to what's actually actionable.
+  const [onlyPriceDrops, setOnlyPriceDrops] = useState(false);
+  const costcoWatchlistFiltered = useMemo(
+    () => (onlyPriceDrops ? costcoWatchlist.filter((w) => w.priceCheck?.priceDropped) : costcoWatchlist),
+    [costcoWatchlist, onlyPriceDrops]
+  );
+  const priceDropCount = useMemo(() => costcoWatchlist.filter((w) => w.priceCheck?.priceDropped).length, [costcoWatchlist]);
 
   const expenseAccountIds = useMemo(
     () => new Set(data.accounts.filter((a) => a.category === "Expense").map((a) => a.id)),
@@ -496,14 +510,23 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     Costco's price-adjustment window -- 30 days is used as a conservative floor; some
                     categories (electronics especially) get longer per Costco's own terms, but there's no
                     reliable field in this data to tell those apart, so an item just past 30 days may still
-                    be worth checking rather than assuming it's expired. There's no reliable way to show the
-                    current price here automatically -- Costco's real pricing is location-specific and often
-                    needs you logged in, and generic web search only ever turns up stale, conflicting
-                    third-party numbers. "Check price" jumps straight to Costco's own search for that exact
-                    item, where the real current price (for your warehouse) shows.
+                    be worth checking rather than assuming it's expired. "Current price" and the drop badge
+                    come from Masters → Costco Receipts' price-checks.json import -- a REAL live lookup
+                    against costco.com (tools/costco-receipts/check-prices.mjs, run through an already-
+                    authenticated browser session), not a guess. Two honest limits confirmed live: roughly
+                    half of grocery items aren't sold on costco.com at all (shown as "not sold online" --
+                    nothing to check there), and a price shown may be from whichever warehouse your Costco
+                    browser session has pinned, not necessarily the exact store you bought it at. "Check
+                    price" still jumps straight to Costco's own search for a manual look either way.
                   </div>
                 )}
               </span>
+              {priceDropCount > 0 && (
+                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontWeight: 400 }}>
+                  <input type="checkbox" checked={onlyPriceDrops} onChange={(e) => setOnlyPriceDrops(e.target.checked)} />
+                  Only show items with a price match ({priceDropCount})
+                </label>
+              )}
             </h4>
             <table className="fx-ledger-table">
               <thead>
@@ -512,12 +535,13 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                   <th>Who</th>
                   <th>Item</th>
                   <th className="right">Paid</th>
+                  <th className="right">Current</th>
                   <th className="right">Deadline (at least)</th>
                   <th>Check now</th>
                 </tr>
               </thead>
               <tbody>
-                {costcoWatchlist.map((w, i) => (
+                {costcoWatchlistFiltered.map((w, i) => (
                   <tr key={`${w.itemNumber}-${w.date}-${i}`}>
                     <td>{fmtDate(w.date)}</td>
                     <td>{w.cardholder || "—"}</td>
@@ -525,15 +549,24 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                       {w.description}
                     </td>
                     <td className="right">{fmt(w.pricePaid)}</td>
+                    <td className="right">
+                      {!w.priceCheck ? (
+                        <span style={{ opacity: 0.4 }}>not checked</span>
+                      ) : w.priceCheck.notSoldOnline ? (
+                        <span style={{ opacity: 0.6, fontSize: 11 }}>not sold online</span>
+                      ) : w.priceCheck.currentPrice == null ? (
+                        <span style={{ opacity: 0.4 }}>no match</span>
+                      ) : (
+                        <span style={{ color: w.priceCheck.priceDropped ? "#16a34a" : undefined, fontWeight: w.priceCheck.priceDropped ? 700 : undefined }}>
+                          {fmt(w.priceCheck.currentPrice)}
+                          {w.priceCheck.priceDropped && " ✓ match"}
+                        </span>
+                      )}
+                    </td>
                     <td className="right" style={{ color: w.daysLeft <= 5 ? "#dc2626" : undefined }}>
                       {fmtDate(w.priceAdjustmentDeadlineAtLeast)} ({w.daysLeft}d)
                     </td>
                     <td>
-                      {/* No reliable way to fetch Costco's actual current price here -- it's
-                          location-specific and often behind login (confirmed live: generic web
-                          search only turned up stale, conflicting third-party numbers). This is
-                          the honest one-click substitute: jump straight to Costco's own search
-                          for this exact item number, where the real current price shows. */}
                       <a
                         href={`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(w.itemNumber)}`}
                         target="_blank"

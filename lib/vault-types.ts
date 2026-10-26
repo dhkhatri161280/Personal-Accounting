@@ -477,6 +477,23 @@ export type CostcoReceipt = {
   items: CostcoReceiptItem[];
 };
 
+// A real, live current-price lookup against costco.com for one item, produced by
+// tools/costco-receipts/check-prices.mjs (driven through an already-authenticated Chrome session
+// -- no generic web search, which proved unreliable/stale when tried). `currentPrice` is null
+// either because costco.com had no clean single-product match for the search (ambiguous results)
+// or because `notSoldOnline` is true (the item is warehouse-only, confirmed by a zero-result
+// search -- common for fresh produce/grocery, nothing to look up online in that case).
+export type CostcoPriceCheck = {
+  itemNumber: string;
+  description: string;
+  pricePaid: number;
+  currentPrice: number | null;
+  currentPriceWarehouse?: string | null;
+  notSoldOnline: boolean;
+  priceDropped: boolean;
+  checkedAt: string;
+};
+
 export type BudgetLine = {
   id: string;
   accountId: number;
@@ -679,6 +696,9 @@ export type Ledger = {
   // Real itemized Costco receipts imported from Masters -> Costco Receipts. See CostcoReceipt's
   // own comment and lib/costco-receipts.ts.
   costcoReceipts?: CostcoReceipt[];
+  // Real, live current-price lookups imported from Masters -> Costco Receipts. See
+  // CostcoPriceCheck's own comment and lib/costco-receipts.ts.
+  costcoPriceChecks?: CostcoPriceCheck[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];

@@ -7,8 +7,10 @@ import {
   parseCostcoReceiptsUpload,
   computeCostcoRewardFromReceipts,
   costcoPriceMatchWatchlist,
+  mergeCostcoPriceChecks,
+  parseCostcoPriceChecksUpload,
 } from "../lib/costco-receipts.ts";
-import type { CostcoReceipt } from "../lib/vault-types.ts";
+import type { CostcoReceipt, CostcoPriceCheck } from "../lib/vault-types.ts";
 
 function receipt(key: string, date: string, receiptType: string, items: { itemNumber: string; description: string; amount: number; qty: number }[]): CostcoReceipt {
   return { key, cardholder: "dignesh", date, warehouse: "FREMONT", receiptType, total: items.reduce((s, i) => s + i.amount, 0), items };
@@ -105,4 +107,35 @@ test("costcoPriceMatchWatchlist: excludes Gas Station receipts and Shop Card ite
     receipt("k2", "2026-10-01", "In-Warehouse", [{ itemNumber: "2", description: "COSTCO SHOP CARD", amount: 100, qty: 1 }]),
   ];
   assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-05").length, 0);
+});
+
+function priceCheck(itemNumber: string, overrides: Partial<CostcoPriceCheck> = {}): CostcoPriceCheck {
+  return { itemNumber, description: "X", pricePaid: 10, currentPrice: null, notSoldOnline: false, priceDropped: false, checkedAt: "2026-10-26T00:00:00Z", ...overrides };
+}
+
+test("parseCostcoPriceChecksUpload: accepts a well-formed array", () => {
+  const parsed = parseCostcoPriceChecksUpload([{ itemNumber: "1", description: "X", pricePaid: 10, currentPrice: 8, notSoldOnline: false, priceDropped: true, checkedAt: "2026-10-26T00:00:00Z" }]);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].priceDropped, true);
+});
+
+test("parseCostcoPriceChecksUpload: rejects non-array input", () => {
+  assert.throws(() => parseCostcoPriceChecksUpload({ not: "an array" }));
+});
+
+test("parseCostcoPriceChecksUpload: rejects a check missing itemNumber", () => {
+  assert.throws(() => parseCostcoPriceChecksUpload([{ description: "X" }]));
+});
+
+test("mergeCostcoPriceChecks: dedupes by itemNumber, incoming wins", () => {
+  const existing = [priceCheck("1", { currentPrice: 10 })];
+  const incoming = [priceCheck("1", { currentPrice: 8, priceDropped: true })];
+  const merged = mergeCostcoPriceChecks(existing, incoming);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].currentPrice, 8);
+});
+
+test("mergeCostcoPriceChecks: keeps distinct item numbers", () => {
+  const merged = mergeCostcoPriceChecks([priceCheck("1")], [priceCheck("2")]);
+  assert.equal(merged.length, 2);
 });

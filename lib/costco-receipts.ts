@@ -1,4 +1,4 @@
-import type { CostcoReceipt } from "./vault-types.ts";
+import type { CostcoReceipt, CostcoPriceCheck } from "./vault-types.ts";
 import { COSTCO_REWARD_RATE, COSTCO_REWARD_CAP } from "./costco-reward.ts";
 
 // The one real source for both the Executive 2% Reward calculation and the Price Match
@@ -63,6 +63,34 @@ export function parseCostcoReceiptsUpload(raw: unknown): CostcoReceipt[] {
           qty: typeof it.qty === "number" ? it.qty : 1,
         };
       }),
+    };
+  });
+}
+
+// Merges a freshly-uploaded price-checks.json batch, deduped by itemNumber -- the incoming
+// (presumably newer) check wins on a collision, since prices change and a re-run should always
+// supersede a stale one.
+export function mergeCostcoPriceChecks(existing: CostcoPriceCheck[], incoming: CostcoPriceCheck[]): CostcoPriceCheck[] {
+  const byItem = new Map(existing.map((c) => [c.itemNumber, c]));
+  for (const c of incoming) byItem.set(c.itemNumber, c);
+  return [...byItem.values()].sort((a, b) => (a.checkedAt < b.checkedAt ? 1 : -1));
+}
+
+export function parseCostcoPriceChecksUpload(raw: unknown): CostcoPriceCheck[] {
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of price checks (from price-checks.json).");
+  return raw.map((r, i) => {
+    if (typeof r !== "object" || r === null) throw new Error(`Price check ${i}: not an object.`);
+    const o = r as Record<string, unknown>;
+    if (typeof o.itemNumber !== "string" || !o.itemNumber) throw new Error(`Price check ${i}: missing "itemNumber".`);
+    return {
+      itemNumber: o.itemNumber,
+      description: typeof o.description === "string" ? o.description : "",
+      pricePaid: typeof o.pricePaid === "number" ? o.pricePaid : 0,
+      currentPrice: typeof o.currentPrice === "number" ? o.currentPrice : null,
+      currentPriceWarehouse: typeof o.currentPriceWarehouse === "string" ? o.currentPriceWarehouse : null,
+      notSoldOnline: o.notSoldOnline === true,
+      priceDropped: o.priceDropped === true,
+      checkedAt: typeof o.checkedAt === "string" ? o.checkedAt : new Date().toISOString(),
     };
   });
 }

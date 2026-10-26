@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Price Match Watchlist: one-click \"Check price\" link to Costco's own search per item"
+    "summary": "Price Match Watchlist: automated live price checks + filter to confirmed matches only"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Price Match Watchlist: one-click \"Check price\" link per item"
   },
   {
     "date": "2026-10-25",
