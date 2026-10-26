@@ -112,23 +112,35 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   // same as before this became a dropdown), higher = further back.
   const [selectedPastCycleIndex, setSelectedPastCycleIndex] = useState(0);
 
+  // The CLEAN, unoverridden current-cycle window (exactly 12 months before the 3-months-before-
+  // renewal cutoff) -- kept separate from costcoReward below specifically so
+  // costcoCurrentCycleStartOverride only ever affects the current cycle's own displayed estimate,
+  // never listPastCostcoRewardCycles's own walked-back past-cycle boundaries, which have no
+  // evidence the same override applies to them.
+  const costcoCurrentCycleRawWindow = useMemo(() => {
+    if (!data.costcoMembershipRenewalMonthDay) return null;
+    return computeCostcoRewardWindow(data.costcoMembershipRenewalMonthDay, todayLocalIso());
+  }, [data.costcoMembershipRenewalMonthDay]);
+
   // Costco Executive Membership's 2% Reward estimate -- independent of this report's own
   // start/endDate range above (a fixed window Costco itself defines, not a date range the user
   // picks), so only rendered once Masters > Settings has a membership expiration date on file.
   const costcoReward = useMemo(() => {
-    if (!data.costcoMembershipRenewalMonthDay) return null;
-    const window = computeCostcoRewardWindow(data.costcoMembershipRenewalMonthDay, todayLocalIso());
+    if (!costcoCurrentCycleRawWindow) return null;
+    const override = data.costcoCurrentCycleStartOverride;
+    const window = override && override < costcoCurrentCycleRawWindow.end ? { ...costcoCurrentCycleRawWindow, start: override } : costcoCurrentCycleRawWindow;
     const estimate = computeCostcoRewardEstimate(data.transactions, window.start, window.end);
     return { window, estimate };
-  }, [data.costcoMembershipRenewalMonthDay, data.transactions]);
+  }, [costcoCurrentCycleRawWindow, data.costcoCurrentCycleStartOverride, data.transactions]);
 
   // Every past cycle that actually has qualifying Costco spend -- the dropdown's option list, so
   // it can never land on a meaningless all-zero pre-membership year. Most-recent-first; index 0
-  // is the cycle immediately before the current one.
+  // is the cycle immediately before the current one. Walked from the RAW (unoverridden) current
+  // window -- see costcoCurrentCycleRawWindow's own comment above.
   const pastCycles = useMemo(() => {
-    if (!data.costcoMembershipRenewalMonthDay || !costcoReward) return [];
-    return listPastCostcoRewardCycles(data.costcoMembershipRenewalMonthDay, costcoReward.window.start, data.transactions);
-  }, [data.costcoMembershipRenewalMonthDay, data.transactions, costcoReward]);
+    if (!data.costcoMembershipRenewalMonthDay || !costcoCurrentCycleRawWindow) return [];
+    return listPastCostcoRewardCycles(data.costcoMembershipRenewalMonthDay, costcoCurrentCycleRawWindow.start, data.transactions);
+  }, [data.costcoMembershipRenewalMonthDay, data.transactions, costcoCurrentCycleRawWindow]);
   const prevCostcoReward = pastCycles[selectedPastCycleIndex] ?? null;
 
   // Cross-check against the narration-based estimate above, computed from REAL itemized receipts

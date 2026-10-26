@@ -616,6 +616,16 @@ export type Ledger = {
   // itself (confirmed against Costco's own Executive 2% Reward FAQ and the member's own renewal
   // notice, which opens exactly 3 months early).
   costcoMembershipRenewalMonthDay?: string;
+  // One-time calibration against Costco's OWN stated "Rewards earned since" date on the member's
+  // account page (Masters > Settings) -- a real-world check (member's own account, 2026-10-26)
+  // found the CURRENT cycle's true start 11 days earlier than the clean 12-months-before-the-
+  // cutoff date computeCostcoRewardWindow assumes ("earned since 05/20/2026" vs. the computed
+  // 05/31/2026), with no known reason for the gap (a past renewal quirk? how Costco's own system
+  // rounds the first qualifying purchase?) -- not something to guess-generalize into the window
+  // formula itself. Only ever applied to the CURRENT (in-progress) cycle in SpendReport.tsx, never
+  // to listPastCostcoRewardCycles's own walked-back past cycles, since there's no evidence the
+  // same 11-day gap applies to those too. Undefined = use the computed start, unchanged.
+  costcoCurrentCycleStartOverride?: string;
   currency: string;
   createdAt: string;
   accounts: Account[];

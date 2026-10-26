@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Masters: Costco Receipts import + Spend Report Price Match Watchlist, from real itemized data"
+    "summary": "Costco Reward: optional current-cycle start override, calibrated against Costco's own account page"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Costco Receipts: one real source for the 2% Reward and Price Match Watchlist"
   },
   {
     "date": "2026-10-25",
