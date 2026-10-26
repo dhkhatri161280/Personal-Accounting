@@ -1,7 +1,15 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Price Match Watchlist: prefer real in-warehouse price over online, labeled honestly"
+    "summary": "Price Match Watchlist: clearer messaging that an online-price drop is still reliable"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "check-prices.mjs: trust an unambiguous single search result without exact tag match"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Price Match Watchlist: prefer real warehouse price over online, labeled"
   },
   {
     "date": "2026-10-25",

@@ -515,7 +515,9 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     against costco.com (tools/costco-receipts/check-prices.mjs, run through an already-
                     authenticated browser session), not a guess -- prices Costco's own in-warehouse
                     pricing over its online/delivery price whenever both are available (hover a price to
-                    see which; "(online)" means no in-warehouse price existed to compare). Two honest
+                    see which; "(online)" means no in-warehouse price existed to compare -- in-warehouse
+                    typically runs the same or lower, and Instant Savings promos shown online usually
+                    apply in-store too, so an online drop is still a reliable signal). Two honest
                     limits confirmed live: roughly half of grocery items aren't sold on costco.com at all
                     (shown as "not sold online" -- nothing to check there), and the in-warehouse price
                     shown is for whichever physical store your Costco account's own "My Warehouse" setting
@@ -564,7 +566,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                           style={{ color: w.priceCheck.priceDropped ? "#16a34a" : undefined, fontWeight: w.priceCheck.priceDropped ? 700 : undefined }}
                           title={
                             w.priceCheck.priceSource === "online"
-                              ? "Online/delivery price -- Costco had no in-warehouse price available for this item"
+                              ? "Online/delivery price -- Costco had no in-warehouse price available for this item. In-warehouse runs the same or lower (Instant Savings promos apply both ways), so if this shows a drop, your in-store price is at least this good."
                               : w.priceCheck.priceSource === "warehouse"
                                 ? "In-warehouse price, at whichever store your Costco account's \"My Warehouse\" is set to"
                                 : undefined
