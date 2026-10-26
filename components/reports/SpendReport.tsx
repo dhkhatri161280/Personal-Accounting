@@ -77,11 +77,14 @@ export type SpendLine = {
   appliedRate?: number;
   // Costco Executive 2% Reward drilldowns only (undefined everywhere else -- see
   // costcoLinesForWindow) -- this line's own contribution to the reward estimate, after backing
-  // out any gift-card portion the SAME WAY computeCostcoRewardEstimate does at the whole-cycle
-  // level (costcoQualifyingAmount). A gift-card line (e.g. "Uber Gift Card - Costco", no dollar
-  // figure) earns $0 here even though its own `amount` is shown in full, so the two columns
-  // together answer "what counted toward the reward" instead of just the raw spend total. Signed
-  // the same way `amount` is: a refund's reward is negative (Costco's own terms deduct refunds).
+  // out any Costco Shop Card portion the SAME WAY computeCostcoRewardEstimate does at the
+  // whole-cycle level (costcoQualifyingAmount). ONLY Costco's own Shop Card (its house gift-
+  // certificate product) is excluded -- a THIRD-PARTY gift card bought at Costco (e.g. "Uber Gift
+  // Card - Costco") is a qualifying purchase and earns the full reward, same as any other item in
+  // the cart. A Shop Card line (no dollar figure) earns $0 here even though its own `amount` is
+  // shown in full, so the two columns together answer "what counted toward the reward" instead of
+  // just the raw spend total. Signed the same way `amount` is: a refund's reward is negative
+  // (Costco's own terms deduct refunds).
   rewardAmount?: number;
 };
 
@@ -336,11 +339,13 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     FAQ. Counts Costco household purchases tagged by narration (same pattern the Plaid import itself
                     uses to post them); Costco Gasoline is excluded (Costco's own terms exclude it, and the
                     certificate can't be redeemed at the pump), and a refund against a prior Costco purchase subtracts
-                    from the total. Costco Shop Cards / gift cards are also excluded by Costco's own terms -- a
-                    voucher whose narration mentions "Gift Card" or "Shop Card" with no dollar figure is assumed to be
-                    entirely gift cards and dropped from the total; add a dollar figure right after it (e.g. "Costco
-                    run -- Gift Card $50") on a bill that mixed regular items with a gift card, and only that amount
-                    is backed out. This is an estimate only -- the real number always comes from Costco's own
+                    from the total. Only Costco's own Shop Cards (buying or reloading one) are excluded by Costco's
+                    own terms -- a third-party gift card bought at Costco (Uber, Southwest, Instacart, etc.) is a
+                    qualifying purchase and earns the full reward. A voucher whose narration mentions "Shop Card"
+                    with no dollar figure is assumed to be entirely a Shop Card purchase/reload and dropped from the
+                    total; add a dollar figure right after it (e.g. "Costco run -- Shop Card $50") on a bill that
+                    mixed regular items with a Shop Card reload, and only that amount is backed out. This is an
+                    estimate only -- the real number always comes from Costco's own
                     coupon/certificate once issued. Capped at $1,250.
                   </div>
                 )}
@@ -560,7 +565,7 @@ function SpendVoucherTable({
               <td
                 className="right"
                 style={{ color: l.rewardAmount ? "#16a34a" : "#9ca3af" }}
-                title={l.rewardAmount === 0 ? "Not counted — Gift Card / Shop Card purchases are excluded from the 2% Reward" : undefined}
+                title={l.rewardAmount === 0 ? "Not counted — Costco Shop Card purchases/reloads are excluded from the 2% Reward" : undefined}
               >
                 {fmt(l.rewardAmount ?? 0)}
               </td>

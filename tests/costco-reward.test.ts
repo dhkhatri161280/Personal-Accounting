@@ -73,33 +73,40 @@ test("computeCostcoRewardEstimate: sums qualifying spend, excludes gas, subtract
   assert.equal(result.voucherCount, 2); // the purchase + the refund, not the gas/unrelated/out-of-window ones
 });
 
-test("costcoQualifyingAmount: a gift/shop card purchase with no dollar figure is excluded entirely", () => {
-  assert.equal(costcoQualifyingAmount("Costco - Gift Cards for Family", 500), 0);
+test("costcoQualifyingAmount: a Costco Shop Card purchase with no dollar figure is excluded entirely", () => {
   assert.equal(costcoQualifyingAmount("Costco Shop Card purchase", 200), 0);
 });
 
-test("costcoQualifyingAmount: a flagged gift-card amount within a larger bill is subtracted, not the whole voucher", () => {
-  assert.equal(costcoQualifyingAmount("Costco run -- Gift Card $50", 300), 250);
+test("costcoQualifyingAmount: a THIRD-PARTY gift card bought at Costco is a qualifying purchase, NOT excluded", () => {
+  // Only Costco's own Shop Card is excluded by Costco's terms -- an Uber/Southwest/Instacart gift
+  // card is ordinary qualifying merchandise, same as anything else in the cart.
+  assert.equal(costcoQualifyingAmount("Uber Gift Card - Costco", 79.99), 79.99);
+  assert.equal(costcoQualifyingAmount("Costco - Gift Cards for Family", 500), 500);
+});
+
+test("costcoQualifyingAmount: a flagged Shop Card amount within a larger bill is subtracted, not the whole voucher", () => {
   assert.equal(costcoQualifyingAmount("Costco -- Shop Card: $75.50", 200), 124.5);
+  assert.equal(costcoQualifyingAmount("Costco run -- Shop Card $50", 300), 250);
 });
 
 test("costcoQualifyingAmount: a flagged amount larger than the voucher total clamps to 0, never negative", () => {
-  assert.equal(costcoQualifyingAmount("Costco -- Gift Card $500", 300), 0);
+  assert.equal(costcoQualifyingAmount("Costco -- Shop Card $500", 300), 0);
 });
 
-test("costcoQualifyingAmount: an ordinary Costco purchase with no gift card mention is untouched", () => {
+test("costcoQualifyingAmount: an ordinary Costco purchase with no Shop Card mention is untouched", () => {
   assert.equal(costcoQualifyingAmount("Shopping @ Costco", 300), 300);
 });
 
-test("computeCostcoRewardEstimate: excludes a whole-gift-card voucher and nets out a flagged partial amount", () => {
+test("computeCostcoRewardEstimate: excludes a whole-Shop-Card voucher and nets out a flagged partial amount, but counts third-party gift cards in full", () => {
   const transactions: Tx[] = [
     tx(1, "2026-06-01", "Shopping @ Costco", 300), // ordinary -- fully qualifies
-    tx(2, "2026-06-05", "Costco -- Gift Cards for Family", 500), // entirely gift cards -- excluded
-    tx(3, "2026-06-10", "Costco run -- Gift Card $50", 150), // mixed bill -- only $100 qualifies
+    tx(2, "2026-06-03", "Uber Gift Card - Costco", 79.99), // third-party gift card -- fully qualifies
+    tx(3, "2026-06-05", "Costco Shop Card purchase", 500), // entirely a Shop Card -- excluded
+    tx(4, "2026-06-10", "Costco run -- Shop Card $50", 150), // mixed bill -- only $100 qualifies
   ];
   const result = computeCostcoRewardEstimate(transactions, "2026-05-31", "2027-05-31");
-  assert.equal(result.qualifyingSpend, 400); // 300 + (150 - 50)
-  assert.equal(result.voucherCount, 2); // the whole-gift-card voucher doesn't count at all
+  assert.equal(result.qualifyingSpend, 479.99); // 300 + 79.99 + (150 - 50)
+  assert.equal(result.voucherCount, 3); // the whole-Shop-Card voucher doesn't count at all
 });
 
 test("computeCostcoRewardEstimate: caps the estimate at $1,250 even when 2% of spend exceeds it", () => {

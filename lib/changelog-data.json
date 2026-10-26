@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Costco Executive Reward drilldown: per-line Reward column (gift cards show $0)"
+    "summary": "Costco Reward: only Costco Shop Cards excluded, third-party gift cards now earn 2%"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Costco Executive Reward drilldown: per-line Reward column"
   },
   {
     "date": "2026-10-25",
