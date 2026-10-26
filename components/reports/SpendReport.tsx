@@ -496,9 +496,11 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     Costco's price-adjustment window -- 30 days is used as a conservative floor; some
                     categories (electronics especially) get longer per Costco's own terms, but there's no
                     reliable field in this data to tell those apart, so an item just past 30 days may still
-                    be worth checking rather than assuming it's expired. This only tells you WHAT you bought
-                    and WHEN the window closes -- checking whether the price actually dropped still has to
-                    happen live, on costco.com or in the app, with your own warehouse/location selected.
+                    be worth checking rather than assuming it's expired. There's no reliable way to show the
+                    current price here automatically -- Costco's real pricing is location-specific and often
+                    needs you logged in, and generic web search only ever turns up stale, conflicting
+                    third-party numbers. "Check price" jumps straight to Costco's own search for that exact
+                    item, where the real current price (for your warehouse) shows.
                   </div>
                 )}
               </span>
@@ -511,6 +513,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                   <th>Item</th>
                   <th className="right">Paid</th>
                   <th className="right">Deadline (at least)</th>
+                  <th>Check now</th>
                 </tr>
               </thead>
               <tbody>
@@ -524,6 +527,22 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     <td className="right">{fmt(w.pricePaid)}</td>
                     <td className="right" style={{ color: w.daysLeft <= 5 ? "#dc2626" : undefined }}>
                       {fmtDate(w.priceAdjustmentDeadlineAtLeast)} ({w.daysLeft}d)
+                    </td>
+                    <td>
+                      {/* No reliable way to fetch Costco's actual current price here -- it's
+                          location-specific and often behind login (confirmed live: generic web
+                          search only turned up stale, conflicting third-party numbers). This is
+                          the honest one-click substitute: jump straight to Costco's own search
+                          for this exact item number, where the real current price shows. */}
+                      <a
+                        href={`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(w.itemNumber)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="tr-refresh-btn"
+                        style={{ textDecoration: "none", display: "inline-block" }}
+                      >
+                        Check price ↗
+                      </a>
                     </td>
                   </tr>
                 ))}
