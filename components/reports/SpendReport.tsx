@@ -10,6 +10,8 @@ import {
   computeCostcoRewardWindow,
   computeCostcoRewardEstimate,
   isQualifyingCostcoNarration,
+  costcoQualifyingAmount,
+  COSTCO_REWARD_RATE,
   listPastCostcoRewardCycles,
   type CostcoRewardWindow,
 } from "@/lib/costco-reward";
@@ -33,6 +35,12 @@ function costcoLinesForWindow(
       const isExpense = expenseAccountIds.has(e.accountId);
       const isIncome = incomeAccountIds.has(e.accountId);
       if (!isExpense && !isIncome) continue;
+      const amount = isExpense ? -e.amount : e.amount;
+      // Same gift-card backout computeCostcoRewardEstimate applies at the whole-voucher level,
+      // here per line -- an ordinary 2-leg Costco voucher's one qualifying entry already equals
+      // that voucher's own total, so this agrees with the headline estimate exactly.
+      const qualifying = costcoQualifyingAmount(t.narration, Math.abs(amount));
+      const rewardAmount = (amount < 0 ? -1 : 1) * qualifying * COSTCO_REWARD_RATE;
       lines.push({
         key: `${t.guid}-${e.accountId}`,
         date: t.date,
@@ -40,7 +48,8 @@ function costcoLinesForWindow(
         voucherNumber: t.number,
         narration: t.narration,
         accountName: accountName.get(e.accountId) ?? "Unknown",
-        amount: isExpense ? -e.amount : e.amount,
+        amount,
+        rewardAmount,
       });
     }
   }
@@ -66,6 +75,14 @@ export type SpendLine = {
   source?: "US" | "IN";
   originalAmountUsd?: number;
   appliedRate?: number;
+  // Costco Executive 2% Reward drilldowns only (undefined everywhere else -- see
+  // costcoLinesForWindow) -- this line's own contribution to the reward estimate, after backing
+  // out any gift-card portion the SAME WAY computeCostcoRewardEstimate does at the whole-cycle
+  // level (costcoQualifyingAmount). A gift-card line (e.g. "Uber Gift Card - Costco", no dollar
+  // figure) earns $0 here even though its own `amount` is shown in full, so the two columns
+  // together answer "what counted toward the reward" instead of just the raw spend total. Signed
+  // the same way `amount` is: a refund's reward is negative (Costco's own terms deduct refunds).
+  rewardAmount?: number;
 };
 
 function isoDaysAgo(days: number): string {
@@ -497,6 +514,11 @@ function SpendVoucherTable({
   hideAccountColumn?: boolean;
 }) {
   const showSource = lines.some((l) => l.source);
+  // Only the Costco reward drilldowns populate rewardAmount -- every other SpendVoucherTable
+  // caller (the plain Expense/Income category drilldowns) leaves it undefined, so the column is
+  // simply absent there instead of showing a meaningless blank/zero.
+  const showReward = lines.some((l) => l.rewardAmount != null);
+  const totalReward = showReward ? lines.reduce((s, l) => s + (l.rewardAmount ?? 0), 0) : 0;
   return (
     <table className="fx-ledger-table">
       <thead>
@@ -507,6 +529,7 @@ function SpendVoucherTable({
           {!hideAccountColumn && <th>Account</th>}
           <th className="fx-narration">Narration</th>
           <th className="right">Amount</th>
+          {showReward && <th className="right">Reward</th>}
         </tr>
       </thead>
       <tbody>
@@ -533,6 +556,15 @@ function SpendVoucherTable({
                 </small>
               )}
             </td>
+            {showReward && (
+              <td
+                className="right"
+                style={{ color: l.rewardAmount ? "#16a34a" : "#9ca3af" }}
+                title={l.rewardAmount === 0 ? "Not counted — Gift Card / Shop Card purchases are excluded from the 2% Reward" : undefined}
+              >
+                {fmt(l.rewardAmount ?? 0)}
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
@@ -542,6 +574,11 @@ function SpendVoucherTable({
           <td className="right" style={{ color }}>
             {fmt(total)}
           </td>
+          {showReward && (
+            <td className="right" style={{ color: "#16a34a" }}>
+              {fmt(totalReward)}
+            </td>
+          )}
         </tr>
       </tfoot>
     </table>
