@@ -73,15 +73,24 @@ function searchReturnedNoResults(captured) {
 // account whose "My Warehouse" setting points somewhere else will only ever return pricing for
 // that other store.
 //
-// STRICT exact match only on `product.attributes.marketing_keywords.text` containing the exact
-// item number searched -- confirmed live that loosening this (closest/lowest-of-all-results)
-// produces real false positives (a grapes search matching an unrelated $14.97 product, a
-// CRV/bottle-deposit line matching a random $4.97 item). No exact tag match means genuinely no
-// match -- never guess at a substitute.
+// Matching rule, confirmed live against two failure modes:
+//   - totalSize > 1 (genuinely ambiguous, e.g. a sneaker's Men's/Women's colorways): REQUIRE an
+//     exact tag match on `product.attributes.marketing_keywords.text` -- loosening this to
+//     "closest" or "lowest of all results" produced real false positives (a grapes search
+//     matching an unrelated $14.97 product, a CRV/bottle-deposit line matching a random $4.97
+//     item). No exact tag match here means genuinely no match -- never guess at a substitute.
+//   - totalSize === 1 (confirmed live: Kirkland A2 milk, item 1462714): the lone result is
+//     trusted even WITHOUT an exact tag match, since marketing_keywords is sometimes simply
+//     absent from Costco's own data for a product -- but with only one possible candidate, there
+//     is no ambiguity to guard against in the first place, so demanding the tag here only
+//     discarded real, unambiguous warehouse-price data for no safety benefit.
 function extractFromSearchResponse(searchBody, itemNumber) {
   const results = searchBody?.searchResult?.results ?? [];
   const inventoryById = new Map((searchBody?.inventoryResponse ?? []).map((inv) => [inv.productId, inv]));
-  const matching = results.filter((r) => r.product?.attributes?.marketing_keywords?.text?.includes(itemNumber));
+  const matching =
+    searchBody?.searchResult?.totalSize === 1 && results.length === 1
+      ? results
+      : results.filter((r) => r.product?.attributes?.marketing_keywords?.text?.includes(itemNumber));
   const out = [];
   for (const r of matching) {
     const inv = inventoryById.get(r.id);
