@@ -626,6 +626,12 @@ export type Ledger = {
   // to listPastCostcoRewardCycles's own walked-back past cycles, since there's no evidence the
   // same 11-day gap applies to those too. Undefined = use the computed start, unchanged.
   costcoCurrentCycleStartOverride?: string;
+  // The REAL reward figure, typed in straight from the member's own Costco account page
+  // (costco.com -> Account -> Membership Information shows "Estimated 2% Reward" directly) --
+  // simplest, most honest ground truth there is, and zero receipt-clicking required to get it.
+  // Purely a reference display next to the app's own narration/receipt-based estimates on Spend
+  // Report; never computed from anything else, never overwritten automatically.
+  costcoActualReward?: { amount: number; asOfDate: string };
   currency: string;
   createdAt: string;
   accounts: Account[];

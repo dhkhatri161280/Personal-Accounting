@@ -415,6 +415,12 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                       : "."}
                   </p>
                 )}
+                {data.costcoActualReward && (
+                  <p style={{ fontSize: 11, opacity: 0.7, margin: "4px 0 0", fontWeight: 600 }}>
+                    Actual (per Costco, as of {fmtDate(data.costcoActualReward.asOfDate)}): {fmt(data.costcoActualReward.amount)} -- typed in from your
+                    Costco account page (Masters → Settings to update).
+                  </p>
+                )}
                 {showCostcoDrilldown && (
                   <FloatingWindow title={<>Costco Executive — <span className="fw-title-amt">{fmt(costcoLinesTotal)}</span></>} onClose={() => setShowCostcoDrilldown(false)} wide>
                     <SpendVoucherTable lines={costcoLines} total={costcoLinesTotal} fmt={fmt} color="#1d4ed8" />

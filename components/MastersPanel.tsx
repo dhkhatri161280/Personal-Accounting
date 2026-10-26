@@ -77,6 +77,7 @@ export type MasterLedger = {
   companyEmail?: string;
   costcoMembershipRenewalMonthDay?: string;
   costcoCurrentCycleStartOverride?: string;
+  costcoActualReward?: { amount: number; asOfDate: string };
   currency: string;
   accounts: MasterAccount[];
   groups?: MasterGroup[];
@@ -2550,7 +2551,9 @@ export function MastersPanel({
               companyEmail = String(f.get("companyEmail") || "").trim(),
               costcoMonth = String(f.get("costcoMembershipMonth") || "").trim(),
               costcoDay = String(f.get("costcoMembershipDay") || "").trim(),
-              costcoCycleStartOverride = String(f.get("costcoCurrentCycleStartOverride") || "").trim();
+              costcoCycleStartOverride = String(f.get("costcoCurrentCycleStartOverride") || "").trim(),
+              costcoActualRewardAmount = String(f.get("costcoActualRewardAmount") || "").trim(),
+              costcoActualRewardDate = String(f.get("costcoActualRewardDate") || "").trim();
             const result = onSave(
               {
                 ...data,
@@ -2563,6 +2566,10 @@ export function MastersPanel({
                 companyEmail,
                 costcoMembershipRenewalMonthDay: costcoMonth && costcoDay ? `${costcoMonth}-${costcoDay}` : undefined,
                 costcoCurrentCycleStartOverride: costcoCycleStartOverride || undefined,
+                costcoActualReward:
+                  costcoActualRewardAmount && costcoActualRewardDate
+                    ? { amount: Math.abs(Number(costcoActualRewardAmount)), asOfDate: costcoActualRewardDate }
+                    : undefined,
               },
               "Other masters updated."
             );
@@ -2634,6 +2641,26 @@ export function MastersPanel({
               compute (exactly 12 months before the reward window closes) -- confirmed live, Costco's own page
               can be off by a few days for reasons this app has no way to know. Only affects the in-progress
               cycle's own estimate, never past cycles. Leave blank to use the computed date.
+            </span>
+          </label>
+          <label>
+            Actual 2% Reward (per Costco)
+            <span style={{ display: "flex", gap: 6 }}>
+              <input
+                type="number"
+                step="0.01"
+                name="costcoActualRewardAmount"
+                placeholder="73.29"
+                defaultValue={data.costcoActualReward?.amount ?? ""}
+                style={{ width: 100 }}
+              />
+              <input type="date" name="costcoActualRewardDate" defaultValue={data.costcoActualReward?.asOfDate || ""} max={todayLocalIso()} />
+            </span>
+            <span className="field-hint">
+              Costco's own real number, straight from your account page (costco.com → Account → Membership
+              Information shows "Estimated 2% Reward" directly) -- just type in whatever it says there. Shown
+              as a reference next to the app's own estimate on Spend Report, never computed or overwritten by
+              anything here.
             </span>
           </label>
 

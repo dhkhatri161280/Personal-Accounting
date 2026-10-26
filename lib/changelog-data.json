@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Costco Reward: optional current-cycle start override, calibrated against Costco's own account page"
+    "summary": "Costco Reward: type in the actual number from your Costco account page, no receipt-clicking needed"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Costco Reward: optional current-cycle start override"
   },
   {
     "date": "2026-10-25",
