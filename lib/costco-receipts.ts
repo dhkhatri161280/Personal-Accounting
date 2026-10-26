@@ -87,7 +87,7 @@ export function parseCostcoPriceChecksUpload(raw: unknown): CostcoPriceCheck[] {
       description: typeof o.description === "string" ? o.description : "",
       pricePaid: typeof o.pricePaid === "number" ? o.pricePaid : 0,
       currentPrice: typeof o.currentPrice === "number" ? o.currentPrice : null,
-      priceSource: o.priceSource === "warehouse" || o.priceSource === "online" ? o.priceSource : null,
+      priceSource: o.priceSource === "warehouse" || o.priceSource === "estimated-warehouse" || o.priceSource === "online" ? o.priceSource : null,
       currentPriceWarehouse: typeof o.currentPriceWarehouse === "string" ? o.currentPriceWarehouse : null,
       notSoldOnline: o.notSoldOnline === true,
       priceDropped: o.priceDropped === true,
@@ -145,7 +145,22 @@ export type CostcoWatchlistItem = {
 // ever price-match.
 const PRICE_ADJUSTMENT_WINDOW_DAYS = 30;
 
+// Item numbers with at least one return/credit line (negative amount) ANYWHERE in the receipts
+// on file, regardless of date -- if an item was later returned, it's never worth flagging as a
+// price-match candidate, no matter how recent the original purchase looked. Scoped to qualifying
+// items only (a Shop Card reload's own negative adjustment doesn't matter either way).
+function returnedItemNumbers(receipts: CostcoReceipt[]): Set<string> {
+  const out = new Set<string>();
+  for (const r of receipts) {
+    for (const item of r.items) {
+      if (item.amount < 0 && isQualifyingReceiptItem(item.description)) out.add(item.itemNumber);
+    }
+  }
+  return out;
+}
+
 export function costcoPriceMatchWatchlist(receipts: CostcoReceipt[], asOfDate: string, windowDays = PRICE_ADJUSTMENT_WINDOW_DAYS): CostcoWatchlistItem[] {
+  const returned = returnedItemNumbers(receipts);
   const out: CostcoWatchlistItem[] = [];
   for (const r of receipts) {
     if (!isQualifyingReceipt(r)) continue;
@@ -153,7 +168,9 @@ export function costcoPriceMatchWatchlist(receipts: CostcoReceipt[], asOfDate: s
     if (asOfDate > deadline) continue;
     const daysLeft = Math.round((new Date(deadline).getTime() - new Date(asOfDate).getTime()) / 86400000);
     for (const item of r.items) {
+      if (item.amount <= 0) continue; // a return/credit line itself -- not a purchase to watch
       if (!isQualifyingReceiptItem(item.description)) continue;
+      if (returned.has(item.itemNumber)) continue; // later returned -- nothing left to price-match
       out.push({
         cardholder: r.cardholder,
         date: r.date,

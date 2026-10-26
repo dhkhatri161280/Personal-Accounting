@@ -1,7 +1,15 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Price Match Watchlist: clearer messaging that an online-price drop is still reliable"
+    "summary": "Price Match Watchlist: $2 apparel warehouse estimate, Difference column/total, clears returned items"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Add zero-click receipt-list auto-discovery + scheduled task"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Price Match Watchlist: clearer messaging on online-only price drops"
   },
   {
     "date": "2026-10-25",

@@ -84,6 +84,20 @@ function searchReturnedNoResults(captured) {
 //     absent from Costco's own data for a product -- but with only one possible candidate, there
 //     is no ambiguity to guard against in the first place, so demanding the tag here only
 //     discarded real, unambiguous warehouse-price data for no safety benefit.
+// Per the user's own real shopping experience: Costco's in-warehouse price for clothing/shoes
+// typically runs about $2 under the online price when no real warehouse price is available to
+// compare directly (confirmed earlier: the Adidas sneaker's online price matched the real $7 OFF
+// Instant Savings pill, and in-warehouse pricing is normally the same or lower). Detected from
+// `product.categories`/`attributes.category_names`, which plainly say e.g. "Shoes & Boots for
+// Women" or "Clothing, Luggage & Handbags" (confirmed live on the same sneaker item). Only
+// applied as a fallback when no real warehousePrice exists -- never overrides a real one.
+const APPAREL_ADJUSTMENT = 2;
+const APPAREL_CATEGORY_RE = /cloth|shoe|apparel|footwear/i;
+function isApparelOrShoes(result) {
+  const names = [...(result.product?.categories ?? []), ...(result.product?.attributes?.category_names?.text ?? [])];
+  return names.some((n) => APPAREL_CATEGORY_RE.test(n));
+}
+
 function extractFromSearchResponse(searchBody, itemNumber) {
   const results = searchBody?.searchResult?.results ?? [];
   const inventoryById = new Map((searchBody?.inventoryResponse ?? []).map((inv) => [inv.productId, inv]));
@@ -100,7 +114,11 @@ function extractFromSearchResponse(searchBody, itemNumber) {
     if (Number.isFinite(whPrice) && whPrice > 0) {
       out.push({ price: whPrice, priceSource: "warehouse", warehouseLocationId: searchBody?.myWarehouse?.locationId ?? null });
     } else if (Number.isFinite(dlPrice) && dlPrice > 0) {
-      out.push({ price: dlPrice, priceSource: "online", warehouseLocationId: null });
+      if (isApparelOrShoes(r)) {
+        out.push({ price: Math.max(0, dlPrice - APPAREL_ADJUSTMENT), priceSource: "estimated-warehouse", warehouseLocationId: null });
+      } else {
+        out.push({ price: dlPrice, priceSource: "online", warehouseLocationId: null });
+      }
     }
   }
   return out;
@@ -163,9 +181,11 @@ async function main() {
     // online/delivery pricing), never the other way around.
     const searchPrices = searchResponse ? extractFromSearchResponse(searchResponse.body, item.itemNumber) : [];
     const displayPrices = priceResponse ? extractFromDisplayPriceLite(priceResponse.body) : [];
+    // Ranked: real warehouse price > apparel-adjusted estimate > plain online/delivery price.
     const warehousePrices = searchPrices.filter((p) => p.priceSource === "warehouse");
+    const estimatedPrices = searchPrices.filter((p) => p.priceSource === "estimated-warehouse");
     const onlinePrices = [...searchPrices.filter((p) => p.priceSource === "online"), ...displayPrices];
-    const pool = warehousePrices.length ? warehousePrices : onlinePrices;
+    const pool = warehousePrices.length ? warehousePrices : estimatedPrices.length ? estimatedPrices : onlinePrices;
     const best = pool.length ? pool.reduce((a, b) => (b.price < a.price ? b : a)) : null;
     const notSoldOnline = !searchPrices.length && !displayPrices.length && searchReturnedNoResults(captured);
     const currentPrice = best?.price ?? null;

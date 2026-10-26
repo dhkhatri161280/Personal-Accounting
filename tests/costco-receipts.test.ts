@@ -109,6 +109,23 @@ test("costcoPriceMatchWatchlist: excludes Gas Station receipts and Shop Card ite
   assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-05").length, 0);
 });
 
+test("costcoPriceMatchWatchlist: a later return/credit for the same item number clears it off the watchlist entirely", () => {
+  const receipts: CostcoReceipt[] = [
+    receipt("k1", "2026-10-01", "In-Warehouse", [{ itemNumber: "2007436", description: "ADIDAS SNKR", amount: 37.99, qty: 1 }]),
+    // The return shows up on a LATER, separate receipt -- still clears the original purchase.
+    receipt("k2", "2026-10-05", "In-Warehouse", [{ itemNumber: "2007436", description: "/2007436", amount: -37.99, qty: -1 }]),
+    receipt("k3", "2026-10-01", "In-Warehouse", [{ itemNumber: "999", description: "UNRELATED ITEM", amount: 10, qty: 1 }]),
+  ];
+  const watchlist = costcoPriceMatchWatchlist(receipts, "2026-10-10");
+  assert.equal(watchlist.some((w) => w.itemNumber === "2007436"), false);
+  assert.equal(watchlist.some((w) => w.itemNumber === "999"), true);
+});
+
+test("costcoPriceMatchWatchlist: a return line itself never appears as a watchlist entry", () => {
+  const receipts: CostcoReceipt[] = [receipt("k1", "2026-10-01", "In-Warehouse", [{ itemNumber: "1", description: "X", amount: -5, qty: -1 }])];
+  assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-05").length, 0);
+});
+
 function priceCheck(itemNumber: string, overrides: Partial<CostcoPriceCheck> = {}): CostcoPriceCheck {
   return { itemNumber, description: "X", pricePaid: 10, currentPrice: null, notSoldOnline: false, priceDropped: false, checkedAt: "2026-10-26T00:00:00Z", ...overrides };
 }

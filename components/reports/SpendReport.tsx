@@ -170,6 +170,13 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     [costcoWatchlist, onlyPriceDrops]
   );
   const priceDropCount = useMemo(() => costcoWatchlist.filter((w) => w.priceCheck?.priceDropped).length, [costcoWatchlist]);
+  // Total savings across whatever's currently visible (respects the "only show matches" filter) --
+  // only counts rows with a confirmed drop; a non-dropped or unchecked row contributes $0, not a
+  // negative/meaningless number.
+  const costcoWatchlistSavingsTotal = useMemo(
+    () => costcoWatchlistFiltered.reduce((s, w) => s + (w.priceCheck?.priceDropped ? w.pricePaid - (w.priceCheck.currentPrice ?? w.pricePaid) : 0), 0),
+    [costcoWatchlistFiltered]
+  );
 
   const expenseAccountIds = useMemo(
     () => new Set(data.accounts.filter((a) => a.category === "Expense").map((a) => a.id)),
@@ -541,60 +548,81 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                   <th>Item</th>
                   <th className="right">Paid</th>
                   <th className="right">Current</th>
+                  <th className="right">Difference</th>
                   <th className="right">Deadline (at least)</th>
                   <th>Check now</th>
                 </tr>
               </thead>
               <tbody>
-                {costcoWatchlistFiltered.map((w, i) => (
-                  <tr key={`${w.itemNumber}-${w.date}-${i}`}>
-                    <td>{fmtDate(w.date)}</td>
-                    <td>{w.cardholder || "—"}</td>
-                    <td className="fx-narration" title={`Item #${w.itemNumber}`}>
-                      {w.description}
-                    </td>
-                    <td className="right">{fmt(w.pricePaid)}</td>
-                    <td className="right">
-                      {!w.priceCheck ? (
-                        <span style={{ opacity: 0.4 }}>not checked</span>
-                      ) : w.priceCheck.notSoldOnline ? (
-                        <span style={{ opacity: 0.6, fontSize: 11 }}>not sold online</span>
-                      ) : w.priceCheck.currentPrice == null ? (
-                        <span style={{ opacity: 0.4 }}>no match</span>
-                      ) : (
-                        <span
-                          style={{ color: w.priceCheck.priceDropped ? "#16a34a" : undefined, fontWeight: w.priceCheck.priceDropped ? 700 : undefined }}
-                          title={
-                            w.priceCheck.priceSource === "online"
-                              ? "Online/delivery price -- Costco had no in-warehouse price available for this item. In-warehouse runs the same or lower (Instant Savings promos apply both ways), so if this shows a drop, your in-store price is at least this good."
-                              : w.priceCheck.priceSource === "warehouse"
-                                ? "In-warehouse price, at whichever store your Costco account's \"My Warehouse\" is set to"
-                                : undefined
-                          }
+                {costcoWatchlistFiltered.map((w, i) => {
+                  const diff = w.priceCheck?.priceDropped ? w.pricePaid - (w.priceCheck.currentPrice ?? w.pricePaid) : null;
+                  return (
+                    <tr key={`${w.itemNumber}-${w.date}-${i}`}>
+                      <td>{fmtDate(w.date)}</td>
+                      <td>{w.cardholder || "—"}</td>
+                      <td className="fx-narration" title={`Item #${w.itemNumber}`}>
+                        {w.description}
+                      </td>
+                      <td className="right">{fmt(w.pricePaid)}</td>
+                      <td className="right">
+                        {!w.priceCheck ? (
+                          <span style={{ opacity: 0.4 }}>not checked</span>
+                        ) : w.priceCheck.notSoldOnline ? (
+                          <span style={{ opacity: 0.6, fontSize: 11 }}>not sold online</span>
+                        ) : w.priceCheck.currentPrice == null ? (
+                          <span style={{ opacity: 0.4 }}>no match</span>
+                        ) : (
+                          <span
+                            style={{ color: w.priceCheck.priceDropped ? "#16a34a" : undefined, fontWeight: w.priceCheck.priceDropped ? 700 : undefined }}
+                            title={
+                              w.priceCheck.priceSource === "online"
+                                ? "Online/delivery price -- Costco had no in-warehouse price available for this item. In-warehouse runs the same or lower (Instant Savings promos apply both ways), so if this shows a drop, your in-store price is at least this good."
+                                : w.priceCheck.priceSource === "estimated-warehouse"
+                                  ? "Estimated in-warehouse price -- no real warehouse price was available, so this is the online price minus $2 (clothing/shoes typically run about that much lower in-warehouse)."
+                                  : w.priceCheck.priceSource === "warehouse"
+                                    ? "In-warehouse price, at whichever store your Costco account's \"My Warehouse\" is set to"
+                                    : undefined
+                            }
+                          >
+                            {fmt(w.priceCheck.currentPrice)}
+                            {w.priceCheck.priceSource === "online" && <small style={{ opacity: 0.6, fontWeight: 400 }}> (online)</small>}
+                            {w.priceCheck.priceSource === "estimated-warehouse" && <small style={{ opacity: 0.6, fontWeight: 400 }}> (est.)</small>}
+                            {w.priceCheck.priceDropped && " ✓ match"}
+                          </span>
+                        )}
+                      </td>
+                      <td className="right" style={{ color: diff ? "#16a34a" : undefined, fontWeight: diff ? 700 : undefined }}>
+                        {diff != null ? fmt(diff) : "—"}
+                      </td>
+                      <td className="right" style={{ color: w.daysLeft <= 5 ? "#dc2626" : undefined }}>
+                        {fmtDate(w.priceAdjustmentDeadlineAtLeast)} ({w.daysLeft}d)
+                      </td>
+                      <td>
+                        <a
+                          href={`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(w.itemNumber)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="tr-refresh-btn"
+                          style={{ textDecoration: "none", display: "inline-block" }}
                         >
-                          {fmt(w.priceCheck.currentPrice)}
-                          {w.priceCheck.priceSource === "online" && <small style={{ opacity: 0.6, fontWeight: 400 }}> (online)</small>}
-                          {w.priceCheck.priceDropped && " ✓ match"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="right" style={{ color: w.daysLeft <= 5 ? "#dc2626" : undefined }}>
-                      {fmtDate(w.priceAdjustmentDeadlineAtLeast)} ({w.daysLeft}d)
-                    </td>
-                    <td>
-                      <a
-                        href={`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(w.itemNumber)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="tr-refresh-btn"
-                        style={{ textDecoration: "none", display: "inline-block" }}
-                      >
-                        Check price ↗
-                      </a>
-                    </td>
-                  </tr>
-                ))}
+                          Check price ↗
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              {costcoWatchlistSavingsTotal > 0 && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={5}>Total potential savings</td>
+                    <td className="right" style={{ color: "#16a34a", fontWeight: 700 }}>
+                      {fmt(costcoWatchlistSavingsTotal)}
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </>

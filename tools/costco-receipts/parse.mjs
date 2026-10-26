@@ -136,8 +136,13 @@ function main() {
       warehouse: r.warehouseName,
       receiptType: r.receiptType,
       total: r.total,
+      // Return/credit lines (negative amount) are kept, not dropped -- an app-side watchlist
+      // filter cross-references them to clear a price-match entry for an item that was later
+      // returned (see returnedItemNumbers in lib/costco-receipts.ts). A prior version filtered
+      // these out entirely, which also meant item-level returns never reduced the receipt-based
+      // reward calculation either -- this is a real correctness fix, not just a watchlist nicety.
       items: r.itemArray
-        .filter((i) => i.itemDescription01 != null && i.amount >= 0)
+        .filter((i) => i.itemDescription01 != null)
         .map((i) => ({
           itemNumber: i.itemNumber,
           description: [i.itemDescription01, i.itemDescription02].filter(Boolean).join(" "),

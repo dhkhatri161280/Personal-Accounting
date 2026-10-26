@@ -2,3 +2,9 @@
 .profiles/
 .captures/
 node_modules/
+# Scheduled-run log/status -- local run artifacts, regenerated every run. Unlike
+# ../excel-sync's own log files, the sync-log.txt here can end up quoting auto-capture.mjs's
+# "Captured header names" diagnostic line, which is fine to print (names only, never values) but
+# not worth committing to git either.
+last-sync-status.json
+sync-log.txt
