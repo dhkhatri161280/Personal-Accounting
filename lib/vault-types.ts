@@ -449,6 +449,34 @@ export type PayrollDirectDepositSplit = {
   active: boolean;
 };
 
+// One line item on a real Costco receipt, as captured straight from Costco's own order-history
+// API (see tools/costco-receipts/) -- NOT derived or guessed from Day Book narration. `amount` is
+// what was actually paid for this line (qty x unit price), always positive; a return/adjustment
+// line is dropped during import rather than carried as a negative amount here.
+export type CostcoReceiptItem = {
+  itemNumber: string;
+  description: string;
+  amount: number;
+  qty: number;
+};
+
+// One real Costco receipt (one till transaction), imported via Masters -> Costco Receipts. The
+// one real source for BOTH the Executive 2% Reward calculation and the Price Match Watchlist --
+// see lib/costco-receipts.ts -- instead of guessing either from voucher narration the way
+// lib/costco-reward.ts's older estimate still does for periods with no receipt on file.
+export type CostcoReceipt = {
+  // Stable identity (warehouse+register+transaction number+date) so re-importing the same
+  // receipt from a later capture run never creates a duplicate -- MUST stay in sync with
+  // receiptKey() in tools/costco-receipts/parse.mjs, the only thing that generates these.
+  key: string;
+  cardholder: string; // whichever --label/--profile the capture was run under (e.g. "dignesh")
+  date: string; // YYYY-MM-DD
+  warehouse: string;
+  receiptType: string; // Costco's own field verbatim -- "In-Warehouse", "Gas Station", etc.
+  total: number;
+  items: CostcoReceiptItem[];
+};
+
 export type BudgetLine = {
   id: string;
   accountId: number;
@@ -633,6 +661,9 @@ export type Ledger = {
   // Deposit -- see PayrollDirectDepositSplit above. Empty/unset falls back to depositing the
   // whole paycheck in whichever account the Plaid transaction's own institution matches.
   payrollDirectDeposit?: PayrollDirectDepositSplit[];
+  // Real itemized Costco receipts imported from Masters -> Costco Receipts. See CostcoReceipt's
+  // own comment and lib/costco-receipts.ts.
+  costcoReceipts?: CostcoReceipt[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];

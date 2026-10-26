@@ -15,6 +15,7 @@ import {
   listPastCostcoRewardCycles,
   type CostcoRewardWindow,
 } from "@/lib/costco-reward";
+import { computeCostcoRewardFromReceipts, costcoPriceMatchWatchlist } from "@/lib/costco-receipts";
 
 // Shared by the current- and previous-cycle drill-downs below -- same per-entry Expense/Income
 // netting as the report's own expenseLines/incomeLines (not computeCostcoRewardEstimate's whole-
@@ -129,6 +130,26 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     return listPastCostcoRewardCycles(data.costcoMembershipRenewalMonthDay, costcoReward.window.start, data.transactions);
   }, [data.costcoMembershipRenewalMonthDay, data.transactions, costcoReward]);
   const prevCostcoReward = pastCycles[selectedPastCycleIndex] ?? null;
+
+  // Cross-check against the narration-based estimate above, computed from REAL itemized receipts
+  // (Masters -> Costco Receipts) when any are on file -- see lib/costco-receipts.ts's own comment
+  // for why this is more exact (receiptType settles Gas Station outright, a Shop Card shows up as
+  // its own item line) than guessing either from voucher narration. Deliberately shown ALONGSIDE
+  // the narration estimate, not replacing it -- receipt coverage is whatever's been imported so
+  // far, never guaranteed complete for the whole cycle, so silently swapping the headline number
+  // could understate it the moment coverage is partial.
+  const receiptReward = useMemo(() => {
+    if (!costcoReward || !data.costcoReceipts?.length) return null;
+    return computeCostcoRewardFromReceipts(data.costcoReceipts, costcoReward.window.start, costcoReward.window.end);
+  }, [costcoReward, data.costcoReceipts]);
+
+  // Items from real receipts still inside Costco's price-adjustment window (>= 30 days --
+  // see costcoPriceMatchWatchlist's own comment on why this is a floor, not an exact cutoff).
+  const costcoWatchlist = useMemo(
+    () => (data.costcoReceipts?.length ? costcoPriceMatchWatchlist(data.costcoReceipts, todayLocalIso()) : []),
+    [data.costcoReceipts]
+  );
+  const [showWatchlistInfo, setShowWatchlistInfo] = useState(false);
 
   const expenseAccountIds = useMemo(
     () => new Set(data.accounts.filter((a) => a.category === "Expense").map((a) => a.id)),
@@ -373,6 +394,15 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     <div className="costco-reward-amt" style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(costcoReward.estimate.estimatedReward)}</div>
                   </span>
                 </button>
+                {receiptReward && (
+                  <p style={{ fontSize: 11, opacity: 0.7, margin: "4px 0 0" }}>
+                    Verified from {receiptReward.receiptCount} real receipt{receiptReward.receiptCount !== 1 ? "s" : ""} this cycle
+                    (Masters → Costco Receipts): {fmt(receiptReward.qualifyingSpend)} qualifying spend, {fmt(receiptReward.estimatedReward)} reward
+                    {Math.abs(receiptReward.estimatedReward - costcoReward.estimate.estimatedReward) > 0.5
+                      ? " -- differs from the narration estimate above because not every voucher this cycle has a matching receipt imported yet."
+                      : "."}
+                  </p>
+                )}
                 {showCostcoDrilldown && (
                   <FloatingWindow title={<>Costco Executive — <span className="fw-title-amt">{fmt(costcoLinesTotal)}</span></>} onClose={() => setShowCostcoDrilldown(false)} wide>
                     <SpendVoucherTable lines={costcoLines} total={costcoLinesTotal} fmt={fmt} color="#1d4ed8" />
@@ -425,6 +455,68 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                 </div>
               )}
             </div>
+          </div>
+        </>
+      )}
+
+      {costcoWatchlist.length > 0 && (
+        <>
+          <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e5e7eb" }} />
+          <div className="data-panel" style={{ padding: 12 }}>
+            <h4 style={{ margin: "0 0 8px", display: "flex", alignItems: "center", gap: 8 }}>
+              Costco Price Match Watchlist
+              <span
+                className="info-icon-wrap"
+                onMouseEnter={() => setShowWatchlistInfo(true)}
+                onMouseLeave={() => setShowWatchlistInfo(false)}
+              >
+                <button
+                  type="button"
+                  className="info-icon-btn"
+                  aria-label="How this watchlist works"
+                  onClick={() => setShowWatchlistInfo((v) => !v)}
+                >
+                  ⓘ
+                </button>
+                {showWatchlistInfo && (
+                  <div className="info-icon-popover">
+                    Every item from an imported Costco receipt (Masters → Costco Receipts) still within
+                    Costco's price-adjustment window -- 30 days is used as a conservative floor; some
+                    categories (electronics especially) get longer per Costco's own terms, but there's no
+                    reliable field in this data to tell those apart, so an item just past 30 days may still
+                    be worth checking rather than assuming it's expired. This only tells you WHAT you bought
+                    and WHEN the window closes -- checking whether the price actually dropped still has to
+                    happen live, on costco.com or in the app, with your own warehouse/location selected.
+                  </div>
+                )}
+              </span>
+            </h4>
+            <table className="fx-ledger-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Who</th>
+                  <th>Item</th>
+                  <th className="right">Paid</th>
+                  <th className="right">Deadline (at least)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {costcoWatchlist.map((w, i) => (
+                  <tr key={`${w.itemNumber}-${w.date}-${i}`}>
+                    <td>{fmtDate(w.date)}</td>
+                    <td>{w.cardholder || "—"}</td>
+                    <td className="fx-narration" title={`Item #${w.itemNumber}`}>
+                      {w.description}
+                    </td>
+                    <td className="right">{fmt(w.pricePaid)}</td>
+                    <td className="right" style={{ color: w.daysLeft <= 5 ? "#dc2626" : undefined }}>
+                      {fmtDate(w.priceAdjustmentDeadlineAtLeast)} ({w.daysLeft}d)
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}

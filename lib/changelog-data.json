@@ -1,7 +1,19 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Costco Reward: only Costco Shop Cards excluded, third-party gift cards now earn 2%"
+    "summary": "Masters: Costco Receipts import + Spend Report Price Match Watchlist, from real itemized data"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Costco receipt capture: attach to real Chrome instead of driving a fresh one"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Add Costco receipt capture tool (price-match watchlist, Phase 1)"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Costco Reward: fix over-broad gift-card exclusion"
   },
   {
     "date": "2026-10-25",

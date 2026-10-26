@@ -4,7 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument } from "@/lib/vault-types";
+import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt } from "@/lib/vault-types";
+import { mergeCostcoReceipts, parseCostcoReceiptsUpload } from "@/lib/costco-receipts";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -101,6 +102,7 @@ export type MasterLedger = {
   auditLog?: AuditEntry[];
   fixedAssets?: FixedAsset[];
   documents?: VaultDocument[];
+  costcoReceipts?: CostcoReceipt[];
 };
 
 const standard: MasterGroup[] = [
@@ -552,7 +554,7 @@ export function MastersPanel({
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
-  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "settings";
+  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "settings";
   // Applies a Fixed Asset # to every voucher already posted on an untagged asset's own ledger --
   // routed through a dedicated prop (not the generic onSave above) because it needs to exempt
   // those (possibly closed-period) vouchers from the closed-period check, the same way
@@ -568,7 +570,7 @@ export function MastersPanel({
   // local hook so a standalone render (e.g. a QA route) still works without this prop.
   privacyMode?: boolean;
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "settings">(initialSection ?? "ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "settings">(initialSection ?? "ledgers"),
     // Inline confirmation/error for the Settings form's own Save button -- see that form's
     // onSubmit and onSave's doc comment above for why this exists alongside the global toast.
     [settingsSaveState, setSettingsSaveState] = useState<"saving" | "saved" | "error" | null>(null),
@@ -618,7 +620,9 @@ export function MastersPanel({
     [editingDocumentId, setEditingDocumentId] = useState<string | null>(null),
     [editingDocumentLabel, setEditingDocumentLabel] = useState(""),
     [editingDocumentCategory, setEditingDocumentCategory] = useState<VaultDocument["category"]>("Pay Stub"),
-    [editingDocumentDate, setEditingDocumentDate] = useState("");
+    [editingDocumentDate, setEditingDocumentDate] = useState(""),
+    [uploadingCostcoReceipts, setUploadingCostcoReceipts] = useState(false),
+    [costcoReceiptsError, setCostcoReceiptsError] = useState("");
   const { privacyMode: privacyModeLocal } = useUiPrefs();
   const privacyMode = privacyModeProp ?? privacyModeLocal;
 
@@ -1216,6 +1220,36 @@ export function MastersPanel({
       "Direct deposit split removed."
     );
   };
+  // Reads receipts.json (produced by tools/costco-receipts/parse.mjs) client-side -- no R2
+  // attachment involved, unlike uploadDocuments above, since this is small structured JSON meant
+  // to live inline in the encrypted vault blob (like payrollDirectDeposit) rather than a binary
+  // file. mergeCostcoReceipts dedupes against whatever's already on file by each receipt's own
+  // key, so re-importing the same file (or a newer capture that re-covers older receipts) is safe.
+  async function importCostcoReceipts(file: File) {
+    setUploadingCostcoReceipts(true);
+    setCostcoReceiptsError("");
+    try {
+      const text = await file.text();
+      const parsed = parseCostcoReceiptsUpload(JSON.parse(text));
+      const merged = mergeCostcoReceipts((data.costcoReceipts || []) as CostcoReceipt[], parsed);
+      const added = merged.length - (data.costcoReceipts || []).length;
+      onSave(
+        { ...data, costcoReceipts: merged },
+        `Imported ${parsed.length} receipt(s) -- ${added} new, ${parsed.length - added} already on file.`
+      );
+    } catch (err) {
+      setCostcoReceiptsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid receipts.json?");
+    } finally {
+      setUploadingCostcoReceipts(false);
+    }
+  }
+  const deleteCostcoReceipt = (r: CostcoReceipt) => {
+    if (!confirm(`Remove this receipt (${r.date}, ${r.warehouse}, $${r.total.toFixed(2)})?`)) return;
+    onSave(
+      { ...data, costcoReceipts: (data.costcoReceipts || []).filter((x) => x.key !== r.key) },
+      "Receipt removed."
+    );
+  };
   const toggleCandidateSelected = (key: string) => {
     setSelectedCandidateKeys((prev) => {
       const next = new Set(prev);
@@ -1403,6 +1437,12 @@ export function MastersPanel({
             Documents
           </button>
         )}
+        <button
+          className={section === "costcoreceipts" ? "selected" : ""}
+          onClick={() => setSection("costcoreceipts")}
+        >
+          Costco Receipts
+        </button>
         <button
           className={section === "settings" ? "selected" : ""}
           onClick={() => setSection("settings")}
@@ -2414,6 +2454,79 @@ export function MastersPanel({
           )}
         </>
       )}
+      {section === "costcoreceipts" && (() => {
+        const receipts = [...(data.costcoReceipts || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+        const cardholders = [...new Set(receipts.map((r) => r.cardholder).filter(Boolean))].sort();
+        return (
+          <>
+            <div className="master-toolbar">
+              <span>
+                {receipts.length} receipt{receipts.length === 1 ? "" : "s"} imported
+                {cardholders.length ? ` — ${cardholders.join(", ")}` : ""}
+              </span>
+              <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
+                {uploadingCostcoReceipts ? "Importing…" : "Import receipts.json…"}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  disabled={uploadingCostcoReceipts}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importCostcoReceipts(file);
+                  }}
+                />
+              </label>
+            </div>
+            <p className="field-hint" style={{ margin: "0 0 0.75rem" }}>
+              Real itemized Costco receipts, captured straight from Costco&apos;s own order-history API (see{" "}
+              <code>tools/costco-receipts/</code> in the repo) -- not guessed from Day Book narration. This is
+              the one source for both the Costco Executive 2% Reward calculation and the Price Match
+              Watchlist on the Spend Report. Re-importing the same file is safe -- receipts are deduped by
+              their own warehouse/register/transaction number.
+            </p>
+            {costcoReceiptsError && <p className="equity-pdf-error">{costcoReceiptsError}</p>}
+            {receipts.length === 0 ? (
+              <p style={{ opacity: 0.7 }}>
+                No receipts imported yet. Run the capture tool at <code>tools/costco-receipts/</code>, then
+                import the <code>.captures/receipts.json</code> it produces.
+              </p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Cardholder</th>
+                    <th>Warehouse</th>
+                    <th>Type</th>
+                    <th className="right">Total</th>
+                    <th className="right">Items</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receipts.map((r) => (
+                    <tr key={r.key}>
+                      <td>{fmtDate(r.date)}</td>
+                      <td>{r.cardholder || "—"}</td>
+                      <td>{r.warehouse || "—"}</td>
+                      <td>{r.receiptType || "—"}</td>
+                      <td className="right">${r.total.toFixed(2)}</td>
+                      <td className="right">{r.items.length}</td>
+                      <td>
+                        <button className="master-delete" onClick={() => deleteCostcoReceipt(r)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        );
+      })()}
       {section === "settings" && (
         <form
           className="master-form settings-form"
