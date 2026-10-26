@@ -1,7 +1,7 @@
 [
   {
-    "date": "2026-10-26",
-    "summary": "Assistant: detect a stuck repeated tool call and answer directly instead of looping to the cap"
+    "date": "2026-10-25",
+    "summary": "Assistant: detect a stuck repeated tool call, answer directly instead of looping"
   },
   {
     "date": "2026-10-25",

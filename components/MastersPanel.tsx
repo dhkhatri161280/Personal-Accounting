@@ -1832,6 +1832,8 @@ export function MastersPanel({
                 <th>Label</th>
                 <th>Frequency</th>
                 <th>Amount</th>
+                <th>Dr Ledger</th>
+                <th>Cr Ledger</th>
                 <th>Plaid Match</th>
                 <th>Status</th>
                 <th>Last Paid</th>
@@ -1843,11 +1845,18 @@ export function MastersPanel({
               {(data.recurringTemplates || [])
                 .slice()
                 .sort((a, b) => a.label.localeCompare(b.label))
-                .map((t) => (
+                .map((t) => {
+                  const debitId = t.entries.find((e) => e.amount < 0)?.accountId;
+                  const creditId = t.entries.find((e) => e.amount > 0)?.accountId;
+                  const debitAcct = data.accounts.find((a) => a.id === debitId);
+                  const creditAcct = data.accounts.find((a) => a.id === creditId);
+                  return (
                   <tr key={t.id}>
                     <td>{t.label}</td>
                     <td>{frequencyLabel(t)}</td>
                     <td className="right">{Math.abs(t.entries.find((e) => e.amount < 0)?.amount ?? 0).toFixed(2)}</td>
+                    <td title={debitId != null ? `Account #${debitId}` : undefined}>{debitAcct?.name || "—"}</td>
+                    <td title={creditId != null ? `Account #${creditId}` : undefined}>{creditAcct?.name || "—"}</td>
                     <td>{t.plaidMatch ? t.plaidMatch.institutionPattern : "Manual only"}</td>
                     <td>
                       <span className={`master-status ${t.active ? "synced" : "pending"}`}>
@@ -1870,7 +1879,8 @@ export function MastersPanel({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
             </tbody>
           </table>
         </>
