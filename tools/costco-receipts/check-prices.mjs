@@ -52,9 +52,43 @@ function extractPrices(body) {
 function findDisplayPriceResponse(captured) {
   return captured.find((c) => c.url.includes("display-price-lite"));
 }
+function findSearchResponse(captured) {
+  return captured.find((c) => c.url.includes("/catalog/search/api/v1/search"));
+}
 function searchReturnedNoResults(captured) {
-  const search = captured.find((c) => c.url.includes("/catalog/search/api/v1/search"));
-  return search?.body?.searchResult?.totalSize === 0;
+  return findSearchResponse(captured)?.body?.searchResult?.totalSize === 0;
+}
+
+// Fallback for when the search is AMBIGUOUS (multiple matching products -- e.g. a sneaker's
+// Men's/Women's colorways) and no single-product display-price-lite call ever fires. Confirmed
+// live: item 2007436 (an Adidas sneaker, $37.99 paid) returned 4 search results and NO
+// display-price-lite call, even though the search results themselves plainly carry a real,
+// already-discounted current price ($32.99, with a further "$7 OFF" Instant Savings pill) --
+// missing this meant a real price match was reported as "no match". Each result's own
+// `variantRollupValues` object carries dynamically-named keys like "inventory(847, price)" (847 =
+// a warehouse code) -- this pulls every one of those plus the plain "price" fallback. Picks the
+// result whose own marketing_keywords contains the exact item number searched for (confirmed
+// live: Costco tags every product with its item number there), so a multi-result page still
+// compares against the SAME item that was actually bought, not just whichever result came first.
+function extractPricesFromSearchResults(searchBody, itemNumber) {
+  const results = searchBody?.searchResult?.results ?? [];
+  // STRICT exact match only -- confirmed live, falling back to "closest" or "lowest of all
+  // results" when nothing tags the exact item number produces real false positives (a grapes
+  // search returning an unrelated $14.97 match, a CRV/bottle-deposit line matching some random
+  // $4.97 product). No match here means genuinely no match -- never guess at a substitute.
+  const matching = results.filter((r) => r.product?.attributes?.marketing_keywords?.text?.includes(itemNumber));
+  const out = [];
+  for (const r of matching) {
+    const roll = r.variantRollupValues ?? {};
+    for (const [key, val] of Object.entries(roll)) {
+      if (!/^inventory\([^,]+,\s*price\)$/.test(key)) continue;
+      const price = Array.isArray(val) ? val[0] : val;
+      if (typeof price === "number" && price > 0) out.push({ warehouseNumber: key.match(/^inventory\(([^,]+),/)[1], price });
+    }
+    const plain = Array.isArray(roll.price) ? roll.price[0] : roll.price;
+    if (typeof plain === "number" && plain > 0 && !out.some((p) => p.price === plain)) out.push({ warehouseNumber: null, price: plain });
+  }
+  return out;
 }
 
 async function main() {
@@ -108,9 +142,13 @@ async function main() {
     writeFileSync(join(RAW_DIR, `${item.itemNumber}.json`), JSON.stringify(captured, null, 2));
 
     const priceResponse = findDisplayPriceResponse(captured);
-    const prices = priceResponse ? extractPrices(priceResponse.body) : [];
+    let prices = priceResponse ? extractPrices(priceResponse.body) : [];
+    if (!prices.length) {
+      const searchResponse = findSearchResponse(captured);
+      if (searchResponse) prices = extractPricesFromSearchResults(searchResponse.body, item.itemNumber);
+    }
     const lowest = prices.length ? prices.reduce((a, b) => (b.price < a.price ? b : a)) : null;
-    const notSoldOnline = !priceResponse && searchReturnedNoResults(captured);
+    const notSoldOnline = !prices.length && searchReturnedNoResults(captured);
     const currentPrice = lowest?.price ?? null;
     const priceDropped = currentPrice != null && currentPrice < item.pricePaid - 0.005;
     results.push({
