@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Assistant: fix \"when was my last X\" questions -- truncation was cutting off the most recent matches"
+    "summary": "Assistant: show what tools it actually tried when it can't settle on an answer"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Assistant: fix when-was-my-last-X questions -- truncation kept oldest, not newest"
   },
   {
     "date": "2026-10-25",

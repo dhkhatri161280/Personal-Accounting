@@ -397,7 +397,13 @@ export function ChatAssistant({
         setError(j.error || "Empty response from assistant.");
         return;
       }
-      setError("The assistant couldn't settle on an answer after several tool lookups -- please try rephrasing.");
+      // The round-cap failure previously discarded toolTrace entirely -- genuinely impossible to
+      // diagnose from the generic message alone (confirmed live: a real failure couldn't be
+      // explained from this error text, only guessed at). Surfacing exactly which tool(s) were
+      // called with which arguments turns the next occurrence into something fixable instead of
+      // another round of blind guessing.
+      const triedText = toolTrace.length ? `\n\nWhat it tried:\n${toolTrace.map((t, i) => `${i + 1}. ${t}`).join("\n")}` : "";
+      setError(`The assistant couldn't settle on an answer after several tool lookups -- please try rephrasing.${triedText}`);
     } catch {
       setError("Network error -- please try again.");
     } finally {
@@ -474,7 +480,7 @@ export function ChatAssistant({
             {sending && <div className="chat-assistant-message chat-assistant-message--assistant">…</div>}
           </div>
           {error && (
-            <p style={{ margin: "0 10px 8px", fontSize: 12, color: "#991b1b" }}>{error}</p>
+            <p style={{ margin: "0 10px 8px", fontSize: 12, color: "#991b1b", whiteSpace: "pre-wrap" }}>{error}</p>
           )}
           <div className="chat-assistant-input-row">
             <input
