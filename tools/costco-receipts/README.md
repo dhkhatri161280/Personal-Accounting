@@ -1,84 +1,125 @@
-# Costco Receipt Capture (price-match watchlist, Phase 1)
+# Costco Receipt Capture & Price Match Watchlist
 
-Goal: know which Costco purchases are still inside the 30-day (sometimes longer, e.g. TVs)
-price-adjustment window, and what's currently price-matchable, so nothing gets missed.
+Goal: know which Costco purchases are still inside the 30-day (sometimes longer, e.g.
+electronics) price-adjustment window, what the real current price is, and feed real itemized
+data into the Costco Executive 2% Reward calculation -- all from real Costco data, not guessed
+from Day Book narration.
 
-This app has no itemized purchase data today -- Day Book only has voucher totals like
-"Shopping @ Costco -- $363.01", not item names/prices. Getting item-level data means pulling it
-from Costco's own Order & Purchase History, and Costco has no public API for that -- so this tool
-watches a real browser session to capture it.
+This app has no itemized purchase data on its own -- Day Book only has voucher totals like
+"Shopping @ Costco -- $363.01", not item names/prices. Costco has no public API, so this toolset
+drives a real, already-logged-in Chrome session through Costco's own site to get it.
 
-Two ways to do that -- **use `attach.mjs` (Method A) first.** `capture.mjs` (Method B) was the
-original approach and is kept for reference, but Costco's own bot detection blocked it live
-(login silently did nothing in the Playwright-launched window, even though the same ID/password
-worked fine in a normal browser) -- a freshly-automated browser gets flagged even with nothing
-scripted beyond opening it.
+## The debug Chrome (needed by everything below)
 
-## Method A -- attach to your real Chrome (recommended, use this)
+Every script here connects to a real Chrome window running with remote debugging enabled, using
+its own SEPARATE profile folder (`C:\Users\dikhatri\ChromeDebugProfile`) -- not your everyday
+Chrome. That separation matters: it means launching it never requires closing your normal
+browsing, and it's a one-time setup.
 
-No automation drives anything here -- every click and keystroke is genuinely you, in your own
-Chrome, already logged into Costco from however you normally browse. This script only listens to
-network responses over Chrome's remote debugging protocol; Costco has nothing to flag as a bot
-because nothing is acting like one.
+**First time only** -- seed the debug profile from your real one (picks up your Costco login):
+```bash
+robocopy "C:\Users\dikhatri\AppData\Local\Google\Chrome\User Data" "C:\Users\dikhatri\ChromeDebugProfile" /E /XD "Cache" "Code Cache" "GPUCache" "CacheStorage" "blob_storage" "shared_proto_db" "component_crx_cache" "extensions_crx_cache" "Crashpad" "ShaderCache" "GrShaderCache" "Service Worker" "IndexedDB"
+```
 
-**Setup (one time):**
+**Every time you want to use any script below** -- launch it:
+```bash
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\Users\dikhatri\ChromeDebugProfile"
+```
+If it's not already logged into Costco, log in there once (check "Keep me signed in") -- it'll
+stay logged in across future launches. Also confirm **My Warehouse** (top of costco.com) is set
+to the real store you shop at -- it drives real in-warehouse pricing (see check-prices.mjs).
+
+## Setup (one time)
+
 ```bash
 cd tools/costco-receipts
 npm install
 ```
-(no `playwright install chromium` needed for this method -- it attaches to your existing Chrome
-install, not a Playwright-managed one)
 
-**Each time you want a capture:**
-1. Fully quit Chrome -- check Task Manager too; a background Chrome process will block the next
-   step from attaching to your real profile.
-2. Launch Chrome with remote debugging enabled, using your real profile (so you're already logged
-   into everything, Costco included, if you normally stay logged in):
-   ```bash
-   "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\Users\dikhatri\AppData\Local\Google\Chrome\User Data"
-   ```
-3. In that Chrome window, go to costco.com, log in normally if needed, and navigate to
-   **Order & Purchase History / Digital Receipts**. Click into a few real orders so the
-   itemized detail (not just the order summary list) actually loads.
-4. In a separate terminal, run:
-   ```bash
-   npm run attach -- --label=dignesh
-   ```
-   (`--label` is just for naming the output folder -- use `--label=hiral` for the other account;
-   since this is just watching whatever's logged into that Chrome window, log out/in as the other
-   person in the same window between captures, or use Chrome's own "Add person" profile switcher)
-5. Keep browsing in the Chrome window -- every JSON response it loads is captured automatically.
-6. Come back to the terminal and press Enter when done. This only disconnects the capture
-   listener -- your Chrome window stays open.
+## The scripts
 
-## Method B -- Playwright-managed browser (fallback, likely blocked by Costco)
+### `auto-capture.mjs` -- find new receipts, zero clicking
+```bash
+node auto-capture.mjs --label=dignesh
+```
+Calls Costco's own receipt-LIST API directly (the same thing Order & Purchase History loads on
+its own) and tells you exactly which **recent** receipts (inside the price-match window) still
+need a manual click for item detail -- not the whole history, just what's actually actionable.
+Safe to run anytime, including on a schedule (see below) -- it never clicks anything itself, so
+there's nothing to go wrong.
+
+It deliberately does NOT auto-fetch itemized detail per receipt. Costco protects that endpoint
+with Kasada (anti-bot), which issues a fresh cryptographic token per request -- replaying a
+captured token for a different request is flatly rejected (confirmed live: every attempt 400'd).
+That's Costco's security working correctly; this script doesn't try to get around it.
+
+### `attach.mjs` -- capture item detail (still needs your actual clicks)
+```bash
+node attach.mjs --label=dignesh
+```
+Attaches to the debug Chrome and silently records every JSON response while **you** browse --
+every click and keystroke is genuinely yours, so there's nothing for Costco to flag. Go to
+**Order & Purchase History**, click "View Receipt" on whichever receipts `auto-capture.mjs` just
+told you still need it, then press Enter in the terminal when done.
+
+### `check-prices.mjs` -- live current-price check, zero clicking
+```bash
+node check-prices.mjs
+```
+For every item still in the price-match window (from `.captures/watchlist.json`), searches
+costco.com and pulls the REAL current price -- preferring the true in-warehouse price (at
+whichever store "My Warehouse" is set to) over the online/delivery price, which can legitimately
+differ. Fully automated, no clicking.
+
+### `parse.mjs` -- turn raw captures into clean, importable files
+```bash
+node parse.mjs
+```
+Reads everything under `.captures/<name>/`, writes `.captures/receipts.json` (import this into
+**Masters → Costco Receipts** in the app) and `.captures/watchlist.json` (used by the other
+scripts here).
+
+## Typical workflow
 
 ```bash
-npx playwright install chromium   # one-time, only needed for this method
-npm run capture -- --profile=dignesh
+# 1. Launch the debug Chrome (see above) if it's not already running.
+# 2. See what's new:
+node auto-capture.mjs --label=dignesh
+# 3. If it lists anything, click those few receipts in the Chrome window, then:
+node attach.mjs --label=dignesh
+# (click the listed receipts, press Enter when done)
+# 4. Check current prices:
+node check-prices.mjs
+# 5. Build the clean output files:
+node parse.mjs
+# 6. Import .captures/receipts.json and .captures/price-checks.json into
+#    Masters -> Costco Receipts in the app.
 ```
 
-A Chromium window opens to Costco's order history page and you log in there -- see
-`capture.mjs`'s own header comment for details. Kept in case Method A isn't workable for some
-reason, but expect Costco's bot detection to interfere with actually logging in.
+## Scheduled run (optional)
+
+`run-scheduled.ps1` + `silent-launch.vbs` run `auto-capture.mjs` automatically (launching the
+debug Chrome itself if it isn't already running) -- same pattern as `../excel-sync`'s own
+scheduled sync. This only ever runs the safe, zero-click list discovery; it never auto-clicks
+through item detail.
+
+**Test it once manually first:**
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File run-scheduled.ps1
+```
+Check `sync-log.txt` and `last-sync-status.json` afterward to confirm it worked.
+
+**Register it with Windows Task Scheduler** (weekly, Monday 8 AM -- adjust as you like):
+```powershell
+schtasks /create /tn "Costco Receipt Discovery" /tr "wscript.exe \"C:\Users\dikhatri\Documents\Codex\personal-accounting-app\tools\costco-receipts\silent-launch.vbs\"" /sc weekly /d MON /st 08:00 /f
+```
+
+To remove it later: `schtasks /delete /tn "Costco Receipt Discovery" /f`
 
 ## Output
 
-Both methods write to `.captures/<name>/<timestamp>/` -- one `.json` file per captured API
-response (`capture.mjs` also adds a `page.html` fallback snapshot). `.profiles/` (session
-cookies, Method B only) and `.captures/` (real purchase data) are both gitignored and must never
-be committed.
-
-## Next step (Phase 2, not built yet)
-
-Once a real capture exists:
-1. Read the captured JSON to find the actual item/price/purchase-date fields Costco's API
-   returns.
-2. Write a parser turning that into a clean itemized-purchase list (item name, price paid,
-   purchase date, warehouse vs. costco.com).
-3. Add a "Costco Price Match Watchlist" view (likely alongside the existing Costco Executive 2%
-   Reward section in Spend Report -- `components/reports/SpendReport.tsx`) showing items still
-   inside their 30/90-day adjustment window.
-4. Current-price lookups for watchlist items still need to happen live (per item, when you ask) --
-   there's no way to keep re-checking Costco's current pricing in the background from within this
-   app either.
+Everything lands in `.captures/<name>/<timestamp>/` -- one `.json` file per captured API
+response. `.captures/receipts.json`, `.captures/watchlist.json`, and `.captures/price-checks.json`
+are the three files `parse.mjs`/`check-prices.mjs` produce for import into the app. Both
+`.profiles/` (session cookies, legacy `capture.mjs` only) and `.captures/` (real purchase data)
+are gitignored and must never be committed.
