@@ -513,11 +513,14 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     be worth checking rather than assuming it's expired. "Current price" and the drop badge
                     come from Masters → Costco Receipts' price-checks.json import -- a REAL live lookup
                     against costco.com (tools/costco-receipts/check-prices.mjs, run through an already-
-                    authenticated browser session), not a guess. Two honest limits confirmed live: roughly
-                    half of grocery items aren't sold on costco.com at all (shown as "not sold online" --
-                    nothing to check there), and a price shown may be from whichever warehouse your Costco
-                    browser session has pinned, not necessarily the exact store you bought it at. "Check
-                    price" still jumps straight to Costco's own search for a manual look either way.
+                    authenticated browser session), not a guess -- prices Costco's own in-warehouse
+                    pricing over its online/delivery price whenever both are available (hover a price to
+                    see which; "(online)" means no in-warehouse price existed to compare). Two honest
+                    limits confirmed live: roughly half of grocery items aren't sold on costco.com at all
+                    (shown as "not sold online" -- nothing to check there), and the in-warehouse price
+                    shown is for whichever physical store your Costco account's own "My Warehouse" setting
+                    points to -- make sure that's set to where you actually shop before trusting a match.
+                    "Check price" still jumps straight to Costco's own search for a manual look either way.
                   </div>
                 )}
               </span>
@@ -557,8 +560,18 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                       ) : w.priceCheck.currentPrice == null ? (
                         <span style={{ opacity: 0.4 }}>no match</span>
                       ) : (
-                        <span style={{ color: w.priceCheck.priceDropped ? "#16a34a" : undefined, fontWeight: w.priceCheck.priceDropped ? 700 : undefined }}>
+                        <span
+                          style={{ color: w.priceCheck.priceDropped ? "#16a34a" : undefined, fontWeight: w.priceCheck.priceDropped ? 700 : undefined }}
+                          title={
+                            w.priceCheck.priceSource === "online"
+                              ? "Online/delivery price -- Costco had no in-warehouse price available for this item"
+                              : w.priceCheck.priceSource === "warehouse"
+                                ? "In-warehouse price, at whichever store your Costco account's \"My Warehouse\" is set to"
+                                : undefined
+                          }
+                        >
                           {fmt(w.priceCheck.currentPrice)}
+                          {w.priceCheck.priceSource === "online" && <small style={{ opacity: 0.6, fontWeight: 400 }}> (online)</small>}
                           {w.priceCheck.priceDropped && " ✓ match"}
                         </span>
                       )}

@@ -1,7 +1,15 @@
 [
   {
     "date": "2026-10-26",
-    "summary": "Price Match Watchlist: automated live price checks + filter to confirmed matches only"
+    "summary": "Price Match Watchlist: prefer real in-warehouse price over online, labeled honestly"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "check-prices.mjs: also extract price from search-results list, exact-match only"
+  },
+  {
+    "date": "2026-10-25",
+    "summary": "Price Match Watchlist: automated live price checks + confirmed-match filter"
   },
   {
     "date": "2026-10-25",

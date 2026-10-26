@@ -5,21 +5,22 @@
 // navigates Costco's own site search for that exact item number, captures whatever JSON API
 // response(s) load, and makes a best-effort attempt to pull a current price out of them.
 //
-// Confirmed against a real run (2026-10-25): Costco's actual current-price API is
-// gdx-api.costco.com/catalog/product/dispprice-api/v3/display-price-lite, firing only when the
-// item-number search lands on exactly one product (an ambiguous or zero-result search never
-// calls it -- confirmed live, item 26294/water softener salt returned a search response with
-// totalSize:0, i.e. it simply isn't sold on costco.com at all, warehouse-only; no technique
-// fixes that, there's nothing online to find a price for). Its shape:
-//   { priceData: [{ id, displayPrice: [{ onlinePrice, deliveredPrice, warehouseNumber, ... }] }] }
-// `warehouseNumber` here is costco.com's own web/catalog warehouse code, NOT the same numbering
-// as a receipt's POS `warehouseNumber` (confirmed live: a Fremont, CA receipt shows warehouseNumber
-// 778, but this API returned prices for "1062"/"847" instead) -- there is no known mapping between
-// the two, so this picks whichever entries come back (usually the browser session's own pinned/
-// nearby warehouses) rather than guaranteeing a match to the exact store the item was bought at.
-// If "My Warehouse" in the debug Chrome session isn't actually set to the real shopping warehouse,
-// these prices reflect wherever IS set, not necessarily the right region -- check that before
-// trusting a comparison.
+// TWO real price sources, confirmed against real runs (2026-10-25/26):
+//   1. gdx-api.costco.com/.../search's own `inventoryResponse` array -- carries a REAL distinct
+//      warehousePrice (the actual in-store/pickup price at the account's "My Warehouse") AND a
+//      separate deliveryPrice (online/ship-to-home, which can legitimately differ). This is the
+//      one that answers "what would I actually pay walking into the store" -- always preferred.
+//   2. gdx-api.costco.com/.../display-price-lite -- only fires when a search lands on exactly one
+//      product; its onlinePrice/deliveredPrice fields are confirmed ONLINE pricing, not a true
+//      warehouse price. Used only as a fallback when source 1 has nothing.
+// CRITICAL caveat, confirmed live: warehousePrice is keyed to whichever physical warehouse the
+// Costco ACCOUNT's own "My Warehouse" setting points to (the search response's own
+// `myWarehouse.locationId`, e.g. "1062-wh") -- not the item's real purchase warehouse, and not
+// configurable per-request from this script. If that account setting doesn't match where the
+// user actually shops (confirmed live: it was pointed at a Manhattan warehouse while real
+// purchases were at Fremont/Newark, CA), warehousePrice reflects the WRONG store's inventory and
+// pricing. Fix this once in the Costco account/app ("My Warehouse" / nearby club setting) before
+// trusting a comparison -- this script has no way to detect or correct that mismatch itself.
 //
 // Usage (debug Chrome must already be open -- same one attach.mjs/capture.mjs use):
 //   node check-prices.mjs
@@ -34,17 +35,17 @@ const CAPTURES_DIR = join(__dirname, ".captures");
 const RAW_DIR = join(CAPTURES_DIR, "price-checks");
 mkdirSync(RAW_DIR, { recursive: true });
 
-// Pulls the real current price(s) out of a captured display-price-lite response (see the
-// file-level comment for its confirmed shape). Returns every {warehouseNumber, price} pair found
-// -- the caller picks the lowest, since without a confirmed mapping to the item's real purchase
-// warehouse, the lowest of whatever came back is the closest thing to a usable "is there a price
-// worth checking in person" signal.
-function extractPrices(body) {
+// Pulls the real current price out of a captured display-price-lite response (fires only when a
+// search lands on exactly one product). This endpoint's fields are onlinePrice/deliveredPrice --
+// confirmed to be online/delivery pricing, not a distinct in-warehouse price (see
+// extractFromSearchResponse below for the endpoint that DOES carry real warehouse pricing) --
+// always tagged priceSource "online" here.
+function extractFromDisplayPriceLite(body) {
   const out = [];
   for (const p of body?.priceData ?? []) {
     for (const dp of p.displayPrice ?? []) {
       const price = dp.onlinePrice ?? dp.deliveredPrice;
-      if (typeof price === "number" && price > 0) out.push({ warehouseNumber: dp.warehouseNumber, price });
+      if (typeof price === "number" && price > 0) out.push({ price, priceSource: "online", warehouseLocationId: null });
     }
   }
   return out;
@@ -59,34 +60,39 @@ function searchReturnedNoResults(captured) {
   return findSearchResponse(captured)?.body?.searchResult?.totalSize === 0;
 }
 
-// Fallback for when the search is AMBIGUOUS (multiple matching products -- e.g. a sneaker's
-// Men's/Women's colorways) and no single-product display-price-lite call ever fires. Confirmed
-// live: item 2007436 (an Adidas sneaker, $37.99 paid) returned 4 search results and NO
-// display-price-lite call, even though the search results themselves plainly carry a real,
-// already-discounted current price ($32.99, with a further "$7 OFF" Instant Savings pill) --
-// missing this meant a real price match was reported as "no match". Each result's own
-// `variantRollupValues` object carries dynamically-named keys like "inventory(847, price)" (847 =
-// a warehouse code) -- this pulls every one of those plus the plain "price" fallback. Picks the
-// result whose own marketing_keywords contains the exact item number searched for (confirmed
-// live: Costco tags every product with its item number there), so a multi-result page still
-// compares against the SAME item that was actually bought, not just whichever result came first.
-function extractPricesFromSearchResults(searchBody, itemNumber) {
+// The real source of TRUE warehouse pricing -- confirmed live against a real item (search
+// response's own `inventoryResponse` array, matched to a `searchResult.results` entry by
+// `productId === result.id`). Each inventoryResponse entry carries BOTH a `warehousePrice` (the
+// actual in-store/pickup price at the account's own "My Warehouse" -- null when that warehouse
+// doesn't stock the item) and a `deliveryPrice` (ship-to-home/online price, which can legitimately
+// differ from the in-store price) -- this always prefers warehousePrice when present, only
+// falling back to deliveryPrice (tagged priceSource "online") when Costco itself has no
+// warehouse-specific price to give. `myWarehouse.locationId` in the same response (e.g. "1062-wh")
+// identifies WHICH physical warehouse that warehousePrice is actually for -- callers should
+// confirm this is the user's real shopping warehouse before trusting a comparison, since an
+// account whose "My Warehouse" setting points somewhere else will only ever return pricing for
+// that other store.
+//
+// STRICT exact match only on `product.attributes.marketing_keywords.text` containing the exact
+// item number searched -- confirmed live that loosening this (closest/lowest-of-all-results)
+// produces real false positives (a grapes search matching an unrelated $14.97 product, a
+// CRV/bottle-deposit line matching a random $4.97 item). No exact tag match means genuinely no
+// match -- never guess at a substitute.
+function extractFromSearchResponse(searchBody, itemNumber) {
   const results = searchBody?.searchResult?.results ?? [];
-  // STRICT exact match only -- confirmed live, falling back to "closest" or "lowest of all
-  // results" when nothing tags the exact item number produces real false positives (a grapes
-  // search returning an unrelated $14.97 match, a CRV/bottle-deposit line matching some random
-  // $4.97 product). No match here means genuinely no match -- never guess at a substitute.
+  const inventoryById = new Map((searchBody?.inventoryResponse ?? []).map((inv) => [inv.productId, inv]));
   const matching = results.filter((r) => r.product?.attributes?.marketing_keywords?.text?.includes(itemNumber));
   const out = [];
   for (const r of matching) {
-    const roll = r.variantRollupValues ?? {};
-    for (const [key, val] of Object.entries(roll)) {
-      if (!/^inventory\([^,]+,\s*price\)$/.test(key)) continue;
-      const price = Array.isArray(val) ? val[0] : val;
-      if (typeof price === "number" && price > 0) out.push({ warehouseNumber: key.match(/^inventory\(([^,]+),/)[1], price });
+    const inv = inventoryById.get(r.id);
+    if (!inv) continue;
+    const whPrice = Number(inv.warehousePrice?.minPrice);
+    const dlPrice = Number(inv.deliveryPrice?.minPrice);
+    if (Number.isFinite(whPrice) && whPrice > 0) {
+      out.push({ price: whPrice, priceSource: "warehouse", warehouseLocationId: searchBody?.myWarehouse?.locationId ?? null });
+    } else if (Number.isFinite(dlPrice) && dlPrice > 0) {
+      out.push({ price: dlPrice, priceSource: "online", warehouseLocationId: null });
     }
-    const plain = Array.isArray(roll.price) ? roll.price[0] : roll.price;
-    if (typeof plain === "number" && plain > 0 && !out.some((p) => p.price === plain)) out.push({ warehouseNumber: null, price: plain });
   }
   return out;
 }
@@ -141,27 +147,36 @@ async function main() {
 
     writeFileSync(join(RAW_DIR, `${item.itemNumber}.json`), JSON.stringify(captured, null, 2));
 
+    const searchResponse = findSearchResponse(captured);
     const priceResponse = findDisplayPriceResponse(captured);
-    let prices = priceResponse ? extractPrices(priceResponse.body) : [];
-    if (!prices.length) {
-      const searchResponse = findSearchResponse(captured);
-      if (searchResponse) prices = extractPricesFromSearchResults(searchResponse.body, item.itemNumber);
-    }
-    const lowest = prices.length ? prices.reduce((a, b) => (b.price < a.price ? b : a)) : null;
-    const notSoldOnline = !prices.length && searchReturnedNoResults(captured);
-    const currentPrice = lowest?.price ?? null;
+    // Combine both sources -- the search response's inventoryResponse (true warehouse pricing,
+    // when the item is stocked at "My Warehouse") takes priority over display-price-lite (always
+    // online/delivery pricing), never the other way around.
+    const searchPrices = searchResponse ? extractFromSearchResponse(searchResponse.body, item.itemNumber) : [];
+    const displayPrices = priceResponse ? extractFromDisplayPriceLite(priceResponse.body) : [];
+    const warehousePrices = searchPrices.filter((p) => p.priceSource === "warehouse");
+    const onlinePrices = [...searchPrices.filter((p) => p.priceSource === "online"), ...displayPrices];
+    const pool = warehousePrices.length ? warehousePrices : onlinePrices;
+    const best = pool.length ? pool.reduce((a, b) => (b.price < a.price ? b : a)) : null;
+    const notSoldOnline = !searchPrices.length && !displayPrices.length && searchReturnedNoResults(captured);
+    const currentPrice = best?.price ?? null;
     const priceDropped = currentPrice != null && currentPrice < item.pricePaid - 0.005;
     results.push({
       itemNumber: item.itemNumber,
       description: item.description,
       pricePaid: item.pricePaid,
       currentPrice,
-      currentPriceWarehouse: lowest?.warehouseNumber ?? null,
+      priceSource: best?.priceSource ?? null,
+      currentPriceWarehouse: best?.warehouseLocationId ?? null,
       notSoldOnline,
       priceDropped,
       checkedAt: new Date().toISOString(),
     });
-    const status = notSoldOnline ? "not sold on costco.com" : currentPrice != null ? `$${currentPrice.toFixed(2)}${priceDropped ? "  ** DROPPED **" : ""}` : "no match found";
+    const status = notSoldOnline
+      ? "not sold on costco.com"
+      : currentPrice != null
+        ? `$${currentPrice.toFixed(2)} (${best.priceSource})${priceDropped ? "  ** DROPPED **" : ""}`
+        : "no match found";
     console.log(`  ${item.itemNumber}  ${item.description.slice(0, 35).padEnd(35)}  paid $${item.pricePaid.toFixed(2)}  ->  ${status}`);
     // A short, slightly randomized pause between lookups -- not aggressive scraping, just
     // courteous pacing against someone's own real warehouse search while logged in.

@@ -488,6 +488,11 @@ export type CostcoPriceCheck = {
   description: string;
   pricePaid: number;
   currentPrice: number | null;
+  // "warehouse" = Costco's own real in-store/pickup price at the account's "My Warehouse" setting
+  // (confirmed live to genuinely differ from online pricing) -- always preferred when available.
+  // "online" = ship-to-home/delivery price, used only when no warehouse price could be found.
+  // null = currentPrice itself is null (not checked, no match, or not sold online).
+  priceSource?: "warehouse" | "online" | null;
   currentPriceWarehouse?: string | null;
   notSoldOnline: boolean;
   priceDropped: boolean;

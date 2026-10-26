@@ -87,6 +87,7 @@ export function parseCostcoPriceChecksUpload(raw: unknown): CostcoPriceCheck[] {
       description: typeof o.description === "string" ? o.description : "",
       pricePaid: typeof o.pricePaid === "number" ? o.pricePaid : 0,
       currentPrice: typeof o.currentPrice === "number" ? o.currentPrice : null,
+      priceSource: o.priceSource === "warehouse" || o.priceSource === "online" ? o.priceSource : null,
       currentPriceWarehouse: typeof o.currentPriceWarehouse === "string" ? o.currentPriceWarehouse : null,
       notSoldOnline: o.notSoldOnline === true,
       priceDropped: o.priceDropped === true,
