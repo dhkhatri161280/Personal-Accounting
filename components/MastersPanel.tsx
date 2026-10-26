@@ -76,7 +76,6 @@ export type MasterLedger = {
   companyPhone?: string;
   companyEmail?: string;
   costcoMembershipRenewalMonthDay?: string;
-  costcoCurrentCycleStartOverride?: string;
   costcoActualReward?: { amount: number; asOfDate: string };
   currency: string;
   accounts: MasterAccount[];
@@ -2551,7 +2550,6 @@ export function MastersPanel({
               companyEmail = String(f.get("companyEmail") || "").trim(),
               costcoMonth = String(f.get("costcoMembershipMonth") || "").trim(),
               costcoDay = String(f.get("costcoMembershipDay") || "").trim(),
-              costcoCycleStartOverride = String(f.get("costcoCurrentCycleStartOverride") || "").trim(),
               costcoActualRewardAmount = String(f.get("costcoActualRewardAmount") || "").trim(),
               costcoActualRewardDate = String(f.get("costcoActualRewardDate") || "").trim();
             const result = onSave(
@@ -2565,7 +2563,6 @@ export function MastersPanel({
                 companyPhone,
                 companyEmail,
                 costcoMembershipRenewalMonthDay: costcoMonth && costcoDay ? `${costcoMonth}-${costcoDay}` : undefined,
-                costcoCurrentCycleStartOverride: costcoCycleStartOverride || undefined,
                 costcoActualReward:
                   costcoActualRewardAmount && costcoActualRewardDate
                     ? { amount: Math.abs(Number(costcoActualRewardAmount)), asOfDate: costcoActualRewardDate }
@@ -2625,22 +2622,6 @@ export function MastersPanel({
               Powers the Costco Executive 2% Reward estimate on the Spend report. Costco calculates that reward on a
               window ending ~3 months before this date each year, not the membership year itself. No year needed --
               under normal renewal this stays the same every year, so it's set once, not updated annually.
-            </span>
-          </label>
-          <label>
-            Costco current-cycle start override (optional)
-            <input
-              type="date"
-              name="costcoCurrentCycleStartOverride"
-              defaultValue={data.costcoCurrentCycleStartOverride || ""}
-              max={todayLocalIso()}
-            />
-            <span className="field-hint">
-              Only if the CURRENT cycle's real "Rewards earned since" date on your Costco account page
-              (costco.com → Account → Membership Information) differs from the date this app would otherwise
-              compute (exactly 12 months before the reward window closes) -- confirmed live, Costco's own page
-              can be off by a few days for reasons this app has no way to know. Only affects the in-progress
-              cycle's own estimate, never past cycles. Leave blank to use the computed date.
             </span>
           </label>
           <label>
