@@ -2302,7 +2302,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     });
   }
   if (data) {
-    for (const due of dueTemplates(data.recurringTemplates, todayStr, data.transactions)) {
+    for (const due of dueTemplates(data.recurringTemplates, todayStr, data.transactions, data.accounts)) {
       attentionItems.push({
         label: `Recurring: ${due.template.label} due`,
         detail: `${due.periodLabel} — no matching transaction found yet between these two ledgers. If it's already paid some other way, it'll clear itself once that transaction syncs in; "Post" below is just a manual shortcut if you'd rather record it now.`,
@@ -5275,7 +5275,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           )}
           {report === "recurring" && data && (() => {
             const templates = data.recurringTemplates ?? [];
-            const due = dueTemplates(templates, todayStr, data.transactions);
+            const due = dueTemplates(templates, todayStr, data.transactions, data.accounts);
             const dueIds = new Set(due.map((d) => d.template.id));
             return (
               <div className="data-panel">

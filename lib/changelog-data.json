@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-10-26",
+    "summary": "Masters: show Dr/Cr ledger columns on Recurring Templates table"
+  },
+  {
     "date": "2026-10-25",
     "summary": "Assistant: detect a stuck repeated tool call, answer directly instead of looping"
   },

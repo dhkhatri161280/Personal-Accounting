@@ -102,6 +102,21 @@ function periodDateRange(template: RecurringTemplate, periodKey: string): { star
   return { start: `${periodKey}-01`, end: `${ymOf(endIdx)}-${String(lastDayOfEndMonth).padStart(2, "0")}` };
 }
 
+// A template's own entries.accountId is fixed at creation time -- for a "House Hold Exps - <Mon>
+// <YY>" leg (that family gets a brand-new ledger account every calendar month, see
+// vault-accounting.ts), the saved id is forever whichever sibling existed when the template was
+// built, so a raw accountId match against a real transaction from a LATER month would silently
+// never fire again. Redirect through the same currentMonthSiblingAccount() buildVoucherFromTemplate
+// already uses to post, re-targeted to the CANDIDATE transaction's own date (not today's) so a
+// year-old House Hold Exps voucher still matches the sibling that was current back then. A no-op
+// for every other account family.
+function resolveAccountIdForDate(accountId: number, accounts: Account[] | undefined, date: string): number {
+  if (!accounts) return accountId;
+  const account = accounts.find((a) => a.id === accountId);
+  if (!account) return accountId;
+  return currentMonthSiblingAccount(account, accounts, date).id;
+}
+
 // A template counts as satisfied for a period once EITHER it has an explicit posting link
 // (manual "Post", "Already posted...", or a Plaid auto-match) OR -- the actual fix here -- any
 // real transaction already touches the same two ledgers within the period's own date range, no
@@ -110,8 +125,14 @@ function periodDateRange(template: RecurringTemplate, periodKey: string): { star
 // always comes from whichever payment source actually handled it (confirmed live: a usage-based
 // bill like electricity or water varies every cycle, so requiring an amount match, or requiring
 // the user to click "Already posted..." by hand each time, would either miss it or nag forever
-// even once it's genuinely paid).
-export function isTemplateSatisfiedForPeriod(template: RecurringTemplate, periodKey: string, transactions: RecurringCheckTx[]): boolean {
+// even once it's genuinely paid). `accounts` is optional so House Hold Exps's month-sibling
+// redirect only kicks in when the caller has a ledger's account list to pass.
+export function isTemplateSatisfiedForPeriod(
+  template: RecurringTemplate,
+  periodKey: string,
+  transactions: RecurringCheckTx[],
+  accounts?: Account[]
+): boolean {
   if (template.postings.some((p) => p.periodKey === periodKey)) return true;
   const debit = template.entries.find((e) => e.amount < 0);
   const credit = template.entries.find((e) => e.amount > 0);
@@ -119,8 +140,10 @@ export function isTemplateSatisfiedForPeriod(template: RecurringTemplate, period
   const { start, end } = periodDateRange(template, periodKey);
   return transactions.some((t) => {
     if (t.deleted || t.cancelled || t.date < start || t.date > end) return false;
-    const hasDebit = t.entries.some((e) => e.accountId === debit.accountId && e.amount < 0);
-    const hasCredit = t.entries.some((e) => e.accountId === credit.accountId && e.amount > 0);
+    const debitId = resolveAccountIdForDate(debit.accountId, accounts, t.date);
+    const creditId = resolveAccountIdForDate(credit.accountId, accounts, t.date);
+    const hasDebit = t.entries.some((e) => e.accountId === debitId && e.amount < 0);
+    const hasCredit = t.entries.some((e) => e.accountId === creditId && e.amount > 0);
     return hasDebit && hasCredit;
   });
 }
@@ -130,15 +153,17 @@ export function isTemplateSatisfiedForPeriod(template: RecurringTemplate, period
 // (so it reflects reality even for a bill that's never had an explicit "Post"/"Already posted..."
 // click, now that isTemplateSatisfiedForPeriod above auto-recognizes those too). Undefined when
 // there's no sign of it ever having been paid yet.
-export function lastPaidDate(template: RecurringTemplate, transactions: RecurringCheckTx[]): string | undefined {
+export function lastPaidDate(template: RecurringTemplate, transactions: RecurringCheckTx[], accounts?: Account[]): string | undefined {
   const debit = template.entries.find((e) => e.amount < 0);
   const credit = template.entries.find((e) => e.amount > 0);
   let latest: string | undefined;
   if (debit && credit) {
     for (const t of transactions) {
       if (t.deleted || t.cancelled) continue;
-      const hasDebit = t.entries.some((e) => e.accountId === debit.accountId && e.amount < 0);
-      const hasCredit = t.entries.some((e) => e.accountId === credit.accountId && e.amount > 0);
+      const debitId = resolveAccountIdForDate(debit.accountId, accounts, t.date);
+      const creditId = resolveAccountIdForDate(credit.accountId, accounts, t.date);
+      const hasDebit = t.entries.some((e) => e.accountId === debitId && e.amount < 0);
+      const hasCredit = t.entries.some((e) => e.accountId === creditId && e.amount > 0);
       if (hasDebit && hasCredit && (!latest || t.date > latest)) latest = t.date;
     }
   }
@@ -163,7 +188,7 @@ export function lastPaidDate(template: RecurringTemplate, transactions: Recurrin
 // month to gate on. `transactions` is optional for backward compatibility with any caller that
 // hasn't been updated to pass it -- omitting it falls back to only checking explicit postings,
 // same as before this function gained live matching.
-export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string, transactions?: RecurringCheckTx[]): DueTemplate[] {
+export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string, transactions?: RecurringCheckTx[], accounts?: Account[]): DueTemplate[] {
   const todayOfMonth = Number(asOfDate.slice(8, 10));
   const todayIdx = monthIndex(asOfDate.slice(0, 7));
   return (templates ?? [])
@@ -189,7 +214,7 @@ export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDat
       const periodKey = currentPeriodKey(t, asOfDate);
       return { template: t, periodKey, periodLabel: periodLabelFor(t, periodKey) };
     })
-    .filter(({ template, periodKey }) => !isTemplateSatisfiedForPeriod(template, periodKey, transactions ?? []));
+    .filter(({ template, periodKey }) => !isTemplateSatisfiedForPeriod(template, periodKey, transactions ?? [], accounts));
 }
 
 // What a template's voucher looks like -- shared by the manual "Post" button and the Plaid-match

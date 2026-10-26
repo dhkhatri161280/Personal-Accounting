@@ -1855,8 +1855,12 @@ export function MastersPanel({
                     <td>{t.label}</td>
                     <td>{frequencyLabel(t)}</td>
                     <td className="right">{Math.abs(t.entries.find((e) => e.amount < 0)?.amount ?? 0).toFixed(2)}</td>
-                    <td title={debitId != null ? `Account #${debitId}` : undefined}>{debitAcct?.name || "—"}</td>
-                    <td title={creditId != null ? `Account #${creditId}` : undefined}>{creditAcct?.name || "—"}</td>
+                    <td title={debitId != null ? `Account #${debitId}${/^house hold exps/i.test(debitAcct?.name || "") ? " -- auto-follows the current month's House Hold Exps sibling, not pinned to this one" : ""}` : undefined}>
+                      {debitAcct?.name || "—"}
+                    </td>
+                    <td title={creditId != null ? `Account #${creditId}${/^house hold exps/i.test(creditAcct?.name || "") ? " -- auto-follows the current month's House Hold Exps sibling, not pinned to this one" : ""}` : undefined}>
+                      {creditAcct?.name || "—"}
+                    </td>
                     <td>{t.plaidMatch ? t.plaidMatch.institutionPattern : "Manual only"}</td>
                     <td>
                       <span className={`master-status ${t.active ? "synced" : "pending"}`}>
@@ -1864,7 +1868,7 @@ export function MastersPanel({
                       </span>
                     </td>
                     <td>{(() => {
-                      const paid = lastPaidDate(t, data.transactions || []);
+                      const paid = lastPaidDate(t, data.transactions || [], data.accounts);
                       return paid ? fmtDate(paid) : "—";
                     })()}</td>
                     <td>{t.postings.length}</td>

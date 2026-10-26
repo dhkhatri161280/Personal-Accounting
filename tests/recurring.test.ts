@@ -296,3 +296,53 @@ test("matchRecurringTemplate clamps an unreasonably wide tolerance to the expect
   const match = matchRecurringTemplate("Bank of America", 16.5, "2026-09-15", [t]);
   assert.ok(match);
 });
+
+function houseHoldAccount(overrides: Partial<Account> = {}): Account {
+  return {
+    id: 100,
+    name: "House Hold Exps - Oct 26",
+    parent: "Indirect Expenses",
+    category: "Expense",
+    currency: "USD",
+    openingBalance: 0,
+    ...overrides,
+  };
+}
+
+test("isTemplateSatisfiedForPeriod resolves a House Hold Exps leg to the TRANSACTION's own month sibling, not the template's stale saved month", () => {
+  // A yearly subscription template built back in October still has entries pinned to "House
+  // Hold Exps - Oct 26" (id 100). A year later the real voucher posts against the fresh "...-
+  // Oct 27" sibling (id 101) -- a raw accountId match would never fire again without the redirect.
+  const oct26 = houseHoldAccount({ id: 100, name: "House Hold Exps - Oct 26" });
+  const oct27 = houseHoldAccount({ id: 101, name: "House Hold Exps - Oct 27" });
+  const bofa: Account = { id: 1, name: "Bank Of America", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 };
+  const t = template({
+    frequency: "yearly",
+    entries: [
+      { accountId: 100, amount: -19.99 },
+      { accountId: 1, amount: 19.99 },
+    ],
+  });
+  const txs: RecurringCheckTx[] = [
+    { date: "2027-10-22", entries: [{ accountId: 101, amount: -19.99 }, { accountId: 1, amount: 19.99 }] },
+  ];
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2027", txs), false, "without an accounts list, no redirect -- stays unsatisfied (prior behavior)");
+  assert.equal(isTemplateSatisfiedForPeriod(t, "2027", txs, [oct26, oct27, bofa]), true, "with accounts passed, resolves to the Oct 27 sibling and matches");
+});
+
+test("lastPaidDate also resolves a House Hold Exps leg through the month-sibling redirect", () => {
+  const oct26 = houseHoldAccount({ id: 100, name: "House Hold Exps - Oct 26" });
+  const nov26 = houseHoldAccount({ id: 102, name: "House Hold Exps - Nov 26" });
+  const bofa: Account = { id: 1, name: "Bank Of America", parent: "Bank Accounts", category: "Bank", currency: "USD", openingBalance: 0 };
+  const t = template({
+    entries: [
+      { accountId: 100, amount: -19.99 },
+      { accountId: 1, amount: 19.99 },
+    ],
+  });
+  const txs: RecurringCheckTx[] = [
+    { date: "2026-11-22", entries: [{ accountId: 102, amount: -19.99 }, { accountId: 1, amount: 19.99 }] },
+  ];
+  assert.equal(lastPaidDate(t, txs), undefined, "without accounts, the Nov sibling doesn't match the Oct-pinned template");
+  assert.equal(lastPaidDate(t, txs, [oct26, nov26, bofa]), "2026-11-22");
+});
