@@ -6,56 +6,68 @@ price-adjustment window, and what's currently price-matchable, so nothing gets m
 This app has no itemized purchase data today -- Day Book only has voucher totals like
 "Shopping @ Costco -- $363.01", not item names/prices. Getting item-level data means pulling it
 from Costco's own Order & Purchase History, and Costco has no public API for that -- so this tool
-drives a real browser under your own login to capture it.
+watches a real browser session to capture it.
 
-## What this does -- and does NOT do
+Two ways to do that -- **use `attach.mjs` (Method A) first.** `capture.mjs` (Method B) was the
+original approach and is kept for reference, but Costco's own bot detection blocked it live
+(login silently did nothing in the Playwright-launched window, even though the same ID/password
+worked fine in a normal browser) -- a freshly-automated browser gets flagged even with nothing
+scripted beyond opening it.
 
-- **Does not handle your password at all.** `capture.mjs` never asks for or stores a Costco
-  password. It opens a real, visible Chromium window under a persistent browser profile; you log
-  in by hand (including any 2FA/MFA), the same as any normal browser tab. After that, the profile
-  folder (`.profiles/<name>/`) keeps the session, so later runs should already be logged in.
-- **Does not scrape by CSS selector.** Order-history pages are almost always backed by an
-  internal JSON API. This just records every JSON response the page loads while you browse it --
-  far more robust than guessing at a page layout that can change any time, and it means the
-  captured data is already structured.
-- **Does not parse the captures into itemized purchases yet.** Nobody (me included) has seen the
-  real shape of Costco's response JSON. This is deliberately just the capture step -- once you've
-  run it, share the `.captures/<profile>/<timestamp>/` folder (or just tell me it's ready to
-  read, since it's a local file I can open) and the actual item/price/date parser gets built
-  against real data instead of guessed blind.
-- **Runs on your machine, under your login, at your own pace.** It is not scheduled or automatic
-  by default -- run it whenever you want a fresh capture (e.g. after a Costco trip). If you later
-  want it on a schedule, `tools/excel-sync/run-scheduled.ps1` + `silent-launch.vbs` is this repo's
-  existing pattern for that (Windows Task Scheduler running a script silently) -- can be adapted
-  here once Phase 2's parser exists and there's something worth scheduling.
+## Method A -- attach to your real Chrome (recommended, use this)
 
-## Setup (one time)
+No automation drives anything here -- every click and keystroke is genuinely you, in your own
+Chrome, already logged into Costco from however you normally browse. This script only listens to
+network responses over Chrome's remote debugging protocol; Costco has nothing to flag as a bot
+because nothing is acting like one.
 
+**Setup (one time):**
 ```bash
 cd tools/costco-receipts
 npm install
-npx playwright install chromium
 ```
+(no `playwright install chromium` needed for this method -- it attaches to your existing Chrome
+install, not a Playwright-managed one)
 
-## Running it
+**Each time you want a capture:**
+1. Fully quit Chrome -- check Task Manager too; a background Chrome process will block the next
+   step from attaching to your real profile.
+2. Launch Chrome with remote debugging enabled, using your real profile (so you're already logged
+   into everything, Costco included, if you normally stay logged in):
+   ```bash
+   "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\Users\dikhatri\AppData\Local\Google\Chrome\User Data"
+   ```
+3. In that Chrome window, go to costco.com, log in normally if needed, and navigate to
+   **Order & Purchase History / Digital Receipts**. Click into a few real orders so the
+   itemized detail (not just the order summary list) actually loads.
+4. In a separate terminal, run:
+   ```bash
+   npm run attach -- --label=dignesh
+   ```
+   (`--label` is just for naming the output folder -- use `--label=hiral` for the other account;
+   since this is just watching whatever's logged into that Chrome window, log out/in as the other
+   person in the same window between captures, or use Chrome's own "Add person" profile switcher)
+5. Keep browsing in the Chrome window -- every JSON response it loads is captured automatically.
+6. Come back to the terminal and press Enter when done. This only disconnects the capture
+   listener -- your Chrome window stays open.
+
+## Method B -- Playwright-managed browser (fallback, likely blocked by Costco)
 
 ```bash
+npx playwright install chromium   # one-time, only needed for this method
 npm run capture -- --profile=dignesh
 ```
 
-(or `--profile=hiral` / any name you want, for the other Costco account -- each profile is fully
-separate: its own browser profile, its own capture folder, no credential overlap between the two)
+A Chromium window opens to Costco's order history page and you log in there -- see
+`capture.mjs`'s own header comment for details. Kept in case Method A isn't workable for some
+reason, but expect Costco's bot detection to interfere with actually logging in.
 
-A Chromium window opens to Costco's order history page:
-1. Log in if you're not already (including 2FA/MFA Costco asks for).
-2. Go to Order & Purchase History / Digital Receipts.
-3. Scroll / page through as much history as you want captured -- everything it loads is saved
-   automatically in the background.
-4. Come back to the terminal and press Enter when you're done.
+## Output
 
-Output lands in `.captures/<profile>/<timestamp>/` -- one `.json` file per captured API response,
-plus a `page.html` fallback snapshot. Both `.profiles/` (session cookies) and `.captures/` (real
-purchase data) are gitignored and must never be committed.
+Both methods write to `.captures/<name>/<timestamp>/` -- one `.json` file per captured API
+response (`capture.mjs` also adds a `page.html` fallback snapshot). `.profiles/` (session
+cookies, Method B only) and `.captures/` (real purchase data) are both gitignored and must never
+be committed.
 
 ## Next step (Phase 2, not built yet)
 

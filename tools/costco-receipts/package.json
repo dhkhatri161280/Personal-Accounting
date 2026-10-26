@@ -4,7 +4,8 @@
   "private": true,
   "description": "Captures itemized Costco purchase history (your own session, your own login) for the price-match watchlist feature",
   "scripts": {
-    "capture": "node capture.mjs"
+    "capture": "node capture.mjs",
+    "attach": "node attach.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0"
