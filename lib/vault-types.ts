@@ -404,7 +404,7 @@ export type RecurringTemplate = {
   id: string;
   label: string;
   active: boolean;
-  frequency: "monthly" | "bimonthly" | "quarterly" | "yearly" | "custom";
+  frequency: "monthly" | "bimonthly" | "quarterly" | "halfyearly" | "yearly" | "custom";
   // Only meaningful for frequency "custom" -- the number of months between occurrences (e.g. 4
   // for a bill due every 4 months). monthly/bimonthly/quarterly/yearly each have a fixed interval
   // (1/2/3/12) and ignore this field.

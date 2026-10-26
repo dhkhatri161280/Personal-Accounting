@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-26",
+    "summary": "Recurring templates: resolve House Hold Exps legs to the current month's sibling when matching"
+  },
+  {
+    "date": "2026-10-26",
     "summary": "Masters: show Dr/Cr ledger columns on Recurring Templates table"
   },
   {

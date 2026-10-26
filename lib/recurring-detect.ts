@@ -42,6 +42,7 @@ const STANDARD_FREQUENCIES: { frequency: RecurringTemplate["frequency"]; days: n
   { frequency: "monthly", days: 30.4, tolerance: 8 },
   { frequency: "bimonthly", days: 60.8, tolerance: 10 },
   { frequency: "quarterly", days: 91.3, tolerance: 14 },
+  { frequency: "halfyearly", days: 182.6, tolerance: 21 },
   { frequency: "yearly", days: 365, tolerance: 35 },
 ];
 

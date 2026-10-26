@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   currentPeriodKey,
   dueTemplates,
+  frequencyLabel,
   buildVoucherFromTemplate,
   matchRecurringTemplate,
   isTemplateSatisfiedForPeriod,
@@ -31,6 +32,14 @@ function template(overrides: Partial<RecurringTemplate> = {}): RecurringTemplate
 test("currentPeriodKey is YYYY-MM for monthly, YYYY for yearly", () => {
   assert.equal(currentPeriodKey(template({ frequency: "monthly" }), "2026-09-15"), "2026-09");
   assert.equal(currentPeriodKey(template({ frequency: "yearly" }), "2026-09-15"), "2026");
+});
+
+test("halfyearly is a standard 6-month frequency, not routed through custom", () => {
+  const t = template({ frequency: "halfyearly", anchorMonth: "2026-02" });
+  assert.equal(frequencyLabel(t), "Every 6 months");
+  assert.equal(currentPeriodKey(t, "2026-02-01"), "2026-02");
+  assert.equal(currentPeriodKey(t, "2026-07-30"), "2026-02", "still inside the Feb-Jul bucket");
+  assert.equal(currentPeriodKey(t, "2026-08-01"), "2026-08", "rolled into the next 6-month bucket");
 });
 
 test("currentPeriodKey buckets a quarterly template from its anchorMonth, not an arbitrary offset", () => {

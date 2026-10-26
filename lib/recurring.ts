@@ -15,6 +15,8 @@ export function frequencyLabel(template: RecurringTemplate): string {
       return "Every 2 months";
     case "quarterly":
       return "Quarterly";
+    case "halfyearly":
+      return "Every 6 months";
     case "custom":
       return `Every ${template.intervalMonths ?? 1} month(s)`;
     default:
@@ -29,6 +31,8 @@ function intervalMonthsFor(template: RecurringTemplate): number {
       return 2;
     case "quarterly":
       return 3;
+    case "halfyearly":
+      return 6;
     case "yearly":
       return 12;
     case "custom":

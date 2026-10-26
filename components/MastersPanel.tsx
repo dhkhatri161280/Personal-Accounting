@@ -2835,6 +2835,7 @@ export function MastersPanel({
                 <option value="monthly">Monthly</option>
                 <option value="bimonthly">Every 2 months</option>
                 <option value="quarterly">Quarterly</option>
+                <option value="halfyearly">Every 6 months</option>
                 <option value="custom">Custom interval (months)</option>
                 <option value="yearly">Yearly</option>
               </select>
@@ -2845,7 +2846,7 @@ export function MastersPanel({
             </label>
             <label>
               Anchor month, YYYY-MM (not used for Monthly) — for Yearly, the month it's actually due (e.g. December);
-              for every-2-months/quarterly/custom, any month the bill was actually due, so the cycle lines up correctly
+              for every-2-months/quarterly/every-6-months/custom, any month the bill was actually due, so the cycle lines up correctly
               <input name="anchorMonth" type="month" defaultValue={recurringTemplate?.anchorMonth} />
             </label>
             <label>
