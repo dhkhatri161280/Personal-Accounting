@@ -1407,7 +1407,15 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .then((cs: unknown) => {
         const conns = cs as { institution_name: string; hasInvestmentAccount?: boolean }[];
         const names = conns.filter((c) => c.hasInvestmentAccount !== false).map((c) => c.institution_name);
-        const qs = names.length ? `?institution=${names.map(encodeURIComponent).join(",")}` : "";
+        // norefresh=1 (see app/api/plaid/transactions/route.ts) -- this effect fires on every
+        // single Dashboard load, which was asking Plaid for a forced live re-pull of Fidelity/
+        // Merrill every single time, the real driver behind their transactions/refresh quota
+        // getting rate-limited (confirmed live, right after the Needs Attention check below got
+        // the SAME treatment for the same reason -- this one's been doing it far longer and far
+        // more often, since it runs on every Dashboard view, not once per page load). Net Worth
+        // only needs the balance figure here, not a forced-fresh pull -- holdings/get (still
+        // called unconditionally server-side) already supplies that from Plaid's last sync.
+        const qs = `?norefresh=1${names.length ? `&institution=${names.map(encodeURIComponent).join(",")}` : ""}`;
         return apiFetch(`/api/plaid/transactions${qs}`);
       })
       .then((r) => r.json())

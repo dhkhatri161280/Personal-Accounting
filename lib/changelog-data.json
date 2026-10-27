@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-27",
+    "summary": "Fix Plaid rate-limit collision from the new Needs Attention balance check"
+  },
+  {
+    "date": "2026-10-27",
     "summary": "Needs Attention: surface a live Bank Recon balance diff"
   },
   {

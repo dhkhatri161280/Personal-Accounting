@@ -301,7 +301,13 @@ export function GrApp() {
   // across to the US-book worker's already-public Plaid endpoint directly (see the CORS allowance
   // added there for this exact origin, in app/api/plaid/transactions/route.ts).
   useEffect(() => {
-    apiFetch("https://personal-ledger-dk.digneshkhatri.workers.dev/api/plaid/transactions?institution=Merrill,Fidelity")
+    // norefresh=1 (see app/api/plaid/transactions/route.ts) -- this effect fires on every single
+    // GR dashboard load and was asking Plaid for a forced live re-pull of Fidelity/Merrill every
+    // time, right alongside VaultApp.tsx's identical US-book effect doing the same thing on every
+    // US dashboard load -- together the real driver behind these two institutions' own
+    // transactions/refresh quota getting rate-limited (confirmed live). Only the balance figure
+    // is needed here, not a forced-fresh pull.
+    apiFetch("https://personal-ledger-dk.digneshkhatri.workers.dev/api/plaid/transactions?norefresh=1&institution=Merrill,Fidelity")
       .then((r) => r.json())
       .then((d: unknown) => {
         const j = d as { accounts?: { type: string; subtype: string; balances: { current: number | null } }[] };
