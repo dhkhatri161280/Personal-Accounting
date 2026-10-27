@@ -297,9 +297,10 @@ export function GrApp() {
   }, [equityData]);
 
   // Live 401(k)/IRA balance (Fidelity + Merrill), same idea as VaultApp.tsx's US-book Net Worth --
-  // GR's own worker (fintech-by-dk-generic) has no Plaid/KV bindings of its own, so this reaches
-  // across to the US-book worker's already-public Plaid endpoint directly (see the CORS allowance
-  // added there for this exact origin, in app/api/plaid/transactions/route.ts).
+  // GR Books is rendered from THIS SAME worker (see app/gr/page.tsx), not a separate Cloudflare
+  // deployment -- an earlier version of this comment described a now-defunct separate
+  // "fintech-by-dk-generic" worker reached cross-origin; that's gone, so this is a same-origin
+  // relative fetch like everywhere else in this app.
   useEffect(() => {
     // norefresh=1 (see app/api/plaid/transactions/route.ts) -- this effect fires on every single
     // GR dashboard load and was asking Plaid for a forced live re-pull of Fidelity/Merrill every
@@ -307,7 +308,7 @@ export function GrApp() {
     // US dashboard load -- together the real driver behind these two institutions' own
     // transactions/refresh quota getting rate-limited (confirmed live). Only the balance figure
     // is needed here, not a forced-fresh pull.
-    apiFetch("https://personal-ledger-dk.digneshkhatri.workers.dev/api/plaid/transactions?norefresh=1&institution=Merrill,Fidelity")
+    apiFetch("/api/plaid/transactions?norefresh=1&institution=Merrill,Fidelity")
       .then((r) => r.json())
       .then((d: unknown) => {
         const j = d as { accounts?: { type: string; subtype: string; balances: { current: number | null } }[] };

@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-27",
+    "summary": "Stop the live retirement-balance effects from refreshing Plaid on every load"
+  },
+  {
+    "date": "2026-10-27",
     "summary": "Fix Plaid rate-limit collision from the new Needs Attention balance check"
   },
   {
