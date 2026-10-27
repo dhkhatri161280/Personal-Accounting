@@ -61,7 +61,7 @@ import {
 } from "@/lib/vault-accounting";
 import { fmtDate, todayLocalIso, isOlderThanMonths, timeAgoLabel, formatPacificTimestamp } from "@/lib/format-date";
 import { isCashBankGroup } from "@/lib/plaid-classify";
-import { vaultExceptionKey } from "@/lib/plaid-recon";
+import { vaultExceptionKey, reconciliationStatusForAccounts, DIFF_TOL, type PlaidAccountSummary, type PlaidTxSummary } from "@/lib/plaid-recon";
 import { SyncNowButton, SyncStatusDot, SyncLockMenuRow } from "@/components/vault/SyncStatusLock";
 import { PlaidImport } from "@/components/vault/PlaidImport";
 import { SchwabImport } from "@/components/vault/SchwabImport";
@@ -306,7 +306,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // as a "Reconciled" badge in the Day Book's inline expand (see TransactionTable.tsx's
     // matchedVoucherIds prop). Just the raw records; matchedVoucherIds below derives the actual
     // Set of voucher ids from them.
-    [confirmedMatches, setConfirmedMatches] = useState<{ vault_voucher_id: number }[]>([]);
+    [confirmedMatches, setConfirmedMatches] = useState<{ vault_voucher_id: number }[]>([]),
+    // Live Plaid balances/transactions, fetched once per page load (not per tab switch -- unlike
+    // confirmedMatches above) purely to power the Needs Attention "Bank Recon diff" check below.
+    // null = not fetched yet. Confirmed live: a $0.13 Chase<->BofA transfer posted to both banks'
+    // balances but Plaid's transaction feed never returned it at all, so the user had to notice
+    // the gap and both post and reconcile it by hand -- Needs Attention had no way to catch that
+    // because it never looked at live Plaid data before this, unlike Reports -> Bank Reconciliation.
+    [bankReconPlaidData, setBankReconPlaidData] = useState<{ accounts: PlaidAccountSummary[]; transactions: PlaidTxSummary[] } | null>(null);
   const { privacyMode, togglePrivacy, darkMode, toggleDarkMode } = useUiPrefs();
   // Ledgers tab's own DataGrid Total-row alignment -- must live at the top level (Rules of
   // Hooks), even though the grid itself only renders when tab === "ledgers", since apiRef needs
@@ -1126,6 +1133,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       .then((j: unknown) => setConfirmedMatches(Array.isArray(j) ? j : []))
       .catch(() => {});
   }, [!!data, book, tab]);
+  // Deliberately NOT keyed on `tab` (unlike confirmedMatches above) -- this hits live Plaid APIs,
+  // so it should run once per page load, not again every time the user switches tabs. india has
+  // no Plaid accounts at all (see the `book !== "india"` guard everywhere else Bank Recon shows).
+  useEffect(() => {
+    if (!data || book === "india") return;
+    apiFetch("/api/plaid/transactions")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: unknown) => {
+        if (!j) return;
+        const { accounts, transactions } = j as { accounts?: PlaidAccountSummary[]; transactions?: PlaidTxSummary[] };
+        setBankReconPlaidData({ accounts: accounts ?? [], transactions: transactions ?? [] });
+      })
+      .catch(() => {});
+  }, [!!data, book]);
   const matchedVoucherIds = useMemo(() => new Set(confirmedMatches.map((m) => m.vault_voucher_id)), [confirmedMatches]);
   const alwaysReconciledAccountIds = useMemo(
     () => new Set(data?.alwaysReconciledAccountIds ?? []),
@@ -2217,8 +2238,9 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // pulled from data already computed elsewhere rather than re-derived: pending ESPP purchases
   // past their purchase date, RSU vests past their vest date (both still awaiting confirmation
   // in Reports → Equity), and whether the fiscal-year-close voucher's account setup is currently
-  // ambiguous (checked well before March, not just at close time). Reconciliation diffs from
-  // Import → Balances aren't included yet -- that logic lives deep in PlaidImport.tsx's matching
+  // ambiguous (checked well before March, not just at close time); also Reports → Bank
+  // Reconciliation's own per-account diff (see bankReconPlaidData below). Import → Balances'
+  // own reconciliation isn't included -- that logic lives deep in PlaidImport.tsx's matching
   // engine and isn't safely reusable here without extracting it first.
   const attentionItems: { label: string; detail: string; action?: { label: string; onClick: () => void } }[] = [];
   // Data-integrity check, listed first -- an unbalanced voucher is a real accounting error, not
@@ -2291,6 +2313,25 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         label: "Tally Recon has differences",
         detail: `${diffRows.length} ledger(s) off by ${fmt(totalDiff)} total vs Tally as of ${new Date(data.tallyLedgerSnapshot.asOf).toLocaleString()} — often just a one-cycle sync lag; check Reports → Reconciliation if it's still there after the next cycle.`,
         action: { label: "Open", onClick: () => { setReport("recon"); setTab("reports"); } },
+      });
+    }
+  }
+  // Live Plaid-vs-vault balance diffs, same per-account `diff` (and DIFF_TOL cutoff) Reports ->
+  // Bank Reconciliation's own "Need Attention" count uses -- catches the case where Plaid's
+  // balance moves but its transaction feed never actually reports the transaction (confirmed
+  // live: a $0.13 Chase<->BofA transfer posted to both banks' balances but Plaid never returned
+  // it at all), which previously went unnoticed until someone happened to open that report and
+  // spot the gap by eye. `uncleared` is already folded into `diff`, so a diff that's fully
+  // explained by a pending charge doesn't trigger this.
+  if (bankReconPlaidData && data) {
+    const reconRows = reconciliationStatusForAccounts(data, bankReconPlaidData.accounts, bankReconPlaidData.transactions, todayStr, data.bankReconExceptions);
+    const offRows = reconRows.filter((r) => Math.abs(r.diff) > DIFF_TOL);
+    if (offRows.length) {
+      const totalDiff = offRows.reduce((s, r) => s + Math.abs(r.diff), 0);
+      attentionItems.push({
+        label: "Bank Recon has differences",
+        detail: `${offRows.length} account(s) off by ${fmt(totalDiff)} total vs live Plaid balances (${offRows.map((r) => r.account.name).join(", ")}) — often a transaction Plaid hasn't reported yet; check Reports → Bank Reconciliation.`,
+        action: { label: "Open", onClick: () => { setReport("bankrecon"); setTab("reports"); } },
       });
     }
   }
