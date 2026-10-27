@@ -1138,7 +1138,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // no Plaid accounts at all (see the `book !== "india"` guard everywhere else Bank Recon shows).
   useEffect(() => {
     if (!data || book === "india") return;
-    apiFetch("/api/plaid/transactions")
+    apiFetch("/api/plaid/transactions?norefresh=1")
       .then((r) => (r.ok ? r.json() : null))
       .then((j: unknown) => {
         if (!j) return;

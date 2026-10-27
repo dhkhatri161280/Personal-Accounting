@@ -71,6 +71,16 @@ export async function GET(request: Request) {
     url.searchParams.get("start") ||
     new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // transactions/refresh (and investments/refresh) ask the institution to re-pull live right now
+  // -- real, quota-limited actions at Plaid (confirmed live: a same-session manual Import > Plaid
+  // "Fetch" click plus an automatic background fetch tripped "rate limit exceeded for attempts to
+  // access transactions" for two institutions). A caller that only needs a live BALANCE figure
+  // (Needs Attention's Bank Recon diff check -- see components/VaultApp.tsx) doesn't need the
+  // freshest possible transaction list, just doesn't need to burn that quota doing it: skip both
+  // refresh calls and the 3s settle delay below, and rely on transactions/get's last routine sync
+  // plus accounts/balance/get's own live (but non-refresh, unmetered-the-same-way) balance call.
+  const skipRefresh = url.searchParams.get("norefresh") === "1";
+
   const institutionFilter = url.searchParams.get("institution");
   const filterList = institutionFilter ? institutionFilter.split(",").map(decodeURIComponent) : null;
   const activeConnections = filterList
@@ -146,7 +156,7 @@ export async function GET(request: Request) {
         // Best-effort: a refresh failure doesn't abort the fetch (transactions/get below still
         // runs and returns whatever Plaid already has cached) -- give Plaid a moment to complete
         // before reading.
-        try {
+        if (!skipRefresh) try {
           const hasInvestmentAccount = conn.hasInvestmentAccount === true;
 
           await Promise.all([
