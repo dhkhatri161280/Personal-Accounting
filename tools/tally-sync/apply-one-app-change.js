@@ -51,12 +51,26 @@ function compare(vault,tally){
   const planJson={matched:plan.matched.length,tallyToApp:plan.tallyChanged.length+plan.tallyOnly.length,appToTally:plan.appChanged.length+plan.appOnly.length+plan.appDeletes.length,conflicts:plan.conflicts.length};
   console.log('PLAN_JSON:'+JSON.stringify(planJson));
 
-  // ── Identity repair: same data in both systems but Tally assigned its own GUID ──
-  const repairPairs=[];
-  for(const t of plan.tallyOnly)for(const c of plan.appOnly)if(fp(t)===fp(c))repairPairs.push({t,c});
-  const repairable=repairPairs.length===1&&plan.tallyChanged.length===0&&plan.appChanged.length===0&&plan.conflicts.length===0;
-  if(repairable){
-    const {t,c}=repairPairs[0],expected=`APPLY ${book.toUpperCase()} ${String(c.type).toUpperCase()} ${c.number}`;
+  // ── Identity repair: same data already exists on both sides but linked by content, not GUID
+  // (confirmed live cause: the baseline-update write after a real, successful Tally create failed
+  // -- e.g. a 412 conflict from another voucher saving around the same time -- so the App never
+  // recorded tallyGuid/syncStatus for it, and the next cycle queued it up as a fresh "create"
+  // again, producing a genuine duplicate Tally voucher). Checked for the SPECIFIC create candidate
+  // about to be acted on, not gated on everything else in the plan being clean -- the old version
+  // only repaired when tallyChanged/appChanged/conflicts were ALL zero across the whole plan,
+  // which skipped this exact check on any cycle where other vouchers were also mid-sync (routine
+  // during a normal session posting several vouchers close together), letting the duplicate
+  // through. Requires a UNIQUE fingerprint match on both sides -- two genuinely separate vouchers
+  // that happen to share identical content (date/type/entries) must never be silently merged, so
+  // an ambiguous match (more than one candidate either direction) is left alone, not guessed at.
+  function uniqueTallyOnlyMatch(c){
+    const matches=plan.tallyOnly.filter(t=>fp(t)===fp(c));
+    if(matches.length!==1)return null;
+    const reverse=plan.appOnly.filter(a=>fp(a)===fp(matches[0]));
+    return reverse.length===1?matches[0]:null;
+  }
+  async function repairIdentity(c,t){
+    const expected=`APPLY ${book.toUpperCase()} ${String(c.type).toUpperCase()} ${c.number}`;
     if(confirmation!==expected)throw Error(`Confirmation missing. Expected exactly: ${expected}`);
     const fresh=await load(auth,vp,book);
     const freshCloud=fresh.vault.transactions.find(v=>norm(v.guid)===norm(c.guid)||norm(v.tallyGuid||v.guid)===norm(c.tallyGuid||c.guid));
@@ -68,15 +82,18 @@ function compare(vault,tally){
     const put=await fetch(fresh.url,{method:'PUT',headers:{Authorization:auth,'Content-Type':'application/json','If-Match':fresh.etag,'x-dk-access-token':accessToken},body});
     if(!put.ok)throw Error('Identity repair cloud update failed HTTP '+put.status);
     const final=compare((await load(auth,vp,book)).vault,parse(await post(requestXml(),tallyPort)));
-    const unsafe=final.tallyChanged.length+final.tallyOnly.length+final.conflicts.length,queued=final.appChanged.length+final.appOnly.length+final.appDeletes.length;
+    const unsafe=final.tallyChanged.length+final.conflicts.length,queued=final.appChanged.length+final.appOnly.length+final.appDeletes.length;
     if(unsafe)throw Error('Identity repair left Tally-side exceptions');
     console.log('SUCCESS: Existing Tally voucher linked to the App voucher; no duplicate was created.');
     if(queued)console.log('QUEUE_REMAINING: '+queued+' App voucher(s) will be processed in later cycles.');
-    return;
   }
 
   if(candidates.length<1||exceptions!==0)throw Error('Safety stop: expected at least one App-side create, edit, or delete with no Tally-side exceptions');
   const x=candidates[0],c=x.app,t=x.tally,total=c.entries.reduce((s,e)=>s+cents(e.amount),0);
+  if(x.action==='create'){
+    const repairTally=uniqueTallyOnlyMatch(c);
+    if(repairTally){await repairIdentity(c,repairTally);return}
+  }
   console.log(`APPROVED CANDIDATE: ${c.date} | ${c.type} ${c.number} | ${c.narration}`);
   for(const e of c.entries)console.log(`  ${e.accountName} ${Number(e.amount).toFixed(2)}`);
   const expected=`APPLY ${book.toUpperCase()} ${String(c.type).toUpperCase()} ${c.number}`;
