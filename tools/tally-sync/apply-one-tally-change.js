@@ -46,8 +46,48 @@ function compare(vault,tally){
   // an unresolved conflict on the SAME voucher must block.
   const exceptions=plan.appChanged.length+plan.conflicts.length;
   console.log(`FRESH PLAN: ${plan.matched.length} matched, ${plan.tallyChanged.length} Tally edits, ${plan.appChanged.length} App edits, ${plan.tallyOnly.length} Tally-only, ${plan.tallyDeletes.length} Tally-deletes, ${plan.appOnly.length} App-only, ${plan.conflicts.length} conflicts.`);
+  // ── Identity repair: same content already exists in the App but linked to a DIFFERENT (now
+  // stale) tallyGuid -- Tally can perform an "alter" as an internal delete+recreate, silently
+  // assigning the voucher a brand-new GUID. The App's stored tallyGuid then points at nothing,
+  // this Tally voucher looks brand new ("tallyOnly") to compare(), and naively creating a fresh
+  // App Tx for it produces a genuine duplicate (confirmed live: changing a voucher's narration in
+  // the App produced two real vouchers, #647 and #648, in the App's own Day Book -- this engine's
+  // own "create" path, mirrored from the identical gap just fixed in apply-one-app-change.js's
+  // App-to-Tally direction). Requires a UNIQUE content match on both sides so two genuinely
+  // separate vouchers that happen to share identical content are never silently merged.
+  function uniqueAppOnlyMatch(tallyVoucher){
+    const matches=plan.appOnly.filter(a=>fp(a)===fp(tallyVoucher));
+    if(matches.length!==1)return null;
+    const reverse=plan.tallyOnly.filter(ty=>fp(ty)===fp(matches[0]));
+    return reverse.length===1?matches[0]:null;
+  }
+  async function repairIdentity(tallyVoucher,appVoucher){
+    const expected=`APPLY ${book.toUpperCase()} ${tallyVoucher.type.toUpperCase()} ${tallyVoucher.number}`;
+    if(confirmation!==expected)throw Error(`Confirmation missing. Expected exactly: ${expected}`);
+    const fresh=await load(auth,vaultPw,book);
+    const freshApp=fresh.vault.transactions.find(v=>norm(v.guid)===norm(appVoucher.guid)||norm(v.tallyGuid||v.guid)===norm(appVoucher.tallyGuid||appVoucher.guid));
+    if(!freshApp)throw Error('Identity repair could not find the App voucher');
+    const backup=path.join(__dirname,`encrypted-${book}-vault-before-identity-repair-${new Date().toISOString().replace(/[:.]/g,'-')}.json`);
+    fs.writeFileSync(backup,fresh.raw);
+    // date/type/narration/entries already match by construction (that's what fp() compared) --
+    // only identity fields and the voucher number (fp() deliberately excludes number, since Tally
+    // can re-number) need copying from Tally's side.
+    freshApp.tallyGuid=tallyVoucher.guid;freshApp.syncFingerprint=fp(tallyVoucher);freshApp.syncStatus='synced';freshApp.lastSyncedAt=new Date().toISOString();freshApp.number=tallyVoucher.number;
+    const body=JSON.stringify(encrypt(fresh.vault,vaultPw));
+    const put=await fetch(fresh.url,{method:'PUT',headers:{Authorization:auth,'Content-Type':'application/json','If-Match':fresh.etag,'x-dk-access-token':accessToken},body});
+    if(!put.ok)throw Error('Identity repair cloud update failed HTTP '+put.status);
+    const final=compare((await load(auth,vaultPw,book)).vault,parse(await post(requestXml(),tallyPort)));
+    const unsafe=final.appChanged.length+final.conflicts.length;
+    if(unsafe)throw Error('Identity repair left App-side exceptions');
+    console.log('SUCCESS: Existing App voucher linked to the Tally voucher; no duplicate was created.');
+  }
+
   if(candidates.length<1||exceptions!==0)throw Error('Safety stop: expected one or more isolated Tally-side creates, edits, or deletes');
   const x=candidates[0],t=x.tally,c=x.app,source=t||c;
+  if(x.action==='create'){
+    const repairApp=uniqueAppOnlyMatch(t);
+    if(repairApp){await repairIdentity(t,repairApp);return}
+  }
   if(!source)throw Error('Safety stop: selected change has no source voucher');
   const sourceEntries=Array.isArray(source.entries)?source.entries:[],total=x.action==='delete'?0:sourceEntries.reduce((s,e)=>s+cents(e.amount),0);
   console.log(`APPROVED CANDIDATE: ${source.date} | ${source.type} ${source.number} | ${source.narration}`);
