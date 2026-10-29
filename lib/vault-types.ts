@@ -425,6 +425,13 @@ export type RecurringTemplate = {
   // YEARLY, checked against its anchorMonth. A YEARLY template with no anchorMonth set has no
   // known due month to gate against, so it stays due for the whole year once unposted.
   dayOfMonth?: number;
+  // Extra days to wait past dayOfMonth before dueTemplates() actually flags it -- for a bill whose
+  // real due day jitters a bit cycle to cycle (confirmed live: PG&E's autopay date moved between
+  // the 27th and 29th across three cycles), this keeps dayOfMonth itself set to the bill's true
+  // usual due day (meaningful on its own, e.g. for display) while absorbing that jitter separately
+  // instead of either flagging a day or two early some cycles, or padding dayOfMonth itself out
+  // and losing what day the bill is actually due on. Ignored when dayOfMonth isn't set.
+  graceDays?: number;
   voucherType: string;
   narrationTemplate: string; // e.g. "{month} rent" -- {month}/{year} interpolated at post time
   entries: { accountId: number; amount: number }[]; // fixed amount, signed like Entry (negative = debit)

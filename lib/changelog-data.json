@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-10-28",
+    "summary": "Tally sync: widen identity-repair so it isn't skipped by unrelated pending work"
+  },
+  {
+    "date": "2026-10-27",
+    "summary": "Remove stale cross-origin GR-book plumbing -- GR has lived in this same worker for a while"
+  },
+  {
     "date": "2026-10-27",
     "summary": "Stop the live retirement-balance effects from refreshing Plaid on every load"
   },

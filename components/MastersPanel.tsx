@@ -1080,6 +1080,7 @@ export function MastersPanel({
         ? undefined
         : normalize(String(form.get("anchorMonth") || "")) || undefined,
       dayOfMonth = form.get("dayOfMonth") ? Number(form.get("dayOfMonth")) : undefined,
+      graceDays = form.get("graceDays") ? Number(form.get("graceDays")) : undefined,
       voucherType = String(form.get("voucherType") || "Payment"),
       narrationTemplate = normalize(String(form.get("narrationTemplate") || `{month} ${label}`)),
       active = form.get("active") === "on",
@@ -1105,6 +1106,7 @@ export function MastersPanel({
       intervalMonths,
       anchorMonth,
       dayOfMonth,
+      graceDays,
       voucherType,
       narrationTemplate,
       entries: [
@@ -2852,6 +2854,11 @@ export function MastersPanel({
             <label>
               Usually due on (day of month, optional)
               <input name="dayOfMonth" type="number" min={1} max={31} defaultValue={recurringTemplate?.dayOfMonth} />
+            </label>
+            <label>
+              Grace days after that (optional) — for a bill whose exact due day jitters cycle to cycle, delays
+              the "due" notice this many extra days past the day above, without changing what day it's usually due
+              <input name="graceDays" type="number" min={0} max={30} defaultValue={recurringTemplate?.graceDays} />
             </label>
             <label>
               Voucher type

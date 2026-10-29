@@ -120,6 +120,19 @@ test("dueTemplates keeps the whole-period behavior for a MONTHLY template with n
   assert.equal(dueTemplates([t], "2026-10-01").length, 1);
 });
 
+test("dueTemplates delays flagging by graceDays past dayOfMonth, without changing dayOfMonth itself", () => {
+  const t = template({ dayOfMonth: 28, graceDays: 2 });
+  assert.equal(dueTemplates([t], "2026-10-28").length, 0, "due day itself -- still within the 2-day grace window");
+  assert.equal(dueTemplates([t], "2026-10-29").length, 0, "one day into the grace window -- still not flagged");
+  assert.equal(dueTemplates([t], "2026-10-30").length, 1, "grace window elapsed -- now flagged");
+  assert.equal(t.dayOfMonth, 28, "dayOfMonth itself is untouched by graceDays");
+});
+
+test("dueTemplates ignores graceDays when dayOfMonth isn't set", () => {
+  const t = template({ dayOfMonth: undefined, graceDays: 2 });
+  assert.equal(dueTemplates([t], "2026-10-01").length, 1);
+});
+
 test("dueTemplates does NOT gate a YEARLY template with no anchorMonth -- there's no known due month to anchor a day against", () => {
   const t = template({ frequency: "yearly", dayOfMonth: 20 });
   assert.equal(dueTemplates([t], "2026-01-01").length, 1, "yearly stays due for the whole year, even day 1");

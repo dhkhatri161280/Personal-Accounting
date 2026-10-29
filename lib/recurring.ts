@@ -195,6 +195,10 @@ export function lastPaidDate(template: RecurringTemplate, transactions: Recurrin
 export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string, transactions?: RecurringCheckTx[], accounts?: Account[]): DueTemplate[] {
   const todayOfMonth = Number(asOfDate.slice(8, 10));
   const todayIdx = monthIndex(asOfDate.slice(0, 7));
+  // dayOfMonth itself stays the bill's true usual due day; graceDays shifts only the flagging
+  // threshold, so a template with jitter (see graceDays's comment in vault-types.ts) doesn't have
+  // to misrepresent its own due day just to stop premature flagging.
+  const dueDayFor = (t: RecurringTemplate) => (t.dayOfMonth == null ? null : t.dayOfMonth + (t.graceDays ?? 0));
   return (templates ?? [])
     .filter((t) => t.active)
     .filter((t) => {
@@ -203,15 +207,15 @@ export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDat
         const dueMonth = Number(t.anchorMonth.slice(5, 7));
         const todayMonth = Number(asOfDate.slice(5, 7));
         if (todayMonth < dueMonth) return false;
-        if (todayMonth === dueMonth) return t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth;
+        if (todayMonth === dueMonth) { const d = dueDayFor(t); return d == null || todayOfMonth >= d; }
         return true; // past the due month entirely -- definitely due
       }
       const n = intervalMonthsFor(t);
-      if (n === 1) return t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth;
+      if (n === 1) { const d = dueDayFor(t); return d == null || todayOfMonth >= d; }
       const periodKey = currentPeriodKey(t, asOfDate);
       const lastMonthIdx = monthIndex(periodKey) + n - 1;
       if (todayIdx < lastMonthIdx) return false;
-      if (todayIdx === lastMonthIdx) return t.dayOfMonth == null || todayOfMonth >= t.dayOfMonth;
+      if (todayIdx === lastMonthIdx) { const d = dueDayFor(t); return d == null || todayOfMonth >= d; }
       return true; // past the period's last month entirely -- definitely due
     })
     .map((t) => {
