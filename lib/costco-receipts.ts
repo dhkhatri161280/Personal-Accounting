@@ -116,6 +116,11 @@ export function computeCostcoRewardFromReceipts(receipts: CostcoReceipt[], windo
     let used = false;
     for (const item of r.items) {
       if (!isQualifyingReceiptItem(item.description)) continue;
+      // qty === 0: not a real purchase or return, just an echo line (see costcoPriceMatchWatchlist's
+      // comment) -- its amount can be a stale positive reference price that would otherwise
+      // silently inflate qualifying spend. A genuine return (qty < 0) is still summed in here on
+      // purpose -- its (correctly negative, post parse.mjs fix) amount is meant to reduce spend.
+      if (item.qty === 0) continue;
       qualifyingSpend += item.amount;
       used = true;
     }
@@ -145,15 +150,21 @@ export type CostcoWatchlistItem = {
 // ever price-match.
 const PRICE_ADJUSTMENT_WINDOW_DAYS = 30;
 
-// Item numbers with at least one return/credit line (negative amount) ANYWHERE in the receipts
-// on file, regardless of date -- if an item was later returned, it's never worth flagging as a
-// price-match candidate, no matter how recent the original purchase looked. Scoped to qualifying
-// items only (a Shop Card reload's own negative adjustment doesn't matter either way).
+// Item numbers with at least one return/credit line (negative amount OR negative qty) ANYWHERE
+// in the receipts on file, regardless of date -- if an item was later returned, it's never worth
+// flagging as a price-match candidate, no matter how recent the original purchase looked. Scoped
+// to qualifying items only (a Shop Card reload's own negative adjustment doesn't matter either
+// way). Checks qty too, not just amount: Costco's own receipt data represents a genuine return
+// two different ways depending on the line -- sometimes a negative `amount` directly, sometimes a
+// POSITIVE `amount` (its per-unit reference price) paired with a negative `qty` (confirmed live --
+// a real pants return captured with amount: 19.99, qty: -1). tools/costco-receipts/parse.mjs now
+// normalizes this at capture time, but data imported before that fix can still have the old,
+// sign-losing shape sitting in the vault, so this checks both rather than assuming new data only.
 function returnedItemNumbers(receipts: CostcoReceipt[]): Set<string> {
   const out = new Set<string>();
   for (const r of receipts) {
     for (const item of r.items) {
-      if (item.amount < 0 && isQualifyingReceiptItem(item.description)) out.add(item.itemNumber);
+      if ((item.amount < 0 || item.qty < 0) && isQualifyingReceiptItem(item.description)) out.add(item.itemNumber);
     }
   }
   return out;
@@ -168,7 +179,14 @@ export function costcoPriceMatchWatchlist(receipts: CostcoReceipt[], asOfDate: s
     if (asOfDate > deadline) continue;
     const daysLeft = Math.round((new Date(deadline).getTime() - new Date(asOfDate).getTime()) / 86400000);
     for (const item of r.items) {
-      if (item.amount <= 0) continue; // a return/credit line itself -- not a purchase to watch
+      // amount<=0: a return/credit line itself. qty<=0: either the same return (see
+      // returnedItemNumbers' comment on the two shapes Costco uses) or a qty:0 "echo" line from
+      // an unrelated instant-savings adjustment receipt for an item actually bought elsewhere
+      // (confirmed live: an "ADIDAS SNKR" line with amount: 0, qty: 0 sitting inside a LATER,
+      // unrelated adjustment "receipt" -- parse.mjs drops these at capture time now, but data
+      // imported before that fix can still have one sitting in the vault). Neither is a real
+      // purchase to watch.
+      if (item.amount <= 0 || item.qty <= 0) continue;
       if (!isQualifyingReceiptItem(item.description)) continue;
       if (returned.has(item.itemNumber)) continue; // later returned -- nothing left to price-match
       out.push({

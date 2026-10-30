@@ -47,6 +47,25 @@ function daysBetween(fromIso, toIso) {
   return Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86400000);
 }
 
+// Costco's own itemArray entries carry price two ways: `amount` (correctly signed -- negative on
+// a genuine return, confirmed live: "MWCHINOPANT" return captured as unit:-1, amount:-19.99) and
+// `itemUnitPriceAmount` (always the positive per-unit reference price, same magnitude whether the
+// line is a purchase OR a return -- confirmed live, same MWCHINOPANT return: itemUnitPriceAmount:
+// 19.99). The per-unit price is genuinely the right figure to compare against a single unit's
+// current price for price-matching (a multi-unit purchase's own `amount` is the EXTENDED total,
+// e.g. "2 @ 14.39" -> amount: 28.78, itemUnitPriceAmount: 14.39) -- but naively preferring it with
+// `itemUnitPriceAmount || amount` silently threw away the sign on every return, since a positive
+// itemUnitPriceAmount always wins that `||` regardless of amount's own sign. That's exactly why a
+// real return (MWCHINOPANT, BUFFALO HOOD) was showing up with a POSITIVE price, which also meant
+// returnedItemNumbers() in lib/costco-receipts.ts (checks `item.amount < 0`) never recognized it
+// as a return at all. Sign now always comes from amount/unit (which agree); magnitude still
+// prefers the per-unit price when Costco provides one.
+function signedUnitPrice(item) {
+  const sign = (item.amount < 0 || item.unit < 0) ? -1 : 1;
+  const magnitude = item.itemUnitPriceAmount || Math.abs(item.amount);
+  return sign * magnitude;
+}
+
 // Stable identity for a receipt, so the same one captured in multiple files/runs collapses to
 // one entry -- warehouse+register+transaction number+date is Costco's own natural key for a
 // specific till transaction (transactionBarcode also encodes this, but isn't always present).
@@ -102,7 +121,14 @@ function main() {
     const withinWindow = today <= deadlineIso;
     for (const item of r.itemArray) {
       if (item.itemDescription01 == null) continue;
-      if (item.amount < 0) continue; // a return/adjustment line, not a purchase to watch
+      // unit === 0 (confirmed live: an "ADIDAS SNKR" line inside a later instant-savings
+      // adjustment "receipt" for an item actually bought weeks earlier, amount: 0, unit: 0,
+      // itemUnitPriceAmount still populated at the original $37.99) means zero units moved in
+      // THIS specific line -- it's an informational echo of the original purchase, not a new
+      // transaction, and must never be counted as a purchase to watch or reward.
+      if (item.unit === 0) continue;
+      const price = signedUnitPrice(item);
+      if (price < 0) continue; // a return/adjustment line, not a purchase to watch
       watchlist.push({
         cardholder: r.cardholder,
         date,
@@ -110,7 +136,7 @@ function main() {
         receiptType: r.receiptType,
         itemNumber: item.itemNumber,
         description: [item.itemDescription01, item.itemDescription02].filter(Boolean).join(" "),
-        pricePaid: item.itemUnitPriceAmount || item.amount,
+        pricePaid: price,
         qty: item.unit,
         priceAdjustmentDeadlineAtLeast: deadlineIso,
         stillWithinWindow: withinWindow,
@@ -141,12 +167,14 @@ function main() {
       // returned (see returnedItemNumbers in lib/costco-receipts.ts). A prior version filtered
       // these out entirely, which also meant item-level returns never reduced the receipt-based
       // reward calculation either -- this is a real correctness fix, not just a watchlist nicety.
+      // unit === 0 lines are dropped here too (see signedUnitPrice's comment) -- they're not a
+      // real purchase or a real return, just an echo of a purchase from some earlier receipt.
       items: r.itemArray
-        .filter((i) => i.itemDescription01 != null)
+        .filter((i) => i.itemDescription01 != null && i.unit !== 0)
         .map((i) => ({
           itemNumber: i.itemNumber,
           description: [i.itemDescription01, i.itemDescription02].filter(Boolean).join(" "),
-          amount: i.itemUnitPriceAmount || i.amount,
+          amount: signedUnitPrice(i),
           qty: i.unit,
         })),
     }))

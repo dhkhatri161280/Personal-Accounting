@@ -1,5 +1,21 @@
 [
   {
+    "date": "2026-10-29",
+    "summary": "Costco receipts: auto-import receipts/price-checks straight into the vault"
+  },
+  {
+    "date": "2026-10-29",
+    "summary": "Costco price check: guard the totalSize===1 lone-match exception against price-implausible hits"
+  },
+  {
+    "date": "2026-10-28",
+    "summary": "Tally-to-App sync: add the same identity-repair safety net, mirrored"
+  },
+  {
+    "date": "2026-10-28",
+    "summary": "Recurring templates: add a grace-days field, separate from dayOfMonth"
+  },
+  {
     "date": "2026-10-28",
     "summary": "Tally sync: widen identity-repair so it isn't skipped by unrelated pending work"
   },

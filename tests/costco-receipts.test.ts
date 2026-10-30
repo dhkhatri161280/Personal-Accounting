@@ -73,6 +73,17 @@ test("computeCostcoRewardFromReceipts: sums qualifying items, excludes Gas Stati
   assert.equal(result.capped, false);
 });
 
+test("computeCostcoRewardFromReceipts: a qty:0 echo line's stale reference price never inflates qualifying spend", () => {
+  const receipts: CostcoReceipt[] = [
+    receipt("k1", "2026-06-01", "In-Warehouse", [
+      { itemNumber: "1", description: "ORG BLUES", amount: 300, qty: 1 },
+      { itemNumber: "2007436", description: "ADIDAS SNKR", amount: 37.99, qty: 0 }, // excluded
+    ]),
+  ];
+  const result = computeCostcoRewardFromReceipts(receipts, "2026-05-31", "2027-05-31");
+  assert.equal(result.qualifyingSpend, 300);
+});
+
 test("computeCostcoRewardFromReceipts: caps at $1,250", () => {
   const receipts: CostcoReceipt[] = [receipt("k1", "2026-06-01", "In-Warehouse", [{ itemNumber: "1", description: "X", amount: 100_000, qty: 1 }])];
   const result = computeCostcoRewardFromReceipts(receipts, "2026-05-31", "2027-05-31");
@@ -124,6 +135,27 @@ test("costcoPriceMatchWatchlist: a later return/credit for the same item number 
 test("costcoPriceMatchWatchlist: a return line itself never appears as a watchlist entry", () => {
   const receipts: CostcoReceipt[] = [receipt("k1", "2026-10-01", "In-Warehouse", [{ itemNumber: "1", description: "X", amount: -5, qty: -1 }])];
   assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-05").length, 0);
+});
+
+test("costcoPriceMatchWatchlist: a qty:0 echo line (Costco's own instant-savings adjustment \"receipt\" for an item actually bought elsewhere) never appears as a phantom purchase", () => {
+  // Confirmed live: an "ADIDAS SNKR" line captured inside a LATER, unrelated adjustment receipt
+  // with amount: 37.99 (the original purchase's reference price) but qty: 0 -- zero units moved
+  // in this specific line, so it must never show up as a new purchase candidate.
+  const receipts: CostcoReceipt[] = [
+    receipt("k1", "2026-10-25", "In-Warehouse", [{ itemNumber: "2007436", description: "ADIDAS SNKR", amount: 37.99, qty: 0 }]),
+  ];
+  assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-26").length, 0);
+});
+
+test("returnedItemNumbers (via costcoPriceMatchWatchlist): clears an item whose return was captured with a POSITIVE amount and negative qty, not negative amount", () => {
+  // Confirmed live: Costco's own receipt data represents a genuine return two different ways --
+  // sometimes a negative amount directly, sometimes a positive amount (per-unit reference price)
+  // paired with qty: -1. Both must clear the item off the watchlist.
+  const receipts: CostcoReceipt[] = [
+    receipt("k1", "2026-10-01", "In-Warehouse", [{ itemNumber: "1975219", description: "MWCHINOPANT", amount: 19.99, qty: 1 }]),
+    receipt("k2", "2026-10-05", "In-Warehouse", [{ itemNumber: "1975219", description: "MWCHINOPANT", amount: 19.99, qty: -1 }]),
+  ];
+  assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-10").length, 0);
 });
 
 function priceCheck(itemNumber: string, overrides: Partial<CostcoPriceCheck> = {}): CostcoPriceCheck {
