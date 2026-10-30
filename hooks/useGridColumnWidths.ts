@@ -29,9 +29,18 @@ export function useGridColumnWidths(
       setWidths(next);
     };
     readWidths();
+    // The synchronous call above can run before the grid has finished its OWN initial flex-width
+    // layout pass (computedWidth not settled yet on columns that just mounted) -- confirmed live:
+    // the footer fell back to this hook's caller's static pixel guesses and visibly didn't line up
+    // under the real (flex-computed) column widths. `columnWidthChange`/`resize` cover a later
+    // user-driven resize, but neither is guaranteed to fire for the grid's own initial layout, so
+    // there was no guaranteed second read to correct that first, too-early snapshot. One extra read
+    // on the next paint frame catches it regardless of which MUI event (if any) actually fires.
+    const raf = requestAnimationFrame(readWidths);
     const unsubWidth = api.subscribeEvent("columnWidthChange", readWidths);
     const unsubResize = api.subscribeEvent("resize", readWidths);
     return () => {
+      cancelAnimationFrame(raf);
       unsubWidth();
       unsubResize();
     };
