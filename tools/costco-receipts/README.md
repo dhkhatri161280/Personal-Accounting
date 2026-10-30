@@ -71,6 +71,20 @@ costco.com and pulls the REAL current price -- preferring the true in-warehouse 
 whichever store "My Warehouse" is set to) over the online/delivery price, which can legitimately
 differ. Fully automated, no clicking.
 
+Whenever Costco's own response carries BOTH a real warehouse price and a real online price for
+the same item, it also logs that real gap to `.captures/price-gap-observations.json` (by
+category) -- see `analyze-price-gaps.mjs` below.
+
+### `analyze-price-gaps.mjs` -- review real warehouse-vs-online gaps by category
+```bash
+node analyze-price-gaps.mjs
+```
+No browser, no Costco calls -- just summarizes what `check-prices.mjs` has logged so far (count,
+average, median, range per category). The apparel-only $2 estimate in `check-prices.mjs` was
+derived from a real, confirmed pattern, not invented -- this is how you'd build a similar,
+reviewed estimate for another category once there's enough real data (10+ observations is a
+reasonable floor), rather than guessing. Never auto-applied anywhere.
+
 ### `parse.mjs` -- turn raw captures into clean, importable files
 ```bash
 node parse.mjs

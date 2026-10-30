@@ -29,6 +29,7 @@ import { chromium } from "playwright";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { appendGapObservations, printGapSummary } from "./gap-log.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CAPTURES_DIR = join(__dirname, ".captures");
@@ -93,9 +94,32 @@ function searchReturnedNoResults(captured) {
 // applied as a fallback when no real warehousePrice exists -- never overrides a real one.
 const APPAREL_ADJUSTMENT = 2;
 const APPAREL_CATEGORY_RE = /cloth|shoe|apparel|footwear/i;
+function categoryNamesFor(result) {
+  return [...(result.product?.categories ?? []), ...(result.product?.attributes?.category_names?.text ?? [])];
+}
 function isApparelOrShoes(result) {
-  const names = [...(result.product?.categories ?? []), ...(result.product?.attributes?.category_names?.text ?? [])];
-  return names.some((n) => APPAREL_CATEGORY_RE.test(n));
+  return categoryNamesFor(result).some((n) => APPAREL_CATEGORY_RE.test(n));
+}
+
+// Real, observed gaps between warehousePrice and deliveryPrice -- see GAP_LOG_PATH's own comment.
+// Costco's categories are quite granular (e.g. "Shoes & Boots for Women" vs "...for Men") --
+// bucketed down to the LAST (most general) category level for aggregation, since that's usually
+// broad enough to be a useful bucket (e.g. "Clothing, Shoes & Jewelry") without being so coarse
+// it's meaningless, while still leaving the full raw category list in each observation for anyone
+// who wants to re-bucket it differently later.
+const gapObservations = [];
+function recordGapObservation(item, result, warehousePrice, deliveryPrice) {
+  const categories = categoryNamesFor(result);
+  gapObservations.push({
+    itemNumber: item.itemNumber,
+    description: item.description,
+    categories,
+    topCategory: categories[categories.length - 1] ?? null,
+    warehousePrice,
+    deliveryPrice,
+    gap: Number((deliveryPrice - warehousePrice).toFixed(2)),
+    checkedAt: new Date().toISOString(),
+  });
 }
 
 // Last-resort sanity guard on the totalSize===1 "trust the lone result" exception above --
@@ -183,6 +207,9 @@ function extractFromSearchResponse(searchBody, itemNumber, pricePaid, descriptio
     if (!inv) continue;
     const whPrice = Number(inv.warehousePrice?.minPrice);
     const dlPrice = Number(inv.deliveryPrice?.minPrice);
+    if (Number.isFinite(whPrice) && whPrice > 0 && Number.isFinite(dlPrice) && dlPrice > 0) {
+      recordGapObservation({ itemNumber, description }, r, whPrice, dlPrice);
+    }
     if (Number.isFinite(whPrice) && whPrice > 0) {
       out.push({ price: whPrice, priceSource: "warehouse", warehouseLocationId: searchBody?.myWarehouse?.locationId ?? null });
     } else if (Number.isFinite(dlPrice) && dlPrice > 0) {
@@ -370,6 +397,8 @@ async function main() {
   if (notSoldOnline.length) console.log(`${notSoldOnline.length} item(s) aren't sold on costco.com at all (warehouse-only) -- can't be checked this way.`);
   if (noMatch.length) console.log(`${noMatch.length} item(s) had no clean single-product match -- check .captures/price-checks/<itemNumber>.json for the raw response.`);
   console.log(`\nSaved: ${join(CAPTURES_DIR, "price-checks.json")}`);
+  const allGapObservations = appendGapObservations(gapObservations);
+  printGapSummary(allGapObservations);
 
   await browser.close();
 }
