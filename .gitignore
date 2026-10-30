@@ -67,3 +67,11 @@ components/GenericHome.*.tsx
 
 # Local tool config
 /.claude/
+
+# tools/tally-sync and tools/costco-receipts write timestamped local safety copies of the full
+# encrypted vault before every direct write (confirmed live: none of these had a gitignore entry
+# before, a real gap since a broad `git add` could otherwise sweep a full vault backup into a
+# commit -- harmless since it's encrypted, but bulky and not meant to be versioned). Same for the
+# Tally sync's own raw XML response audit files.
+tools/*/encrypted-*-vault-before-*.json
+tools/*/tally-*-one-*-response-*.xml

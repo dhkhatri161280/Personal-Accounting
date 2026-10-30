@@ -75,9 +75,27 @@ differ. Fully automated, no clicking.
 ```bash
 node parse.mjs
 ```
-Reads everything under `.captures/<name>/`, writes `.captures/receipts.json` (import this into
-**Masters → Costco Receipts** in the app) and `.captures/watchlist.json` (used by the other
-scripts here).
+Reads everything under `.captures/<name>/`, writes `.captures/receipts.json` and
+`.captures/price-checks.json` (either import these into **Masters → Costco Receipts** in the app
+by hand, or use `import-to-vault.ps1` below to skip that step) and `.captures/watchlist.json`
+(used by `check-prices.mjs`).
+
+### `import-to-vault.ps1` -- push receipts/price-checks straight into the vault, no browser step
+```powershell
+powershell -File import-to-vault.ps1
+```
+Writes `.captures/receipts.json` and `.captures/price-checks.json` directly into the encrypted
+US-book vault -- same merge rules as the Masters → Costco Receipts upload, just skipping the
+manual file-picker. Reads the vault/site/access-token credentials from the same DPAPI-encrypted
+secret files `../tally-sync`'s own scheduled sync already uses on this machine
+(`%LOCALAPPDATA%\PersonalLedgerTallySync\*.dpapi`). One-time setup if `access-code.dpapi` doesn't
+exist yet (the other two already do, from the Tally sync setup):
+```powershell
+Read-Host -Prompt "Access token" -AsSecureString | ConvertFrom-SecureString |
+  Set-Content -LiteralPath "$env:LOCALAPPDATA\PersonalLedgerTallySync\access-code.dpapi"
+```
+Writes a timestamped encrypted backup of the whole vault (`encrypted-us-vault-before-costco-import-*.json`,
+gitignored) before every write, same safety pattern as the Tally sync scripts.
 
 ## Typical workflow
 
@@ -92,7 +110,9 @@ node attach.mjs --label=dignesh
 node check-prices.mjs
 # 5. Build the clean output files:
 node parse.mjs
-# 6. Import .captures/receipts.json and .captures/price-checks.json into
+# 6. Get it into the app -- either:
+powershell -File import-to-vault.ps1
+#    ...or manually import .captures/receipts.json and .captures/price-checks.json via
 #    Masters -> Costco Receipts in the app.
 ```
 
