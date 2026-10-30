@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-29",
+    "summary": "Fix TradingReport's Schwab-cash-error footer row rendering 3 columns short"
+  },
+  {
+    "date": "2026-10-29",
     "summary": "Fix Totals-row misalignment on Ledgers/Day Book grids (real column widths read too early)"
   },
   {

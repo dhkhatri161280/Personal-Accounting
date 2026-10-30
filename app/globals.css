@@ -1282,9 +1282,10 @@ a.action {
   margin: 0 0 16px;
 }
 /* Lines up under the grid's own Ledger/Group/Opening/Dr/Cr/Closing columns instead of a flat
-   "Opening $X Dr $Y ..." label row -- each .ledger-grid-totals-cell uses the exact same flex
-   ratio/minWidth as its matching column definition in the columns array above it, so at the
-   default (non-manually-resized) column widths every total sits directly beneath its header. */
+   "Opening $X Dr $Y ..." label row -- each cell's actual width comes from an inline `flex: 0 0
+   <real pixel width>px` set in JS (see hooks/useGridColumnWidths.ts), not from anything in this
+   class itself; a plain CSS flex-ratio match was tried first and confirmed NOT to reproduce the
+   grid's own column-width algorithm closely enough. This class only supplies padding/box-sizing. */
 .ledger-grid-totals {
   display: flex;
   align-items: center;
