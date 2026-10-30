@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-29",
+    "summary": "Fix Totals-row misalignment on Ledgers/Day Book grids (real column widths read too early)"
+  },
+  {
+    "date": "2026-10-29",
     "summary": "GR Books: add a search box to Trial Balance, no extra vertical space"
   },
   {

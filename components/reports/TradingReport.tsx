@@ -1158,9 +1158,14 @@ export function TradingReport({
               )}
               {schwabCashError && (
                 <tr style={{ fontWeight: 400 }}>
-                  <th colSpan={7} style={{ textAlign: "left", opacity: 0.75, color: "#dc2626" }}>
+                  <th colSpan={5} style={{ textAlign: "left", opacity: 0.75, color: "#dc2626" }}>
                     Cash Balance (Schwab, live) unavailable: {schwabCashError}
                   </th>
+                  <th />
+                  <th />
+                  <th />
+                  <th />
+                  <th />
                 </tr>
               )}
               {schwabCash !== null && (
