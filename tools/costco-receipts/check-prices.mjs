@@ -98,13 +98,31 @@ function isApparelOrShoes(result) {
   return names.some((n) => APPAREL_CATEGORY_RE.test(n));
 }
 
-function extractFromSearchResponse(searchBody, itemNumber) {
+// Last-resort sanity guard on the totalSize===1 "trust the lone result" exception above --
+// confirmed live: the short, produce-style item number "5565" (Black Grapes, paid $6.49) returned
+// exactly one unrelated search result, a $369.99 75-inch TV, and totalSize===1 blindly trusted it
+// since there was nothing else to disambiguate against. A tag-matched result is NEVER subject to
+// this (marketing_keywords already proved its identity, regardless of how much the price moved),
+// only an untagged lone match -- which this rule exists specifically to still allow (see the
+// Kirkland milk case above), just not unconditionally. A real price swing (genuine price match or
+// a stale paid price) should still land within this multiple of what was paid; a coincidental
+// keyword hit on a totally unrelated product almost never will.
+const LONE_MATCH_PLAUSIBLE_RATIO = 5;
+
+function extractFromSearchResponse(searchBody, itemNumber, pricePaid) {
   const results = searchBody?.searchResult?.results ?? [];
   const inventoryById = new Map((searchBody?.inventoryResponse ?? []).map((inv) => [inv.productId, inv]));
-  const matching =
-    searchBody?.searchResult?.totalSize === 1 && results.length === 1
-      ? results
-      : results.filter((r) => r.product?.attributes?.marketing_keywords?.text?.includes(itemNumber));
+  const tagMatched = results.filter((r) => r.product?.attributes?.marketing_keywords?.text?.includes(itemNumber));
+  const loneMatch =
+    tagMatched.length === 0 && searchBody?.searchResult?.totalSize === 1 && results.length === 1 ? results : [];
+  const plausible = (r) => {
+    if (!Number.isFinite(pricePaid) || pricePaid <= 0) return true; // nothing to sanity-check against
+    const inv = inventoryById.get(r.id);
+    const candidate = Number(inv?.warehousePrice?.minPrice) || Number(inv?.deliveryPrice?.minPrice);
+    if (!Number.isFinite(candidate) || candidate <= 0) return true; // extraction below will skip it anyway
+    return candidate <= pricePaid * LONE_MATCH_PLAUSIBLE_RATIO && candidate >= pricePaid / LONE_MATCH_PLAUSIBLE_RATIO;
+  };
+  const matching = [...tagMatched, ...loneMatch.filter(plausible)];
   const out = [];
   for (const r of matching) {
     const inv = inventoryById.get(r.id);
@@ -179,7 +197,7 @@ async function main() {
     // Combine both sources -- the search response's inventoryResponse (true warehouse pricing,
     // when the item is stocked at "My Warehouse") takes priority over display-price-lite (always
     // online/delivery pricing), never the other way around.
-    const searchPrices = searchResponse ? extractFromSearchResponse(searchResponse.body, item.itemNumber) : [];
+    const searchPrices = searchResponse ? extractFromSearchResponse(searchResponse.body, item.itemNumber, item.pricePaid) : [];
     const displayPrices = priceResponse ? extractFromDisplayPriceLite(priceResponse.body) : [];
     // Ranked: real warehouse price > apparel-adjusted estimate > plain online/delivery price.
     const warehousePrices = searchPrices.filter((p) => p.priceSource === "warehouse");
