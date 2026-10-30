@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-10-30",
+    "summary": "Costco price check: log real warehouse-vs-online price gaps by category"
+  },
+  {
+    "date": "2026-10-30",
+    "summary": "Costco watchlist: default \"Only show items with a price match\" to checked"
+  },
+  {
+    "date": "2026-10-30",
     "summary": "Costco price check: recover from a closed browser page/context instead of crashing the whole run"
   },
   {

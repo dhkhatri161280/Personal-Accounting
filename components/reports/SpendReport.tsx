@@ -162,19 +162,28 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
     return lines.map((l) => ({ ...l, priceCheck: checksByItem.get(l.itemNumber) ?? null }));
   }, [data.costcoReceipts, data.costcoPriceChecks]);
   const [showWatchlistInfo, setShowWatchlistInfo] = useState(false);
+  // priceCheck is keyed by itemNumber only (one real Costco lookup per item), but the SAME item
+  // can appear on the watchlist multiple times at different pricePaid (e.g. Dignesh and Hiral each
+  // bought it, or a repeat purchase) -- so whether it's actually a "match" must be judged against
+  // THIS row's own pricePaid, not the stored priceCheck.priceDropped flag, which only reflects
+  // whichever pricePaid check-prices.mjs happened to see for that item. Never flag a drop when the
+  // current price is actually higher than what this particular row paid.
+  function rowIsMatch(w: (typeof costcoWatchlist)[number]) {
+    return w.priceCheck != null && w.priceCheck.currentPrice != null && w.priceCheck.currentPrice < w.pricePaid - 0.005;
+  }
   // "Only show items with a confirmed price match" filter -- the whole point of requesting this
   // was to cut through a long watchlist straight to what's actually actionable.
   const [onlyPriceDrops, setOnlyPriceDrops] = useState(true);
   const costcoWatchlistFiltered = useMemo(
-    () => (onlyPriceDrops ? costcoWatchlist.filter((w) => w.priceCheck?.priceDropped) : costcoWatchlist),
+    () => (onlyPriceDrops ? costcoWatchlist.filter(rowIsMatch) : costcoWatchlist),
     [costcoWatchlist, onlyPriceDrops]
   );
-  const priceDropCount = useMemo(() => costcoWatchlist.filter((w) => w.priceCheck?.priceDropped).length, [costcoWatchlist]);
+  const priceDropCount = useMemo(() => costcoWatchlist.filter(rowIsMatch).length, [costcoWatchlist]);
   // Total savings across whatever's currently visible (respects the "only show matches" filter) --
   // only counts rows with a confirmed drop; a non-dropped or unchecked row contributes $0, not a
   // negative/meaningless number.
   const costcoWatchlistSavingsTotal = useMemo(
-    () => costcoWatchlistFiltered.reduce((s, w) => s + (w.priceCheck?.priceDropped ? w.pricePaid - (w.priceCheck.currentPrice ?? w.pricePaid) : 0), 0),
+    () => costcoWatchlistFiltered.reduce((s, w) => s + (rowIsMatch(w) ? w.pricePaid - (w.priceCheck!.currentPrice ?? w.pricePaid) : 0), 0),
     [costcoWatchlistFiltered]
   );
 
@@ -555,7 +564,8 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
               </thead>
               <tbody>
                 {costcoWatchlistFiltered.map((w, i) => {
-                  const diff = w.priceCheck?.priceDropped ? w.pricePaid - (w.priceCheck.currentPrice ?? w.pricePaid) : null;
+                  const isMatch = rowIsMatch(w);
+                  const diff = isMatch ? w.pricePaid - (w.priceCheck!.currentPrice ?? w.pricePaid) : null;
                   return (
                     <tr key={`${w.itemNumber}-${w.date}-${i}`}>
                       <td>{fmtDate(w.date)}</td>
@@ -573,7 +583,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                           <span style={{ opacity: 0.4 }}>no match</span>
                         ) : (
                           <span
-                            style={{ color: w.priceCheck.priceDropped ? "#16a34a" : undefined, fontWeight: w.priceCheck.priceDropped ? 700 : undefined }}
+                            style={{ color: isMatch ? "#16a34a" : undefined, fontWeight: isMatch ? 700 : undefined }}
                             title={
                               w.priceCheck.priceSource === "online"
                                 ? "Online/delivery price -- Costco had no in-warehouse price available for this item. In-warehouse runs the same or lower (Instant Savings promos apply both ways), so if this shows a drop, your in-store price is at least this good."
@@ -587,7 +597,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                             {fmt(w.priceCheck.currentPrice)}
                             {w.priceCheck.priceSource === "online" && <small style={{ opacity: 0.6, fontWeight: 400 }}> (online)</small>}
                             {w.priceCheck.priceSource === "estimated-warehouse" && <small style={{ opacity: 0.6, fontWeight: 400 }}> (est.)</small>}
-                            {w.priceCheck.priceDropped && " ✓ match"}
+                            {isMatch && " ✓ match"}
                           </span>
                         )}
                       </td>
