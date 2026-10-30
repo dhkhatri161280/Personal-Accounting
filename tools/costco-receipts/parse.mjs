@@ -73,6 +73,33 @@ function receiptKey(r) {
   return `${r.warehouseNumber}-${r.registerNumber}-${r.transactionNumber}-${(r.transactionDate || r.transactionDateTime || "").slice(0, 10)}`;
 }
 
+// A family membership's Order & Purchase History shows EVERY cardholder's receipts once logged
+// in, not just whoever is logged in -- confirmed live: a real $363.01 Fremont receipt showed up
+// under the "dignesh" capture run (that's just which folder/login session found it), but its own
+// `membershipNumber` field was actually the OTHER cardholder's, not the one logged in. Blindly
+// tagging every receipt with the capture run's own --label (the old behavior) silently
+// misattributed it. Each receipt's real `membershipNumber` is the actual source of truth for who
+// made it -- mapped to a cardholder name via a LOCAL, gitignored config file (never commit real
+// Costco membership numbers to source control), since this script's own code is the one thing
+// that's shared/versioned here. An unrecognized membership number (a third family member added
+// later, a missing/not-yet-created config file, etc.) falls back to the capture run's own label
+// rather than crashing or silently dropping the receipt.
+//
+// One-time setup -- create tools/costco-receipts/cardholder-map.local.json:
+//   { "<membershipNumber from a real receipt>": "dignesh", "<the other one>": "hiral" }
+const CARDHOLDER_MAP_PATH = join(__dirname, "cardholder-map.local.json");
+function loadCardholderMap() {
+  try {
+    return JSON.parse(readFileSync(CARDHOLDER_MAP_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+const cardholderByMembershipNumber = loadCardholderMap();
+function cardholderFor(r, fallbackLabel) {
+  return cardholderByMembershipNumber[String(r.membershipNumber || "")] || fallbackLabel;
+}
+
 function main() {
   const today = new Date().toISOString().slice(0, 10);
   const receipts = new Map(); // receiptKey -> { ...receipt, cardholder }
@@ -103,7 +130,7 @@ function main() {
         const thisHasDetail = r.itemArray?.some((i) => i.itemDescription01 != null);
         const existingHasDetail = existing?.itemArray?.some((i) => i.itemDescription01 != null);
         if (!existing || (thisHasDetail && !existingHasDetail)) {
-          receipts.set(key, { ...r, cardholder: label });
+          receipts.set(key, { ...r, cardholder: cardholderFor(r, label) });
         }
       }
     }

@@ -8,3 +8,5 @@ node_modules/
 # not worth committing to git either.
 last-sync-status.json
 sync-log.txt
+# Real Costco membership numbers -- never commit these. See parse.mjs's own setup comment.
+cardholder-map.local.json
