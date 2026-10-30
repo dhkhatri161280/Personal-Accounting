@@ -224,6 +224,7 @@ export function GrApp() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [minAmount, setMinAmount] = useState("");
   const [ledgerFilter, setLedgerFilter] = useState("");
+  const [tbSearch, setTbSearch] = useState("");
   const [expandedGuid, setExpandedGuid] = useState<string | null>(null);
   const { dashboardDetail, setDashboardDetail, toggleDashboardDetail } = useDashboardDetail<DashKind>();
   const [selectedLedgerName, setSelectedLedgerName] = useState<string | null>(null);
@@ -1728,11 +1729,26 @@ export function GrApp() {
               })
               .filter(({ dr, cr }) => dr > tol || cr > tol)
               .sort((x, y) => x.a.name.localeCompare(y.a.name));
+            // Totals below are computed from the FULL tbRows (pre-search) so a search term never
+            // changes what "ties" to the period total -- it only narrows which rows are shown.
             const totalDr = tbRows.reduce((s, r) => s + r.dr, 0);
             const totalCr = tbRows.reduce((s, r) => s + r.cr, 0);
+            const tbSearchLower = tbSearch.trim().toLowerCase();
+            const tbRowsShown = tbSearchLower
+              ? tbRows.filter(({ a }) => `${a.name} ${a.parent || ""}`.toLowerCase().includes(tbSearchLower))
+              : tbRows;
             return (
               <div className="data-panel">
-                <h3>Trial Balance — All Ledgers in INR</h3>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <h3 style={{ margin: 0 }}>Trial Balance — All Ledgers in INR</h3>
+                  <input
+                    className="search-box"
+                    style={{ width: "auto", flex: "1 1 220px", maxWidth: 360, margin: 0 }}
+                    placeholder="Search ledger or group..."
+                    value={tbSearch}
+                    onChange={(e) => setTbSearch(e.target.value)}
+                  />
+                </div>
                 <p className="gr-report-note">
                   BS accounts: balance as of end of {periodLabel}. I&amp;E accounts: net activity for {periodLabel}. Totals tie when the selected period covers all data.
                 </p>
@@ -1747,7 +1763,12 @@ export function GrApp() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tbRows.map(({ a, dr, cr }, i) => (
+                    {tbRowsShown.length === 0 && (
+                      <tr>
+                        <td colSpan={5} style={{ opacity: 0.7, textAlign: "center" }}>No ledger matches "{tbSearch}".</td>
+                      </tr>
+                    )}
+                    {tbRowsShown.map(({ a, dr, cr }, i) => (
                       <tr key={i}>
                         <td><LedgerLink name={a.name} /></td>
                         <td>{a.parent || "-"}</td>

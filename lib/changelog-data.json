@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-29",
+    "summary": "Costco receipts: fix sign loss on returns and phantom qty:0 \"echo\" purchases"
+  },
+  {
+    "date": "2026-10-29",
     "summary": "Costco receipts: auto-import receipts/price-checks straight into the vault"
   },
   {
