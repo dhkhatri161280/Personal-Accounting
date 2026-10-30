@@ -109,7 +109,58 @@ function isApparelOrShoes(result) {
 // keyword hit on a totally unrelated product almost never will.
 const LONE_MATCH_PLAUSIBLE_RATIO = 5;
 
-function extractFromSearchResponse(searchBody, itemNumber, pricePaid) {
+// Second guard on the same totalSize===1 exception, added after the price-ratio guard alone still
+// let a real false positive through: "ARTSN WHEAT BREAD (BBS) SL7" (paid $5.79, a name-fallback
+// search since its item number wasn't searchable at all) matched Costco's own fuzzy search to an
+// entirely unrelated "Youchen Cheese Bread, 24-count, 1.65 oz" at $17.99 -- within the 5x price
+// ratio, so the OTHER guard didn't catch it, and the only word the two have in common is the
+// generic "bread". Requires at least one DISTINCTIVE word (not in the generic-term stoplist below)
+// from the item's own description to literally appear in the matched product's real title --
+// confirmed this correctly separates the two real cases seen so far: "ADIDAS" from "ADIDAS SNKR
+// FY27 P135" does appear in "adidas Women's Adipure Sneaker" (accept), while neither "ARTSN" nor
+// "WHEAT" appears anywhere in "Youchen Cheese Bread..." (reject). Not foolproof -- a description
+// whose only non-generic word is itself generic-sounding could still slip through -- but it's a
+// real improvement over the price-ratio check alone, which this stacks with, not replaces.
+// First attempt at this stoplist only covered packaging jargon (count/oz/pack/...) and missed
+// generic PRODUCT-TYPE nouns -- confirmed live, "bread" alone (present in both the real item AND
+// the unrelated wrong match) let that false positive straight through the very first time this was
+// tested, before it ever shipped. Expanded here with the generic category nouns from the user's
+// own real receipts seen so far -- this is NOT an attempt at a universal grocery-catalog stoplist
+// (that would never be complete), just specifically covers what's actually been seen to cause a
+// false "overlap". A future item whose own generic category word isn't in this list yet could
+// still slip through the same way "bread" did -- this materially narrows the gap, it doesn't close
+// it, and that residual risk was explained to and accepted by the user, not silently assumed away.
+const GENERIC_DESCRIPTION_WORDS = new Set([
+  "organic", "org", "ks", "kirkland", "signature", "count", "pack", "each", "bag", "box", "size",
+  "sl", "fy", "wh", "ct", "oz", "lb", "lbs", "kg", "g", "the", "and", "for", "with",
+  "bread", "chip", "chips", "pant", "pants", "jogger", "vest", "shirt", "sneaker", "sneakers",
+  "jacket", "shoe", "shoes", "oats", "grape", "grapes", "cucumber", "orange", "oranges", "lotion",
+  "yogurt", "milk", "cheese", "water", "juice", "butter", "walnut", "cashew", "spinach",
+  "strawberries", "watermelon", "garlic", "backpack",
+]);
+function distinctiveWords(text) {
+  return (text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !GENERIC_DESCRIPTION_WORDS.has(w) && !/^\d+$/.test(w));
+}
+function titleOverlapsDescription(r, description) {
+  const words = distinctiveWords(description);
+  if (!words.length) return false; // nothing distinctive to check against -- too risky to trust blindly
+  const title = (r.product?.title || r.product?.name || "").toLowerCase();
+  return words.some((w) => title.includes(w));
+}
+
+// `requireTitleOverlap` is only ever passed true for the name-fallback search (see main()) --
+// an item-NUMBER search's loneMatch exception stays guarded by price-plausibility alone, same as
+// before. Confirmed live this scoping matters: re-checking the Kirkland A2 milk case (item
+// 1462714, the ORIGINAL reason the totalSize===1 exception exists) against titleOverlapsDescription
+// shows it would have been wrongly rejected too -- its own receipt description ("KS ORG A2 PR
+// 3/64OZ SL30 33X4 P132") is just as cryptic as the bread one, and happens to share no literal
+// words with the real title either, even though it's a completely legitimate match. A numeric
+// item-number lookup is inherently a far more precise identifier than a fuzzy text search, which
+// is exactly why the word-overlap guard is only needed -- and only safe to apply -- on the latter.
+function extractFromSearchResponse(searchBody, itemNumber, pricePaid, description, requireTitleOverlap) {
   const results = searchBody?.searchResult?.results ?? [];
   const inventoryById = new Map((searchBody?.inventoryResponse ?? []).map((inv) => [inv.productId, inv]));
   const tagMatched = results.filter((r) => r.product?.attributes?.marketing_keywords?.text?.includes(itemNumber));
@@ -122,7 +173,10 @@ function extractFromSearchResponse(searchBody, itemNumber, pricePaid) {
     if (!Number.isFinite(candidate) || candidate <= 0) return true; // extraction below will skip it anyway
     return candidate <= pricePaid * LONE_MATCH_PLAUSIBLE_RATIO && candidate >= pricePaid / LONE_MATCH_PLAUSIBLE_RATIO;
   };
-  const matching = [...tagMatched, ...loneMatch.filter(plausible)];
+  const matching = [
+    ...tagMatched,
+    ...loneMatch.filter((r) => plausible(r) && (!requireTitleOverlap || titleOverlapsDescription(r, description))),
+  ];
   const out = [];
   for (const r of matching) {
     const inv = inventoryById.get(r.id);
@@ -172,40 +226,95 @@ async function main() {
 
   const results = [];
   for (const item of uniqueItems) {
-    const captured = [];
-    const onResponse = async (res) => {
-      try {
-        const contentType = res.headers()["content-type"] || "";
-        if (!contentType.includes("application/json")) return;
-        const body = await res.json().catch(() => null);
-        if (body) captured.push({ url: res.url(), body });
-      } catch {
-        // Not every response matters -- skip.
+    // A zero-result search is sometimes a genuine "this item isn't sold online" and sometimes a
+    // flaky/transient response from Costco's own search API -- confirmed live: a real, confirmed-
+    // online item (the Adidas sneaker, $32.99 visible in a normal browser at the same moment) came
+    // back with searchResult.totalSize: 0 on a scripted search by item number. One retry on a
+    // genuinely empty result, not on an ambiguous/ no-clean-match one (that's a different, more
+    // reliable signal not worth re-querying), catches this without doubling every single lookup.
+    let captured = [];
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      captured = [];
+      const onResponse = async (res) => {
+        try {
+          const contentType = res.headers()["content-type"] || "";
+          if (!contentType.includes("application/json")) return;
+          const body = await res.json().catch(() => null);
+          if (body) captured.push({ url: res.url(), body });
+        } catch {
+          // Not every response matters -- skip.
+        }
+      };
+      page.on("response", onResponse);
+      await page
+        .goto(`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(item.itemNumber)}`, { waitUntil: "networkidle", timeout: 20000 })
+        .catch(() => {});
+      await page.waitForTimeout(1500);
+      page.off("response", onResponse);
+      if (attempt === 1 && searchReturnedNoResults(captured)) {
+        await page.waitForTimeout(1000);
+        continue;
       }
-    };
-    page.on("response", onResponse);
-    await page
-      .goto(`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(item.itemNumber)}`, { waitUntil: "networkidle", timeout: 20000 })
-      .catch(() => {});
-    await page.waitForTimeout(1500);
-    page.off("response", onResponse);
+      break;
+    }
 
     writeFileSync(join(RAW_DIR, `${item.itemNumber}.json`), JSON.stringify(captured, null, 2));
 
+    // Fallback: the item number itself sometimes just isn't searchable -- confirmed live, a real
+    // Adidas sneaker (paid $37.99) came back with totalSize: 0 searching its own receipt item
+    // number, consistently (not a flake -- the retry above still hit the same zero), even though
+    // it's clearly sold online. Likely the in-warehouse item code isn't what Costco's online
+    // catalog indexes for that product. Try the item's own description as a keyword instead, but
+    // ONLY accept an unambiguous totalSize===1 result (same price-plausibility guard as the
+    // itemNumber path) -- a totalSize>1 name search has no item-number tag to disambiguate by (the
+    // whole reason the exact-tag-match rule exists for the itemNumber path doesn't transfer here),
+    // so guessing among several name-matched results would reintroduce exactly the false-positive
+    // risk already fixed once today. Only runs when the itemNumber search came up genuinely empty.
+    let nameFallbackCaptured = null;
+    if (searchReturnedNoResults(captured) && item.description?.trim()) {
+      nameFallbackCaptured = [];
+      const onResponse = async (res) => {
+        try {
+          const contentType = res.headers()["content-type"] || "";
+          if (!contentType.includes("application/json")) return;
+          const body = await res.json().catch(() => null);
+          if (body) nameFallbackCaptured.push({ url: res.url(), body });
+        } catch {
+          // Not every response matters -- skip.
+        }
+      };
+      page.on("response", onResponse);
+      await page
+        .goto(`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(item.description.trim())}`, { waitUntil: "networkidle", timeout: 20000 })
+        .catch(() => {});
+      await page.waitForTimeout(1500);
+      page.off("response", onResponse);
+      writeFileSync(join(RAW_DIR, `${item.itemNumber}-name-fallback.json`), JSON.stringify(nameFallbackCaptured, null, 2));
+    }
+
     const searchResponse = findSearchResponse(captured);
     const priceResponse = findDisplayPriceResponse(captured);
+    const nameFallbackResponse = nameFallbackCaptured ? findSearchResponse(nameFallbackCaptured) : null;
     // Combine both sources -- the search response's inventoryResponse (true warehouse pricing,
     // when the item is stocked at "My Warehouse") takes priority over display-price-lite (always
-    // online/delivery pricing), never the other way around.
-    const searchPrices = searchResponse ? extractFromSearchResponse(searchResponse.body, item.itemNumber, item.pricePaid) : [];
+    // online/delivery pricing), never the other way around. The name-fallback response uses the
+    // SAME extraction function -- it only ever contributes anything when totalSize===1 there (see
+    // the loneMatch branch in extractFromSearchResponse), since no itemNumber tag exists to trust
+    // a totalSize>1 result by.
+    const searchPrices = searchResponse ? extractFromSearchResponse(searchResponse.body, item.itemNumber, item.pricePaid, item.description, false) : [];
+    const nameFallbackPrices = nameFallbackResponse ? extractFromSearchResponse(nameFallbackResponse.body, item.itemNumber, item.pricePaid, item.description, true) : [];
     const displayPrices = priceResponse ? extractFromDisplayPriceLite(priceResponse.body) : [];
+    const allSearchPrices = [...searchPrices, ...nameFallbackPrices];
     // Ranked: real warehouse price > apparel-adjusted estimate > plain online/delivery price.
-    const warehousePrices = searchPrices.filter((p) => p.priceSource === "warehouse");
-    const estimatedPrices = searchPrices.filter((p) => p.priceSource === "estimated-warehouse");
-    const onlinePrices = [...searchPrices.filter((p) => p.priceSource === "online"), ...displayPrices];
+    const warehousePrices = allSearchPrices.filter((p) => p.priceSource === "warehouse");
+    const estimatedPrices = allSearchPrices.filter((p) => p.priceSource === "estimated-warehouse");
+    const onlinePrices = [...allSearchPrices.filter((p) => p.priceSource === "online"), ...displayPrices];
     const pool = warehousePrices.length ? warehousePrices : estimatedPrices.length ? estimatedPrices : onlinePrices;
     const best = pool.length ? pool.reduce((a, b) => (b.price < a.price ? b : a)) : null;
-    const notSoldOnline = !searchPrices.length && !displayPrices.length && searchReturnedNoResults(captured);
+    // Still counts as "not sold online" only when BOTH the itemNumber search and the name fallback
+    // (if it ran at all) found nothing usable -- not just the itemNumber path alone anymore.
+    const notSoldOnline = !allSearchPrices.length && !displayPrices.length && searchReturnedNoResults(captured)
+      && (!nameFallbackResponse || !nameFallbackPrices.length);
     const currentPrice = best?.price ?? null;
     const priceDropped = currentPrice != null && currentPrice < item.pricePaid - 0.005;
     results.push({
