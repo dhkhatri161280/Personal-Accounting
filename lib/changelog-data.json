@@ -1,5 +1,21 @@
 [
   {
+    "date": "2026-10-30",
+    "summary": "Costco price check: recover from a closed browser page/context instead of crashing the whole run"
+  },
+  {
+    "date": "2026-10-29",
+    "summary": "Costco price check: retry on empty search, name-based fallback with a tested overlap guard"
+  },
+  {
+    "date": "2026-10-29",
+    "summary": "Costco receipts: attribute cardholder by real membershipNumber, not by capture login session"
+  },
+  {
+    "date": "2026-10-29",
+    "summary": "Ledgers Totals row: measure real header DOM width, not grid API timing"
+  },
+  {
     "date": "2026-10-29",
     "summary": "Fix TradingReport's Schwab-cash-error footer row rendering 3 columns short"
   },

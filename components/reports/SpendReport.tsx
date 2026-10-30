@@ -164,7 +164,7 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   const [showWatchlistInfo, setShowWatchlistInfo] = useState(false);
   // "Only show items with a confirmed price match" filter -- the whole point of requesting this
   // was to cut through a long watchlist straight to what's actually actionable.
-  const [onlyPriceDrops, setOnlyPriceDrops] = useState(false);
+  const [onlyPriceDrops, setOnlyPriceDrops] = useState(true);
   const costcoWatchlistFiltered = useMemo(
     () => (onlyPriceDrops ? costcoWatchlist.filter((w) => w.priceCheck?.priceDropped) : costcoWatchlist),
     [costcoWatchlist, onlyPriceDrops]
