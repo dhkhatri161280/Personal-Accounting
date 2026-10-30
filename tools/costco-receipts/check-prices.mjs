@@ -222,10 +222,23 @@ async function main() {
     process.exit(1);
   }
   const context = browser.contexts()[0];
-  const page = context.pages()[0] ?? (await context.newPage());
+  let page = context.pages()[0] ?? (await context.newPage());
+  // Recovers from a closed/crashed tab instead of taking down the whole run -- confirmed live,
+  // twice in a row: "Target page, context or browser has been closed" partway through a real run
+  // (once at item 19 of 46, once at item 9), losing every result already collected including ones
+  // that had already succeeded. Checked before every navigation below, not just once at the top.
+  async function ensurePage() {
+    if (!page.isClosed()) return page;
+    const open = context.pages().filter((p) => !p.isClosed());
+    page = open[0] ?? (await context.newPage());
+    return page;
+  }
 
   const results = [];
+  const skipped = [];
   for (const item of uniqueItems) {
+   try {
+    page = await ensurePage();
     // A zero-result search is sometimes a genuine "this item isn't sold online" and sometimes a
     // flaky/transient response from Costco's own search API -- confirmed live: a real, confirmed-
     // online item (the Adidas sneaker, $32.99 visible in a normal browser at the same moment) came
@@ -245,6 +258,7 @@ async function main() {
           // Not every response matters -- skip.
         }
       };
+      page = await ensurePage();
       page.on("response", onResponse);
       await page
         .goto(`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(item.itemNumber)}`, { waitUntil: "networkidle", timeout: 20000 })
@@ -283,6 +297,7 @@ async function main() {
           // Not every response matters -- skip.
         }
       };
+      page = await ensurePage();
       page.on("response", onResponse);
       await page
         .goto(`https://www.costco.com/CatalogSearch?keyword=${encodeURIComponent(item.description.trim())}`, { waitUntil: "networkidle", timeout: 20000 })
@@ -337,8 +352,16 @@ async function main() {
     // A short, slightly randomized pause between lookups -- not aggressive scraping, just
     // courteous pacing against someone's own real warehouse search while logged in.
     await page.waitForTimeout(800 + Math.random() * 700);
+   } catch (e) {
+     // One item's page crashing/closing must not lose every result already collected for the
+     // other 45 -- confirmed live, twice: the whole process died mid-run and every successful
+     // lookup up to that point was lost, needing a full restart. Skip just this one and keep going.
+     skipped.push(item.itemNumber);
+     console.log(`  ${item.itemNumber}  ${item.description.slice(0, 35).padEnd(35)}  SKIPPED -- ${e.message}`);
+   }
   }
 
+  if (skipped.length) console.log(`\n${skipped.length} item(s) skipped due to a browser error -- re-run to pick them up: ${skipped.join(", ")}`);
   writeFileSync(join(CAPTURES_DIR, "price-checks.json"), JSON.stringify(results, null, 2));
   const drops = results.filter((r) => r.priceDropped);
   const notSoldOnline = results.filter((r) => r.notSoldOnline);
