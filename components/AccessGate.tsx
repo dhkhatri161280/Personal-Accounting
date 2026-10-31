@@ -2,6 +2,14 @@
 import { useEffect, useRef, useState } from "react";
 import { getAccessToken, setAccessToken, clearAccessToken, apiFetch } from "@/lib/api-fetch";
 import { hasBiometricSeal, enableBiometricSeal, biometricUnseal, removeBiometricSeal } from "@/lib/webauthn-seal";
+import { QrSignInPanel } from "@/components/DevicePairing";
+import type { PairedSecret } from "@/lib/device-pairing";
+
+// A session unlocked by scanning a QR code from another, already-trusted device -- someone else's
+// laptop, not yours -- auto-locks after this long regardless of activity, so it can never linger
+// unlocked on a machine you don't control. A normal password/biometric unlock on YOUR OWN device
+// has no such cap; this only applies to a session that started this way (see PAIRED_SESSION_FLAG).
+const PAIRED_SESSION_MAX_AGE_MS = 20 * 60 * 1000;
 
 // Single combined WebAuthn credential sealing BOTH the access code and whatever vault
 // password(s) are already unlocked this session -- one tap restores everything, instead of the
@@ -17,29 +25,36 @@ const DECLINED_KEY = "dk-combined-biometric-declined";
 // with no changes needed there at all (see VaultApp.tsx's `const cached = sessionStorage.getItem
 // (sessionKey) || sessionStorage.getItem(sharedSessionKey)` effect). Same for GrApp.tsx, which
 // just reads these same keys directly with no unlock UI of its own.
-const VAULT_SESSION_KEYS = {
+// Exported so lib/device-pairing.ts's CombinedSecret-shaped payload and components/DevicePairing.tsx
+// (the QR sign-in UI) read/write the exact same sessionStorage keys as the combined-biometric flow
+// below -- one definition of "what a vault session looks like," not a second copy that could drift.
+export const VAULT_SESSION_KEYS = {
   us: "personal-ledger-session-us",
   india: "personal-ledger-session-india",
   shared: "personal-ledger-shared-session",
   biometricFlag: "personal-ledger-biometric-session",
 };
+// Set on a device that unlocked via QR pairing (not its own password/biometric) -- distinct from
+// biometricFlag above so VaultApp.tsx/DevicePairing's own auto-lock timer only ever fires for a
+// session that actually came from someone else's untrusted device, never a normal login.
+export const PAIRED_SESSION_FLAG = "personal-ledger-paired-session";
 
-type CombinedSecret = {
+export type CombinedSecret = {
   accessCode: string;
   sessions: { us?: string; india?: string; shared?: string };
 };
 
-function readVaultSessions(): { us?: string; india?: string; shared?: string } {
+export function readVaultSessions(): { us?: string; india?: string; shared?: string } {
   return {
     us: sessionStorage.getItem(VAULT_SESSION_KEYS.us) || undefined,
     india: sessionStorage.getItem(VAULT_SESSION_KEYS.india) || undefined,
     shared: sessionStorage.getItem(VAULT_SESSION_KEYS.shared) || undefined,
   };
 }
-function hasAnyVaultSession(s: { us?: string; india?: string; shared?: string }): boolean {
+export function hasAnyVaultSession(s: { us?: string; india?: string; shared?: string }): boolean {
   return !!(s.us || s.india || s.shared);
 }
-function applyVaultSessions(s: { us?: string; india?: string; shared?: string }) {
+export function applyVaultSessions(s: { us?: string; india?: string; shared?: string }) {
   if (s.us) sessionStorage.setItem(VAULT_SESSION_KEYS.us, s.us);
   if (s.india) sessionStorage.setItem(VAULT_SESSION_KEYS.india, s.india);
   if (s.shared) sessionStorage.setItem(VAULT_SESSION_KEYS.shared, s.shared);
@@ -68,8 +83,37 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
   const [hasBiometric, setHasBiometric] = useState(false);
   const [biometricPending, setBiometricPending] = useState(false);
   const [showPasswordFallback, setShowPasswordFallback] = useState(false);
+  const [showQrSignIn, setShowQrSignIn] = useState(false);
   const biometricInFlight = useRef(false);
   const autoFireAttempted = useRef(false);
+
+  // Auto-locks a QR-paired session after PAIRED_SESSION_MAX_AGE_MS regardless of activity (see
+  // that const's own comment). Computed from the ORIGINAL pairing timestamp, not from when this
+  // effect runs, so refreshing the page can't reset the clock -- a tab left open on someone else's
+  // laptop still locks on schedule even if it's reloaded partway through.
+  useEffect(() => {
+    if (status !== "unlocked") return;
+    const pairedAtRaw = sessionStorage.getItem(PAIRED_SESSION_FLAG);
+    if (!pairedAtRaw) return;
+    const pairedAt = Number(pairedAtRaw);
+    if (!Number.isFinite(pairedAt)) return;
+    const remaining = PAIRED_SESSION_MAX_AGE_MS - (Date.now() - pairedAt);
+    const lockNow = () => {
+      clearAccessToken();
+      sessionStorage.removeItem(VAULT_SESSION_KEYS.us);
+      sessionStorage.removeItem(VAULT_SESSION_KEYS.india);
+      sessionStorage.removeItem(VAULT_SESSION_KEYS.shared);
+      sessionStorage.removeItem(VAULT_SESSION_KEYS.biometricFlag);
+      sessionStorage.removeItem(PAIRED_SESSION_FLAG);
+      location.reload();
+    };
+    if (remaining <= 0) {
+      lockNow();
+      return;
+    }
+    const timer = setTimeout(lockNow, remaining);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   useEffect(() => {
     const configured = hasBiometricSeal(COMBINED_BIO_KEY);
@@ -133,6 +177,14 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
     }
   }
 
+  function onQrPaired(secret: PairedSecret) {
+    setAccessToken(secret.accessCode);
+    applyVaultSessions(secret.sessions);
+    sessionStorage.setItem(PAIRED_SESSION_FLAG, String(Date.now()));
+    setShowQrSignIn(false);
+    setStatus("unlocked");
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim()) return;
@@ -175,6 +227,18 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
       </>
     );
 
+  if (showQrSignIn)
+    return (
+      <div className="unlock">
+        <div className="vault-mark">DK</div>
+        <h1>FinTech by DK</h1>
+        <QrSignInPanel onPaired={onQrPaired} />
+        <button className="password-fallback" onClick={() => setShowQrSignIn(false)}>
+          Cancel
+        </button>
+      </div>
+    );
+
   return (
     <div className="unlock">
       <div className="vault-mark">DK</div>
@@ -214,6 +278,9 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
           )}
         </>
       )}
+      <button className="password-fallback" onClick={() => setShowQrSignIn(true)}>
+        Sign in via QR from your phone
+      </button>
       {error && <small style={{ color: "#dc2626" }}>{error}</small>}
     </div>
   );

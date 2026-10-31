@@ -97,6 +97,7 @@ import { VoucherTypeBadge, VoucherFlow } from "@/components/VoucherVisual";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { ChatAssistant } from "@/components/ChatAssistant";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
+import { PairDeviceModal } from "@/components/DevicePairing";
 
 // Every "Reports" tab component below is lazy-loaded: VaultApp.tsx used to statically import all
 // 26 of these (15,676 combined lines), so every user got every report's JS on first load even
@@ -207,6 +208,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     // tuck occasional ones behind a single gear/settings menu. Sync/lock stays visible outside
     // this menu since locking the vault is the one action that should never be an extra click away.
     [settingsMenuOpen, setSettingsMenuOpen] = useState(false),
+    [pairModalOpen, setPairModalOpen] = useState(false),
     [bookMenuOpen, setBookMenuOpen] = useState(false),
     [biometricChecked, setBiometricChecked] = useState(false),
     [biometricPending, setBiometricPending] = useState(false),
@@ -3552,6 +3554,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   </svg>
                   {hasBiometric ? "Remove biometric" : "Enable biometric"}
                 </button>
+                <button
+                  type="button"
+                  className="header-settings-row"
+                  onClick={() => { setSettingsMenuOpen(false); setPairModalOpen(true); }}
+                  title="Sign in on someone else's laptop without typing your password there -- scan its QR code from this phone"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" />
+                    <rect x="14" y="3" width="7" height="7" />
+                    <rect x="3" y="14" width="7" height="7" />
+                    <path d="M14 14h3v3h-3zM20 14v3M17 20h3M14 20h.01" />
+                  </svg>
+                  Pair a device
+                </button>
                 <button type="button" className="header-settings-row" onClick={togglePrivacy}>
                   {privacyMode ? (
                     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -3691,6 +3707,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         </div>
       )}
       {data && <ChatAssistant data={data} book={book} nvdaPrice={nvdaPrice} nvdaPrevClose={nvdaPrevClose} onNavigate={navigateFromChat} />}
+      {pairModalOpen && <PairDeviceModal onClose={() => setPairModalOpen(false)} />}
       {isBlockingStatus && (
         <FloatingWindow title="Action blocked" onClose={() => setStatus("")}>
           <p className="vault-alert-message">{status}</p>

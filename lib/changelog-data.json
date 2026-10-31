@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-30",
+    "summary": "Costco watchlist: total Paid and Current too, not just Difference"
+  },
+  {
+    "date": "2026-10-30",
     "summary": "Costco watchlist: auto-detect an already-processed price adjustment"
   },
   {
