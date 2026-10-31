@@ -570,8 +570,10 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     <tr key={`${w.itemNumber}-${w.date}-${i}`}>
                       <td>{fmtDate(w.date)}</td>
                       <td>{w.cardholder || "—"}</td>
-                      <td className="fx-narration" title={`Item #${w.itemNumber}`}>
+                      <td className="fx-narration">
                         {w.description}
+                        <br />
+                        <small style={{ opacity: 0.55 }}>Item #{w.itemNumber}</small>
                       </td>
                       <td className="right">{fmt(w.pricePaid)}</td>
                       <td className="right">

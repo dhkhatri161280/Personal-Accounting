@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-10-30",
+    "summary": "Costco receipts: fold in-receipt discount lines into the item they discount"
+  },
+  {
+    "date": "2026-10-30",
+    "summary": "Costco watchlist: judge price match per purchase, not per item number"
+  },
+  {
+    "date": "2026-10-30",
     "summary": "Costco price check: log real warehouse-vs-online price gaps by category"
   },
   {
