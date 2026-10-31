@@ -15,7 +15,7 @@ import {
   listPastCostcoRewardCycles,
   type CostcoRewardWindow,
 } from "@/lib/costco-reward";
-import { computeCostcoRewardFromReceipts, costcoPriceMatchWatchlist } from "@/lib/costco-receipts";
+import { computeCostcoRewardFromReceipts, costcoPriceMatchWatchlist, costcoClaimKey } from "@/lib/costco-receipts";
 
 // Shared by the current- and previous-cycle drill-downs below -- same per-entry Expense/Income
 // netting as the report's own expenseLines/incomeLines (not computeCostcoRewardEstimate's whole-
@@ -101,7 +101,7 @@ function isoDaysAgo(days: number): string {
 // being stuck at whole-month boundaries. Deliberately expense AND income side by side (not just
 // expense) so the range shows the full picture -- what came in as well as what went out -- with
 // transfers/journals/contras excluded either way since neither is really "spend" or "earn".
-export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => string }) {
+export function SpendReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: number) => string; onSave?: (next: Ledger) => void }) {
   const [startDate, setStartDate] = useState(() => isoDaysAgo(6));
   const [endDate, setEndDate] = useState(todayLocalIso);
   const [showInfo, setShowInfo] = useState(false);
@@ -155,12 +155,21 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
   // a REAL live costco.com lookup from tools/costco-receipts/check-prices.mjs) by item number, so
   // a watchlist item shows its actual current price once checked -- undefined/not-yet-checked
   // until then, not silently treated as "no match".
+  const claimedKeys = useMemo(() => new Set(data.costcoPriceMatchClaimed ?? []), [data.costcoPriceMatchClaimed]);
   const costcoWatchlist = useMemo(() => {
     if (!data.costcoReceipts?.length) return [];
-    const lines = costcoPriceMatchWatchlist(data.costcoReceipts, todayLocalIso());
+    const lines = costcoPriceMatchWatchlist(data.costcoReceipts, todayLocalIso(), undefined, claimedKeys);
     const checksByItem = new Map((data.costcoPriceChecks ?? []).map((c) => [c.itemNumber, c]));
     return lines.map((l) => ({ ...l, priceCheck: checksByItem.get(l.itemNumber) ?? null }));
-  }, [data.costcoReceipts, data.costcoPriceChecks]);
+  }, [data.costcoReceipts, data.costcoPriceChecks, claimedKeys]);
+  // Marks a watchlist row as "already got the real in-store refund" -- removes it from the
+  // watchlist (via claimedKeys above) so it stops showing as an open match and stops counting
+  // toward Total potential savings, without touching the underlying receipt/reward data at all.
+  function markPriceMatchClaimed(w: { itemNumber: string; date: string }) {
+    if (!onSave) return;
+    const key = costcoClaimKey(w.itemNumber, w.date);
+    onSave({ ...data, costcoPriceMatchClaimed: [...(data.costcoPriceMatchClaimed ?? []), key] });
+  }
   const [showWatchlistInfo, setShowWatchlistInfo] = useState(false);
   // priceCheck is keyed by itemNumber only (one real Costco lookup per item), but the SAME item
   // can appear on the watchlist multiple times at different pricePaid (e.g. Dignesh and Hiral each
@@ -553,13 +562,13 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
               <colgroup>
                 <col style={{ width: "8%" }} />
                 <col style={{ width: "7%" }} />
-                <col style={{ width: "25%" }} />
+                <col style={{ width: "19%" }} />
                 <col style={{ width: "9%" }} />
                 <col style={{ width: "7%" }} />
-                <col style={{ width: "16%" }} />
+                <col style={{ width: "14%" }} />
                 <col style={{ width: "9%" }} />
                 <col style={{ width: "12%" }} />
-                <col style={{ width: "7%" }} />
+                <col style={{ width: "15%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -628,6 +637,17 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                         >
                           Check price ↗
                         </a>
+                        {isMatch && onSave && (
+                          <button
+                            type="button"
+                            className="tr-refresh-btn"
+                            style={{ marginLeft: 6 }}
+                            title="Already got the real in-store price adjustment for this item -- remove it from the watchlist"
+                            onClick={() => markPriceMatchClaimed(w)}
+                          >
+                            Refund taken
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

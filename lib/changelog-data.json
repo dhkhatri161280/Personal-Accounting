@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-30",
+    "summary": "Costco watchlist: give item # its own column with real widths"
+  },
+  {
+    "date": "2026-10-30",
     "summary": "Costco watchlist: show item # on each row, not just a hover tooltip"
   },
   {

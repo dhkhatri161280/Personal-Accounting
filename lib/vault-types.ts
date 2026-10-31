@@ -715,6 +715,12 @@ export type Ledger = {
   // Real, live current-price lookups imported from Masters -> Costco Receipts. See
   // CostcoPriceCheck's own comment and lib/costco-receipts.ts.
   costcoPriceChecks?: CostcoPriceCheck[];
+  // Watchlist rows the user has already taken the real in-store price adjustment for -- keyed
+  // "<itemNumber>|<date>" (not itemNumber alone, since the same item bought on two different
+  // dates needs to be tracked separately; see costcoClaimKey in lib/costco-receipts.ts). Marked
+  // from the Price Match Watchlist itself (Spend report) so an already-refunded item stops
+  // showing as an open "match" and isn't double-counted in Total potential savings.
+  costcoPriceMatchClaimed?: string[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];

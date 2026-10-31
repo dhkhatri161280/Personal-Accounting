@@ -5490,7 +5490,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onDrilldown={(req) => setColumnarDrilldown(req)}
             />
           )}
-          {report === "spend" && data && <SpendReport data={data} fmt={fmt} />}
+          {report === "spend" && data && <SpendReport data={data} fmt={fmt} onSave={(next) => save(next, "spend-report")} />}
         </Suspense>
       )}
       {tab === "new" && (

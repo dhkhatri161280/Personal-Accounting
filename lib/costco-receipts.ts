@@ -170,7 +170,19 @@ function returnedItemNumbers(receipts: CostcoReceipt[]): Set<string> {
   return out;
 }
 
-export function costcoPriceMatchWatchlist(receipts: CostcoReceipt[], asOfDate: string, windowDays = PRICE_ADJUSTMENT_WINDOW_DAYS): CostcoWatchlistItem[] {
+// Stable identity for a single watchlist row -- itemNumber ALONE isn't enough, since the same
+// item bought on two different dates (two trips, or two family members on the same day) is two
+// separate purchases, each needing its own "did I already claim this one" state.
+export function costcoClaimKey(itemNumber: string, date: string): string {
+  return `${itemNumber}|${date}`;
+}
+
+export function costcoPriceMatchWatchlist(
+  receipts: CostcoReceipt[],
+  asOfDate: string,
+  windowDays = PRICE_ADJUSTMENT_WINDOW_DAYS,
+  claimed: ReadonlySet<string> = new Set()
+): CostcoWatchlistItem[] {
   const returned = returnedItemNumbers(receipts);
   const out: CostcoWatchlistItem[] = [];
   for (const r of receipts) {
@@ -189,6 +201,7 @@ export function costcoPriceMatchWatchlist(receipts: CostcoReceipt[], asOfDate: s
       if (item.amount <= 0 || item.qty <= 0) continue;
       if (!isQualifyingReceiptItem(item.description)) continue;
       if (returned.has(item.itemNumber)) continue; // later returned -- nothing left to price-match
+      if (claimed.has(costcoClaimKey(item.itemNumber, r.date))) continue; // already got the refund
       out.push({
         cardholder: r.cardholder,
         date: r.date,
