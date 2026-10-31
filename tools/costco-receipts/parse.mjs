@@ -87,6 +87,42 @@ function receiptKey(r) {
 //
 // One-time setup -- create tools/costco-receipts/cardholder-map.local.json:
 //   { "<membershipNumber from a real receipt>": "dignesh", "<the other one>": "hiral" }
+// Costco sometimes bills an item at its FULL price on its own line, then adds a SEPARATE
+// adjustment line right after reducing it -- confirmed live across 20 distinct lines in real
+// receipts: e.g. "BR QLTD VEST" billed as unit:2, amount:39.98 (itemUnitPriceAmount 19.99),
+// immediately followed by itemNumber "390851", itemDescription01 "/ 2007975" (a slash + the item
+// number it discounts), unit:-2, amount:-10. The REAL price paid per unit was $14.99, not $19.99
+// -- using the undiscounted line alone (what this script did before) overstates pricePaid on every
+// item Costco discounts this way, which both inflates the price-match "savings" shown (a real,
+// reported false positive -- the membership desk confirmed the item was already discounted when
+// billed) and overstates qualifying spend for the Executive 2% Reward. These adjustment lines
+// carry no product description of their own (just "/ <itemNumber>"), so they must never be shown
+// as a purchase in their own right -- their effect is folded into the item they reference instead.
+const ADJUSTMENT_REF_RE = /^\/\s*(\S+)/;
+function isAdjustmentLine(item) {
+  return item.itemDescription01 != null && ADJUSTMENT_REF_RE.test(item.itemDescription01.trim());
+}
+// Sums every adjustment line's amount by the item number it discounts -- a receipt can have
+// several such lines for different items, and in principle more than one for the same item.
+function buildDiscountMap(itemArray) {
+  const map = new Map();
+  for (const item of itemArray) {
+    if (item.itemDescription01 == null) continue;
+    const m = ADJUSTMENT_REF_RE.exec(item.itemDescription01.trim());
+    if (!m) continue;
+    const ref = m[1];
+    map.set(ref, (map.get(ref) || 0) + (item.amount || 0));
+  }
+  return map;
+}
+// Net per-unit price after folding in any adjustment-line discount for this item, or the plain
+// signedUnitPrice when there's no discount to apply (the common case -- unaffected by this fix).
+function discountedUnitPrice(item, discount) {
+  if (!discount) return signedUnitPrice(item);
+  const netExtended = item.amount + discount;
+  return Math.round((netExtended / item.unit) * 100) / 100;
+}
+
 const CARDHOLDER_MAP_PATH = join(__dirname, "cardholder-map.local.json");
 function loadCardholderMap() {
   try {
@@ -146,15 +182,17 @@ function main() {
     deadline.setDate(deadline.getDate() + PRICE_ADJUSTMENT_WINDOW_DAYS);
     const deadlineIso = deadline.toISOString().slice(0, 10);
     const withinWindow = today <= deadlineIso;
+    const discountByItem = buildDiscountMap(r.itemArray);
     for (const item of r.itemArray) {
       if (item.itemDescription01 == null) continue;
+      if (isAdjustmentLine(item)) continue; // folded into its referenced item below, not a purchase of its own
       // unit === 0 (confirmed live: an "ADIDAS SNKR" line inside a later instant-savings
       // adjustment "receipt" for an item actually bought weeks earlier, amount: 0, unit: 0,
       // itemUnitPriceAmount still populated at the original $37.99) means zero units moved in
       // THIS specific line -- it's an informational echo of the original purchase, not a new
       // transaction, and must never be counted as a purchase to watch or reward.
       if (item.unit === 0) continue;
-      const price = signedUnitPrice(item);
+      const price = discountedUnitPrice(item, discountByItem.get(item.itemNumber) || 0);
       if (price < 0) continue; // a return/adjustment line, not a purchase to watch
       watchlist.push({
         cardholder: r.cardholder,
@@ -196,14 +234,20 @@ function main() {
       // reward calculation either -- this is a real correctness fix, not just a watchlist nicety.
       // unit === 0 lines are dropped here too (see signedUnitPrice's comment) -- they're not a
       // real purchase or a real return, just an echo of a purchase from some earlier receipt.
-      items: r.itemArray
-        .filter((i) => i.itemDescription01 != null && i.unit !== 0)
-        .map((i) => ({
-          itemNumber: i.itemNumber,
-          description: [i.itemDescription01, i.itemDescription02].filter(Boolean).join(" "),
-          amount: signedUnitPrice(i),
-          qty: i.unit,
-        })),
+      // Adjustment lines (see discountedUnitPrice's comment) are dropped too, not kept as their
+      // own phantom line item -- their effect is already folded into the item they discount, so
+      // keeping both would double-count the discount in qualifyingSpend.
+      items: (() => {
+        const discountByItem = buildDiscountMap(r.itemArray);
+        return r.itemArray
+          .filter((i) => i.itemDescription01 != null && i.unit !== 0 && !isAdjustmentLine(i))
+          .map((i) => ({
+            itemNumber: i.itemNumber,
+            description: [i.itemDescription01, i.itemDescription02].filter(Boolean).join(" "),
+            amount: discountedUnitPrice(i, discountByItem.get(i.itemNumber) || 0),
+            qty: i.unit,
+          }));
+      })(),
     }))
     .filter((r) => r.date)
     .sort((a, b) => (a.date < b.date ? 1 : -1));
