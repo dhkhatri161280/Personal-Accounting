@@ -482,6 +482,14 @@ export type CostcoReceipt = {
   receiptType: string; // Costco's own field verbatim -- "In-Warehouse", "Gas Station", etc.
   total: number;
   items: CostcoReceiptItem[];
+  // Real Costco-issued price adjustments found ON this receipt -- a standalone "Price Adjustment"
+  // transaction Costco itself generates when you claim a lower price at the desk: the item shows
+  // up with unit 0 (not a new purchase) alongside a separate line crediting the difference back.
+  // This receipt's own `date` is when Costco actually processed it. See parse.mjs's
+  // buildDiscountMap/priceAdjustments comment and costcoAutoClaimedKeys in lib/costco-receipts.ts
+  // -- this is what lets the watchlist auto-clear an item once you've actually gotten the refund,
+  // instead of requiring a manual "Refund taken" click for every single one.
+  priceAdjustments?: { itemNumber: string; amount: number }[];
 };
 
 // A real, live current-price lookup against costco.com for one item, produced by

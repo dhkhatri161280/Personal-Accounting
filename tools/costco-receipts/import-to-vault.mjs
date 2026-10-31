@@ -59,6 +59,14 @@ function parseReceipts(raw) {
           qty: typeof item.qty === "number" ? item.qty : 1,
         };
       }),
+      priceAdjustments: Array.isArray(r.priceAdjustments)
+        ? r.priceAdjustments
+            .filter((a) => a && typeof a === "object")
+            .map((a) => ({
+              itemNumber: typeof a.itemNumber === "string" ? a.itemNumber : "",
+              amount: typeof a.amount === "number" ? a.amount : 0,
+            }))
+        : undefined,
     };
   });
 }

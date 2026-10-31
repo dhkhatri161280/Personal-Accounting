@@ -63,6 +63,14 @@ export function parseCostcoReceiptsUpload(raw: unknown): CostcoReceipt[] {
           qty: typeof it.qty === "number" ? it.qty : 1,
         };
       }),
+      priceAdjustments: Array.isArray(o.priceAdjustments)
+        ? (o.priceAdjustments as unknown[])
+            .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null)
+            .map((a) => ({
+              itemNumber: typeof a.itemNumber === "string" ? a.itemNumber : "",
+              amount: typeof a.amount === "number" ? a.amount : 0,
+            }))
+        : undefined,
     };
   });
 }
@@ -175,6 +183,35 @@ function returnedItemNumbers(receipts: CostcoReceipt[]): Set<string> {
 // separate purchases, each needing its own "did I already claim this one" state.
 export function costcoClaimKey(itemNumber: string, date: string): string {
   return `${itemNumber}|${date}`;
+}
+
+// Auto-resolves "already claimed" straight from Costco's own data -- no manual "Refund taken"
+// click needed when Costco itself generated a Price Adjustment receipt (confirmed live: a real
+// receipt showing itemNumber 2007436 at unit 0 alongside a credit line for the difference; see
+// CostcoReceipt.priceAdjustments's own comment and parse.mjs for how that's detected). Matched to
+// the MOST RECENT real purchase of that item number at or before the adjustment was processed --
+// the one Costco would actually have looked up at the desk -- not every purchase of that item
+// ever, in case the same item was bought more than once.
+export function costcoAutoClaimedKeys(receipts: CostcoReceipt[]): Set<string> {
+  const purchaseDatesByItem = new Map<string, string[]>();
+  for (const r of receipts) {
+    for (const item of r.items) {
+      if (item.qty <= 0) continue; // a real purchase line only, not a return or an echo
+      const dates = purchaseDatesByItem.get(item.itemNumber) ?? [];
+      dates.push(r.date);
+      purchaseDatesByItem.set(item.itemNumber, dates);
+    }
+  }
+  for (const dates of purchaseDatesByItem.values()) dates.sort();
+  const out = new Set<string>();
+  for (const r of receipts) {
+    for (const adj of r.priceAdjustments ?? []) {
+      const dates = purchaseDatesByItem.get(adj.itemNumber) ?? [];
+      const matched = [...dates].reverse().find((d) => d <= r.date);
+      if (matched) out.add(costcoClaimKey(adj.itemNumber, matched));
+    }
+  }
+  return out;
 }
 
 export function costcoPriceMatchWatchlist(

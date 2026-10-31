@@ -123,6 +123,19 @@ function discountedUnitPrice(item, discount) {
   return Math.round((netExtended / item.unit) * 100) / 100;
 }
 
+// A REAL Costco Price Adjustment transaction -- confirmed live on a real receipt: itemNumber
+// 2007436 (ADIDAS SNKR, bought weeks earlier) shows up with unit:0 (not a new purchase), right
+// alongside adjustment line "393214 / 2007436" crediting -$7.00, subtotal/tax/total all negative
+// (a refund charged back to the card). Distinct from a same-day purchase discount (vest, Ferrero,
+// etc. -- unit > 0 on the item's OWN line there): unit === 0 is what marks this as a standalone
+// adjustment receipt rather than a discounted purchase. Surfaced on the receipt so the app can
+// auto-clear the watchlist entry -- see costcoAutoClaimedKeys in lib/costco-receipts.ts.
+function priceAdjustmentsOn(itemArray, discountByItem) {
+  return itemArray
+    .filter((i) => i.unit === 0 && i.itemDescription01 != null && !isAdjustmentLine(i) && discountByItem.has(i.itemNumber))
+    .map((i) => ({ itemNumber: i.itemNumber, amount: Math.round(Math.abs(discountByItem.get(i.itemNumber)) * 100) / 100 }));
+}
+
 const CARDHOLDER_MAP_PATH = join(__dirname, "cardholder-map.local.json");
 function loadCardholderMap() {
   try {
@@ -220,35 +233,37 @@ function main() {
   // gas/Shop-Card exclusion at calculation time, the same way the narration-based estimate
   // already does, rather than this file silently dropping data a future calculation might want.
   const receiptsOut = detailReceipts
-    .map((r) => ({
-      key: receiptKey(r),
-      cardholder: r.cardholder,
-      date: (r.transactionDate || r.transactionDateTime || "").slice(0, 10),
-      warehouse: r.warehouseName,
-      receiptType: r.receiptType,
-      total: r.total,
-      // Return/credit lines (negative amount) are kept, not dropped -- an app-side watchlist
-      // filter cross-references them to clear a price-match entry for an item that was later
-      // returned (see returnedItemNumbers in lib/costco-receipts.ts). A prior version filtered
-      // these out entirely, which also meant item-level returns never reduced the receipt-based
-      // reward calculation either -- this is a real correctness fix, not just a watchlist nicety.
-      // unit === 0 lines are dropped here too (see signedUnitPrice's comment) -- they're not a
-      // real purchase or a real return, just an echo of a purchase from some earlier receipt.
-      // Adjustment lines (see discountedUnitPrice's comment) are dropped too, not kept as their
-      // own phantom line item -- their effect is already folded into the item they discount, so
-      // keeping both would double-count the discount in qualifyingSpend.
-      items: (() => {
-        const discountByItem = buildDiscountMap(r.itemArray);
-        return r.itemArray
+    .map((r) => {
+      const discountByItem = buildDiscountMap(r.itemArray);
+      const priceAdjustments = priceAdjustmentsOn(r.itemArray, discountByItem);
+      return {
+        key: receiptKey(r),
+        cardholder: r.cardholder,
+        date: (r.transactionDate || r.transactionDateTime || "").slice(0, 10),
+        warehouse: r.warehouseName,
+        receiptType: r.receiptType,
+        total: r.total,
+        // Return/credit lines (negative amount) are kept, not dropped -- an app-side watchlist
+        // filter cross-references them to clear a price-match entry for an item that was later
+        // returned (see returnedItemNumbers in lib/costco-receipts.ts). A prior version filtered
+        // these out entirely, which also meant item-level returns never reduced the receipt-based
+        // reward calculation either -- this is a real correctness fix, not just a watchlist nicety.
+        // unit === 0 lines are dropped here too (see signedUnitPrice's comment) -- they're not a
+        // real purchase or a real return, just an echo of a purchase from some earlier receipt.
+        // Adjustment lines (see discountedUnitPrice's comment) are dropped too, not kept as their
+        // own phantom line item -- their effect is already folded into the item they discount, so
+        // keeping both would double-count the discount in qualifyingSpend.
+        items: r.itemArray
           .filter((i) => i.itemDescription01 != null && i.unit !== 0 && !isAdjustmentLine(i))
           .map((i) => ({
             itemNumber: i.itemNumber,
             description: [i.itemDescription01, i.itemDescription02].filter(Boolean).join(" "),
             amount: discountedUnitPrice(i, discountByItem.get(i.itemNumber) || 0),
             qty: i.unit,
-          }));
-      })(),
-    }))
+          })),
+        ...(priceAdjustments.length ? { priceAdjustments } : {}),
+      };
+    })
     .filter((r) => r.date)
     .sort((a, b) => (a.date < b.date ? 1 : -1));
   writeFileSync(join(CAPTURES_DIR, "receipts.json"), JSON.stringify(receiptsOut, null, 2));

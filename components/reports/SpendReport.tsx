@@ -15,7 +15,7 @@ import {
   listPastCostcoRewardCycles,
   type CostcoRewardWindow,
 } from "@/lib/costco-reward";
-import { computeCostcoRewardFromReceipts, costcoPriceMatchWatchlist, costcoClaimKey } from "@/lib/costco-receipts";
+import { computeCostcoRewardFromReceipts, costcoPriceMatchWatchlist, costcoClaimKey, costcoAutoClaimedKeys } from "@/lib/costco-receipts";
 
 // Shared by the current- and previous-cycle drill-downs below -- same per-entry Expense/Income
 // netting as the report's own expenseLines/incomeLines (not computeCostcoRewardEstimate's whole-
@@ -155,7 +155,13 @@ export function SpendReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: numb
   // a REAL live costco.com lookup from tools/costco-receipts/check-prices.mjs) by item number, so
   // a watchlist item shows its actual current price once checked -- undefined/not-yet-checked
   // until then, not silently treated as "no match".
-  const claimedKeys = useMemo(() => new Set(data.costcoPriceMatchClaimed ?? []), [data.costcoPriceMatchClaimed]);
+  // Auto-detected straight from Costco's own receipts (a real Price Adjustment transaction they
+  // issued) merged with manual "Refund taken" clicks for anything that pattern doesn't catch.
+  const claimedKeys = useMemo(() => {
+    const auto = costcoAutoClaimedKeys(data.costcoReceipts ?? []);
+    for (const k of data.costcoPriceMatchClaimed ?? []) auto.add(k);
+    return auto;
+  }, [data.costcoReceipts, data.costcoPriceMatchClaimed]);
   const costcoWatchlist = useMemo(() => {
     if (!data.costcoReceipts?.length) return [];
     const lines = costcoPriceMatchWatchlist(data.costcoReceipts, todayLocalIso(), undefined, claimedKeys);

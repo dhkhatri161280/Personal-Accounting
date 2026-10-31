@@ -7,6 +7,8 @@ import {
   parseCostcoReceiptsUpload,
   computeCostcoRewardFromReceipts,
   costcoPriceMatchWatchlist,
+  costcoClaimKey,
+  costcoAutoClaimedKeys,
   mergeCostcoPriceChecks,
   parseCostcoPriceChecksUpload,
 } from "../lib/costco-receipts.ts";
@@ -156,6 +158,45 @@ test("returnedItemNumbers (via costcoPriceMatchWatchlist): clears an item whose 
     receipt("k2", "2026-10-05", "In-Warehouse", [{ itemNumber: "1975219", description: "MWCHINOPANT", amount: 19.99, qty: -1 }]),
   ];
   assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-10").length, 0);
+});
+
+test("costcoAutoClaimedKeys: resolves a real Costco Price Adjustment receipt to the matching purchase", () => {
+  // Confirmed live: a real receipt for item 2007436 (ADIDAS SNKR, bought 2026-10-02 at $37.99)
+  // shows up on 2026-10-25 as a standalone Price Adjustment -- unit:0 echo line plus an adjustment
+  // line crediting -$7.00 back to the card.
+  const receipts: CostcoReceipt[] = [
+    receipt("purchase", "2026-10-02", "In-Warehouse", [{ itemNumber: "2007436", description: "ADIDAS SNKR", amount: 37.99, qty: 1 }]),
+    { ...receipt("adjustment", "2026-10-25", "In-Warehouse", []), priceAdjustments: [{ itemNumber: "2007436", amount: 7 }] },
+  ];
+  const auto = costcoAutoClaimedKeys(receipts);
+  assert.ok(auto.has(costcoClaimKey("2007436", "2026-10-02")));
+});
+
+test("costcoAutoClaimedKeys: matches the MOST RECENT purchase at or before the adjustment, not an earlier one", () => {
+  const receipts: CostcoReceipt[] = [
+    receipt("p1", "2026-09-01", "In-Warehouse", [{ itemNumber: "123", description: "X", amount: 10, qty: 1 }]),
+    receipt("p2", "2026-10-02", "In-Warehouse", [{ itemNumber: "123", description: "X", amount: 10, qty: 1 }]),
+    { ...receipt("adj", "2026-10-25", "In-Warehouse", []), priceAdjustments: [{ itemNumber: "123", amount: 2 }] },
+  ];
+  const auto = costcoAutoClaimedKeys(receipts);
+  assert.ok(auto.has(costcoClaimKey("123", "2026-10-02")));
+  assert.ok(!auto.has(costcoClaimKey("123", "2026-09-01")));
+});
+
+test("costcoAutoClaimedKeys: an adjustment referencing an item never purchased is simply ignored, not thrown", () => {
+  const receipts: CostcoReceipt[] = [
+    { ...receipt("adj", "2026-10-25", "In-Warehouse", []), priceAdjustments: [{ itemNumber: "999", amount: 2 }] },
+  ];
+  assert.equal(costcoAutoClaimedKeys(receipts).size, 0);
+});
+
+test("costcoPriceMatchWatchlist: an explicitly claimed key clears that item off the watchlist", () => {
+  const receipts: CostcoReceipt[] = [
+    receipt("k1", "2026-10-02", "In-Warehouse", [{ itemNumber: "2007436", description: "ADIDAS SNKR", amount: 37.99, qty: 1 }]),
+  ];
+  const claimed = new Set([costcoClaimKey("2007436", "2026-10-02")]);
+  assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-10", undefined, claimed).length, 0);
+  assert.equal(costcoPriceMatchWatchlist(receipts, "2026-10-10").length, 1);
 });
 
 function priceCheck(itemNumber: string, overrides: Partial<CostcoPriceCheck> = {}): CostcoPriceCheck {
