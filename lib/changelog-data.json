@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-30",
+    "summary": "Costco watchlist: auto-detect an already-processed price adjustment"
+  },
+  {
+    "date": "2026-10-30",
     "summary": "Costco watchlist: let a row be marked \"refund taken\" to clear it"
   },
   {

@@ -201,6 +201,17 @@ export function SpendReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: numb
     () => costcoWatchlistFiltered.reduce((s, w) => s + (rowIsMatch(w) ? w.pricePaid - (w.priceCheck!.currentPrice ?? w.pricePaid) : 0), 0),
     [costcoWatchlistFiltered]
   );
+  // Paid/Current totals alongside the Difference total above, restricted to the same matched rows
+  // -- so Paid total minus Current total visibly reconciles to the Difference total, instead of
+  // Difference being the only summed column with nothing to check it against.
+  const costcoWatchlistPaidTotal = useMemo(
+    () => costcoWatchlistFiltered.reduce((s, w) => s + (rowIsMatch(w) ? w.pricePaid : 0), 0),
+    [costcoWatchlistFiltered]
+  );
+  const costcoWatchlistCurrentTotal = useMemo(
+    () => costcoWatchlistFiltered.reduce((s, w) => s + (rowIsMatch(w) ? (w.priceCheck!.currentPrice ?? 0) : 0), 0),
+    [costcoWatchlistFiltered]
+  );
 
   const expenseAccountIds = useMemo(
     () => new Set(data.accounts.filter((a) => a.category === "Expense").map((a) => a.id)),
@@ -662,7 +673,9 @@ export function SpendReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: numb
               {costcoWatchlistSavingsTotal > 0 && (
                 <tfoot>
                   <tr>
-                    <td colSpan={5}>Total potential savings</td>
+                    <td colSpan={4}>Total potential savings</td>
+                    <td className="right" style={{ fontWeight: 700 }}>{fmt(costcoWatchlistPaidTotal)}</td>
+                    <td className="right" style={{ fontWeight: 700 }}>{fmt(costcoWatchlistCurrentTotal)}</td>
                     <td className="right" style={{ color: "#16a34a", fontWeight: 700 }}>
                       {fmt(costcoWatchlistSavingsTotal)}
                     </td>
