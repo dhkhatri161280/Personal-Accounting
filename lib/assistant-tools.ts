@@ -686,6 +686,49 @@ function getPrepaidExpenses(data: Ledger, todayIso: string): string {
   return lines.join("\n");
 }
 
+// ---- tool: search_costco_items ------------------------------------------------------------------
+
+// Searches real itemized receipt lines (data.costcoReceipts, from Masters -> Costco Receipts --
+// see lib/costco-receipts.ts), not voucher narration -- a Day Book voucher only ever has a whole-
+// trip total ("Shopping @ Costco -- $363.01"), never individual item names/prices, so this is the
+// only tool that can answer a question about one specific Costco purchase at all. Joined against
+// data.costcoPriceChecks (a real, live costco.com lookup, see check-prices.mjs) by item number so
+// a match also surfaces its current price and whether a price-adjustment is on the table, when one
+// has been checked.
+function searchCostcoItems(data: Ledger, args: Record<string, unknown>, todayIso: string): string {
+  const query = typeof args.query === "string" ? args.query.toLowerCase().trim() : "";
+  if (!query) return "search_costco_items: a query is required -- a product name/description substring, or an exact Costco item number.";
+  const receipts = data.costcoReceipts ?? [];
+  if (!receipts.length) return "search_costco_items: no Costco receipts imported yet (Masters -> Costco Receipts).";
+  const checksByItem = new Map((data.costcoPriceChecks ?? []).map((c) => [c.itemNumber, c]));
+  const period = isPeriodName(args.period) ? resolvePeriod(args.period, todayIso) : null;
+  const hits: { date: string; cardholder: string; itemNumber: string; description: string; amount: number; qty: number }[] = [];
+  for (const r of receipts) {
+    if (period && (r.date < period.from || r.date >= period.to)) continue;
+    for (const item of r.items) {
+      if (item.itemNumber !== query && !item.description.toLowerCase().includes(query)) continue;
+      hits.push({ date: r.date, cardholder: r.cardholder, itemNumber: item.itemNumber, description: item.description, amount: item.amount, qty: item.qty });
+    }
+  }
+  if (!hits.length) return `search_costco_items("${query}")${period ? ` [${period.label}]` : ""}: no matching item in any imported receipt.`;
+  hits.sort((a, b) => (a.date < b.date ? 1 : -1));
+  const lines = [`search_costco_items("${query}")${period ? ` [${period.label}]` : ""}: ${hits.length} matching line item(s), most recent first.`];
+  let total = 0;
+  for (const h of hits) {
+    const check = checksByItem.get(h.itemNumber);
+    const extended = h.amount * h.qty;
+    total += extended;
+    const priceNote = check?.currentPrice != null
+      ? `; current price ${check.currentPrice.toFixed(2)}${check.priceDropped ? " -- DROPPED, price-match adjustment available" : " (no drop)"}`
+      : "";
+    lines.push(
+      `- ${fmtDate(h.date)} [${h.cardholder || "?"}] item #${h.itemNumber} "${h.description}": paid ${h.amount.toFixed(2)}/unit x ${h.qty} = ${extended.toFixed(2)} ${data.currency}${priceNote}`
+    );
+  }
+  lines.push(`PRECOMPUTED TOTAL across matches: ${total.toFixed(2)} ${data.currency}`);
+  return lines.join("\n");
+}
+
 // ---- tool: get_us_tax_estimate -----------------------------------------------------------------
 
 // Mirrors TaxReport.tsx's own call to computeYearTaxEstimate (filingStatus "mfj", hsaCoverage
@@ -914,6 +957,19 @@ export const TOOL_DEFS: { name: string; description: string; parameters: Record<
     parameters: { type: "object", properties: {}, required: [] },
   },
   {
+    name: "search_costco_items",
+    description:
+      "Search real itemized Costco receipt line items (Masters -> Costco Receipts) by product name/description substring OR an exact Costco item number -- e.g. 'adidas', 'vest', or '2007436'. Returns each match's date, cardholder, price paid, and (if a live price check is on file) the current price and whether a price-match adjustment is available. Use this for a question about a SPECIFIC Costco purchase/item (e.g. 'what did I pay for the Adidas sneakers', 'when did I buy that vest'); use search_vouchers or the Executive Reward figures instead for overall Costco spend totals, not individual items.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "A product name/description substring (e.g. 'adidas', 'vest') or an exact Costco item number." },
+        period: { ...PERIOD_PARAM, description: PERIOD_PARAM.description + " Omit to search ALL imported receipts regardless of date." },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "get_us_tax_estimate",
     description:
       "Get an ESTIMATED US federal + state income tax liability for a year (AGI, deduction used, estimated federal/state tax, withheld, refund or balance due) -- the same estimate this app's own Tax Report computes. Use this for 'what will I owe in taxes', 'am I getting a refund' questions (US book only). This is an estimate for planning, not a filed return.",
@@ -1021,6 +1077,8 @@ export function executeTool(
       return getLoans(data, todayIso);
     case "get_prepaid_expenses":
       return getPrepaidExpenses(data, todayIso);
+    case "search_costco_items":
+      return searchCostcoItems(data, args, todayIso);
     // Confirmed live: "use get_india_tax_estimate instead" (the old wording) actively misled the
     // model into calling the OTHER country's tax tool as if it were a valid substitute for a
     // question that explicitly said "US" -- producing a completely different country's figures

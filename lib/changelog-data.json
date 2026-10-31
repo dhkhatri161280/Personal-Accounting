@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Device pairing: survive tab suspension and a dropped poll response"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Plaid import: auto-skip a lone gas-station pre-auth hold in Pending"
   },
   {

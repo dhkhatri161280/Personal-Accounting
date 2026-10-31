@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolvePeriod, executeTool, TOOL_DEFS, coerceToolArgs } from "../lib/assistant-tools.ts";
 import { fmtDate } from "../lib/format-date.ts";
-import type { Account, Tx, Ledger, RsuGrant, Trade, Budget, FixedAsset, Loan, PrepaidExpense, PayrollData, PayrollYear, IndiaPayslipMonth, IndiaItrYear } from "../lib/vault-types.ts";
+import type { Account, Tx, Ledger, RsuGrant, Trade, Budget, FixedAsset, Loan, PrepaidExpense, PayrollData, PayrollYear, IndiaPayslipMonth, IndiaItrYear, CostcoReceipt, CostcoPriceCheck } from "../lib/vault-types.ts";
 
 function account(id: number, name: string, parent: string, openingBalance = 0): Account {
   return { id, name, parent, category: "Asset", currency: "USD", openingBalance, active: true };
@@ -628,6 +628,51 @@ test("get_prepaid_expenses: excludes written-off items", () => {
   const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], prepaidExpenses: [item] };
   const result = executeTool("get_prepaid_expenses", {}, data, "us", "2026-10-15");
   assert.ok(result.includes("no (non-written-off) prepaid expenses"));
+});
+
+// ---- search_costco_items ------------------------------------------------------------------------
+
+function costcoReceipt(key: string, date: string, items: { itemNumber: string; description: string; amount: number; qty: number }[]): CostcoReceipt {
+  return { key, cardholder: "dignesh", date, warehouse: "FREMONT", receiptType: "In-Warehouse", total: items.reduce((s, i) => s + i.amount * i.qty, 0), items };
+}
+
+test("search_costco_items: matches by description substring, case-insensitive", () => {
+  const receipts = [costcoReceipt("k1", "2026-10-02", [{ itemNumber: "2007436", description: "ADIDAS SNKR FY27", amount: 37.99, qty: 1 }])];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], costcoReceipts: receipts };
+  const result = executeTool("search_costco_items", { query: "adidas" }, data, "us", "2026-10-31");
+  assert.ok(result.includes("ADIDAS SNKR FY27"));
+  assert.ok(result.includes("paid 37.99/unit x 1 = 37.99"));
+  assert.ok(result.includes("PRECOMPUTED TOTAL across matches: 37.99"));
+});
+
+test("search_costco_items: matches by exact item number", () => {
+  const receipts = [costcoReceipt("k1", "2026-10-02", [{ itemNumber: "2007436", description: "ADIDAS SNKR FY27", amount: 37.99, qty: 1 }])];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], costcoReceipts: receipts };
+  const result = executeTool("search_costco_items", { query: "2007436" }, data, "us", "2026-10-31");
+  assert.ok(result.includes("ADIDAS SNKR FY27"));
+});
+
+test("search_costco_items: multiplies per-unit price by quantity for the extended total", () => {
+  const receipts = [costcoReceipt("k1", "2026-10-02", [{ itemNumber: "2007975", description: "BR QLTD VEST", amount: 14.99, qty: 2 }])];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], costcoReceipts: receipts };
+  const result = executeTool("search_costco_items", { query: "vest" }, data, "us", "2026-10-31");
+  assert.ok(result.includes("paid 14.99/unit x 2 = 29.98"));
+});
+
+test("search_costco_items: surfaces a live price-check match when one is on file", () => {
+  const receipts = [costcoReceipt("k1", "2026-10-02", [{ itemNumber: "2007975", description: "BR QLTD VEST", amount: 14.99, qty: 1 }])];
+  const priceChecks: CostcoPriceCheck[] = [{ itemNumber: "2007975", description: "BR QLTD VEST", pricePaid: 14.99, currentPrice: 12.97, notSoldOnline: false, priceDropped: true, checkedAt: "2026-10-30T00:00:00Z" }];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], costcoReceipts: receipts, costcoPriceChecks: priceChecks };
+  const result = executeTool("search_costco_items", { query: "vest" }, data, "us", "2026-10-31");
+  assert.ok(result.includes("current price 12.97"));
+  assert.ok(result.includes("DROPPED"));
+});
+
+test("search_costco_items: no match found is reported plainly, not as an empty/crashed result", () => {
+  const receipts = [costcoReceipt("k1", "2026-10-02", [{ itemNumber: "2007436", description: "ADIDAS SNKR FY27", amount: 37.99, qty: 1 }])];
+  const data: Ledger = { version: 1, company: "Test", currency: "USD", createdAt: "2026-01-01", accounts: [], transactions: [], costcoReceipts: receipts };
+  const result = executeTool("search_costco_items", { query: "nonexistent-item" }, data, "us", "2026-10-31");
+  assert.ok(result.includes("no matching item"));
 });
 
 // ---- get_us_tax_estimate -----------------------------------------------------------------------
