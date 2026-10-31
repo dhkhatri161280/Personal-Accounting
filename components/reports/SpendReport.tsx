@@ -549,12 +549,24 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                 </label>
               )}
             </h4>
-            <table className="fx-ledger-table">
+            <table className="fx-ledger-table costco-watchlist-table">
+              <colgroup>
+                <col style={{ width: "8%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "25%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "16%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "7%" }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Who</th>
                   <th>Item</th>
+                  <th>Item #</th>
                   <th className="right">Paid</th>
                   <th className="right">Current</th>
                   <th className="right">Difference</th>
@@ -570,11 +582,8 @@ export function SpendReport({ data, fmt }: { data: Ledger; fmt: (n: number) => s
                     <tr key={`${w.itemNumber}-${w.date}-${i}`}>
                       <td>{fmtDate(w.date)}</td>
                       <td>{w.cardholder || "—"}</td>
-                      <td className="fx-narration">
-                        {w.description}
-                        <br />
-                        <small style={{ opacity: 0.55 }}>Item #{w.itemNumber}</small>
-                      </td>
+                      <td className="fx-narration">{w.description}</td>
+                      <td style={{ opacity: 0.7 }}>{w.itemNumber}</td>
                       <td className="right">{fmt(w.pricePaid)}</td>
                       <td className="right">
                         {!w.priceCheck ? (

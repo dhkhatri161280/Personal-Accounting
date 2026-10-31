@@ -3305,6 +3305,13 @@ tfoot th {
   font-weight: 600;
   padding-top: 7px;
 }
+/* Costco Price Match Watchlist -- its own <colgroup> sets real per-column widths (Item # gets its
+   own column now, not a subtext line), so the shared .fx-narration 220px cap would just clip it
+   short on a wide screen for no reason; let the colgroup be the only thing governing this one. */
+.costco-watchlist-table td.fx-narration,
+.costco-watchlist-table th.fx-narration {
+  max-width: none;
+}
 .fx-usd-sub {
   display: block;
   font-size: 10px;
