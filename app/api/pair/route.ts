@@ -98,12 +98,13 @@ export async function GET(request: Request) {
   }
   if (!session) return Response.json({ status: "expired" });
   if (session.status === "pending") return Response.json({ status: "pending" });
-  // Single-use: delete on the same read that returns the bundle, best-effort (a failed delete
-  // here just means the entry sits until its 90s TTL anyway, never longer).
-  try {
-    await bindings.VAULT.delete(pairKey(sessionId));
-  } catch {
-    // best effort
-  }
+  // Deliberately NOT deleted here -- a laptop whose first successful response gets dropped by a
+  // network blip (confirmed real: the bundle was already consumed server-side, but never actually
+  // reached the browser) would otherwise poll again into a permanently-gone session with no way
+  // to recover short of the phone scanning a fresh QR code. Left to expire on its own 90s TTL
+  // instead, which is a perfectly adequate single-use window on its own: the sessionId is a
+  // random 256-bit token nobody else could guess, and even catching it (and the ciphertext) buys
+  // an eavesdropper nothing without the laptop's own ECDH private key, which is generated
+  // in-memory there and never transmitted anywhere.
   return Response.json({ status: "ready", pub: session.pub, iv: session.iv, ciphertext: session.ciphertext });
 }

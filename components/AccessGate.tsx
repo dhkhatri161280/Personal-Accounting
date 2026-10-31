@@ -112,7 +112,24 @@ export function AccessGate({ children }: { children: React.ReactNode }) {
       return;
     }
     const timer = setTimeout(lockNow, remaining);
-    return () => clearTimeout(timer);
+    // A backgrounded/suspended tab (laptop lid closed, OS sleep) can leave this setTimeout
+    // sitting well past its real deadline -- most browsers throttle or pause timers in an
+    // inactive tab rather than firing them on schedule, so the 20-minute cap alone isn't
+    // reliable for exactly the "walked away from someone else's laptop" scenario it exists for.
+    // Re-checks the real elapsed wall-clock time (not the timer) the moment the tab becomes
+    // visible/focused again, so a stale session locks immediately on wake instead of sitting
+    // unlocked until the next real activity nudges React to notice.
+    const recheckOnWake = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - pairedAt >= PAIRED_SESSION_MAX_AGE_MS) lockNow();
+    };
+    document.addEventListener("visibilitychange", recheckOnWake);
+    window.addEventListener("focus", recheckOnWake);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", recheckOnWake);
+      window.removeEventListener("focus", recheckOnWake);
+    };
   }, [status]);
 
   useEffect(() => {
