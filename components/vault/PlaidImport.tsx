@@ -405,6 +405,32 @@ function flagCardVerificationHolds(rows: ImportRow[]): void {
   }
 }
 
+// Gas-station pumps place a small ($1-$2) pre-authorization hold to verify the card before the
+// pump unlocks, confirmed from the user's own real experience: it's never an actual charge, and
+// clears on its own within a few days -- usually WITHOUT a matching reversal transaction ever
+// showing up in Plaid's feed at all (unlike the paired hold+reversal flagCardVerificationHolds
+// above catches, which needs both sides visible in the same fetch). Left alone, a lone hold like
+// this just sits in Pending inviting "Save pending" to post a fake $1-2 gas voucher -- the REAL
+// pump total posts separately once it settles, which the normal (non-pending) import already
+// picks up on its own, so there's nothing here worth recording. Pre-skipped, not silently
+// dropped, so it stays visible and can still be posted manually if it's genuinely a real charge
+// (a $1-2 parking meter or vending purchase at a gas station's own convenience store, say).
+const FUEL_HOLD_MAX_AMOUNT = 2.0;
+function isFuelPurchase(tx: PlaidTxRaw): boolean {
+  if (/gas/i.test(tx.personal_finance_category?.detailed || "")) return true;
+  return /gas station|\bfuel\b/i.test(tx.name);
+}
+function flagLoneFuelAuthHold(rows: ImportRow[]): void {
+  for (const row of rows) {
+    if (row.skip || !row.plaidTx.pending || row.entries.length !== 2) continue;
+    if (!isFuelPurchase(row.plaidTx)) continue;
+    const amt = Math.max(...row.entries.map((e) => Math.abs(e.amount)));
+    if (amt <= 0 || amt > FUEL_HOLD_MAX_AMOUNT) continue;
+    row.skip = true;
+    row.narration = `Gas station pre-auth hold -- clears on its own in a few days, not a real charge (${row.narration})`;
+  }
+}
+
 // ── Build draft entries for a Plaid transaction ────────────────────────────────
 
 function buildDraft(
@@ -1756,6 +1782,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
       });
       flagCrossFeedDuplicates(draftPendingRows, data.transactions);
       flagCardVerificationHolds(draftPendingRows);
+      flagLoneFuelAuthHold(draftPendingRows);
       setPendingRows(draftPendingRows);
       const draftRows: ImportRow[] = pending.map((tx) => {
         const draft = enforceContraType(buildDraft(tx, data, acctsToCreate, historyIndex, plaidAcctMap), data.accounts);
