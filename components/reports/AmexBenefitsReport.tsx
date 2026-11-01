@@ -129,16 +129,19 @@ export function AmexBenefitsReport({
 
   const netSoFarWithClaims = feeMatch ? summary.totalUsed + totalCoverageClaims + selfReportedTotal - matchAmount(feeMatch) : null;
 
-  // Coverage benefits with a real matched voucher, and inactive credits the user has explicitly
-  // self-reported as used -- pulled together into one table above the summary stats so everything
-  // with an actual dollar figure behind it is reviewable in one place, instead of scattered across
-  // the Protection & Insurance and Not Tracked tables further down. A row lands here the moment it
-  // has a claim or is self-reported, and drops back out (below) the moment that's no longer true --
-  // e.g. unchecking "I use this every month" sends Uber Cash back down to Not Tracked by Amex.
-  const foundCoverageBenefits = useMemo(() => coverageBenefits.filter((b) => coverageClaims.has(b.benefitKey)), [coverageBenefits, coverageClaims]);
-  const selfReportedCredits = useMemo(() => inactiveCredits.filter((b) => b.selfReportedFullyUsed), [inactiveCredits]);
-  const remainingCoverageBenefits = useMemo(() => coverageBenefits.filter((b) => !coverageClaims.has(b.benefitKey)), [coverageBenefits, coverageClaims]);
-  const remainingInactiveCredits = useMemo(() => inactiveCredits.filter((b) => !b.selfReportedFullyUsed), [inactiveCredits]);
+  // Everything that has a dollar figure -- credit-tracker, claim-based protection, and self-reported
+  // -- shares one table (columns below) rather than three, per direct request: one place to review
+  // every benefit and one bottom-row total that reconciles to the summary stats above. "Used /
+  // claimed / reported" totals to summary.totalUsed + totalCoverageClaims + selfReportedTotal
+  // exactly (the same three figures already broken out above); "Annual value / limit" totals
+  // summary.totalTarget plus whatever real per-year limits Amex's own protection terms state.
+  const totalAnnualValueAndLimits = useMemo(() => {
+    let t = summary.totalTarget;
+    for (const b of coverageBenefits) if (b.periodLimit != null) t += b.periodLimit;
+    for (const b of inactiveCredits) if (b.periodLimit != null) t += b.periodLimit;
+    return t;
+  }, [summary.totalTarget, coverageBenefits, inactiveCredits]);
+  const totalUsedClaimedReported = summary.totalUsed + totalCoverageClaims + selfReportedTotal;
 
   return (
     <div className="data-panel">
@@ -165,74 +168,13 @@ export function AmexBenefitsReport({
               remaining figures are only as fresh as your last import -- re-run the capture periodically
               to keep this current. The annual fee above is found by searching your real voucher
               narrations for "Amex"/"Platinum" plus "annual fee"/"membership fee" -- not a guessed
-              amount, and shown as "not found" rather than $0 when nothing matches.
+              amount, and shown as "not found" rather than $0 when nothing matches. Protection/insurance
+              claims and Uber Cash's self-reported usage are included in one table below, alongside the
+              credit trackers -- its bottom totals reconcile to the Used/Annual-potential figures here.
             </div>
           )}
         </span>
       </h3>
-
-      {(foundCoverageBenefits.length > 0 || selfReportedCredits.length > 0) && (
-        <>
-          <h4 style={{ margin: "0 0 8px" }}>Claims found &amp; self-reported usage</h4>
-          <table className="fx-ledger-table" style={{ marginBottom: 16 }}>
-            <thead>
-              <tr>
-                <th style={{ width: 170 }}>Benefit</th>
-                <th>Real terms (from Amex)</th>
-                <th style={{ width: 170 }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {foundCoverageBenefits.map((b) => {
-                const claims = coverageClaims.get(b.benefitKey)!;
-                const claimsTotal = claims.reduce((s, t) => s + matchAmount(t), 0);
-                return (
-                  <tr key={b.benefitKey}>
-                    <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
-                    <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
-                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
-                      <div style={{ marginBottom: 2 }}>
-                        {fmt(claimsTotal)} ({claims.length} voucher{claims.length === 1 ? "" : "s"})
-                      </div>
-                      {claims.map((t) =>
-                        onViewVoucher ? (
-                          <button
-                            key={t.guid}
-                            type="button"
-                            className="columnar-cell-btn"
-                            style={{ display: "block", fontSize: 12 }}
-                            title={t.narration}
-                            onClick={() => onViewVoucher(t)}
-                          >
-                            {fmtDate(t.date)}: {fmt(matchAmount(t))}
-                          </button>
-                        ) : (
-                          <div key={t.guid} title={t.narration}>
-                            {fmtDate(t.date)}: {fmt(matchAmount(t))}
-                          </div>
-                        )
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {selfReportedCredits.map((b) => (
-                <tr key={b.benefitKey}>
-                  <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
-                  <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
-                  <td style={{ fontSize: 12, verticalAlign: "top" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: onSave ? "pointer" : "default" }}>
-                      <input type="checkbox" checked disabled={!onSave} onChange={() => toggleSelfReported(b)} />
-                      self-reported: <strong style={{ color: "#2563eb" }}>{fmt(selfReportedUberCashUsed(todayLocalIso()))}</strong>
-                    </label>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
       <div style={{ marginBottom: 16 }}>
         {!benefits.length ? (
           <p style={{ opacity: 0.7 }}>
@@ -298,150 +240,161 @@ export function AmexBenefitsReport({
         )}
       </div>
 
-      {benefits.length > 0 && (
-        <table className="fx-ledger-table">
-          <thead>
-            <tr>
-              <th>Benefit</th>
-              <th>Status</th>
-              <th>YTD progress</th>
-              <th className="right">Used YTD</th>
-              <th className="right">Annual value</th>
-              <th>This cycle</th>
-              <th>Cadence</th>
-              <th>Resets</th>
-            </tr>
-          </thead>
-          <tbody>
-            {benefits.map((b) => {
-              // YTD against the real annual value -- NOT the current sub-period's own target,
-              // which would make e.g. Resy's $296.12/$400 look like a near-empty 0% bar when read
-              // against its $100 current-quarter target alone.
-              const pct = b.annualTargetAmount > 0 ? Math.min(100, Math.round((b.yearToDateAmount / b.annualTargetAmount) * 100)) : 0;
-              const achieved = b.status === "ACHIEVED";
-              return (
-                <tr key={b.benefitId}>
-                  <td className="fx-narration">{b.benefitName}</td>
-                  <td style={{ color: achieved ? "#16a34a" : undefined, fontWeight: achieved ? 700 : undefined }}>
-                    {achieved ? "✓ Achieved" : "In progress"}
-                  </td>
-                  <td style={{ minWidth: 120 }}>
-                    <div style={{ background: "#edf0f4", borderRadius: 4, height: 8, overflow: "hidden" }}>
-                      <div style={{ width: `${pct}%`, background: achieved ? "#16a34a" : "#2563eb", height: "100%" }} />
-                    </div>
-                  </td>
-                  <td className="right">{fmt(b.yearToDateAmount)}</td>
-                  <td className="right">{fmt(b.annualTargetAmount)}</td>
-                  <td style={{ fontSize: 12, opacity: 0.75, whiteSpace: "nowrap" }}>
-                    {fmt(b.spentAmount)} / {fmt(b.targetAmount)}
-                  </td>
-                  <td>{b.trackerDuration || "—"}</td>
-                  <td>{b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      {remainingCoverageBenefits.length > 0 && (
+      {(benefits.length > 0 || coverageBenefits.length > 0 || inactiveCredits.length > 0) && (
         <>
-          <h4 style={{ margin: "20px 0 8px" }}>Protection &amp; Insurance</h4>
           <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 10px" }}>
-            Claim-based coverage, not statement credits -- there's no running spend/remaining balance from
-            Amex the way the credits above have. "Limit" is parsed straight out of Amex's own terms (left
-            blank when Amex's copy doesn't state a dollar figure -- several of these only say "coverage
-            limits apply", with the real numbers in a separate certificate of insurance this doesn't have
-            access to). Nothing matched here yet -- once a real voucher is found for one of these, it moves
-            up into "Claims found &amp; self-reported usage" above.
+            Every benefit in one table -- statement credits (Amex's own tracker), protection/insurance
+            claims (best-effort matched against your real voucher narrations), and Uber Cash's
+            self-reported usage. The bottom row totals "Used / claimed / reported" and "Annual value /
+            limit" -- the first ties exactly to Used YTD + Protection claims + self-reported above.
           </p>
           <table className="fx-ledger-table">
             <thead>
               <tr>
                 <th style={{ width: 170 }}>Benefit</th>
-                <th>Real coverage terms (from Amex)</th>
-                <th style={{ width: 140 }}>Limit</th>
+                <th>Status / terms</th>
+                <th style={{ width: 170 }}>Used / claimed / reported</th>
+                <th style={{ width: 150 }} className="right">Annual value / limit</th>
+                <th style={{ width: 110 }}>Cadence</th>
+                <th style={{ width: 100 }}>Resets</th>
               </tr>
             </thead>
             <tbody>
-              {remainingCoverageBenefits.map((b) => {
+              {benefits.map((b) => {
+                // YTD against the real annual value -- NOT the current sub-period's own target,
+                // which would make e.g. Resy's $296.12/$400 look like a near-empty 0% bar when read
+                // against its $100 current-quarter target alone.
+                const pct = b.annualTargetAmount > 0 ? Math.min(100, Math.round((b.yearToDateAmount / b.annualTargetAmount) * 100)) : 0;
+                const achieved = b.status === "ACHIEVED";
+                return (
+                  <tr key={`credit:${b.benefitId}`}>
+                    <td className="fx-narration">{b.benefitName}</td>
+                    <td style={{ fontSize: 12 }}>
+                      <div style={{ color: achieved ? "#16a34a" : undefined, fontWeight: achieved ? 700 : undefined, marginBottom: 2 }}>
+                        {achieved ? "✓ Achieved" : "In progress"}
+                      </div>
+                      <div style={{ background: "#edf0f4", borderRadius: 4, height: 8, overflow: "hidden", minWidth: 100 }}>
+                        <div style={{ width: `${pct}%`, background: achieved ? "#16a34a" : "#2563eb", height: "100%" }} />
+                      </div>
+                      <div style={{ opacity: 0.75, marginTop: 2 }}>
+                        this cycle: {fmt(b.spentAmount)} / {fmt(b.targetAmount)}
+                      </div>
+                    </td>
+                    <td className="right">{fmt(b.yearToDateAmount)}</td>
+                    <td className="right">{fmt(b.annualTargetAmount)}</td>
+                    <td style={{ fontSize: 12 }}>{b.trackerDuration || "—"}</td>
+                    <td style={{ fontSize: 12 }}>{b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}</td>
+                  </tr>
+                );
+              })}
+              {coverageBenefits.map((b) => {
+                const claims = coverageClaims.get(b.benefitKey);
+                const claimsTotal = claims?.reduce((s, t) => s + matchAmount(t), 0) ?? 0;
                 const limitBits: string[] = [];
                 if (b.perClaimLimit != null) limitBits.push(`${fmt(b.perClaimLimit)}/claim`);
-                if (b.periodLimit != null) limitBits.push(`${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim());
                 if (b.deductible != null) limitBits.push(`${fmt(b.deductible)} deductible`);
                 if (b.claimsPerPeriod != null) limitBits.push(`max ${b.claimsPerPeriod} claims`);
                 if (b.monthlyCost != null) limitBits.push(`${fmt(b.monthlyCost)}/mo after trial`);
                 return (
-                  <tr key={b.benefitKey}>
-                    <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
-                    <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
-                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
-                      {limitBits.length ? limitBits.map((bit, i) => <div key={i}>{bit}</div>) : <span style={{ opacity: 0.4 }}>—</span>}
+                  <tr key={`protection:${b.benefitKey}`}>
+                    <td className="fx-narration">{b.title}</td>
+                    <td style={{ fontSize: 12 }}>
+                      <div style={{ color: claims?.length ? "#16a34a" : undefined, fontWeight: claims?.length ? 700 : undefined, marginBottom: 2 }}>
+                        {claims?.length ? "Claim found" : "Not found"}
+                      </div>
+                      <div style={{ opacity: 0.75, whiteSpace: "normal" }} title={b.summary}>
+                        {b.summary}
+                      </div>
+                      {limitBits.length > 0 && <div style={{ opacity: 0.6, marginTop: 2 }}>{limitBits.join(" · ")}</div>}
                     </td>
+                    <td className="right" style={{ fontSize: 12 }}>
+                      {claims?.length ? (
+                        <>
+                          <div>{fmt(claimsTotal)} ({claims.length} voucher{claims.length === 1 ? "" : "s"})</div>
+                          {claims.map((t) =>
+                            onViewVoucher ? (
+                              <button
+                                key={t.guid}
+                                type="button"
+                                className="columnar-cell-btn"
+                                style={{ display: "block", fontSize: 12, marginLeft: "auto" }}
+                                title={t.narration}
+                                onClick={() => onViewVoucher(t)}
+                              >
+                                {fmtDate(t.date)}: {fmt(matchAmount(t))}
+                              </button>
+                            ) : (
+                              <div key={t.guid} title={t.narration}>
+                                {fmtDate(t.date)}: {fmt(matchAmount(t))}
+                              </div>
+                            )
+                          )}
+                        </>
+                      ) : (
+                        <span style={{ opacity: 0.4 }}>not found</span>
+                      )}
+                    </td>
+                    <td className="right">{b.periodLimit != null ? `${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim() : <span style={{ opacity: 0.4 }}>—</span>}</td>
+                    <td style={{ fontSize: 12, opacity: 0.4 }}>—</td>
+                    <td style={{ fontSize: 12, opacity: 0.4 }}>—</td>
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {remainingInactiveCredits.length > 0 && (
-        <>
-          <h4 style={{ margin: "20px 0 8px" }}>Not Tracked by Amex</h4>
-          <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 10px" }}>
-            Real credits your account has access to per Amex's own catalog, but with no active usage tracker
-            on Amex's side -- confirmed with Amex support for $200 Uber Cash: it's credited straight to your
-            Uber account on the 1st of each month, bypassing Amex's own tracking entirely, so this will never
-            show real usage numbers here automatically, regardless of enrollment. "I use this every month" is
-            YOUR OWN direct statement, not anything Amex or this app verified -- always labeled self-reported,
-            kept separate from every other (Amex- or voucher-verified) figure here, and never defaulted to on
-            its own. Checking it moves this row up into "Claims found &amp; self-reported usage" above.
-          </p>
-          <table className="fx-ledger-table">
-            <thead>
-              <tr>
-                <th style={{ width: 170 }}>Benefit</th>
-                <th>Real terms (from Amex)</th>
-                <th style={{ width: 140 }}>Value</th>
-                <th style={{ width: 170 }}>Self-reported usage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {remainingInactiveCredits.map((b) => {
+              {inactiveCredits.map((b) => {
                 // Only Uber Cash's specific $15/mo + $20-in-December math applies here -- gated by
                 // key, not offered generically, so a future differently-structured inactive credit
                 // doesn't get an incorrect self-report option.
                 const supportsSelfReport = b.benefitKey === "uber-rides-with-platinum";
                 return (
-                  <tr key={b.benefitKey}>
-                    <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
-                    <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
-                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
-                      {b.periodLimit != null ? `${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim() : <span style={{ opacity: 0.4 }}>—</span>}
+                  <tr key={`inactive:${b.benefitKey}`}>
+                    <td className="fx-narration">{b.title}</td>
+                    <td style={{ fontSize: 12 }}>
+                      <div style={{ color: b.selfReportedFullyUsed ? "#2563eb" : undefined, fontWeight: b.selfReportedFullyUsed ? 700 : undefined, marginBottom: 2 }}>
+                        {b.selfReportedFullyUsed ? "Self-reported" : "Not reported"}
+                      </div>
+                      <div style={{ opacity: 0.75, whiteSpace: "normal" }} title={b.summary}>
+                        {b.summary}
+                      </div>
+                      <div style={{ opacity: 0.6, marginTop: 2 }}>
+                        Not tracked by Amex -- credited straight to Uber, bypassing Amex's own tracking entirely.
+                      </div>
                     </td>
-                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                    <td className="right" style={{ fontSize: 12 }}>
                       {supportsSelfReport ? (
-                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: onSave ? "pointer" : "default" }}>
+                        <label style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, cursor: onSave ? "pointer" : "default" }}>
                           <input
                             type="checkbox"
                             checked={!!b.selfReportedFullyUsed}
                             disabled={!onSave}
                             onChange={() => toggleSelfReported(b)}
                           />
-                          I use this every month
-                          {b.selfReportedFullyUsed && (
+                          {b.selfReportedFullyUsed ? (
                             <strong style={{ color: "#2563eb" }}>{fmt(selfReportedUberCashUsed(todayLocalIso()))}</strong>
+                          ) : (
+                            <span style={{ opacity: 0.4 }}>$0.00</span>
                           )}
                         </label>
                       ) : (
-                        <span style={{ opacity: 0.4 }}>—</span>
+                        <span style={{ opacity: 0.4 }}>$0.00</span>
                       )}
                     </td>
+                    <td className="right">{b.periodLimit != null ? `${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim() : <span style={{ opacity: 0.4 }}>—</span>}</td>
+                    <td style={{ fontSize: 12, opacity: 0.4 }}>—</td>
+                    <td style={{ fontSize: 12, opacity: 0.4 }}>—</td>
                   </tr>
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr style={{ fontWeight: 700, borderTop: "2px solid #d0d5dd" }}>
+                <td>Total</td>
+                <td></td>
+                <td className="right">{fmt(totalUsedClaimedReported)}</td>
+                <td className="right">{fmt(totalAnnualValueAndLimits)}</td>
+                <td></td>
+                <td></td>
+              </tr>
+            </tfoot>
           </table>
         </>
       )}
