@@ -32,6 +32,8 @@ export function parseAmexBenefitsUpload(raw: unknown): AmexBenefit[] {
       targetAmount: typeof o.targetAmount === "number" ? o.targetAmount : 0,
       spentAmount: typeof o.spentAmount === "number" ? o.spentAmount : 0,
       remainingAmount: typeof o.remainingAmount === "number" ? o.remainingAmount : 0,
+      yearToDateAmount: typeof o.yearToDateAmount === "number" ? o.yearToDateAmount : 0,
+      annualTargetAmount: typeof o.annualTargetAmount === "number" ? o.annualTargetAmount : (typeof o.targetAmount === "number" ? o.targetAmount : 0),
       currency: typeof o.currency === "string" ? o.currency : "USD",
       lastCheckedAt: typeof o.lastCheckedAt === "string" ? o.lastCheckedAt : new Date().toISOString(),
     };
@@ -78,15 +80,17 @@ export type AmexBenefitsSummary = {
   inProgressCount: number;
 };
 
-// Totals across whatever benefits are currently on file -- each one's own CURRENT cycle only
-// (periodStartDate/periodEndDate are re-imported fresh each refresh, so this is never a running
-// lifetime total, just "where do I stand right now").
+// Totals across whatever benefits are currently on file, for the CURRENT calendar year as a
+// whole -- totalTarget/totalUsed deliberately use annualTargetAmount/yearToDateAmount, NOT
+// targetAmount/spentAmount (which are only the current sub-period, e.g. Resy's $100/quarter
+// rather than its real $400/year -- confirmed live this badly understated both sides for any
+// Monthly/QuarterYear/HalfYear benefit). totalRemaining is derived the same way, for consistency.
 export function summarizeAmexBenefits(benefits: AmexBenefit[]): AmexBenefitsSummary {
   let totalTarget = 0, totalUsed = 0, totalRemaining = 0, achievedCount = 0, inProgressCount = 0;
   for (const b of benefits) {
-    totalTarget += b.targetAmount;
-    totalUsed += b.spentAmount;
-    totalRemaining += b.remainingAmount;
+    totalTarget += b.annualTargetAmount;
+    totalUsed += b.yearToDateAmount;
+    totalRemaining += Math.max(0, b.annualTargetAmount - b.yearToDateAmount);
     if (b.status === "ACHIEVED") achievedCount++;
     else inProgressCount++;
   }

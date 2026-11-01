@@ -142,11 +142,11 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
               <div style={{ fontSize: 20, fontWeight: 700 }}>{feeMatch ? fmt(feeMatch.amount) : "not found"}</div>
             </span>
             <span>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Used so far (current cycles)</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Used year to date</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(summary.totalUsed)}</div>
             </span>
             <span>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Available this cycle set</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Annual potential</div>
               <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(summary.totalTarget)}</div>
             </span>
             {totalCoverageClaims > 0 && (
@@ -181,16 +181,20 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
             <tr>
               <th>Benefit</th>
               <th>Status</th>
-              <th>Progress</th>
-              <th className="right">Used</th>
-              <th className="right">Target</th>
+              <th>YTD progress</th>
+              <th className="right">Used YTD</th>
+              <th className="right">Annual value</th>
+              <th>This cycle</th>
               <th>Cadence</th>
               <th>Resets</th>
             </tr>
           </thead>
           <tbody>
             {benefits.map((b) => {
-              const pct = b.targetAmount > 0 ? Math.min(100, Math.round((b.spentAmount / b.targetAmount) * 100)) : 0;
+              // YTD against the real annual value -- NOT the current sub-period's own target,
+              // which would make e.g. Resy's $296.12/$400 look like a near-empty 0% bar when read
+              // against its $100 current-quarter target alone.
+              const pct = b.annualTargetAmount > 0 ? Math.min(100, Math.round((b.yearToDateAmount / b.annualTargetAmount) * 100)) : 0;
               const achieved = b.status === "ACHIEVED";
               return (
                 <tr key={b.benefitId}>
@@ -203,8 +207,11 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
                       <div style={{ width: `${pct}%`, background: achieved ? "#16a34a" : "#2563eb", height: "100%" }} />
                     </div>
                   </td>
-                  <td className="right">{fmt(b.spentAmount)}</td>
-                  <td className="right">{fmt(b.targetAmount)}</td>
+                  <td className="right">{fmt(b.yearToDateAmount)}</td>
+                  <td className="right">{fmt(b.annualTargetAmount)}</td>
+                  <td style={{ fontSize: 12, opacity: 0.75, whiteSpace: "nowrap" }}>
+                    {fmt(b.spentAmount)} / {fmt(b.targetAmount)}
+                  </td>
                   <td>{b.trackerDuration || "—"}</td>
                   <td>{b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}</td>
                 </tr>

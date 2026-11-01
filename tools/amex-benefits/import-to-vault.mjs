@@ -45,6 +45,8 @@ function parseBenefits(raw) {
       targetAmount: typeof b.targetAmount === "number" ? b.targetAmount : 0,
       spentAmount: typeof b.spentAmount === "number" ? b.spentAmount : 0,
       remainingAmount: typeof b.remainingAmount === "number" ? b.remainingAmount : 0,
+      yearToDateAmount: typeof b.yearToDateAmount === "number" ? b.yearToDateAmount : 0,
+      annualTargetAmount: typeof b.annualTargetAmount === "number" ? b.annualTargetAmount : (typeof b.targetAmount === "number" ? b.targetAmount : 0),
       currency: typeof b.currency === "string" ? b.currency : "USD",
       lastCheckedAt: typeof b.lastCheckedAt === "string" ? b.lastCheckedAt : new Date().toISOString(),
     };

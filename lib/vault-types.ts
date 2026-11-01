@@ -537,9 +537,18 @@ export type AmexBenefit = {
   periodEndDate: string; // YYYY-MM-DD, when this credit resets/expires
   trackerDuration: string; // Amex's own cadence label verbatim
   status: string; // Amex's own status verbatim, e.g. "IN_PROGRESS", "ACHIEVED"
+  // targetAmount/spentAmount/remainingAmount are all scoped to the CURRENT sub-period only (e.g.
+  // Resy's real $100/quarter cap, not its $400/year total) -- confirmed live this badly
+  // understates real usage/value for any benefit with a Monthly/QuarterYear/HalfYear cadence.
+  // yearToDateAmount (Amex's own progress.totalSavingsYearToDate) and annualTargetAmount
+  // (targetAmount x how many sub-periods make a year, per Amex's own stated trackerDuration --
+  // confirmed against every benefit's own name, e.g. "$400 Resy Credit" = 4 x $100) are the real,
+  // correct annual figures; prefer these over targetAmount/spentAmount for any total/summary.
   targetAmount: number;
   spentAmount: number;
   remainingAmount: number;
+  yearToDateAmount: number;
+  annualTargetAmount: number;
   currency: string;
   lastCheckedAt: string; // ISO timestamp -- when this was captured from Amex
 };

@@ -24,6 +24,8 @@ function benefit(overrides: Partial<AmexBenefit> = {}): AmexBenefit {
     targetAmount: 200,
     spentAmount: 100,
     remainingAmount: 100,
+    yearToDateAmount: 100,
+    annualTargetAmount: 200,
     currency: "USD",
     lastCheckedAt: "2026-11-01T00:00:00Z",
     ...overrides,
@@ -67,15 +69,19 @@ test("mergeAmexBenefits: keeps distinct benefitIds as separate rows", () => {
   assert.equal(merged.length, 2);
 });
 
-test("summarizeAmexBenefits: totals target/used/remaining and counts achieved vs. in-progress", () => {
+test("summarizeAmexBenefits: totals use the real ANNUAL figures (yearToDateAmount/annualTargetAmount), not the current sub-period's own targetAmount/spentAmount", () => {
   const benefits = [
-    benefit({ benefitId: "a", targetAmount: 200, spentAmount: 200, remainingAmount: 0, status: "ACHIEVED" }),
-    benefit({ benefitId: "b", targetAmount: 120, spentAmount: 0, remainingAmount: 120, status: "IN_PROGRESS" }),
+    benefit({ benefitId: "a", annualTargetAmount: 200, yearToDateAmount: 200, status: "ACHIEVED" }),
+    // A quarterly benefit: current-cycle target/spent are intentionally much smaller than the real
+    // annual figures -- confirmed live (Resy: $100/quarter target, spentAmount 0, but $296.12
+    // already earned this year of a real $400 annual value). summarizeAmexBenefits must use the
+    // annual fields, not these, or it reproduces the exact bug this was built to fix.
+    benefit({ benefitId: "b", targetAmount: 100, spentAmount: 0, annualTargetAmount: 400, yearToDateAmount: 296.12, status: "IN_PROGRESS" }),
   ];
   const summary = summarizeAmexBenefits(benefits);
-  assert.equal(summary.totalTarget, 320);
-  assert.equal(summary.totalUsed, 200);
-  assert.equal(summary.totalRemaining, 120);
+  assert.equal(summary.totalTarget, 600);
+  assert.equal(summary.totalUsed, 496.12);
+  assert.equal(summary.totalRemaining, 103.88);
   assert.equal(summary.achievedCount, 1);
   assert.equal(summary.inProgressCount, 1);
 });

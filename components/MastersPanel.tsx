@@ -2671,14 +2671,14 @@ export function MastersPanel({
         const benefits = [...(data.amexBenefits || [])].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
         const coverageBenefits = [...(data.amexCoverageBenefits || [])].sort((a, b) => (a.title < b.title ? -1 : 1));
         const inactiveCredits = [...(data.amexInactiveCredits || [])].sort((a, b) => (a.title < b.title ? -1 : 1));
-        const totalTarget = benefits.reduce((s, b) => s + b.targetAmount, 0);
-        const totalSpent = benefits.reduce((s, b) => s + b.spentAmount, 0);
+        const totalAnnualTarget = benefits.reduce((s, b) => s + b.annualTargetAmount, 0);
+        const totalYtd = benefits.reduce((s, b) => s + b.yearToDateAmount, 0);
         return (
           <>
             <div className="master-toolbar">
               <span>
                 {benefits.length} benefit tracker{benefits.length === 1 ? "" : "s"} imported
-                {benefits.length ? ` — $${totalSpent.toFixed(2)} used of $${totalTarget.toFixed(2)}` : ""}
+                {benefits.length ? ` — $${totalYtd.toFixed(2)} used YTD of $${totalAnnualTarget.toFixed(2)} annual` : ""}
                 {coverageBenefits.length ? ` · ${coverageBenefits.length} protection/insurance benefit${coverageBenefits.length === 1 ? "" : "s"}` : ""}
                 {inactiveCredits.length ? ` · ${inactiveCredits.length} not-yet-active credit${inactiveCredits.length === 1 ? "" : "s"}` : ""}
               </span>
@@ -2747,8 +2747,9 @@ export function MastersPanel({
                     <th>Benefit</th>
                     <th>Status</th>
                     <th>Cadence</th>
-                    <th className="right">Used</th>
-                    <th className="right">Target</th>
+                    <th className="right">This cycle</th>
+                    <th className="right">Used YTD</th>
+                    <th className="right">Annual value</th>
                     <th>Resets</th>
                     <th>Action</th>
                   </tr>
@@ -2759,8 +2760,9 @@ export function MastersPanel({
                       <td>{b.benefitName}</td>
                       <td>{b.status === "ACHIEVED" ? "✓ Achieved" : b.status || "—"}</td>
                       <td>{b.trackerDuration || "—"}</td>
-                      <td className="right">${b.spentAmount.toFixed(2)}</td>
-                      <td className="right">${b.targetAmount.toFixed(2)}</td>
+                      <td className="right">${b.spentAmount.toFixed(2)} / ${b.targetAmount.toFixed(2)}</td>
+                      <td className="right">${b.yearToDateAmount.toFixed(2)}</td>
+                      <td className="right">${b.annualTargetAmount.toFixed(2)}</td>
                       <td>{b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}</td>
                       <td>
                         <button className="master-delete" onClick={() => deleteAmexBenefit(b)}>

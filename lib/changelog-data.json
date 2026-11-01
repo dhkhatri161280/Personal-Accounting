@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex benefits: fix a real data-stripping bug, fold claims into net, surface Uber Cash"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex coverage benefits: extract real dollar limits, search for real claims"
   },
   {

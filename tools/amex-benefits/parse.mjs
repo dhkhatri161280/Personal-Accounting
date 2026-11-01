@@ -26,6 +26,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CAPTURES_DIR = join(__dirname, ".captures");
 const TRACKERS_URL_RE = /ReadBestLoyaltyBenefitsTrackers/i;
 const CATALOG_URL_RE = /ReadLoyaltyBenefits\.v2/i;
+// Amex's own cadence labels (yes, "CalenderYear" is really how they spell it) -> how many of that
+// sub-period make up a full year, for computing a real annual target from the current period's
+// target. See the call site's own comment for live confirmation this matches every benefit name.
+const CADENCE_PERIODS_PER_YEAR = { Monthly: 12, QuarterYear: 4, HalfYear: 2, CalenderYear: 1 };
 
 // Curated from Amex's own real ~56-entry benefit catalog (ReadLoyaltyBenefits.v2, confirmed live
 // against a real account) -- these are the genuine claim-based protection/insurance benefits with
@@ -148,6 +152,7 @@ function main() {
       for (const t of acct.trackers || []) {
         if (t.category !== "usage" || t.tracker?.targetUnit !== "MONETARY") continue;
         if (!t.benefitId || !t.benefitName) continue;
+        const periodTarget = Number(t.tracker.targetAmount) || 0;
         byId.set(t.benefitId, {
           benefitId: t.benefitId,
           benefitName: t.benefitName,
@@ -155,9 +160,26 @@ function main() {
           periodEndDate: (t.periodEndDate || "").slice(0, 10),
           trackerDuration: t.trackerDuration || "",
           status: t.status || "",
-          targetAmount: Number(t.tracker.targetAmount) || 0,
+          targetAmount: periodTarget,
           spentAmount: Number(t.tracker.spentAmount) || 0,
           remainingAmount: Number(t.tracker.remainingAmount) || 0,
+          // Confirmed live: for a sub-annual cadence (Monthly/QuarterYear/HalfYear), `spentAmount`
+          // above is ONLY the CURRENT sub-period -- e.g. Resy showed spentAmount 0.00 for the
+          // Oct-Dec quarter while Amex's own account page (and this same response's own
+          // progress.totalSavingsYearToDate field) showed $296.12 actually earned across the
+          // year's earlier quarters. Missing this made "Used so far" badly understate real usage
+          // for every multi-period credit (Resy, lululemon, Walmart+, Digital Entertainment,
+          // Lodging) -- a real bug, not a rounding nuance.
+          yearToDateAmount: Number(t.progress?.totalSavingsYearToDate) || 0,
+          // Same class of bug on the OTHER side: `targetAmount` above is also only the current
+          // sub-period's cap (e.g. Resy's real $100/quarter), not the full annual value the
+          // benefit's own NAME already states ($400 Resy Credit = 4 quarters x $100). Computed
+          // here from Amex's own stated cadence (trackerDuration), never guessed -- and confirmed
+          // against every benefit name in this real account: $25/mo x 12 = $300 Digital
+          // Entertainment, $75/quarter x 4 = $300 lululemon, $100/quarter x 4 = $400 Resy,
+          // $300/half-year x 2 = $600 Lodging -- every single one matches the benefit's own name
+          // exactly, confirming the multiplier is correct, not an estimate.
+          annualTargetAmount: Math.round(periodTarget * (CADENCE_PERIODS_PER_YEAR[t.trackerDuration] ?? 1) * 100) / 100,
           currency: t.tracker.targetCurrency || "USD",
           lastCheckedAt: now,
         });
@@ -232,15 +254,15 @@ function main() {
   if (benefits.length) {
     writeFileSync(join(__dirname, "benefits.json"), JSON.stringify(benefits, null, 2));
     console.log(`Parsed ${benefits.length} real benefit tracker(s):\n`);
-    let totalTarget = 0, totalSpent = 0;
+    let totalAnnualTarget = 0, totalYtd = 0;
     for (const b of benefits) {
-      totalTarget += b.targetAmount;
-      totalSpent += b.spentAmount;
+      totalAnnualTarget += b.annualTargetAmount;
+      totalYtd += b.yearToDateAmount;
       console.log(
-        `  ${b.benefitName.padEnd(42)} ${b.status.padEnd(12)} $${b.spentAmount.toFixed(2)} / $${b.targetAmount.toFixed(2)}  (resets ${b.periodEndDate})`
+        `  ${b.benefitName.padEnd(42)} ${b.status.padEnd(12)} this cycle: $${b.spentAmount.toFixed(2)}/$${b.targetAmount.toFixed(2)}  YTD: $${b.yearToDateAmount.toFixed(2)}/$${b.annualTargetAmount.toFixed(2)} annual  (resets ${b.periodEndDate})`
       );
     }
-    console.log(`\nTotal across all trackers' current cycles: $${totalSpent.toFixed(2)} used of $${totalTarget.toFixed(2)} available.`);
+    console.log(`\nReal total used YEAR TO DATE: $${totalYtd.toFixed(2)} of $${totalAnnualTarget.toFixed(2)} annual potential.`);
     console.log(`Saved: ${join(__dirname, "benefits.json")}`);
   } else {
     console.log("No usage trackers found in this capture.");
