@@ -1,8 +1,16 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { Ledger, AmexCoverageBenefit } from "@/lib/vault-types";
+import type { Ledger, Tx, AmexCoverageBenefit } from "@/lib/vault-types";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { summarizeAmexBenefits, selfReportedUberCashUsed } from "@/lib/amex-benefits";
+
+// Matched-voucher amount -- whichever entry has the larger magnitude (the card's own liability
+// leg, not a tiny tax/rounding leg on the same voucher). Shared by the fee match and every
+// coverage-claim match below, so the figure shown next to a drill-down link is always the same
+// one used in the report's own totals.
+function matchAmount(t: Tx): number {
+  return Math.max(...t.entries.map((e) => Math.abs(e.amount)));
+}
 
 // Real Amex Platinum benefit utilization -- what you pay (the annual fee, cross-referenced from
 // your own real vouchers) against what you actually use (each statement credit's live status,
@@ -38,7 +46,17 @@ const COVERAGE_SEARCH_TERMS: Record<string, string[][]> = {
   "credit-secure": [["creditsecure"], ["credit", "secure"]],
 };
 
-export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: number) => string; onSave?: (next: Ledger) => void }) {
+export function AmexBenefitsReport({
+  data,
+  fmt,
+  onSave,
+  onViewVoucher,
+}: {
+  data: Ledger;
+  fmt: (n: number) => string;
+  onSave?: (next: Ledger) => void;
+  onViewVoucher?: (t: Tx) => void;
+}) {
   const [showInfo, setShowInfo] = useState(false);
   const benefits = useMemo(
     () => [...(data.amexBenefits ?? [])].sort((a, b) => (a.periodEndDate < b.periodEndDate ? -1 : 1)),
@@ -71,7 +89,8 @@ export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (
   }
 
   // Most recent matching voucher within the last ~13 months -- an annual fee should recur roughly
-  // once a year, so anything older is a prior cycle's charge, not this one.
+  // once a year, so anything older is a prior cycle's charge, not this one. Keeps the real Tx
+  // (not just extracted fields) so the amount can drill straight down to the actual voucher.
   const feeMatch = useMemo(() => {
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - 13);
@@ -81,27 +100,22 @@ export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (
     );
     if (!candidates.length) return null;
     candidates.sort((a, b) => (a.date < b.date ? 1 : -1));
-    const v = candidates[0];
-    // The fee itself is whichever entry has the larger magnitude (the card's own liability leg,
-    // not a tiny tax/rounding leg on the same voucher).
-    const amount = Math.max(...v.entries.map((e) => Math.abs(e.amount)));
-    return { date: v.date, narration: v.narration, amount };
+    return candidates[0];
   }, [data.transactions]);
 
   // benefitKey -> matched real vouchers (see COVERAGE_SEARCH_TERMS' own comment on what "found"
-  // and "not found" actually mean here).
+  // and "not found" actually mean here). Real Tx objects, not just extracted fields, so each one
+  // can drill straight down to the actual voucher.
   const coverageClaims = useMemo(() => {
-    const out = new Map<string, { date: string; narration: string; amount: number }[]>();
+    const out = new Map<string, Tx[]>();
     for (const b of coverageBenefits) {
       const groups = COVERAGE_SEARCH_TERMS[b.benefitKey];
       if (!groups) continue;
-      const hits = data.transactions
-        .filter((t) => {
-          if (t.deleted || t.cancelled) return false;
-          const n = t.narration.toLowerCase();
-          return groups.some((words) => words.every((w) => n.includes(w)));
-        })
-        .map((t) => ({ date: t.date, narration: t.narration, amount: Math.max(...t.entries.map((e) => Math.abs(e.amount))) }));
+      const hits = data.transactions.filter((t) => {
+        if (t.deleted || t.cancelled) return false;
+        const n = t.narration.toLowerCase();
+        return groups.some((words) => words.every((w) => n.includes(w)));
+      });
       if (hits.length) out.set(b.benefitKey, hits);
     }
     return out;
@@ -109,11 +123,11 @@ export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (
 
   const totalCoverageClaims = useMemo(() => {
     let total = 0;
-    for (const hits of coverageClaims.values()) for (const h of hits) total += h.amount;
+    for (const hits of coverageClaims.values()) for (const t of hits) total += matchAmount(t);
     return total;
   }, [coverageClaims]);
 
-  const netSoFarWithClaims = feeMatch ? summary.totalUsed + totalCoverageClaims + selfReportedTotal - feeMatch.amount : null;
+  const netSoFarWithClaims = feeMatch ? summary.totalUsed + totalCoverageClaims + selfReportedTotal - matchAmount(feeMatch) : null;
 
   return (
     <div className="data-panel">
@@ -155,7 +169,19 @@ export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (
           <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
             <span>
               <div style={{ fontSize: 12, opacity: 0.7 }}>Annual fee{feeMatch ? ` (${fmtDate(feeMatch.date)})` : ""}</div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{feeMatch ? fmt(feeMatch.amount) : "not found"}</div>
+              {feeMatch && onViewVoucher ? (
+                <button
+                  type="button"
+                  className="columnar-cell-btn"
+                  style={{ fontSize: 20, fontWeight: 700 }}
+                  title="Open the matching voucher"
+                  onClick={() => onViewVoucher(feeMatch)}
+                >
+                  {fmt(matchAmount(feeMatch))}
+                </button>
+              ) : (
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{feeMatch ? fmt(matchAmount(feeMatch)) : "not found"}</div>
+              )}
             </span>
             <span>
               <div style={{ fontSize: 12, opacity: 0.7 }}>Used year to date</div>
@@ -268,7 +294,7 @@ export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (
             <tbody>
               {coverageBenefits.map((b) => {
                 const claims = coverageClaims.get(b.benefitKey);
-                const claimsTotal = claims?.reduce((s, c) => s + c.amount, 0);
+                const claimsTotal = claims?.reduce((s, t) => s + matchAmount(t), 0);
                 const limitBits: string[] = [];
                 if (b.perClaimLimit != null) limitBits.push(`${fmt(b.perClaimLimit)}/claim`);
                 if (b.periodLimit != null) limitBits.push(`${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim());
@@ -284,9 +310,29 @@ export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (
                     </td>
                     <td style={{ fontSize: 12, verticalAlign: "top" }}>
                       {claims?.length ? (
-                        <span title={claims.map((c) => `${fmtDate(c.date)}: ${c.narration}`).join("\n")}>
-                          {fmt(claimsTotal!)} ({claims.length} voucher{claims.length === 1 ? "" : "s"})
-                        </span>
+                        <>
+                          <div style={{ marginBottom: 2 }}>
+                            {fmt(claimsTotal!)} ({claims.length} voucher{claims.length === 1 ? "" : "s"})
+                          </div>
+                          {claims.map((t) =>
+                            onViewVoucher ? (
+                              <button
+                                key={t.guid}
+                                type="button"
+                                className="columnar-cell-btn"
+                                style={{ display: "block", fontSize: 12 }}
+                                title={t.narration}
+                                onClick={() => onViewVoucher(t)}
+                              >
+                                {fmtDate(t.date)}: {fmt(matchAmount(t))}
+                              </button>
+                            ) : (
+                              <div key={t.guid} title={t.narration}>
+                                {fmtDate(t.date)}: {fmt(matchAmount(t))}
+                              </div>
+                            )
+                          )}
+                        </>
                       ) : (
                         <span style={{ opacity: 0.4 }}>not found</span>
                       )}

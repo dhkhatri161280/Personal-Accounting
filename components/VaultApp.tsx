@@ -5528,7 +5528,14 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             />
           )}
           {report === "spend" && data && <SpendReport data={data} fmt={fmt} onSave={(next) => save(next, "spend-report")} />}
-          {report === "amexbenefits" && data && <AmexBenefitsReport data={data} fmt={fmt} onSave={(next) => save(next, "amex-benefits-report")} />}
+          {report === "amexbenefits" && data && (
+            <AmexBenefitsReport
+              data={data}
+              fmt={fmt}
+              onSave={(next) => save(next, "amex-benefits-report")}
+              onViewVoucher={(t) => setSelectedVoucher(t)}
+            />
+          )}
         </Suspense>
       )}
       {tab === "new" && (
