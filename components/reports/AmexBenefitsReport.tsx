@@ -180,6 +180,7 @@ export function AmexBenefitsReport({
 
   const totalUsedClaimedReported = summary.totalUsed + totalCoverageClaims + selfReportedTotal;
   const totalAnnualValueAndLimits = useMemo(() => rows.reduce((s, r) => s + (r.annualValue ?? 0), 0), [rows]);
+  const totalRemaining = useMemo(() => rows.reduce((s, r) => s + (r.annualValue != null ? Math.max(0, r.annualValue - r.usedAmount) : 0), 0), [rows]);
 
   return (
     <div className="data-panel">
@@ -264,8 +265,9 @@ export function AmexBenefitsReport({
             <tr>
               <th style={{ width: 170 }}>Benefit</th>
               <th style={{ width: 110 }}>Status</th>
-              <th style={{ width: 170 }} className="right">Used / claimed / reported</th>
-              <th style={{ width: 130 }} className="right">Annual value / limit</th>
+              <th style={{ width: 110 }} className="right">Annual value</th>
+              <th style={{ width: 170 }} className="right">Used / claimed</th>
+              <th style={{ width: 90 }} className="right">Remaining</th>
               <th style={{ width: 30 }}></th>
             </tr>
           </thead>
@@ -286,11 +288,12 @@ export function AmexBenefitsReport({
                         <div style={{ width: `${pct}%`, background: achieved ? "#16a34a" : "#2563eb", height: "100%" }} />
                       </div>
                     </td>
+                    <td className="right">{fmt(b.annualTargetAmount)}</td>
                     <td className="right">
                       {fmt(used)}
                       {statementOverride && <div style={{ fontSize: 10, color: "#2563eb" }}>from statement</div>}
                     </td>
-                    <td className="right">{fmt(b.annualTargetAmount)}</td>
+                    <td className="right">{fmt(Math.max(0, b.annualTargetAmount - used))}</td>
                     <td>
                       <InfoIcon id={r.key} open={rowInfo} setOpen={setRowInfo}>
                         {b.trackerDuration || "—"}, resets {b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}
@@ -320,6 +323,7 @@ export function AmexBenefitsReport({
                     <td style={{ fontSize: 12, color: r.claims.length ? "#16a34a" : undefined, fontWeight: r.claims.length ? 700 : undefined }}>
                       {r.claims.length ? `${r.claims.length} claim${r.claims.length === 1 ? "" : "s"}` : "Not claimed"}
                     </td>
+                    <td className="right">{b.periodLimit != null ? fmt(b.periodLimit) : <span style={{ opacity: 0.4 }}>—</span>}</td>
                     <td className="right" style={{ fontSize: 12 }}>
                       {r.claims.length ? (
                         <>
@@ -347,7 +351,7 @@ export function AmexBenefitsReport({
                         <span style={{ opacity: 0.4 }}>$0.00</span>
                       )}
                     </td>
-                    <td className="right">{b.periodLimit != null ? fmt(b.periodLimit) : <span style={{ opacity: 0.4 }}>—</span>}</td>
+                    <td className="right">{b.periodLimit != null ? fmt(Math.max(0, b.periodLimit - r.usedAmount)) : <span style={{ opacity: 0.4 }}>—</span>}</td>
                     <td>
                       <InfoIcon id={r.key} open={rowInfo} setOpen={setRowInfo}>
                         {b.summary}
@@ -376,6 +380,7 @@ export function AmexBenefitsReport({
                   <td style={{ fontSize: 12, color: b.selfReportedFullyUsed ? "#2563eb" : undefined, fontWeight: b.selfReportedFullyUsed ? 700 : undefined }}>
                     {b.selfReportedFullyUsed ? "Self-reported" : "Not tracked"}
                   </td>
+                  <td className="right">{b.periodLimit != null ? fmt(b.periodLimit) : <span style={{ opacity: 0.4 }}>—</span>}</td>
                   <td className="right" style={{ fontSize: 12 }}>
                     {supportsSelfReport ? (
                       <label style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, cursor: onSave ? "pointer" : "default" }}>
@@ -386,7 +391,7 @@ export function AmexBenefitsReport({
                       <span style={{ opacity: 0.4 }}>$0.00</span>
                     )}
                   </td>
-                  <td className="right">{b.periodLimit != null ? fmt(b.periodLimit) : <span style={{ opacity: 0.4 }}>—</span>}</td>
+                  <td className="right">{b.periodLimit != null ? fmt(Math.max(0, b.periodLimit - r.usedAmount)) : <span style={{ opacity: 0.4 }}>—</span>}</td>
                   <td>
                     <InfoIcon id={r.key} open={rowInfo} setOpen={setRowInfo}>
                       {b.summary}
@@ -402,8 +407,9 @@ export function AmexBenefitsReport({
             <tr style={{ fontWeight: 700, borderTop: "2px solid #d0d5dd" }}>
               <td>Total</td>
               <td></td>
-              <td className="right">{fmt(totalUsedClaimedReported)}</td>
               <td className="right">{fmt(totalAnnualValueAndLimits)}</td>
+              <td className="right">{fmt(totalUsedClaimedReported)}</td>
+              <td className="right">{fmt(totalRemaining)}</td>
               <td></td>
             </tr>
           </tfoot>

@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: link a statement claim to its real voucher"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: correct a tracker whose own live figure understated real usage"
   },
   {
