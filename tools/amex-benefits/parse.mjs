@@ -25,6 +25,41 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CAPTURES_DIR = join(__dirname, ".captures");
 const TRACKERS_URL_RE = /ReadBestLoyaltyBenefitsTrackers/i;
+const CATALOG_URL_RE = /ReadLoyaltyBenefits\.v2/i;
+
+// Curated from Amex's own real ~56-entry benefit catalog (ReadLoyaltyBenefits.v2, confirmed live
+// against a real account) -- these are the genuine claim-based protection/insurance benefits with
+// concrete coverage terms (dollar limits, deductibles, claim caps). Most of the other ~45 entries
+// in that catalog are vague access/status perks (lounge access, hotel elite status, concierge,
+// "by invitation only") with no concrete terms worth tracking here -- deliberately left out rather
+// than dumping the whole catalog as noise. Add a key here if you want another one tracked; the
+// key must match Amex's own catalog key exactly (see the `benefits` object's own top-level keys).
+const COVERAGE_BENEFIT_KEYS = [
+  "return-protection",
+  "purchase-protection",
+  "extended-warranty",
+  "cell-phone-protection",
+  "baggage-insurance-plan",
+  "premium-car-rental-protection",
+  "car-rental-insurance",
+  "trip-delay-insurance",
+  "trip-cancel-interrupt-insurance",
+  "credit-secure",
+];
+
+// Amex's own marketing copy is HTML with decimal numeric character entities (e.g. &#36; for "$",
+// &#174; for the (R) mark) -- String.fromCodePoint is the actually-correct decode for ANY decimal
+// numeric entity (it's just the Unicode code point), not a lookup table of the handful observed
+// in real captured copy. The small named-entity map covers the few non-numeric ones Amex uses.
+const NAMED_ENTITIES = { amp: "&", nbsp: " ", lt: "<", gt: ">", quot: '"' };
+function cleanCopy(html) {
+  return (html || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&#(\d+);?/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&([a-z]+);?/gi, (m, name) => NAMED_ENTITIES[name.toLowerCase()] ?? m)
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function* walkJsonFiles(dir) {
   for (const name of readdirSync(dir)) {
@@ -80,24 +115,64 @@ function main() {
   }
 
   const benefits = [...byId.values()].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
-  if (!benefits.length) {
-    console.log("No usage trackers found in any capture -- run attach.mjs again while on the Benefits page.");
+
+  // Second pass: the real claim-based protection/insurance benefits, from the full catalog
+  // response (ReadLoyaltyBenefits.v2) auto-capture.mjs already fetches alongside the trackers --
+  // no extra navigation needed, just reading a different part of what's already captured.
+  const byCoverageKey = new Map();
+  for (const file of files) {
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!CATALOG_URL_RE.test(parsed?.url || "")) continue;
+    const catalog = parsed.body?.benefits;
+    if (!catalog || typeof catalog !== "object") continue;
+    for (const key of COVERAGE_BENEFIT_KEYS) {
+      const entry = catalog[key];
+      if (!entry) continue;
+      byCoverageKey.set(key, {
+        benefitKey: key,
+        title: cleanCopy(entry.benefitTitle || entry.benefitShortTitle || key),
+        summary: cleanCopy(entry.summary?.marketingText?.copy || ""),
+        lastCheckedAt: now,
+      });
+    }
+  }
+  const coverageBenefits = [...byCoverageKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
+
+  if (!benefits.length && !coverageBenefits.length) {
+    console.log("No benefit data found in any capture -- run attach.mjs again while on the Benefits page.");
     return;
   }
 
-  writeFileSync(join(__dirname, "benefits.json"), JSON.stringify(benefits, null, 2));
-
-  console.log(`Parsed ${benefits.length} real benefit tracker(s):\n`);
-  let totalTarget = 0, totalSpent = 0;
-  for (const b of benefits) {
-    totalTarget += b.targetAmount;
-    totalSpent += b.spentAmount;
-    console.log(
-      `  ${b.benefitName.padEnd(42)} ${b.status.padEnd(12)} $${b.spentAmount.toFixed(2)} / $${b.targetAmount.toFixed(2)}  (resets ${b.periodEndDate})`
-    );
+  if (benefits.length) {
+    writeFileSync(join(__dirname, "benefits.json"), JSON.stringify(benefits, null, 2));
+    console.log(`Parsed ${benefits.length} real benefit tracker(s):\n`);
+    let totalTarget = 0, totalSpent = 0;
+    for (const b of benefits) {
+      totalTarget += b.targetAmount;
+      totalSpent += b.spentAmount;
+      console.log(
+        `  ${b.benefitName.padEnd(42)} ${b.status.padEnd(12)} $${b.spentAmount.toFixed(2)} / $${b.targetAmount.toFixed(2)}  (resets ${b.periodEndDate})`
+      );
+    }
+    console.log(`\nTotal across all trackers' current cycles: $${totalSpent.toFixed(2)} used of $${totalTarget.toFixed(2)} available.`);
+    console.log(`Saved: ${join(__dirname, "benefits.json")}`);
+  } else {
+    console.log("No usage trackers found in this capture.");
   }
-  console.log(`\nTotal across all trackers' current cycles: $${totalSpent.toFixed(2)} used of $${totalTarget.toFixed(2)} available.`);
-  console.log(`\nSaved: ${join(__dirname, "benefits.json")}`);
+
+  if (coverageBenefits.length) {
+    writeFileSync(join(__dirname, "coverage-benefits.json"), JSON.stringify(coverageBenefits, null, 2));
+    console.log(`\nParsed ${coverageBenefits.length} real protection/insurance benefit(s):\n`);
+    for (const b of coverageBenefits) console.log(`  ${b.title}`);
+    console.log(`\nSaved: ${join(__dirname, "coverage-benefits.json")}`);
+  } else {
+    console.log("\nNo protection/insurance benefits found in this capture.");
+  }
 }
 
 main();

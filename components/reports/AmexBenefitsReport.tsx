@@ -24,6 +24,10 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
     () => [...(data.amexBenefits ?? [])].sort((a, b) => (a.periodEndDate < b.periodEndDate ? -1 : 1)),
     [data.amexBenefits]
   );
+  const coverageBenefits = useMemo(
+    () => [...(data.amexCoverageBenefits ?? [])].sort((a, b) => (a.title < b.title ? -1 : 1)),
+    [data.amexCoverageBenefits]
+  );
   const summary = useMemo(() => summarizeAmexBenefits(benefits), [benefits]);
 
   // Most recent matching voucher within the last ~13 months -- an annual fee should recur roughly
@@ -149,6 +153,32 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
             })}
           </tbody>
         </table>
+      )}
+
+      {coverageBenefits.length > 0 && (
+        <>
+          <h4 style={{ margin: "20px 0 8px" }}>Protection &amp; Insurance</h4>
+          <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 10px" }}>
+            Claim-based coverage, not statement credits -- there's no spend/remaining balance to track since
+            you only use these by filing a claim. Terms shown are Amex's own, straight from your account.
+          </p>
+          <table className="fx-ledger-table">
+            <thead>
+              <tr>
+                <th style={{ width: 180 }}>Benefit</th>
+                <th>Real coverage terms (from Amex)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coverageBenefits.map((b) => (
+                <tr key={b.benefitKey}>
+                  <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
+                  <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );

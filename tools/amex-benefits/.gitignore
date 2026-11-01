@@ -1,6 +1,7 @@
 # Real Amex benefit/usage data and live browser session info -- never commit these.
 .captures/
 benefits.json
+coverage-benefits.json
 encrypted-us-vault-before-amex-import-*.json
 node_modules/
 # Scheduled-run log/status -- local run artifacts, regenerated every run, same as

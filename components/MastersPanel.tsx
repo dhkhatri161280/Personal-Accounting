@@ -4,9 +4,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt, CostcoPriceCheck, AmexBenefit } from "@/lib/vault-types";
+import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt, CostcoPriceCheck, AmexBenefit, AmexCoverageBenefit } from "@/lib/vault-types";
 import { mergeCostcoReceipts, parseCostcoReceiptsUpload, mergeCostcoPriceChecks, parseCostcoPriceChecksUpload } from "@/lib/costco-receipts";
-import { mergeAmexBenefits, parseAmexBenefitsUpload } from "@/lib/amex-benefits";
+import { mergeAmexBenefits, parseAmexBenefitsUpload, mergeAmexCoverageBenefits, parseAmexCoverageBenefitsUpload } from "@/lib/amex-benefits";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -107,6 +107,7 @@ export type MasterLedger = {
   costcoReceipts?: CostcoReceipt[];
   costcoPriceChecks?: CostcoPriceCheck[];
   amexBenefits?: AmexBenefit[];
+  amexCoverageBenefits?: AmexCoverageBenefit[];
 };
 
 const standard: MasterGroup[] = [
@@ -1265,6 +1266,13 @@ export function MastersPanel({
       "Benefit tracker removed."
     );
   };
+  const deleteAmexCoverageBenefit = (b: AmexCoverageBenefit) => {
+    if (!confirm(`Remove this protection/insurance benefit (${b.title})?`)) return;
+    onSave(
+      { ...data, amexCoverageBenefits: (data.amexCoverageBenefits || []).filter((x) => x.benefitKey !== b.benefitKey) },
+      "Protection/insurance benefit removed."
+    );
+  };
   // Same client-side-only read as importCostcoReceipts above -- price-checks.json comes from
   // tools/costco-receipts/check-prices.mjs, a REAL live lookup against costco.com driven through
   // an already-authenticated Chrome session (not a guess, not generic web search -- confirmed
@@ -1299,6 +1307,24 @@ export function MastersPanel({
       onSave({ ...data, amexBenefits: merged }, `Imported ${parsed.length} benefit tracker(s).`);
     } catch (err) {
       setAmexBenefitsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid benefits.json?");
+    } finally {
+      setUploadingAmexBenefits(false);
+    }
+  }
+  // Same pattern as importAmexBenefits above -- coverage-benefits.json comes from the same
+  // parse.mjs run, a curated set of real claim-based protection/insurance benefits (Return
+  // Protection, Purchase Protection, Cell Phone Protection, etc.) read from Amex's own full
+  // benefit catalog, not the usage trackers. mergeAmexCoverageBenefits dedupes by benefitKey.
+  async function importAmexCoverageBenefits(file: File) {
+    setUploadingAmexBenefits(true);
+    setAmexBenefitsError("");
+    try {
+      const text = await file.text();
+      const parsed = parseAmexCoverageBenefitsUpload(JSON.parse(text));
+      const merged = mergeAmexCoverageBenefits((data.amexCoverageBenefits || []) as AmexCoverageBenefit[], parsed);
+      onSave({ ...data, amexCoverageBenefits: merged }, `Imported ${parsed.length} protection/insurance benefit(s).`);
+    } catch (err) {
+      setAmexBenefitsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid coverage-benefits.json?");
     } finally {
       setUploadingAmexBenefits(false);
     }
@@ -2618,6 +2644,7 @@ export function MastersPanel({
       })()}
       {section === "amexbenefits" && (() => {
         const benefits = [...(data.amexBenefits || [])].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
+        const coverageBenefits = [...(data.amexCoverageBenefits || [])].sort((a, b) => (a.title < b.title ? -1 : 1));
         const totalTarget = benefits.reduce((s, b) => s + b.targetAmount, 0);
         const totalSpent = benefits.reduce((s, b) => s + b.spentAmount, 0);
         return (
@@ -2626,6 +2653,7 @@ export function MastersPanel({
               <span>
                 {benefits.length} benefit tracker{benefits.length === 1 ? "" : "s"} imported
                 {benefits.length ? ` — $${totalSpent.toFixed(2)} used of $${totalTarget.toFixed(2)}` : ""}
+                {coverageBenefits.length ? ` · ${coverageBenefits.length} protection/insurance benefit${coverageBenefits.length === 1 ? "" : "s"}` : ""}
               </span>
               <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
                 {uploadingAmexBenefits ? "Importing…" : "Import benefits.json…"}
@@ -2641,13 +2669,29 @@ export function MastersPanel({
                   }}
                 />
               </label>
+              <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
+                {uploadingAmexBenefits ? "Importing…" : "Import coverage-benefits.json…"}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  disabled={uploadingAmexBenefits}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importAmexCoverageBenefits(file);
+                  }}
+                />
+              </label>
             </div>
             <p className="field-hint" style={{ margin: "0 0 0.75rem" }}>
-              Real Amex Platinum benefit usage, captured straight from Amex&apos;s own account data (see{" "}
-              <code>tools/amex-benefits/</code> in the repo) -- not a guessed list of benefit amounts. Each
-              tracker's current spend/remaining/reset date comes directly from Amex, the same way it shows
-              on your own Benefits page. Re-importing the same file is safe -- trackers are deduped by Amex&apos;s
-              own benefit id, and a re-import refreshes the usage numbers in place.
+              Real Amex Platinum benefit data, captured straight from Amex&apos;s own account (see{" "}
+              <code>tools/amex-benefits/</code> in the repo) -- not a guessed list of benefit amounts. Usage
+              trackers (statement credits like Uber One, Airline Fee Credit) show live spend/remaining/reset
+              dates; protection/insurance benefits (Return Protection, Purchase Protection, etc.) are
+              claim-based, so they show real coverage terms instead of a running balance. Re-importing either
+              file is safe -- both are deduped by Amex&apos;s own id/key, and a re-import refreshes the numbers
+              in place.
             </p>
             {amexBenefitsError && <p className="equity-pdf-error">{amexBenefitsError}</p>}
             {benefits.length === 0 ? (
@@ -2679,6 +2723,37 @@ export function MastersPanel({
                       <td>{b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}</td>
                       <td>
                         <button className="master-delete" onClick={() => deleteAmexBenefit(b)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <h4 style={{ margin: "1.5rem 0 0.5rem" }}>Protection & Insurance</h4>
+            {coverageBenefits.length === 0 ? (
+              <p style={{ opacity: 0.7 }}>
+                No protection/insurance benefits imported yet. Run <code>node parse.mjs</code> again in{" "}
+                <code>tools/amex-benefits/</code>, then import the <code>coverage-benefits.json</code> it
+                produces.
+              </p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Benefit</th>
+                    <th>Real coverage terms (from Amex)</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coverageBenefits.map((b) => (
+                    <tr key={b.benefitKey}>
+                      <td style={{ whiteSpace: "nowrap", verticalAlign: "top" }}>{b.title}</td>
+                      <td style={{ fontSize: 12 }}>{b.summary}</td>
+                      <td style={{ verticalAlign: "top" }}>
+                        <button className="master-delete" onClick={() => deleteAmexCoverageBenefit(b)}>
                           Delete
                         </button>
                       </td>

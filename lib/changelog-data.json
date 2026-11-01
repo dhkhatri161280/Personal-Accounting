@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Needs Attention: flag when the Amex benefits auto-refresh goes stale"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex benefits: fully automated daily refresh, zero clicking"
   },
   {

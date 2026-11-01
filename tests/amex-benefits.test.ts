@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeAmexBenefits, parseAmexBenefitsUpload, summarizeAmexBenefits } from "../lib/amex-benefits.ts";
-import type { AmexBenefit } from "../lib/vault-types.ts";
+import { mergeAmexBenefits, parseAmexBenefitsUpload, summarizeAmexBenefits, mergeAmexCoverageBenefits, parseAmexCoverageBenefitsUpload } from "../lib/amex-benefits.ts";
+import type { AmexBenefit, AmexCoverageBenefit } from "../lib/vault-types.ts";
+
+function coverageBenefit(overrides: Partial<AmexCoverageBenefit> = {}): AmexCoverageBenefit {
+  return {
+    benefitKey: "return-protection",
+    title: "Return Protection",
+    summary: "Up to $300 per item, up to $1,000 per calendar year.",
+    lastCheckedAt: "2026-11-01T00:00:00Z",
+    ...overrides,
+  };
+}
 
 function benefit(overrides: Partial<AmexBenefit> = {}): AmexBenefit {
   return {
@@ -73,4 +83,40 @@ test("summarizeAmexBenefits: totals target/used/remaining and counts achieved vs
 test("summarizeAmexBenefits: empty list sums to zero, not NaN or a crash", () => {
   const summary = summarizeAmexBenefits([]);
   assert.deepEqual(summary, { totalTarget: 0, totalUsed: 0, totalRemaining: 0, achievedCount: 0, inProgressCount: 0 });
+});
+
+test("parseAmexCoverageBenefitsUpload: accepts a well-formed array", () => {
+  const parsed = parseAmexCoverageBenefitsUpload([coverageBenefit()]);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].benefitKey, "return-protection");
+  assert.ok(parsed[0].summary.includes("$1,000"));
+});
+
+test("parseAmexCoverageBenefitsUpload: rejects a non-array", () => {
+  assert.throws(() => parseAmexCoverageBenefitsUpload({}));
+});
+
+test("parseAmexCoverageBenefitsUpload: rejects an entry missing benefitKey", () => {
+  const bad = { ...coverageBenefit(), benefitKey: undefined };
+  assert.throws(() => parseAmexCoverageBenefitsUpload([bad]));
+});
+
+test("parseAmexCoverageBenefitsUpload: defaults a missing summary to an empty string, not a throw", () => {
+  const parsed = parseAmexCoverageBenefitsUpload([{ benefitKey: "x", title: "Y" }]);
+  assert.equal(parsed[0].summary, "");
+});
+
+test("mergeAmexCoverageBenefits: dedupes by benefitKey, incoming (newer) wins", () => {
+  const existing = [coverageBenefit({ summary: "Old terms" })];
+  const incoming = [coverageBenefit({ summary: "New terms" })];
+  const merged = mergeAmexCoverageBenefits(existing, incoming);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].summary, "New terms");
+});
+
+test("mergeAmexCoverageBenefits: keeps distinct benefitKeys as separate rows", () => {
+  const existing = [coverageBenefit({ benefitKey: "return-protection", title: "Return Protection" })];
+  const incoming = [coverageBenefit({ benefitKey: "purchase-protection", title: "Purchase Protection" })];
+  const merged = mergeAmexCoverageBenefits(existing, incoming);
+  assert.equal(merged.length, 2);
 });

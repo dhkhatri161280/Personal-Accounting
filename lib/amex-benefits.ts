@@ -1,4 +1,4 @@
-import type { AmexBenefit } from "./vault-types.ts";
+import type { AmexBenefit, AmexCoverageBenefit } from "./vault-types.ts";
 
 // Real Amex card benefit tracking -- see AmexBenefit's own comment in vault-types.ts and
 // tools/amex-benefits/ for how this data is captured (no public API, same browser-capture
@@ -33,6 +33,29 @@ export function parseAmexBenefitsUpload(raw: unknown): AmexBenefit[] {
       spentAmount: typeof o.spentAmount === "number" ? o.spentAmount : 0,
       remainingAmount: typeof o.remainingAmount === "number" ? o.remainingAmount : 0,
       currency: typeof o.currency === "string" ? o.currency : "USD",
+      lastCheckedAt: typeof o.lastCheckedAt === "string" ? o.lastCheckedAt : new Date().toISOString(),
+    };
+  });
+}
+
+// Merges a freshly-imported batch of coverage/protection benefits, deduped by benefitKey.
+export function mergeAmexCoverageBenefits(existing: AmexCoverageBenefit[], incoming: AmexCoverageBenefit[]): AmexCoverageBenefit[] {
+  const byKey = new Map(existing.map((b) => [b.benefitKey, b]));
+  for (const b of incoming) byKey.set(b.benefitKey, b);
+  return [...byKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
+}
+
+export function parseAmexCoverageBenefitsUpload(raw: unknown): AmexCoverageBenefit[] {
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of coverage benefits (from coverage-benefits.json).");
+  return raw.map((b, i) => {
+    if (typeof b !== "object" || b === null) throw new Error(`Coverage benefit ${i}: not an object.`);
+    const o = b as Record<string, unknown>;
+    if (typeof o.benefitKey !== "string" || !o.benefitKey) throw new Error(`Coverage benefit ${i}: missing "benefitKey".`);
+    if (typeof o.title !== "string" || !o.title) throw new Error(`Coverage benefit ${i} (${o.benefitKey}): missing "title".`);
+    return {
+      benefitKey: o.benefitKey,
+      title: o.title,
+      summary: typeof o.summary === "string" ? o.summary : "",
       lastCheckedAt: typeof o.lastCheckedAt === "string" ? o.lastCheckedAt : new Date().toISOString(),
     };
   });

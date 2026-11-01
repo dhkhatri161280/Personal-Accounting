@@ -57,6 +57,27 @@ function mergeBenefits(existing, incoming) {
   return [...byId.values()].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
 }
 
+function parseCoverageBenefits(raw) {
+  if (!Array.isArray(raw)) throw new Error("Expected a JSON array of coverage benefits (from coverage-benefits.json).");
+  return raw.map((b, i) => {
+    if (typeof b !== "object" || b === null) throw new Error(`Coverage benefit ${i}: not an object.`);
+    if (typeof b.benefitKey !== "string" || !b.benefitKey) throw new Error(`Coverage benefit ${i}: missing "benefitKey".`);
+    if (typeof b.title !== "string" || !b.title) throw new Error(`Coverage benefit ${i} (${b.benefitKey}): missing "title".`);
+    return {
+      benefitKey: b.benefitKey,
+      title: b.title,
+      summary: typeof b.summary === "string" ? b.summary : "",
+      lastCheckedAt: typeof b.lastCheckedAt === "string" ? b.lastCheckedAt : new Date().toISOString(),
+    };
+  });
+}
+
+function mergeCoverageBenefits(existing, incoming) {
+  const byKey = new Map(existing.map((b) => [b.benefitKey, b]));
+  for (const b of incoming) byKey.set(b.benefitKey, b);
+  return [...byKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -67,30 +88,39 @@ async function main() {
   const auth = "Basic " + Buffer.from("manual-amex-import:" + sitePw).toString("base64");
 
   const benefitsPath = join(__dirname, "benefits.json");
-  if (!existsSync(benefitsPath)) {
-    console.log("Nothing to import -- no benefits.json found. Run parse.mjs first.");
+  const coveragePath = join(__dirname, "coverage-benefits.json");
+  const hasBenefits = existsSync(benefitsPath);
+  const hasCoverage = existsSync(coveragePath);
+  if (!hasBenefits && !hasCoverage) {
+    console.log("Nothing to import -- no benefits.json or coverage-benefits.json found. Run parse.mjs first.");
     return;
   }
 
-  const incoming = parseBenefits(JSON.parse(readFileSync(benefitsPath, "utf8")));
+  const incomingBenefits = hasBenefits ? parseBenefits(JSON.parse(readFileSync(benefitsPath, "utf8"))) : [];
+  const incomingCoverage = hasCoverage ? parseCoverageBenefits(JSON.parse(readFileSync(coveragePath, "utf8"))) : [];
 
   const state = await load(auth, vaultPw, "us");
-  const existing = state.vault.amexBenefits || [];
-  const merged = mergeBenefits(existing, incoming);
-  const added = merged.length - existing.length;
+  const existingBenefits = state.vault.amexBenefits || [];
+  const existingCoverage = state.vault.amexCoverageBenefits || [];
+  const mergedBenefits = mergeBenefits(existingBenefits, incomingBenefits);
+  const mergedCoverage = mergeCoverageBenefits(existingCoverage, incomingCoverage);
+  const added = mergedBenefits.length - existingBenefits.length;
+  const coverageAdded = mergedCoverage.length - existingCoverage.length;
   // Full content comparison, not just length -- re-running parse.mjs for benefits already on file
-  // refreshes their spent/remaining/status under the SAME benefitId key, so merged.length doesn't
-  // grow even though the real numbers changed (same reasoning as costco-receipts' own import).
-  const unchanged = JSON.stringify(merged) === JSON.stringify(existing);
+  // refreshes their spent/remaining/status (or summary text) under the SAME key, so length alone
+  // wouldn't catch it (same reasoning as costco-receipts' own import).
+  const unchanged = JSON.stringify(mergedBenefits) === JSON.stringify(existingBenefits)
+    && JSON.stringify(mergedCoverage) === JSON.stringify(existingCoverage);
   if (unchanged) {
-    console.log("Nothing new -- vault already matches benefits.json exactly.");
+    console.log("Nothing new -- vault already matches these files exactly.");
     return;
   }
 
   const backup = join(__dirname, `encrypted-us-vault-before-amex-import-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   writeFileSync(backup, state.raw);
 
-  state.vault.amexBenefits = merged;
+  state.vault.amexBenefits = mergedBenefits;
+  state.vault.amexCoverageBenefits = mergedCoverage;
   const body = JSON.stringify(encrypt(state.vault, vaultPw));
   const put = await fetch(state.url, {
     method: "PUT",
@@ -99,7 +129,7 @@ async function main() {
   });
   if (!put.ok) throw new Error("Cloud update rejected HTTP " + put.status + " " + (await put.text()));
 
-  console.log(`SUCCESS: ${added} new benefit(s) (${merged.length} total) written directly to the vault.`);
+  console.log(`SUCCESS: ${added} new benefit(s) (${mergedBenefits.length} total), ${coverageAdded} new coverage benefit(s) (${mergedCoverage.length} total) written directly to the vault.`);
   console.log("Encrypted backup: " + backup);
 }
 

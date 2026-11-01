@@ -544,6 +544,23 @@ export type AmexBenefit = {
   lastCheckedAt: string; // ISO timestamp -- when this was captured from Amex
 };
 
+// A claim-based protection/insurance benefit (Return Protection, Purchase Protection, Cell Phone
+// Protection, etc.) -- structurally different from AmexBenefit above: there's no running spent/
+// remaining balance to track, since you only "use" these by filing a claim, not by spending up to
+// a cap. Coverage terms (dollar limits, deductibles, claim caps) come straight from Amex's own
+// benefit catalog (ReadLoyaltyBenefits.v2 -- the same capture tools/amex-benefits/ already pulls
+// for the usage trackers above) -- real numbers confirmed live, e.g. Return Protection's actual
+// "$300 per item, up to $1,000 per calendar year" shown verbatim, not summarized/guessed.
+// Deliberately a curated subset of Amex's full ~56-entry catalog (most of the rest are vague
+// access/status perks -- lounge access, hotel status, concierge -- with no concrete claim/coverage
+// terms worth tracking here), see parse.mjs's own COVERAGE_BENEFIT_KEYS list.
+export type AmexCoverageBenefit = {
+  benefitKey: string; // Amex's own catalog key, e.g. "return-protection" -- the merge key
+  title: string; // e.g. "Return Protection"
+  summary: string; // Amex's own marketing/terms copy, HTML stripped -- the real coverage numbers
+  lastCheckedAt: string;
+};
+
 export type BudgetLine = {
   id: string;
   accountId: number;
@@ -758,6 +775,8 @@ export type Ledger = {
   // Real Amex card benefit usage, imported from Amex's own account data. See AmexBenefit's own
   // comment and lib/amex-benefits.ts.
   amexBenefits?: AmexBenefit[];
+  // Real claim-based protection/insurance benefit terms. See AmexCoverageBenefit's own comment.
+  amexCoverageBenefits?: AmexCoverageBenefit[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];
