@@ -214,53 +214,58 @@ export function AmexBenefitsReport({
             then import the <code>benefits.json</code> it produces from Masters → Amex Benefits.
           </p>
         ) : (
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-            <span>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Annual fee{feeMatch ? ` (${fmtDate(feeMatch.date)})` : ""}</div>
+          <div className="equity-summary-row">
+            <div className="equity-summary-card">
+              <span>Annual fee{feeMatch ? ` (${fmtDate(feeMatch.date)})` : ""}</span>
               {feeMatch && onViewVoucher ? (
-                <button type="button" className="columnar-cell-btn" style={{ fontSize: 20, fontWeight: 700 }} title="Open the matching voucher" onClick={() => onViewVoucher(feeMatch)}>
-                  {fmt(matchAmount(feeMatch))}
+                <button type="button" className="columnar-cell-btn" style={{ fontSize: "inherit", fontWeight: "inherit" }} title="Open the matching voucher" onClick={() => onViewVoucher(feeMatch)}>
+                  <strong>{fmt(matchAmount(feeMatch))}</strong>
                 </button>
               ) : (
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{feeMatch ? fmt(matchAmount(feeMatch)) : "not found"}</div>
+                <strong>{feeMatch ? fmt(matchAmount(feeMatch)) : "not found"}</strong>
               )}
-            </span>
-            <span>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Used year to date</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(summary.totalUsed)}</div>
-            </span>
-            <span>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Annual potential</div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(summary.totalTarget)}</div>
-            </span>
-            <span>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Protection claims ({currentYear})</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: totalCoverageClaims > 0 ? "#16a34a" : undefined }}>{fmt(totalCoverageClaims)}</div>
-            </span>
+            </div>
+            <div className="equity-summary-card">
+              <span>Used year to date</span>
+              <strong style={{ color: "#16a34a" }}>{fmt(summary.totalUsed)}</strong>
+            </div>
+            <div className="equity-summary-card">
+              <span>Annual potential</span>
+              <strong>{fmt(summary.totalTarget)}</strong>
+            </div>
+            <div className="equity-summary-card">
+              <span>Protection claims ({currentYear})</span>
+              <strong style={{ color: totalCoverageClaims > 0 ? "#16a34a" : undefined }}>{fmt(totalCoverageClaims)}</strong>
+            </div>
             {selfReportedTotal > 0 && (
-              <span>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Uber Cash (self-reported)</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "#2563eb" }}>{fmt(selfReportedTotal)}</div>
-              </span>
+              <div className="equity-summary-card">
+                <span>Uber Cash (self-reported)</span>
+                <strong style={{ color: "#2563eb" }}>{fmt(selfReportedTotal)}</strong>
+              </div>
             )}
             {netSoFarWithClaims != null && (
-              <span>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Net so far</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: netSoFarWithClaims >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(netSoFarWithClaims)}</div>
-              </span>
-            )}
-            <span>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Achieved / in progress</div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>
-                {summary.achievedCount} / {summary.achievedCount + summary.inProgressCount}
+              <div className="equity-summary-card">
+                <span>Net so far</span>
+                <strong style={{ color: netSoFarWithClaims >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(netSoFarWithClaims)}</strong>
               </div>
-            </span>
+            )}
+            <div className="equity-summary-card">
+              <span>Achieved / in progress</span>
+              <strong>
+                {summary.achievedCount} / {summary.achievedCount + summary.inProgressCount}
+              </strong>
+            </div>
           </div>
         )}
       </div>
 
       {rows.length > 0 && (
-        <table className="fx-ledger-table">
+        // table-layout: fixed -- .fx-ledger-table defaults to "auto", which sizes every column to
+        // its widest cell's un-wrapped content; the claims list below (multiple "date: amount"
+        // lines, each nowrap by that shared class) was stretching the whole Used/claimed column
+        // far past its declared 170px. Fixed layout holds every <th>'s width to what's declared
+        // above; whiteSpace: normal on that one column's cells lets its content wrap instead.
+        <table className="fx-ledger-table" style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
               <th style={{ width: 170 }}>Benefit</th>
@@ -289,7 +294,7 @@ export function AmexBenefitsReport({
                       </div>
                     </td>
                     <td className="right">{fmt(b.annualTargetAmount)}</td>
-                    <td className="right">
+                    <td className="right" style={{ whiteSpace: "normal" }}>
                       {fmt(used)}
                       {statementOverride && <div style={{ fontSize: 10, color: "#2563eb" }}>from statement</div>}
                     </td>
@@ -324,7 +329,7 @@ export function AmexBenefitsReport({
                       {r.claims.length ? `${r.claims.length} claim${r.claims.length === 1 ? "" : "s"}` : "Not claimed"}
                     </td>
                     <td className="right">{b.periodLimit != null ? fmt(b.periodLimit) : <span style={{ opacity: 0.4 }}>—</span>}</td>
-                    <td className="right" style={{ fontSize: 12 }}>
+                    <td className="right" style={{ fontSize: 12, whiteSpace: "normal" }}>
                       {r.claims.length ? (
                         <>
                           <div style={{ fontWeight: 700 }}>{fmt(r.usedAmount)}</div>

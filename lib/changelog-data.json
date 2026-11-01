@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: reorder table columns, add a Remaining column"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: link a statement claim to its real voucher"
   },
   {
