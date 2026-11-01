@@ -78,14 +78,23 @@ function parseCoverageBenefits(raw) {
       monthlyCost: num(b.monthlyCost),
       trialCost: num(b.trialCost),
       trialDays: num(b.trialDays),
+      selfReportedFullyUsed: typeof b.selfReportedFullyUsed === "boolean" ? b.selfReportedFullyUsed : undefined,
       lastCheckedAt: typeof b.lastCheckedAt === "string" ? b.lastCheckedAt : new Date().toISOString(),
     };
   });
 }
 
+// selfReportedFullyUsed is carried over from the EXISTING vault record when the incoming
+// (re-parsed from Amex) one doesn't specify it -- parse.mjs never sets this field at all (it's
+// app-UI-only, toggled from the report), so a straight overwrite on every daily scheduled import
+// would silently wipe the user's own stated claim. Same fix as lib/amex-benefits.ts's
+// mergeAmexCoverageBenefits -- keep both in sync.
 function mergeCoverageBenefits(existing, incoming) {
   const byKey = new Map(existing.map((b) => [b.benefitKey, b]));
-  for (const b of incoming) byKey.set(b.benefitKey, b);
+  for (const b of incoming) {
+    const prev = byKey.get(b.benefitKey);
+    byKey.set(b.benefitKey, { ...b, selfReportedFullyUsed: b.selfReportedFullyUsed ?? prev?.selfReportedFullyUsed });
+  }
   return [...byKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
 }
 

@@ -41,9 +41,16 @@ export function parseAmexBenefitsUpload(raw: unknown): AmexBenefit[] {
 }
 
 // Merges a freshly-imported batch of coverage/protection benefits, deduped by benefitKey.
+// selfReportedFullyUsed is carried over from the EXISTING record when the incoming one doesn't
+// specify it -- parse.mjs/Amex's own data never sets this field (it's app-UI-only, see its own
+// comment in vault-types.ts), so a straight overwrite would silently wipe the user's own stated
+// claim on every daily re-import.
 export function mergeAmexCoverageBenefits(existing: AmexCoverageBenefit[], incoming: AmexCoverageBenefit[]): AmexCoverageBenefit[] {
   const byKey = new Map(existing.map((b) => [b.benefitKey, b]));
-  for (const b of incoming) byKey.set(b.benefitKey, b);
+  for (const b of incoming) {
+    const prev = byKey.get(b.benefitKey);
+    byKey.set(b.benefitKey, { ...b, selfReportedFullyUsed: b.selfReportedFullyUsed ?? prev?.selfReportedFullyUsed });
+  }
   return [...byKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
 }
 
@@ -67,9 +74,29 @@ export function parseAmexCoverageBenefitsUpload(raw: unknown): AmexCoverageBenef
       monthlyCost: num(o.monthlyCost),
       trialCost: num(o.trialCost),
       trialDays: num(o.trialDays),
+      selfReportedFullyUsed: typeof o.selfReportedFullyUsed === "boolean" ? o.selfReportedFullyUsed : undefined,
       lastCheckedAt: typeof o.lastCheckedAt === "string" ? o.lastCheckedAt : new Date().toISOString(),
     };
   });
+}
+
+// Self-reported monthly Uber Cash usage -- $15/month + a $20 December bonus, per Amex's own
+// published terms (confirmed via americanexpress.com's own Credit Intel article). ONLY ever
+// computed when the user has explicitly confirmed full usage via the selfReportedFullyUsed
+// toggle on that specific AmexCoverageBenefit entry -- never shown, summed, or defaulted to
+// otherwise. Calendar-year to date, inclusive of the current month (the user's own claim is that
+// they use it every month, not that some months are pending).
+//
+// Takes the date as a YYYY-MM-DD string (todayLocalIso(), not a Date object) and reads the month
+// via string slicing -- confirmed live this is NOT a style nicety: `new Date("2026-12-01")`
+// parses as UTC midnight, and reading it back with .getMonth() (a LOCAL-time getter) rolls back
+// to November in any negative-UTC-offset timezone, silently dropping the December bonus and
+// undercounting every month's total by one. String slicing has no timezone to get wrong.
+export function selfReportedUberCashUsed(todayIso: string): number {
+  const month = Number(todayIso.slice(5, 7)); // 1-12, directly from the date string
+  let total = month * 15;
+  if (month >= 12) total += 20;
+  return total;
 }
 
 export type AmexBenefitsSummary = {

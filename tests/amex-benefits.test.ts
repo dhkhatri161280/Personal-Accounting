@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeAmexBenefits, parseAmexBenefitsUpload, summarizeAmexBenefits, mergeAmexCoverageBenefits, parseAmexCoverageBenefitsUpload } from "../lib/amex-benefits.ts";
+import { mergeAmexBenefits, parseAmexBenefitsUpload, summarizeAmexBenefits, mergeAmexCoverageBenefits, parseAmexCoverageBenefitsUpload, selfReportedUberCashUsed } from "../lib/amex-benefits.ts";
 import type { AmexBenefit, AmexCoverageBenefit } from "../lib/vault-types.ts";
 
 function coverageBenefit(overrides: Partial<AmexCoverageBenefit> = {}): AmexCoverageBenefit {
@@ -125,4 +125,28 @@ test("mergeAmexCoverageBenefits: keeps distinct benefitKeys as separate rows", (
   const incoming = [coverageBenefit({ benefitKey: "purchase-protection", title: "Purchase Protection" })];
   const merged = mergeAmexCoverageBenefits(existing, incoming);
   assert.equal(merged.length, 2);
+});
+
+test("mergeAmexCoverageBenefits: preserves selfReportedFullyUsed from the existing record across a re-import", () => {
+  // parse.mjs never sets this field at all -- a straight overwrite on every daily scheduled
+  // import would otherwise silently wipe the user's own stated claim.
+  const existing = [coverageBenefit({ benefitKey: "uber-rides-with-platinum", selfReportedFullyUsed: true })];
+  const incoming = [coverageBenefit({ benefitKey: "uber-rides-with-platinum", summary: "Refreshed terms" })];
+  const merged = mergeAmexCoverageBenefits(existing, incoming);
+  assert.equal(merged[0].summary, "Refreshed terms");
+  assert.equal(merged[0].selfReportedFullyUsed, true);
+});
+
+test("mergeAmexCoverageBenefits: an explicit incoming value still overrides (e.g. a manual re-upload toggling it off)", () => {
+  const existing = [coverageBenefit({ benefitKey: "uber-rides-with-platinum", selfReportedFullyUsed: true })];
+  const incoming = [coverageBenefit({ benefitKey: "uber-rides-with-platinum", selfReportedFullyUsed: false })];
+  const merged = mergeAmexCoverageBenefits(existing, incoming);
+  assert.equal(merged[0].selfReportedFullyUsed, false);
+});
+
+test("selfReportedUberCashUsed: $15/month, with a $20 December bonus once December has arrived", () => {
+  assert.equal(selfReportedUberCashUsed("2026-01-15"), 15);
+  assert.equal(selfReportedUberCashUsed("2026-03-15"), 45);
+  assert.equal(selfReportedUberCashUsed("2026-11-30"), 165);
+  assert.equal(selfReportedUberCashUsed("2026-12-01"), 200);
 });

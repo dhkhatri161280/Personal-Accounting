@@ -580,6 +580,15 @@ export type AmexCoverageBenefit = {
   monthlyCost?: number; // for a benefit that COSTS money after a trial (CreditSecure), not a coverage limit
   trialCost?: number;
   trialDays?: number;
+  // The user's own direct statement that they use this credit fully every month ($200 Uber Cash
+  // specifically: $15/month + a $20 December bonus, per Amex's own published terms) -- set ONLY
+  // from an explicit toggle in the app, never inferred or defaulted. This is SELF-REPORTED, not
+  // verified by Amex (Amex confirmed directly they never track this one at all, see
+  // amexInactiveCredits's own comment) -- always labeled as such in the UI, and kept separate from
+  // every other figure in this app, which is either real Amex data or a real voucher match.
+  // Preserved across re-imports (see mergeAmexCoverageBenefits) since parse.mjs has no way to know
+  // about it -- a daily refresh must never silently clear the user's own stated claim.
+  selfReportedFullyUsed?: boolean;
   lastCheckedAt: string;
 };
 

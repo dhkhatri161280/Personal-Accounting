@@ -5528,7 +5528,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             />
           )}
           {report === "spend" && data && <SpendReport data={data} fmt={fmt} onSave={(next) => save(next, "spend-report")} />}
-          {report === "amexbenefits" && data && <AmexBenefitsReport data={data} fmt={fmt} />}
+          {report === "amexbenefits" && data && <AmexBenefitsReport data={data} fmt={fmt} onSave={(next) => save(next, "amex-benefits-report")} />}
         </Suspense>
       )}
       {tab === "new" && (

@@ -1,8 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { Ledger } from "@/lib/vault-types";
-import { fmtDate } from "@/lib/format-date";
-import { summarizeAmexBenefits } from "@/lib/amex-benefits";
+import type { Ledger, AmexCoverageBenefit } from "@/lib/vault-types";
+import { fmtDate, todayLocalIso } from "@/lib/format-date";
+import { summarizeAmexBenefits, selfReportedUberCashUsed } from "@/lib/amex-benefits";
 
 // Real Amex Platinum benefit utilization -- what you pay (the annual fee, cross-referenced from
 // your own real vouchers) against what you actually use (each statement credit's live status,
@@ -38,7 +38,7 @@ const COVERAGE_SEARCH_TERMS: Record<string, string[][]> = {
   "credit-secure": [["creditsecure"], ["credit", "secure"]],
 };
 
-export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: number) => string }) {
+export function AmexBenefitsReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: number) => string; onSave?: (next: Ledger) => void }) {
   const [showInfo, setShowInfo] = useState(false);
   const benefits = useMemo(
     () => [...(data.amexBenefits ?? [])].sort((a, b) => (a.periodEndDate < b.periodEndDate ? -1 : 1)),
@@ -53,6 +53,22 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
     [data.amexInactiveCredits]
   );
   const summary = useMemo(() => summarizeAmexBenefits(benefits), [benefits]);
+
+  // Self-reported usage (see selfReportedUberCashUsed's own comment) -- only ever nonzero for a
+  // benefit the user has explicitly toggled on, keyed and totaled separately from every other
+  // (real, Amex- or voucher-verified) figure in this report so it's never silently blended in.
+  const selfReportedTotal = useMemo(() => {
+    const todayIso = todayLocalIso();
+    return inactiveCredits.reduce((s, b) => s + (b.selfReportedFullyUsed ? selfReportedUberCashUsed(todayIso) : 0), 0);
+  }, [inactiveCredits]);
+
+  function toggleSelfReported(b: AmexCoverageBenefit) {
+    if (!onSave) return;
+    const next = (data.amexInactiveCredits ?? []).map((x) =>
+      x.benefitKey === b.benefitKey ? { ...x, selfReportedFullyUsed: !x.selfReportedFullyUsed } : x
+    );
+    onSave({ ...data, amexInactiveCredits: next });
+  }
 
   // Most recent matching voucher within the last ~13 months -- an annual fee should recur roughly
   // once a year, so anything older is a prior cycle's charge, not this one.
@@ -97,7 +113,7 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
     return total;
   }, [coverageClaims]);
 
-  const netSoFarWithClaims = feeMatch ? summary.totalUsed + totalCoverageClaims - feeMatch.amount : null;
+  const netSoFarWithClaims = feeMatch ? summary.totalUsed + totalCoverageClaims + selfReportedTotal - feeMatch.amount : null;
 
   return (
     <div className="data-panel">
@@ -155,10 +171,17 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
                 {fmt(totalCoverageClaims)}
               </div>
             </span>
+            {selfReportedTotal > 0 && (
+              <span>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Uber Cash (self-reported, not Amex-verified)</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#2563eb" }}>{fmt(selfReportedTotal)}</div>
+              </span>
+            )}
             {netSoFarWithClaims != null && (
               <span>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>
-                  Net so far (used{totalCoverageClaims > 0 ? " + claims" : ""} − fee)
+                  Net so far (used{totalCoverageClaims > 0 ? " + claims" : ""}
+                  {selfReportedTotal > 0 ? " + self-reported" : ""} − fee)
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: netSoFarWithClaims >= 0 ? "#16a34a" : "#dc2626" }}>
                   {fmt(netSoFarWithClaims)}
@@ -283,8 +306,10 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
             Real credits your account has access to per Amex's own catalog, but with no active usage tracker
             on Amex's side -- confirmed with Amex support for $200 Uber Cash: it's credited straight to your
             Uber account on the 1st of each month, bypassing Amex's own tracking entirely, so this will never
-            show real usage numbers here regardless of enrollment. Check your Uber Wallet balance directly
-            for this one.
+            show real usage numbers here automatically, regardless of enrollment. "I use this every month" is
+            YOUR OWN direct statement, not anything Amex or this app verified -- always labeled self-reported,
+            kept separate from every other (Amex- or voucher-verified) figure here, and never defaulted to on
+            its own.
           </p>
           <table className="fx-ledger-table">
             <thead>
@@ -292,18 +317,43 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
                 <th style={{ width: 170 }}>Benefit</th>
                 <th>Real terms (from Amex)</th>
                 <th style={{ width: 140 }}>Value</th>
+                <th style={{ width: 170 }}>Self-reported usage</th>
               </tr>
             </thead>
             <tbody>
-              {inactiveCredits.map((b) => (
-                <tr key={b.benefitKey}>
-                  <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
-                  <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
-                  <td style={{ fontSize: 12, verticalAlign: "top" }}>
-                    {b.periodLimit != null ? `${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim() : <span style={{ opacity: 0.4 }}>—</span>}
-                  </td>
-                </tr>
-              ))}
+              {inactiveCredits.map((b) => {
+                // Only Uber Cash's specific $15/mo + $20-in-December math applies here -- gated by
+                // key, not offered generically, so a future differently-structured inactive credit
+                // doesn't get an incorrect self-report option.
+                const supportsSelfReport = b.benefitKey === "uber-rides-with-platinum";
+                return (
+                  <tr key={b.benefitKey}>
+                    <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
+                    <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
+                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                      {b.periodLimit != null ? `${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim() : <span style={{ opacity: 0.4 }}>—</span>}
+                    </td>
+                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                      {supportsSelfReport ? (
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: onSave ? "pointer" : "default" }}>
+                          <input
+                            type="checkbox"
+                            checked={!!b.selfReportedFullyUsed}
+                            disabled={!onSave}
+                            onChange={() => toggleSelfReported(b)}
+                          />
+                          I use this every month
+                          {b.selfReportedFullyUsed && (
+                            <strong style={{ color: "#2563eb" }}>{fmt(selfReportedUberCashUsed(todayLocalIso()))}</strong>
+                          )}
+                        </label>
+                      ) : (
+                        <span style={{ opacity: 0.4 }}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </>
