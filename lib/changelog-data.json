@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: clickable drill-down to the matching voucher"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex benefits: let the user self-report monthly usage for Uber Cash"
   },
   {

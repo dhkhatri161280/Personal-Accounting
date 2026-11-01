@@ -129,6 +129,17 @@ export function AmexBenefitsReport({
 
   const netSoFarWithClaims = feeMatch ? summary.totalUsed + totalCoverageClaims + selfReportedTotal - matchAmount(feeMatch) : null;
 
+  // Coverage benefits with a real matched voucher, and inactive credits the user has explicitly
+  // self-reported as used -- pulled together into one table above the summary stats so everything
+  // with an actual dollar figure behind it is reviewable in one place, instead of scattered across
+  // the Protection & Insurance and Not Tracked tables further down. A row lands here the moment it
+  // has a claim or is self-reported, and drops back out (below) the moment that's no longer true --
+  // e.g. unchecking "I use this every month" sends Uber Cash back down to Not Tracked by Amex.
+  const foundCoverageBenefits = useMemo(() => coverageBenefits.filter((b) => coverageClaims.has(b.benefitKey)), [coverageBenefits, coverageClaims]);
+  const selfReportedCredits = useMemo(() => inactiveCredits.filter((b) => b.selfReportedFullyUsed), [inactiveCredits]);
+  const remainingCoverageBenefits = useMemo(() => coverageBenefits.filter((b) => !coverageClaims.has(b.benefitKey)), [coverageBenefits, coverageClaims]);
+  const remainingInactiveCredits = useMemo(() => inactiveCredits.filter((b) => !b.selfReportedFullyUsed), [inactiveCredits]);
+
   return (
     <div className="data-panel">
       <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -159,6 +170,69 @@ export function AmexBenefitsReport({
           )}
         </span>
       </h3>
+
+      {(foundCoverageBenefits.length > 0 || selfReportedCredits.length > 0) && (
+        <>
+          <h4 style={{ margin: "0 0 8px" }}>Claims found &amp; self-reported usage</h4>
+          <table className="fx-ledger-table" style={{ marginBottom: 16 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 170 }}>Benefit</th>
+                <th>Real terms (from Amex)</th>
+                <th style={{ width: 170 }}>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {foundCoverageBenefits.map((b) => {
+                const claims = coverageClaims.get(b.benefitKey)!;
+                const claimsTotal = claims.reduce((s, t) => s + matchAmount(t), 0);
+                return (
+                  <tr key={b.benefitKey}>
+                    <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
+                    <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
+                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                      <div style={{ marginBottom: 2 }}>
+                        {fmt(claimsTotal)} ({claims.length} voucher{claims.length === 1 ? "" : "s"})
+                      </div>
+                      {claims.map((t) =>
+                        onViewVoucher ? (
+                          <button
+                            key={t.guid}
+                            type="button"
+                            className="columnar-cell-btn"
+                            style={{ display: "block", fontSize: 12 }}
+                            title={t.narration}
+                            onClick={() => onViewVoucher(t)}
+                          >
+                            {fmtDate(t.date)}: {fmt(matchAmount(t))}
+                          </button>
+                        ) : (
+                          <div key={t.guid} title={t.narration}>
+                            {fmtDate(t.date)}: {fmt(matchAmount(t))}
+                          </div>
+                        )
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {selfReportedCredits.map((b) => (
+                <tr key={b.benefitKey}>
+                  <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
+                  <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
+                  <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: onSave ? "pointer" : "default" }}>
+                      <input type="checkbox" checked disabled={!onSave} onChange={() => toggleSelfReported(b)} />
+                      self-reported: <strong style={{ color: "#2563eb" }}>{fmt(selfReportedUberCashUsed(todayLocalIso()))}</strong>
+                    </label>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
       <div style={{ marginBottom: 16 }}>
         {!benefits.length ? (
           <p style={{ opacity: 0.7 }}>
@@ -270,7 +344,7 @@ export function AmexBenefitsReport({
         </table>
       )}
 
-      {coverageBenefits.length > 0 && (
+      {remainingCoverageBenefits.length > 0 && (
         <>
           <h4 style={{ margin: "20px 0 8px" }}>Protection &amp; Insurance</h4>
           <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 10px" }}>
@@ -278,9 +352,8 @@ export function AmexBenefitsReport({
             Amex the way the credits above have. "Limit" is parsed straight out of Amex's own terms (left
             blank when Amex's copy doesn't state a dollar figure -- several of these only say "coverage
             limits apply", with the real numbers in a separate certificate of insurance this doesn't have
-            access to). "Found in your vouchers" is a best-effort search of your real narrations for a
-            matching reimbursement -- "not found" means no voucher says so, not that it definitely never
-            happened (a generic "AMERICAN EXPRESS CREDIT" posting with no description can't be matched this way).
+            access to). Nothing matched here yet -- once a real voucher is found for one of these, it moves
+            up into "Claims found &amp; self-reported usage" above.
           </p>
           <table className="fx-ledger-table">
             <thead>
@@ -288,13 +361,10 @@ export function AmexBenefitsReport({
                 <th style={{ width: 170 }}>Benefit</th>
                 <th>Real coverage terms (from Amex)</th>
                 <th style={{ width: 140 }}>Limit</th>
-                <th style={{ width: 170 }}>Found in your vouchers</th>
               </tr>
             </thead>
             <tbody>
-              {coverageBenefits.map((b) => {
-                const claims = coverageClaims.get(b.benefitKey);
-                const claimsTotal = claims?.reduce((s, t) => s + matchAmount(t), 0);
+              {remainingCoverageBenefits.map((b) => {
                 const limitBits: string[] = [];
                 if (b.perClaimLimit != null) limitBits.push(`${fmt(b.perClaimLimit)}/claim`);
                 if (b.periodLimit != null) limitBits.push(`${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim());
@@ -308,35 +378,6 @@ export function AmexBenefitsReport({
                     <td style={{ fontSize: 12, verticalAlign: "top" }}>
                       {limitBits.length ? limitBits.map((bit, i) => <div key={i}>{bit}</div>) : <span style={{ opacity: 0.4 }}>—</span>}
                     </td>
-                    <td style={{ fontSize: 12, verticalAlign: "top" }}>
-                      {claims?.length ? (
-                        <>
-                          <div style={{ marginBottom: 2 }}>
-                            {fmt(claimsTotal!)} ({claims.length} voucher{claims.length === 1 ? "" : "s"})
-                          </div>
-                          {claims.map((t) =>
-                            onViewVoucher ? (
-                              <button
-                                key={t.guid}
-                                type="button"
-                                className="columnar-cell-btn"
-                                style={{ display: "block", fontSize: 12 }}
-                                title={t.narration}
-                                onClick={() => onViewVoucher(t)}
-                              >
-                                {fmtDate(t.date)}: {fmt(matchAmount(t))}
-                              </button>
-                            ) : (
-                              <div key={t.guid} title={t.narration}>
-                                {fmtDate(t.date)}: {fmt(matchAmount(t))}
-                              </div>
-                            )
-                          )}
-                        </>
-                      ) : (
-                        <span style={{ opacity: 0.4 }}>not found</span>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -345,7 +386,7 @@ export function AmexBenefitsReport({
         </>
       )}
 
-      {inactiveCredits.length > 0 && (
+      {remainingInactiveCredits.length > 0 && (
         <>
           <h4 style={{ margin: "20px 0 8px" }}>Not Tracked by Amex</h4>
           <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 10px" }}>
@@ -355,7 +396,7 @@ export function AmexBenefitsReport({
             show real usage numbers here automatically, regardless of enrollment. "I use this every month" is
             YOUR OWN direct statement, not anything Amex or this app verified -- always labeled self-reported,
             kept separate from every other (Amex- or voucher-verified) figure here, and never defaulted to on
-            its own.
+            its own. Checking it moves this row up into "Claims found &amp; self-reported usage" above.
           </p>
           <table className="fx-ledger-table">
             <thead>
@@ -367,7 +408,7 @@ export function AmexBenefitsReport({
               </tr>
             </thead>
             <tbody>
-              {inactiveCredits.map((b) => {
+              {remainingInactiveCredits.map((b) => {
                 // Only Uber Cash's specific $15/mo + $20-in-December math applies here -- gated by
                 // key, not offered generically, so a future differently-structured inactive credit
                 // doesn't get an incorrect self-report option.
