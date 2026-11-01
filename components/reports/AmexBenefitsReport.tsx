@@ -260,22 +260,24 @@ export function AmexBenefitsReport({
       </div>
 
       {rows.length > 0 && (
-        // table-layout: fixed -- .fx-ledger-table defaults to "auto", which sizes every column to
-        // its widest cell's un-wrapped content; the claims list below (multiple "date: amount"
-        // lines, each nowrap by that shared class) was stretching the whole Used/claimed column
-        // far past its declared 170px. Fixed layout holds the four dollar/icon columns to the
-        // widths declared on their own <th> -- Benefit and Status deliberately have NO declared
-        // width, so (confirmed live) they're the only two that absorb whatever space is left once
-        // the table fills its container, instead of all six columns stretching proportionally.
-        <table className="fx-ledger-table" style={{ tableLayout: "fixed" }}>
+        // table-layout:fixed + EVERY column given a fixed width + the table's own width:auto
+        // (overriding .fx-ledger-table's shared width:100%) -- confirmed live this is the only
+        // combination that never requires horizontal scrolling to see the last column, at any
+        // window size: letting even one column "flex" to fill 100% forces the table's rendered
+        // width to match whatever the surrounding panel happens to be, which can exceed the
+        // actual visible browser window (the panel's own width isn't bounded by the viewport the
+        // same way a plain narrow page is), pushing the rightmost column out of view. A fixed
+        // total width that comfortably fits a normal window, even if it leaves blank space on a
+        // very wide screen, is the only way to guarantee every column stays visible.
+        <table className="fx-ledger-table" style={{ tableLayout: "fixed", width: "auto" }}>
           <thead>
             <tr>
-              <th>Benefit</th>
-              <th style={{ width: 150 }}>Status</th>
-              <th style={{ width: 110 }} className="right">Annual value</th>
-              <th style={{ width: 170 }} className="right">Used / claimed</th>
-              <th style={{ width: 90 }} className="right">Remaining</th>
-              <th style={{ width: 30 }}></th>
+              <th style={{ width: 260 }}>Benefit</th>
+              <th style={{ width: 140 }}>Status</th>
+              <th style={{ width: 130 }} className="right">Annual value</th>
+              <th style={{ width: 190 }} className="right">Used / claimed</th>
+              <th style={{ width: 110 }} className="right">Remaining</th>
+              <th style={{ width: 40 }}></th>
             </tr>
           </thead>
           <tbody>

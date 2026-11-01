@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: cap Status column width, let only Benefit flex"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: let Benefit/Status columns fill the table's full width"
   },
   {
