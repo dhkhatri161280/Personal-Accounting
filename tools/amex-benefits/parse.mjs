@@ -61,6 +61,42 @@ function cleanCopy(html) {
     .trim();
 }
 
+// Pulls real, already-published numbers OUT of Amex's own cleaned marketing copy -- never a
+// guess, and left undefined (not defaulted to 0 or any other number) whenever that specific
+// figure genuinely isn't stated in the copy this capture has access to. Several benefits (Baggage
+// Insurance, Trip Delay/Cancellation, the two car-rental ones) only say "coverage limits apply" /
+// "terms apply" here -- the real dollar figures live in a separate certificate-of-insurance PDF
+// this capture has no access to, so those stay undefined rather than inventing a plausible-looking
+// number. Confirmed against real captured copy for the ones that DO match (Return Protection:
+// "$300 per item, up to a maximum of $1,000 per calendar year"; Purchase Protection: "$10,000 per
+// Covered Purchase, up to $50,000 per calendar year"; Cell Phone Protection: "$800 per claim...
+// limit of 2 approved claims per 12-month period... $50 deductible").
+function num(s) {
+  return s ? Number(s.replace(/,/g, "")) : undefined;
+}
+function extractCoverageNumbers(summary) {
+  const perClaim = /\$([\d,]+(?:\.\d+)?)\s*per\s*(?:item|claim|covered purchase)/i.exec(summary);
+  const period = /\$([\d,]+(?:\.\d+)?)\s*per\s*(calendar year|year)\b/i.exec(summary);
+  const deductible = /\$([\d,]+(?:\.\d+)?)\s*deductible/i.exec(summary);
+  const claimsLimit = /limit of (\d+)\s*approved claims?\s*per\s*(\d+)[\s-]?month period/i.exec(summary);
+  const monthlyCost = /\$([\d,]+(?:\.\d+)?)\s*(?:each|per)\s*month/i.exec(summary);
+  const trial = /\$([\d,]+(?:\.\d+)?)\s*for the first (\d+)\s*days/i.exec(summary);
+  const out = {};
+  if (perClaim) out.perClaimLimit = num(perClaim[1]);
+  if (period) {
+    out.periodLimit = num(period[1]);
+    out.periodLabel = `per ${period[2].toLowerCase()}`;
+  }
+  if (deductible) out.deductible = num(deductible[1]);
+  if (claimsLimit) out.claimsPerPeriod = Number(claimsLimit[1]);
+  if (monthlyCost) out.monthlyCost = num(monthlyCost[1]);
+  if (trial) {
+    out.trialCost = num(trial[1]);
+    out.trialDays = Number(trial[2]);
+  }
+  return out;
+}
+
 function* walkJsonFiles(dir) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
@@ -133,10 +169,12 @@ function main() {
     for (const key of COVERAGE_BENEFIT_KEYS) {
       const entry = catalog[key];
       if (!entry) continue;
+      const summary = cleanCopy(entry.summary?.marketingText?.copy || "");
       byCoverageKey.set(key, {
         benefitKey: key,
         title: cleanCopy(entry.benefitTitle || entry.benefitShortTitle || key),
-        summary: cleanCopy(entry.summary?.marketingText?.copy || ""),
+        summary,
+        ...extractCoverageNumbers(summary),
         lastCheckedAt: now,
       });
     }
@@ -168,7 +206,15 @@ function main() {
   if (coverageBenefits.length) {
     writeFileSync(join(__dirname, "coverage-benefits.json"), JSON.stringify(coverageBenefits, null, 2));
     console.log(`\nParsed ${coverageBenefits.length} real protection/insurance benefit(s):\n`);
-    for (const b of coverageBenefits) console.log(`  ${b.title}`);
+    for (const b of coverageBenefits) {
+      const bits = [];
+      if (b.perClaimLimit != null) bits.push(`$${b.perClaimLimit}/claim`);
+      if (b.periodLimit != null) bits.push(`$${b.periodLimit} ${b.periodLabel || ""}`.trim());
+      if (b.deductible != null) bits.push(`$${b.deductible} deductible`);
+      if (b.claimsPerPeriod != null) bits.push(`max ${b.claimsPerPeriod} claims`);
+      if (b.monthlyCost != null) bits.push(`$${b.monthlyCost}/month after trial`);
+      console.log(`  ${b.title}${bits.length ? "  --  " + bits.join(", ") : "  (no numeric limit stated in Amex's own copy)"}`);
+    }
     console.log(`\nSaved: ${join(__dirname, "coverage-benefits.json")}`);
   } else {
     console.log("\nNo protection/insurance benefits found in this capture.");

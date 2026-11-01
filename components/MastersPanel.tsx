@@ -2744,21 +2744,33 @@ export function MastersPanel({
                   <tr>
                     <th>Benefit</th>
                     <th>Real coverage terms (from Amex)</th>
+                    <th>Limit</th>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {coverageBenefits.map((b) => (
-                    <tr key={b.benefitKey}>
-                      <td style={{ whiteSpace: "nowrap", verticalAlign: "top" }}>{b.title}</td>
-                      <td style={{ fontSize: 12 }}>{b.summary}</td>
-                      <td style={{ verticalAlign: "top" }}>
-                        <button className="master-delete" onClick={() => deleteAmexCoverageBenefit(b)}>
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {coverageBenefits.map((b) => {
+                    const limitBits: string[] = [];
+                    if (b.perClaimLimit != null) limitBits.push(`$${b.perClaimLimit}/claim`);
+                    if (b.periodLimit != null) limitBits.push(`$${b.periodLimit} ${b.periodLabel || ""}`.trim());
+                    if (b.deductible != null) limitBits.push(`$${b.deductible} deductible`);
+                    if (b.claimsPerPeriod != null) limitBits.push(`max ${b.claimsPerPeriod} claims`);
+                    if (b.monthlyCost != null) limitBits.push(`$${b.monthlyCost}/mo after trial`);
+                    return (
+                      <tr key={b.benefitKey}>
+                        <td style={{ whiteSpace: "nowrap", verticalAlign: "top" }}>{b.title}</td>
+                        <td style={{ fontSize: 12 }}>{b.summary}</td>
+                        <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                          {limitBits.length ? limitBits.map((bit, i) => <div key={i}>{bit}</div>) : <span style={{ opacity: 0.4 }}>—</span>}
+                        </td>
+                        <td style={{ verticalAlign: "top" }}>
+                          <button className="master-delete" onClick={() => deleteAmexCoverageBenefit(b)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

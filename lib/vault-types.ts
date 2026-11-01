@@ -558,6 +558,19 @@ export type AmexCoverageBenefit = {
   benefitKey: string; // Amex's own catalog key, e.g. "return-protection" -- the merge key
   title: string; // e.g. "Return Protection"
   summary: string; // Amex's own marketing/terms copy, HTML stripped -- the real coverage numbers
+  // The numeric fields below are parsed out of `summary` above (see parse.mjs's own extraction
+  // regexes) -- undefined when Amex's own marketing copy doesn't state that figure in plain text
+  // (several of these -- Baggage Insurance, Trip Delay, the two car-rental benefits -- only say
+  // "coverage limits apply", with the real dollar figures living in a separate certificate of
+  // insurance PDF this capture doesn't have access to). Never filled in with a guess.
+  perClaimLimit?: number; // max reimbursable per single claim/item/covered purchase
+  periodLimit?: number; // max reimbursable in the stated period (almost always "per calendar year")
+  periodLabel?: string; // Amex's own wording for that period, e.g. "per calendar year"
+  deductible?: number; // out-of-pocket amount you pay before this benefit reimburses the rest
+  claimsPerPeriod?: number; // max number of approved claims in the period (e.g. Cell Phone Protection: 2)
+  monthlyCost?: number; // for a benefit that COSTS money after a trial (CreditSecure), not a coverage limit
+  trialCost?: number;
+  trialDays?: number;
   lastCheckedAt: string;
 };
 

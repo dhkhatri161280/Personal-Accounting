@@ -52,10 +52,19 @@ export function parseAmexCoverageBenefitsUpload(raw: unknown): AmexCoverageBenef
     const o = b as Record<string, unknown>;
     if (typeof o.benefitKey !== "string" || !o.benefitKey) throw new Error(`Coverage benefit ${i}: missing "benefitKey".`);
     if (typeof o.title !== "string" || !o.title) throw new Error(`Coverage benefit ${i} (${o.benefitKey}): missing "title".`);
+    const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
     return {
       benefitKey: o.benefitKey,
       title: o.title,
       summary: typeof o.summary === "string" ? o.summary : "",
+      perClaimLimit: num(o.perClaimLimit),
+      periodLimit: num(o.periodLimit),
+      periodLabel: typeof o.periodLabel === "string" ? o.periodLabel : undefined,
+      deductible: num(o.deductible),
+      claimsPerPeriod: num(o.claimsPerPeriod),
+      monthlyCost: num(o.monthlyCost),
+      trialCost: num(o.trialCost),
+      trialDays: num(o.trialDays),
       lastCheckedAt: typeof o.lastCheckedAt === "string" ? o.lastCheckedAt : new Date().toISOString(),
     };
   });
