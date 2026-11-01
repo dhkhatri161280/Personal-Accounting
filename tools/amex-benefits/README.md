@@ -62,7 +62,46 @@ committed (real financial benefit data). Send these to me (or just tell me to lo
 if I have access to this machine) once you've captured a real session, and I'll read the real
 shape before writing the parser.
 
+## Phase 2 (done): parse, import, and a fully automated daily refresh
+
+`parse.mjs` turns the raw captures into `benefits.json` -- scoped to real statement credits only
+("usage" category trackers, MONETARY amounts; Amex's data also carries "spend"/"access" trackers
+for lounge-tier progress and visit counts, which aren't dollars-back benefits and are left out).
+
+`import-to-vault.mjs` / `.ps1` push `benefits.json` straight into the encrypted vault (same
+DPAPI-secret pattern as `../costco-receipts`), or import it by hand via Masters -> Amex Benefits.
+Each benefit is deduped by Amex's own `benefitId` -- re-importing refreshes the numbers in place.
+
+### Fully automated refresh (no manual browsing needed)
+
+`auto-capture.mjs` does the whole capture step with zero clicking -- it navigates the debug
+Chrome's existing, already-logged-in session directly to the real Benefits pages
+(`card-benefits/view-all` and `card-benefits/activity`) and captures the same JSON `attach.mjs`
+does. This works the same way `../costco-receipts/auto-capture.mjs` already does against Costco:
+a plain page visit reusing a session that's already signed in, never an automated login. No Amex
+username/password is ever typed or stored anywhere by this tool -- if the debug Chrome's Amex
+session ever signs out (normal expiry, a security check), this will capture 0 real trackers that
+run and say so plainly in the log; log into americanexpress.com in the debug Chrome by hand and
+the next scheduled run picks back up on its own.
+
+`run-scheduled.ps1` chains all three steps (capture -> parse -> import) into one unattended run,
+with the same launch-the-debug-Chrome-if-needed and success/failure status-file pattern as
+`../costco-receipts/run-scheduled.ps1`.
+
+**Test it once manually first:**
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File run-scheduled.ps1
+```
+Check `sync-log.txt` and `last-sync-status.json` afterward to confirm it worked.
+
+**Register it with Windows Task Scheduler** (daily, 7 AM -- adjust as you like):
+```powershell
+schtasks /create /tn "Amex Benefits Refresh" /tr "wscript.exe \"C:\Users\dikhatri\Documents\Codex\personal-accounting-app\tools\amex-benefits\silent-launch.vbs\"" /sc daily /st 07:00 /f
+```
+
+To remove it later: `schtasks /delete /tn "Amex Benefits Refresh" /f`
+
 ## Output
 
 `.captures/<timestamp>/<NNNN>.json` -- one file per captured JSON response, each with `url`,
-`status`, and the raw `body`. Nothing here is imported into the app yet -- that's phase 2.
+`status`, and the raw `body`. `benefits.json` is the clean, ready-to-import result.

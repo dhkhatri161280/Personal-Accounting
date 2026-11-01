@@ -3,3 +3,7 @@
 benefits.json
 encrypted-us-vault-before-amex-import-*.json
 node_modules/
+# Scheduled-run log/status -- local run artifacts, regenerated every run, same as
+# ../costco-receipts's own gitignore.
+last-sync-status.json
+sync-log.txt
