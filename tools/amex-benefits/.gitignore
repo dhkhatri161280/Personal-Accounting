@@ -2,6 +2,7 @@
 .captures/
 benefits.json
 coverage-benefits.json
+inactive-credits.json
 encrypted-us-vault-before-amex-import-*.json
 node_modules/
 # Scheduled-run log/status -- local run artifacts, regenerated every run, same as

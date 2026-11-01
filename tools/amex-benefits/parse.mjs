@@ -47,6 +47,17 @@ const COVERAGE_BENEFIT_KEYS = [
   "credit-secure",
 ];
 
+// Real credit-type benefits (statement credits, not protections) that the user's own real account
+// has access to per Amex's catalog but DON'T currently have an active usage tracker -- confirmed
+// live: "uber-rides-with-platinum" ($200 Uber Cash) sits in the catalog with real terms, but never
+// appears in ReadBestLoyaltyBenefitsTrackers for this account, unlike the separate, already-active
+// "$120 Uber One Credit". Per Amex's own terms text, Uber Cash specifically requires adding the
+// card inside the UBER APP itself (not just amex.com) -- the most likely reason no tracker exists
+// yet. Checked against the keyword below to avoid flagging one that's just differently-named but
+// already active (if it's a false "not active" some day, lower false-negative risk than silently
+// hiding a real, unused $200/year benefit).
+const INACTIVE_CREDIT_CHECKS = [{ key: "uber-rides-with-platinum", activeNameKeyword: "uber cash" }];
+
 // Amex's own marketing copy is HTML with decimal numeric character entities (e.g. &#36; for "$",
 // &#174; for the (R) mark) -- String.fromCodePoint is the actually-correct decode for ANY decimal
 // numeric entity (it's just the Unicode code point), not a lookup table of the handful observed
@@ -77,6 +88,7 @@ function num(s) {
 function extractCoverageNumbers(summary) {
   const perClaim = /\$([\d,]+(?:\.\d+)?)\s*per\s*(?:item|claim|covered purchase)/i.exec(summary);
   const period = /\$([\d,]+(?:\.\d+)?)\s*per\s*(calendar year|year)\b/i.exec(summary);
+  const annually = /\$([\d,]+(?:\.\d+)?)\s*(?:in [\w\s]+ )?annually/i.exec(summary);
   const deductible = /\$([\d,]+(?:\.\d+)?)\s*deductible/i.exec(summary);
   const claimsLimit = /limit of (\d+)\s*approved claims?\s*per\s*(\d+)[\s-]?month period/i.exec(summary);
   const monthlyCost = /\$([\d,]+(?:\.\d+)?)\s*(?:each|per)\s*month/i.exec(summary);
@@ -86,6 +98,9 @@ function extractCoverageNumbers(summary) {
   if (period) {
     out.periodLimit = num(period[1]);
     out.periodLabel = `per ${period[2].toLowerCase()}`;
+  } else if (annually) {
+    out.periodLimit = num(annually[1]);
+    out.periodLabel = "annually";
   }
   if (deductible) out.deductible = num(deductible[1]);
   if (claimsLimit) out.claimsPerPeriod = Number(claimsLimit[1]);
@@ -181,6 +196,34 @@ function main() {
   }
   const coverageBenefits = [...byCoverageKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
 
+  // Third pass: real credit-type benefits that exist in the catalog but have no active tracker
+  // (see INACTIVE_CREDIT_CHECKS' own comment).
+  const byInactiveKey = new Map();
+  for (const { key, activeNameKeyword } of INACTIVE_CREDIT_CHECKS) {
+    const alreadyActive = benefits.some((b) => b.benefitName.toLowerCase().includes(activeNameKeyword));
+    if (alreadyActive) continue;
+    for (const file of files) {
+      let parsed;
+      try {
+        parsed = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        continue;
+      }
+      if (!CATALOG_URL_RE.test(parsed?.url || "")) continue;
+      const entry = parsed.body?.benefits?.[key];
+      if (!entry) continue;
+      const summary = cleanCopy(entry.summary?.marketingText?.copy || "");
+      byInactiveKey.set(key, {
+        benefitKey: key,
+        title: cleanCopy(entry.benefitTitle || entry.benefitShortTitle || key),
+        summary,
+        ...extractCoverageNumbers(summary),
+        lastCheckedAt: now,
+      });
+    }
+  }
+  const inactiveCredits = [...byInactiveKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
+
   if (!benefits.length && !coverageBenefits.length) {
     console.log("No benefit data found in any capture -- run attach.mjs again while on the Benefits page.");
     return;
@@ -218,6 +261,13 @@ function main() {
     console.log(`\nSaved: ${join(__dirname, "coverage-benefits.json")}`);
   } else {
     console.log("\nNo protection/insurance benefits found in this capture.");
+  }
+
+  if (inactiveCredits.length) {
+    writeFileSync(join(__dirname, "inactive-credits.json"), JSON.stringify(inactiveCredits, null, 2));
+    console.log(`\n${inactiveCredits.length} real credit(s) available but NOT currently active (no usage tracker found):\n`);
+    for (const b of inactiveCredits) console.log(`  ${b.title}${b.periodLimit != null ? `  --  up to $${b.periodLimit} ${b.periodLabel || ""}` : ""}`.trim());
+    console.log(`\nSaved: ${join(__dirname, "inactive-credits.json")}`);
   }
 }
 

@@ -48,6 +48,10 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
     () => [...(data.amexCoverageBenefits ?? [])].sort((a, b) => (a.title < b.title ? -1 : 1)),
     [data.amexCoverageBenefits]
   );
+  const inactiveCredits = useMemo(
+    () => [...(data.amexInactiveCredits ?? [])].sort((a, b) => (a.title < b.title ? -1 : 1)),
+    [data.amexInactiveCredits]
+  );
   const summary = useMemo(() => summarizeAmexBenefits(benefits), [benefits]);
 
   // Most recent matching voucher within the last ~13 months -- an annual fee should recur roughly
@@ -68,8 +72,6 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
     return { date: v.date, narration: v.narration, amount };
   }, [data.transactions]);
 
-  const netSoFar = feeMatch ? summary.totalUsed - feeMatch.amount : null;
-
   // benefitKey -> matched real vouchers (see COVERAGE_SEARCH_TERMS' own comment on what "found"
   // and "not found" actually mean here).
   const coverageClaims = useMemo(() => {
@@ -88,6 +90,14 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
     }
     return out;
   }, [coverageBenefits, data.transactions]);
+
+  const totalCoverageClaims = useMemo(() => {
+    let total = 0;
+    for (const hits of coverageClaims.values()) for (const h of hits) total += h.amount;
+    return total;
+  }, [coverageClaims]);
+
+  const netSoFarWithClaims = feeMatch ? summary.totalUsed + totalCoverageClaims - feeMatch.amount : null;
 
   return (
     <div className="data-panel">
@@ -139,10 +149,20 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
               <div style={{ fontSize: 12, opacity: 0.7 }}>Available this cycle set</div>
               <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(summary.totalTarget)}</div>
             </span>
-            {netSoFar != null && (
+            {totalCoverageClaims > 0 && (
               <span>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Net so far (used − fee)</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: netSoFar >= 0 ? "#16a34a" : "#dc2626" }}>{fmt(netSoFar)}</div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Protection claims found in your vouchers</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(totalCoverageClaims)}</div>
+              </span>
+            )}
+            {netSoFarWithClaims != null && (
+              <span>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  Net so far (used{totalCoverageClaims > 0 ? " + claims" : ""} − fee)
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: netSoFarWithClaims >= 0 ? "#16a34a" : "#dc2626" }}>
+                  {fmt(netSoFarWithClaims)}
+                </div>
               </span>
             )}
             <span>
@@ -244,6 +264,37 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {inactiveCredits.length > 0 && (
+        <>
+          <h4 style={{ margin: "20px 0 8px" }}>Not Yet Active</h4>
+          <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 10px" }}>
+            Real credits your account has access to per Amex's own catalog, but with no active usage tracker
+            right now -- usually because they need an extra enrollment step beyond amex.com (e.g. $200 Uber
+            Cash needs the card linked inside the Uber app itself, not just on Amex's site).
+          </p>
+          <table className="fx-ledger-table">
+            <thead>
+              <tr>
+                <th style={{ width: 170 }}>Benefit</th>
+                <th>Real terms (from Amex)</th>
+                <th style={{ width: 140 }}>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inactiveCredits.map((b) => (
+                <tr key={b.benefitKey}>
+                  <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>{b.title}</td>
+                  <td style={{ fontSize: 12, whiteSpace: "normal" }}>{b.summary}</td>
+                  <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                    {b.periodLimit != null ? `${fmt(b.periodLimit)} ${b.periodLabel || ""}`.trim() : <span style={{ opacity: 0.4 }}>—</span>}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </>

@@ -108,6 +108,7 @@ export type MasterLedger = {
   costcoPriceChecks?: CostcoPriceCheck[];
   amexBenefits?: AmexBenefit[];
   amexCoverageBenefits?: AmexCoverageBenefit[];
+  amexInactiveCredits?: AmexCoverageBenefit[];
 };
 
 const standard: MasterGroup[] = [
@@ -1273,6 +1274,13 @@ export function MastersPanel({
       "Protection/insurance benefit removed."
     );
   };
+  const deleteAmexInactiveCredit = (b: AmexCoverageBenefit) => {
+    if (!confirm(`Remove this inactive-credit entry (${b.title})?`)) return;
+    onSave(
+      { ...data, amexInactiveCredits: (data.amexInactiveCredits || []).filter((x) => x.benefitKey !== b.benefitKey) },
+      "Inactive-credit entry removed."
+    );
+  };
   // Same client-side-only read as importCostcoReceipts above -- price-checks.json comes from
   // tools/costco-receipts/check-prices.mjs, a REAL live lookup against costco.com driven through
   // an already-authenticated Chrome session (not a guess, not generic web search -- confirmed
@@ -1325,6 +1333,23 @@ export function MastersPanel({
       onSave({ ...data, amexCoverageBenefits: merged }, `Imported ${parsed.length} protection/insurance benefit(s).`);
     } catch (err) {
       setAmexBenefitsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid coverage-benefits.json?");
+    } finally {
+      setUploadingAmexBenefits(false);
+    }
+  }
+  // Same pattern again -- inactive-credits.json (same parse.mjs run) lists real credit-type
+  // benefits (e.g. $200 Uber Cash) the account has access to per Amex's own catalog but that have
+  // no active usage tracker right now.
+  async function importAmexInactiveCredits(file: File) {
+    setUploadingAmexBenefits(true);
+    setAmexBenefitsError("");
+    try {
+      const text = await file.text();
+      const parsed = parseAmexCoverageBenefitsUpload(JSON.parse(text));
+      const merged = mergeAmexCoverageBenefits((data.amexInactiveCredits || []) as AmexCoverageBenefit[], parsed);
+      onSave({ ...data, amexInactiveCredits: merged }, `Imported ${parsed.length} inactive-credit entr${parsed.length === 1 ? "y" : "ies"}.`);
+    } catch (err) {
+      setAmexBenefitsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid inactive-credits.json?");
     } finally {
       setUploadingAmexBenefits(false);
     }
@@ -2645,6 +2670,7 @@ export function MastersPanel({
       {section === "amexbenefits" && (() => {
         const benefits = [...(data.amexBenefits || [])].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
         const coverageBenefits = [...(data.amexCoverageBenefits || [])].sort((a, b) => (a.title < b.title ? -1 : 1));
+        const inactiveCredits = [...(data.amexInactiveCredits || [])].sort((a, b) => (a.title < b.title ? -1 : 1));
         const totalTarget = benefits.reduce((s, b) => s + b.targetAmount, 0);
         const totalSpent = benefits.reduce((s, b) => s + b.spentAmount, 0);
         return (
@@ -2654,6 +2680,7 @@ export function MastersPanel({
                 {benefits.length} benefit tracker{benefits.length === 1 ? "" : "s"} imported
                 {benefits.length ? ` — $${totalSpent.toFixed(2)} used of $${totalTarget.toFixed(2)}` : ""}
                 {coverageBenefits.length ? ` · ${coverageBenefits.length} protection/insurance benefit${coverageBenefits.length === 1 ? "" : "s"}` : ""}
+                {inactiveCredits.length ? ` · ${inactiveCredits.length} not-yet-active credit${inactiveCredits.length === 1 ? "" : "s"}` : ""}
               </span>
               <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
                 {uploadingAmexBenefits ? "Importing…" : "Import benefits.json…"}
@@ -2680,6 +2707,20 @@ export function MastersPanel({
                     const file = e.target.files?.[0];
                     e.target.value = "";
                     if (file) importAmexCoverageBenefits(file);
+                  }}
+                />
+              </label>
+              <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
+                {uploadingAmexBenefits ? "Importing…" : "Import inactive-credits.json…"}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  disabled={uploadingAmexBenefits}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importAmexInactiveCredits(file);
                   }}
                 />
               </label>
@@ -2773,6 +2814,42 @@ export function MastersPanel({
                   })}
                 </tbody>
               </table>
+            )}
+            {inactiveCredits.length > 0 && (
+              <>
+                <h4 style={{ margin: "1.5rem 0 0.5rem" }}>Not Yet Active</h4>
+                <p className="field-hint" style={{ margin: "0 0 0.5rem" }}>
+                  Real credits your account has access to per Amex&apos;s own catalog, but with no active usage
+                  tracker right now -- usually because they need an extra enrollment step beyond amex.com
+                  (e.g. $200 Uber Cash needs the card linked inside the Uber app itself).
+                </p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Benefit</th>
+                      <th>Real terms (from Amex)</th>
+                      <th>Value</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inactiveCredits.map((b) => (
+                      <tr key={b.benefitKey}>
+                        <td style={{ whiteSpace: "nowrap", verticalAlign: "top" }}>{b.title}</td>
+                        <td style={{ fontSize: 12 }}>{b.summary}</td>
+                        <td style={{ fontSize: 12, verticalAlign: "top" }}>
+                          {b.periodLimit != null ? `$${b.periodLimit} ${b.periodLabel || ""}`.trim() : <span style={{ opacity: 0.4 }}>—</span>}
+                        </td>
+                        <td style={{ verticalAlign: "top" }}>
+                          <button className="master-delete" onClick={() => deleteAmexInactiveCredit(b)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </>
         );

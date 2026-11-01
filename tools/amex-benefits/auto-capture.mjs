@@ -74,13 +74,15 @@ async function main() {
   // as Costco's own auto-capture.mjs.
   const page = context.pages()[0] ?? (await context.newPage());
   for (const url of BENEFITS_URLS) {
-    await page.goto(url, { waitUntil: "networkidle", timeout: 20000 }).catch((e) => {
+    // "networkidle" is NOT used here -- confirmed live this page keeps a persistent background
+    // beacon/chat-widget poll running (contact_management/chats, loyalty/observability/beacon in
+    // real captures), which networkidle waits forever for and reliably times out on. "load" plus
+    // a fixed settle window is what actually works: the tracker/catalog API calls fire within a
+    // couple seconds of the page becoming interactive, well before "networkidle" would ever fire.
+    await page.goto(url, { waitUntil: "load", timeout: 20000 }).catch((e) => {
       console.error(`Navigation to ${url} failed or timed out: ${e.message}`);
     });
-    // A little extra settle time beyond "networkidle" -- confirmed live (attach.mjs, manual
-    // browsing) that some of these API calls fire slightly after the page visually finishes
-    // loading.
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(4000);
   }
 
   await browser.close(); // only detaches the CDP connection -- does NOT close the real Chrome window.

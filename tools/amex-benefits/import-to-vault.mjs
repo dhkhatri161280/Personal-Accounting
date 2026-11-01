@@ -63,10 +63,19 @@ function parseCoverageBenefits(raw) {
     if (typeof b !== "object" || b === null) throw new Error(`Coverage benefit ${i}: not an object.`);
     if (typeof b.benefitKey !== "string" || !b.benefitKey) throw new Error(`Coverage benefit ${i}: missing "benefitKey".`);
     if (typeof b.title !== "string" || !b.title) throw new Error(`Coverage benefit ${i} (${b.benefitKey}): missing "title".`);
+    const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
     return {
       benefitKey: b.benefitKey,
       title: b.title,
       summary: typeof b.summary === "string" ? b.summary : "",
+      perClaimLimit: num(b.perClaimLimit),
+      periodLimit: num(b.periodLimit),
+      periodLabel: typeof b.periodLabel === "string" ? b.periodLabel : undefined,
+      deductible: num(b.deductible),
+      claimsPerPeriod: num(b.claimsPerPeriod),
+      monthlyCost: num(b.monthlyCost),
+      trialCost: num(b.trialCost),
+      trialDays: num(b.trialDays),
       lastCheckedAt: typeof b.lastCheckedAt === "string" ? b.lastCheckedAt : new Date().toISOString(),
     };
   });
@@ -89,28 +98,37 @@ async function main() {
 
   const benefitsPath = join(__dirname, "benefits.json");
   const coveragePath = join(__dirname, "coverage-benefits.json");
+  const inactivePath = join(__dirname, "inactive-credits.json");
   const hasBenefits = existsSync(benefitsPath);
   const hasCoverage = existsSync(coveragePath);
-  if (!hasBenefits && !hasCoverage) {
-    console.log("Nothing to import -- no benefits.json or coverage-benefits.json found. Run parse.mjs first.");
+  const hasInactive = existsSync(inactivePath);
+  if (!hasBenefits && !hasCoverage && !hasInactive) {
+    console.log("Nothing to import -- no benefits.json, coverage-benefits.json, or inactive-credits.json found. Run parse.mjs first.");
     return;
   }
 
   const incomingBenefits = hasBenefits ? parseBenefits(JSON.parse(readFileSync(benefitsPath, "utf8"))) : [];
   const incomingCoverage = hasCoverage ? parseCoverageBenefits(JSON.parse(readFileSync(coveragePath, "utf8"))) : [];
+  // inactive-credits.json shares coverage-benefits.json's exact shape (see parse.mjs), so the
+  // same parse/merge functions apply as-is.
+  const incomingInactive = hasInactive ? parseCoverageBenefits(JSON.parse(readFileSync(inactivePath, "utf8"))) : [];
 
   const state = await load(auth, vaultPw, "us");
   const existingBenefits = state.vault.amexBenefits || [];
   const existingCoverage = state.vault.amexCoverageBenefits || [];
+  const existingInactive = state.vault.amexInactiveCredits || [];
   const mergedBenefits = mergeBenefits(existingBenefits, incomingBenefits);
   const mergedCoverage = mergeCoverageBenefits(existingCoverage, incomingCoverage);
+  const mergedInactive = mergeCoverageBenefits(existingInactive, incomingInactive);
   const added = mergedBenefits.length - existingBenefits.length;
   const coverageAdded = mergedCoverage.length - existingCoverage.length;
+  const inactiveAdded = mergedInactive.length - existingInactive.length;
   // Full content comparison, not just length -- re-running parse.mjs for benefits already on file
   // refreshes their spent/remaining/status (or summary text) under the SAME key, so length alone
   // wouldn't catch it (same reasoning as costco-receipts' own import).
   const unchanged = JSON.stringify(mergedBenefits) === JSON.stringify(existingBenefits)
-    && JSON.stringify(mergedCoverage) === JSON.stringify(existingCoverage);
+    && JSON.stringify(mergedCoverage) === JSON.stringify(existingCoverage)
+    && JSON.stringify(mergedInactive) === JSON.stringify(existingInactive);
   if (unchanged) {
     console.log("Nothing new -- vault already matches these files exactly.");
     return;
@@ -121,6 +139,7 @@ async function main() {
 
   state.vault.amexBenefits = mergedBenefits;
   state.vault.amexCoverageBenefits = mergedCoverage;
+  state.vault.amexInactiveCredits = mergedInactive;
   const body = JSON.stringify(encrypt(state.vault, vaultPw));
   const put = await fetch(state.url, {
     method: "PUT",
@@ -129,7 +148,7 @@ async function main() {
   });
   if (!put.ok) throw new Error("Cloud update rejected HTTP " + put.status + " " + (await put.text()));
 
-  console.log(`SUCCESS: ${added} new benefit(s) (${mergedBenefits.length} total), ${coverageAdded} new coverage benefit(s) (${mergedCoverage.length} total) written directly to the vault.`);
+  console.log(`SUCCESS: ${added} new benefit(s) (${mergedBenefits.length} total), ${coverageAdded} new coverage benefit(s) (${mergedCoverage.length} total), ${inactiveAdded} new inactive credit(s) (${mergedInactive.length} total) written directly to the vault.`);
   console.log("Encrypted backup: " + backup);
 }
 
