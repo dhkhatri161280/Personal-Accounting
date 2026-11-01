@@ -7,10 +7,25 @@ import type { AmexBenefit, AmexCoverageBenefit } from "./vault-types.ts";
 // Merges a freshly-imported batch, deduped by benefitId -- the incoming (presumably newer) one
 // wins on a collision, since Amex's own tracker is re-fetched each time and should always
 // supersede a stale one (same reasoning as mergeCostcoPriceChecks in lib/costco-receipts.ts).
+// statementCredits is preserved from the existing record when incoming doesn't specify it, same
+// reasoning as mergeAmexCoverageBenefits' own preservation of statementClaims below -- parse.mjs
+// has no way to know about a hand-reconciled correction, so a straight overwrite would wipe it.
 export function mergeAmexBenefits(existing: AmexBenefit[], incoming: AmexBenefit[]): AmexBenefit[] {
   const byId = new Map(existing.map((b) => [b.benefitId, b]));
-  for (const b of incoming) byId.set(b.benefitId, b);
+  for (const b of incoming) {
+    const prev = byId.get(b.benefitId);
+    byId.set(b.benefitId, { ...b, statementCredits: b.statementCredits ?? prev?.statementCredits });
+  }
   return [...byId.values()].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
+}
+
+// The real figure to show/total for a tracker -- the larger of Amex's own live yearToDateAmount
+// and whatever statementCredits says was confirmed by hand for THIS calendar year (see that
+// field's own comment in vault-types.ts). Never summed with yearToDateAmount, since Amex's own
+// tracker may later catch up to the same real figure on its own.
+export function effectiveYearToDate(b: AmexBenefit, currentYear: string): number {
+  const statementSum = (b.statementCredits ?? []).filter((c) => c.date.startsWith(currentYear)).reduce((s, c) => s + c.amount, 0);
+  return Math.max(b.yearToDateAmount, statementSum);
 }
 
 // Parses/validates an uploaded benefits.json -- permissive about extra fields (so a future
@@ -22,6 +37,12 @@ export function parseAmexBenefitsUpload(raw: unknown): AmexBenefit[] {
     const o = b as Record<string, unknown>;
     if (typeof o.benefitId !== "string" || !o.benefitId) throw new Error(`Benefit ${i}: missing "benefitId".`);
     if (typeof o.benefitName !== "string" || !o.benefitName) throw new Error(`Benefit ${i} (${o.benefitId}): missing "benefitName".`);
+    const statementCredits = Array.isArray(o.statementCredits)
+      ? o.statementCredits
+          .filter((c): c is { date: unknown; amount: unknown } => typeof c === "object" && c !== null)
+          .map((c) => ({ date: typeof c.date === "string" ? c.date : "", amount: typeof c.amount === "number" ? c.amount : 0 }))
+          .filter((c) => c.date && c.amount)
+      : undefined;
     return {
       benefitId: o.benefitId,
       benefitName: o.benefitName,
@@ -36,6 +57,7 @@ export function parseAmexBenefitsUpload(raw: unknown): AmexBenefit[] {
       annualTargetAmount: typeof o.annualTargetAmount === "number" ? o.annualTargetAmount : (typeof o.targetAmount === "number" ? o.targetAmount : 0),
       currency: typeof o.currency === "string" ? o.currency : "USD",
       lastCheckedAt: typeof o.lastCheckedAt === "string" ? o.lastCheckedAt : new Date().toISOString(),
+      statementCredits,
     };
   });
 }
@@ -122,17 +144,21 @@ export type AmexBenefitsSummary = {
 };
 
 // Totals across whatever benefits are currently on file, for the CURRENT calendar year as a
-// whole -- totalTarget/totalUsed deliberately use annualTargetAmount/yearToDateAmount, NOT
+// whole -- totalTarget/totalUsed deliberately use annualTargetAmount/effectiveYearToDate, NOT
 // targetAmount/spentAmount (which are only the current sub-period, e.g. Resy's $100/quarter
 // rather than its real $400/year -- confirmed live this badly understated both sides for any
 // Monthly/QuarterYear/HalfYear benefit). totalRemaining is derived the same way, for consistency.
-export function summarizeAmexBenefits(benefits: AmexBenefit[]): AmexBenefitsSummary {
+// currentYear (YYYY) is required so effectiveYearToDate can apply any statementCredits override.
+export function summarizeAmexBenefits(benefits: AmexBenefit[], currentYear: string): AmexBenefitsSummary {
   let totalTarget = 0, totalUsed = 0, totalRemaining = 0, achievedCount = 0, inProgressCount = 0;
   for (const b of benefits) {
+    const used = effectiveYearToDate(b, currentYear);
     totalTarget += b.annualTargetAmount;
-    totalUsed += b.yearToDateAmount;
-    totalRemaining += Math.max(0, b.annualTargetAmount - b.yearToDateAmount);
-    if (b.status === "ACHIEVED") achievedCount++;
+    totalUsed += used;
+    totalRemaining += Math.max(0, b.annualTargetAmount - used);
+    // Achieved if Amex's own status says so, OR a statement-confirmed figure alone already clears
+    // the annual target (matches the per-row "✓ Achieved" badge logic in AmexBenefitsReport.tsx).
+    if (b.status === "ACHIEVED" || (b.annualTargetAmount > 0 && used >= b.annualTargetAmount)) achievedCount++;
     else inProgressCount++;
   }
   return { totalTarget, totalUsed, totalRemaining, achievedCount, inProgressCount };

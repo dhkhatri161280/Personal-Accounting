@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeAmexBenefits, parseAmexBenefitsUpload, summarizeAmexBenefits, mergeAmexCoverageBenefits, parseAmexCoverageBenefitsUpload, selfReportedUberCashUsed } from "../lib/amex-benefits.ts";
+import { mergeAmexBenefits, parseAmexBenefitsUpload, summarizeAmexBenefits, mergeAmexCoverageBenefits, parseAmexCoverageBenefitsUpload, selfReportedUberCashUsed, effectiveYearToDate } from "../lib/amex-benefits.ts";
 import type { AmexBenefit, AmexCoverageBenefit } from "../lib/vault-types.ts";
 
 function coverageBenefit(overrides: Partial<AmexCoverageBenefit> = {}): AmexCoverageBenefit {
@@ -78,7 +78,7 @@ test("summarizeAmexBenefits: totals use the real ANNUAL figures (yearToDateAmoun
     // annual fields, not these, or it reproduces the exact bug this was built to fix.
     benefit({ benefitId: "b", targetAmount: 100, spentAmount: 0, annualTargetAmount: 400, yearToDateAmount: 296.12, status: "IN_PROGRESS" }),
   ];
-  const summary = summarizeAmexBenefits(benefits);
+  const summary = summarizeAmexBenefits(benefits, "2026");
   assert.equal(summary.totalTarget, 600);
   assert.equal(summary.totalUsed, 496.12);
   assert.equal(summary.totalRemaining, 103.88);
@@ -87,8 +87,47 @@ test("summarizeAmexBenefits: totals use the real ANNUAL figures (yearToDateAmoun
 });
 
 test("summarizeAmexBenefits: empty list sums to zero, not NaN or a crash", () => {
-  const summary = summarizeAmexBenefits([]);
+  const summary = summarizeAmexBenefits([], "2026");
   assert.deepEqual(summary, { totalTarget: 0, totalUsed: 0, totalRemaining: 0, achievedCount: 0, inProgressCount: 0 });
+});
+
+test("effectiveYearToDate: Amex's own live tracker figure, when it's already the larger one", () => {
+  const b = benefit({ yearToDateAmount: 100, statementCredits: [{ date: "2026-03-10", amount: 50 }] });
+  assert.equal(effectiveYearToDate(b, "2026"), 100);
+});
+
+test("effectiveYearToDate: a hand-reconciled statement figure, when it's larger than Amex's own live tracker", () => {
+  // Confirmed live: a tracker can report $0 used despite a real credit confirmed on Amex's own
+  // downloadable statement (CLEAR+) -- never summed with yearToDateAmount, since Amex's own
+  // tracker may later catch up to the same real figure on its own.
+  const b = benefit({ yearToDateAmount: 0, statementCredits: [{ date: "2026-03-10", amount: 209 }] });
+  assert.equal(effectiveYearToDate(b, "2026"), 209);
+});
+
+test("effectiveYearToDate: ignores a statement credit from a prior calendar year", () => {
+  const b = benefit({ yearToDateAmount: 0, statementCredits: [{ date: "2025-03-10", amount: 209 }] });
+  assert.equal(effectiveYearToDate(b, "2026"), 0);
+});
+
+test("summarizeAmexBenefits: achievedCount counts a statement-confirmed figure that alone clears the annual target", () => {
+  const benefits = [benefit({ status: "IN_PROGRESS", annualTargetAmount: 219, yearToDateAmount: 0, statementCredits: [{ date: "2026-03-10", amount: 219 }] })];
+  const summary = summarizeAmexBenefits(benefits, "2026");
+  assert.equal(summary.totalUsed, 219);
+  assert.equal(summary.achievedCount, 1);
+  assert.equal(summary.inProgressCount, 0);
+});
+
+test("mergeAmexBenefits: preserves statementCredits from the existing record across a re-import", () => {
+  const existing = [benefit({ statementCredits: [{ date: "2026-03-10", amount: 209 }] })];
+  const incoming = [benefit({ spentAmount: 150 })];
+  const merged = mergeAmexBenefits(existing, incoming);
+  assert.equal(merged[0].spentAmount, 150);
+  assert.deepEqual(merged[0].statementCredits, [{ date: "2026-03-10", amount: 209 }]);
+});
+
+test("parseAmexBenefitsUpload: parses statementCredits, dropping malformed entries", () => {
+  const parsed = parseAmexBenefitsUpload([benefit({ statementCredits: [{ date: "2026-03-10", amount: 209 }, { date: "", amount: 0 }] })]);
+  assert.deepEqual(parsed[0].statementCredits, [{ date: "2026-03-10", amount: 209 }]);
 });
 
 test("parseAmexCoverageBenefitsUpload: accepts a well-formed array", () => {

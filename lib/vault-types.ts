@@ -551,6 +551,13 @@ export type AmexBenefit = {
   annualTargetAmount: number;
   currency: string;
   lastCheckedAt: string; // ISO timestamp -- when this was captured from Amex
+  // Same purpose as AmexCoverageBenefit.statementClaims (see its own comment) -- some trackers'
+  // yearToDateAmount has been confirmed, by hand, to sit well below what actually posted (CLEAR+'s
+  // live tracker reported $0 used despite a real credit confirmed on Amex's own downloadable
+  // statement). The report takes the LARGER of yearToDateAmount and this array's current-calendar-
+  // year sum, rather than adding them, so it never double-counts if Amex's own tracker later
+  // catches up to the real figure on its own.
+  statementCredits?: { date: string; amount: number }[];
 };
 
 // A claim-based protection/insurance benefit (Return Protection, Purchase Protection, Cell Phone

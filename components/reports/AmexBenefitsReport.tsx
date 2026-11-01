@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import type { Ledger, Tx, AmexBenefit, AmexCoverageBenefit } from "@/lib/vault-types";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
-import { summarizeAmexBenefits, selfReportedUberCashUsed } from "@/lib/amex-benefits";
+import { summarizeAmexBenefits, selfReportedUberCashUsed, effectiveYearToDate } from "@/lib/amex-benefits";
 
 // Matched-voucher amount -- whichever entry has the larger magnitude (the card's own liability
 // leg, not a tiny tax/rounding leg on the same voucher). Shared by the fee match and every
@@ -88,7 +88,7 @@ export function AmexBenefitsReport({
     () => [...(data.amexInactiveCredits ?? [])].sort((a, b) => (a.title < b.title ? -1 : 1)),
     [data.amexInactiveCredits]
   );
-  const summary = useMemo(() => summarizeAmexBenefits(benefits), [benefits]);
+  const summary = useMemo(() => summarizeAmexBenefits(benefits, currentYear), [benefits, currentYear]);
 
   const selfReportedTotal = useMemo(() => {
     const todayIso = todayLocalIso();
@@ -161,7 +161,7 @@ export function AmexBenefitsReport({
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     for (const b of benefits) {
-      out.push({ kind: "credit", key: `credit:${b.benefitId}`, name: b.benefitName, usedAmount: b.yearToDateAmount, annualValue: b.annualTargetAmount, benefit: b });
+      out.push({ kind: "credit", key: `credit:${b.benefitId}`, name: b.benefitName, usedAmount: effectiveYearToDate(b, currentYear), annualValue: b.annualTargetAmount, benefit: b });
     }
     for (const b of coverageBenefits) {
       const claims = coverageClaims.get(b.benefitKey) ?? [];
@@ -172,7 +172,7 @@ export function AmexBenefitsReport({
     }
     out.sort((a, b) => (b.usedAmount > 0 ? 1 : 0) - (a.usedAmount > 0 ? 1 : 0) || b.usedAmount - a.usedAmount || a.name.localeCompare(b.name));
     return out;
-  }, [benefits, coverageBenefits, coverageClaims, inactiveCredits]);
+  }, [benefits, coverageBenefits, coverageClaims, inactiveCredits, currentYear]);
 
   const totalUsedClaimedReported = summary.totalUsed + totalCoverageClaims + selfReportedTotal;
   const totalAnnualValueAndLimits = useMemo(() => rows.reduce((s, r) => s + (r.annualValue ?? 0), 0), [rows]);
@@ -269,8 +269,10 @@ export function AmexBenefitsReport({
             {rows.map((r) => {
               if (r.kind === "credit") {
                 const b = r.benefit;
-                const achieved = b.status === "ACHIEVED";
-                const pct = b.annualTargetAmount > 0 ? Math.min(100, Math.round((b.yearToDateAmount / b.annualTargetAmount) * 100)) : 0;
+                const used = r.usedAmount;
+                const achieved = b.status === "ACHIEVED" || (b.annualTargetAmount > 0 && used >= b.annualTargetAmount);
+                const pct = b.annualTargetAmount > 0 ? Math.min(100, Math.round((used / b.annualTargetAmount) * 100)) : 0;
+                const statementOverride = used > b.yearToDateAmount;
                 return (
                   <tr key={r.key}>
                     <td className="fx-narration">{r.name}</td>
@@ -280,13 +282,22 @@ export function AmexBenefitsReport({
                         <div style={{ width: `${pct}%`, background: achieved ? "#16a34a" : "#2563eb", height: "100%" }} />
                       </div>
                     </td>
-                    <td className="right">{fmt(b.yearToDateAmount)}</td>
+                    <td className="right">
+                      {fmt(used)}
+                      {statementOverride && <div style={{ fontSize: 10, color: "#2563eb" }}>from statement</div>}
+                    </td>
                     <td className="right">{fmt(b.annualTargetAmount)}</td>
                     <td>
                       <InfoIcon id={r.key} open={rowInfo} setOpen={setRowInfo}>
                         {b.trackerDuration || "—"}, resets {b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}
                         <br />
                         This cycle: {fmt(b.spentAmount)} / {fmt(b.targetAmount)}
+                        {statementOverride && (
+                          <>
+                            <br />
+                            Amex's own live tracker shows {fmt(b.yearToDateAmount)} used -- {fmt(used)} is confirmed from your real statement instead.
+                          </>
+                        )}
                       </InfoIcon>
                     </td>
                   </tr>

@@ -1,12 +1,19 @@
 #!/usr/bin/env node
-// Reconciliation: writes real claim-payment credits from statement-claims.json (see that file --
-// gitignored, never committed, since it holds real account data) into
-// amexCoverageBenefits[].statementClaims (see that field's own comment in lib/vault-types.ts for
-// why this exists -- the ledger's own voucher-narration search misses/mis-scopes some of these).
+// Reconciliation: writes real credits/claims, hand-reconciled against Amex's own downloadable
+// account-activity export, into the vault -- for the handful of cases where Amex's own live data
+// (either a coverage benefit's voucher-narration claim search, or a tracker's own
+// yearToDateAmount) has been confirmed to miss or understate what actually posted. See
+// AmexCoverageBenefit.statementClaims and AmexBenefit.statementCredits's own comments in
+// lib/vault-types.ts for why each exists.
 //
-// There's no automated way to produce statement-claims.json -- Amex has no API for its downloadable
-// account-activity export, so it's hand-reconciled from that export and edited directly. Re-run
-// this script any time that file is updated with new entries.
+// Reads two gitignored, never-committed local files (since they hold real account data):
+//   statement-claims.json  -> { benefitKey: [{date, amount}] }   applied to amexCoverageBenefits
+//   statement-credits.json -> { benefitId: [{date, amount}] }    applied to amexBenefits
+// Either file may be absent if there's nothing to reconcile for that side.
+//
+// There's no automated way to produce these -- Amex has no API for its downloadable account-
+// activity export, so each is hand-reconciled from that export and edited directly. Re-run this
+// script any time either file is updated with new entries.
 //
 // Usage: node apply-statement-claims.mjs (same env vars as import-to-vault.mjs)
 
@@ -19,14 +26,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const { load, encrypt } = require("../tally-sync/sync-core.js");
 
-const claimsPath = join(__dirname, "statement-claims.json");
+function readJson(name) {
+  const path = join(__dirname, name);
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+}
 
 async function main() {
-  if (!existsSync(claimsPath)) {
-    console.log("Nothing to apply -- statement-claims.json not found.");
+  const STATEMENT_CLAIMS = readJson("statement-claims.json");
+  const STATEMENT_CREDITS = readJson("statement-credits.json");
+  if (!Object.keys(STATEMENT_CLAIMS).length && !Object.keys(STATEMENT_CREDITS).length) {
+    console.log("Nothing to apply -- neither statement-claims.json nor statement-credits.json has entries.");
     return;
   }
-  const STATEMENT_CLAIMS = JSON.parse(readFileSync(claimsPath, "utf8"));
 
   const sitePw = process.env.PL_SITE_PASSWORD || "", vaultPw = process.env.PL_VAULT_PASSWORD || "";
   const accessToken = process.env.PL_ACCESS_CODE || "";
@@ -35,24 +46,34 @@ async function main() {
   const auth = "Basic " + Buffer.from("manual-amex-import:" + sitePw).toString("base64");
 
   const state = await load(auth, vaultPw, "us");
-  const existing = state.vault.amexCoverageBenefits || [];
   let changed = 0;
-  const updated = existing.map((b) => {
+
+  const existingCoverage = state.vault.amexCoverageBenefits || [];
+  const updatedCoverage = existingCoverage.map((b) => {
     const claims = STATEMENT_CLAIMS[b.benefitKey];
-    if (!claims) return b;
-    if (JSON.stringify(b.statementClaims || []) === JSON.stringify(claims)) return b;
+    if (!claims || JSON.stringify(b.statementClaims || []) === JSON.stringify(claims)) return b;
     changed++;
     return { ...b, statementClaims: claims };
   });
+
+  const existingBenefits = state.vault.amexBenefits || [];
+  const updatedBenefits = existingBenefits.map((b) => {
+    const credits = STATEMENT_CREDITS[b.benefitId];
+    if (!credits || JSON.stringify(b.statementCredits || []) === JSON.stringify(credits)) return b;
+    changed++;
+    return { ...b, statementCredits: credits };
+  });
+
   if (!changed) {
-    console.log("Nothing to update -- vault already has these statement claims on file.");
+    console.log("Nothing to update -- vault already has these statement figures on file.");
     return;
   }
 
   const backup = join(__dirname, `encrypted-us-vault-before-statement-claims-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   writeFileSync(backup, state.raw);
 
-  state.vault.amexCoverageBenefits = updated;
+  state.vault.amexCoverageBenefits = updatedCoverage;
+  state.vault.amexBenefits = updatedBenefits;
   const body = JSON.stringify(encrypt(state.vault, vaultPw));
   const put = await fetch(state.url, {
     method: "PUT",
@@ -61,7 +82,7 @@ async function main() {
   });
   if (!put.ok) throw new Error("Cloud update rejected HTTP " + put.status + " " + (await put.text()));
 
-  console.log(`SUCCESS: statement claims applied to ${changed} benefit(s).`);
+  console.log(`SUCCESS: statement figures applied to ${changed} benefit(s).`);
   console.log("Encrypted backup: " + backup);
 }
 

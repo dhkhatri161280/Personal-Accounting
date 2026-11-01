@@ -4,6 +4,7 @@ benefits.json
 coverage-benefits.json
 inactive-credits.json
 statement-claims.json
+statement-credits.json
 encrypted-us-vault-before-amex-import-*.json
 encrypted-us-vault-before-statement-claims-*.json
 node_modules/

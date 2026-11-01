@@ -35,6 +35,12 @@ function parseBenefits(raw) {
     if (typeof b !== "object" || b === null) throw new Error(`Benefit ${i}: not an object.`);
     if (typeof b.benefitId !== "string" || !b.benefitId) throw new Error(`Benefit ${i}: missing "benefitId".`);
     if (typeof b.benefitName !== "string" || !b.benefitName) throw new Error(`Benefit ${i} (${b.benefitId}): missing "benefitName".`);
+    const statementCredits = Array.isArray(b.statementCredits)
+      ? b.statementCredits
+          .filter((c) => typeof c === "object" && c !== null)
+          .map((c) => ({ date: typeof c.date === "string" ? c.date : "", amount: typeof c.amount === "number" ? c.amount : 0 }))
+          .filter((c) => c.date && c.amount)
+      : undefined;
     return {
       benefitId: b.benefitId,
       benefitName: b.benefitName,
@@ -49,13 +55,19 @@ function parseBenefits(raw) {
       annualTargetAmount: typeof b.annualTargetAmount === "number" ? b.annualTargetAmount : (typeof b.targetAmount === "number" ? b.targetAmount : 0),
       currency: typeof b.currency === "string" ? b.currency : "USD",
       lastCheckedAt: typeof b.lastCheckedAt === "string" ? b.lastCheckedAt : new Date().toISOString(),
+      statementCredits,
     };
   });
 }
 
+// statementCredits is preserved from the existing record when incoming doesn't specify it -- same
+// reasoning as mergeCoverageBenefits' own preservation of statementClaims below.
 function mergeBenefits(existing, incoming) {
   const byId = new Map(existing.map((b) => [b.benefitId, b]));
-  for (const b of incoming) byId.set(b.benefitId, b);
+  for (const b of incoming) {
+    const prev = byId.get(b.benefitId);
+    byId.set(b.benefitId, { ...b, statementCredits: b.statementCredits ?? prev?.statementCredits });
+  }
   return [...byId.values()].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
 }
 
