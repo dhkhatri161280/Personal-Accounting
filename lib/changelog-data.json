@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-01",
+    "summary": "Amex Benefits: wrap report content in the app's own scroll-safe container"
+  },
+  {
+    "date": "2026-11-01",
     "summary": "Amex Benefits: give every column a fixed width, stop forcing full width"
   },
   {

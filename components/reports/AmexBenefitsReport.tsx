@@ -268,20 +268,18 @@ export function AmexBenefitsReport({
       </div>
 
       {rows.length > 0 && (
-        // table-layout:fixed + EVERY column given a fixed width + the table's own width:auto
-        // (overriding .fx-ledger-table's shared width:100%) -- confirmed live this is the only
-        // combination that never requires horizontal scrolling to see the last column, at any
-        // window size: letting even one column "flex" to fill 100% forces the table's rendered
-        // width to match whatever the surrounding panel happens to be, which can exceed the
-        // actual visible browser window (the panel's own width isn't bounded by the viewport the
-        // same way a plain narrow page is), pushing the rightmost column out of view. A fixed
-        // total width that comfortably fits a normal window, even if it leaves blank space on a
-        // very wide screen, is the only way to guarantee every column stays visible.
-        <table className="fx-ledger-table" style={{ tableLayout: "fixed", width: "auto" }}>
+        // table-layout:fixed, table width:100% (the shared class's own default) -- Benefit/Status
+        // deliberately have NO declared width, so they're the two that stretch to use whatever
+        // page space the four fixed-width amount/icon columns don't need, filling the table out to
+        // the page instead of leaving it stranded at a narrow fixed width. This exact layout
+        // previously pushed the icon column out of view on this page; it's safe now specifically
+        // because the .table-scroll wrapper above makes that a local scrollbar, never a silent
+        // cutoff, if the same thing happens again.
+        <table className="fx-ledger-table" style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th style={{ width: 260 }}>Benefit</th>
-              <th style={{ width: 140 }}>Status</th>
+              <th>Benefit</th>
+              <th>Status</th>
               <th style={{ width: 130 }} className="right">Annual value</th>
               <th style={{ width: 190 }} className="right">Used / claimed</th>
               <th style={{ width: 110 }} className="right">Remaining</th>
@@ -301,7 +299,7 @@ export function AmexBenefitsReport({
                     <td className="fx-narration">{r.name}</td>
                     <td style={{ fontSize: 12 }}>
                       <div style={{ color: achieved ? "#16a34a" : undefined, fontWeight: achieved ? 700 : undefined }}>{achieved ? "✓ Achieved" : "In progress"}</div>
-                      <div style={{ background: "#edf0f4", borderRadius: 4, height: 6, overflow: "hidden", width: "100%", marginTop: 2 }}>
+                      <div style={{ background: "#edf0f4", borderRadius: 4, height: 6, overflow: "hidden", width: "100%", maxWidth: 160, marginTop: 2 }}>
                         <div style={{ width: `${pct}%`, background: achieved ? "#16a34a" : "#2563eb", height: "100%" }} />
                       </div>
                     </td>
