@@ -81,7 +81,11 @@ function parseCoverageBenefits(raw) {
     const statementClaims = Array.isArray(b.statementClaims)
       ? b.statementClaims
           .filter((c) => typeof c === "object" && c !== null)
-          .map((c) => ({ date: typeof c.date === "string" ? c.date : "", amount: typeof c.amount === "number" ? c.amount : 0 }))
+          .map((c) => ({
+            date: typeof c.date === "string" ? c.date : "",
+            amount: typeof c.amount === "number" ? c.amount : 0,
+            voucherGuid: typeof c.voucherGuid === "string" ? c.voucherGuid : undefined,
+          }))
           .filter((c) => c.date && c.amount)
       : undefined;
     return {

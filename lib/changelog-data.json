@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: correct a tracker whose own live figure understated real usage"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: fix per-row info popover rendering invisible"
   },
   {

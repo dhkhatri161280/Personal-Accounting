@@ -605,7 +605,13 @@ export type AmexCoverageBenefit = {
   // never count against 2026's cap). Each entry is {date, amount} exactly as it posted on Amex's
   // own statement -- the report filters this to the CURRENT calendar year itself, same as the
   // voucher-matched claims, so this array may validly hold prior years' confirmed claims too.
-  statementClaims?: { date: string; amount: number }[];
+  // voucherGuid, when present, is the EXACT real Tx this claim was hand-confirmed to be, for the
+  // (common) case where the ledger's own posting narration doesn't use words the regex search
+  // could ever have matched (confirmed live: "Shopping @ Samsung Tab - Amex Protection" and
+  // "...AMEX Claim" for two real Return Protection reimbursements, neither narration containing
+  // both "return" and "protection") -- the report drills straight to that voucher by id rather
+  // than falling back to the generic "no voucher found" (statement) label.
+  statementClaims?: { date: string; amount: number; voucherGuid?: string }[];
   lastCheckedAt: string;
 };
 

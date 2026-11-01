@@ -115,10 +115,13 @@ export function AmexBenefitsReport({
     return candidates[0];
   }, [data.transactions]);
 
-  // benefitKey -> every real claim event THIS CALENDAR YEAR, combining voucher-narration matches
-  // (clickable, drills to the real voucher) and hand-reconciled Amex statement claims (not
-  // clickable -- confirmed real, just no ledger Tx to open). Both filtered to currentYear since
-  // Amex resets these caps annually -- a claim from a prior year must not inflate this year's use.
+  // benefitKey -> every real claim event THIS CALENDAR YEAR, combining voucher-narration matches,
+  // hand-reconciled Amex statement claims with a confirmed exact voucherGuid (also clickable -- for
+  // when the real voucher's own narration doesn't use words the regex search could ever match), and
+  // statement claims with no known voucher at all (not clickable -- confirmed real, just nothing to
+  // open). All filtered to currentYear since Amex resets these caps annually -- a claim from a
+  // prior year must not inflate this year's use.
+  const txByGuid = useMemo(() => new Map(data.transactions.map((t) => [t.guid, t])), [data.transactions]);
   const coverageClaims = useMemo(() => {
     const out = new Map<string, ClaimEvent[]>();
     for (const b of coverageBenefits) {
@@ -136,7 +139,8 @@ export function AmexBenefitsReport({
         // Skip a statement claim that's effectively the same event as an already-matched voucher
         // (same date, amount within a cent) so it isn't double-counted.
         if (events.some((e) => e.date === c.date && Math.abs(e.amount - c.amount) < 0.01)) continue;
-        events.push({ date: c.date, amount: c.amount });
+        const voucher = c.voucherGuid ? txByGuid.get(c.voucherGuid) : undefined;
+        events.push({ date: c.date, amount: c.amount, voucher });
       }
       if (events.length) {
         events.sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -144,7 +148,7 @@ export function AmexBenefitsReport({
       }
     }
     return out;
-  }, [coverageBenefits, data.transactions, currentYear]);
+  }, [coverageBenefits, data.transactions, txByGuid, currentYear]);
 
   const totalCoverageClaims = useMemo(() => {
     let total = 0;

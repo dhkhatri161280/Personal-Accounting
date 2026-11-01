@@ -198,7 +198,14 @@ test("parseAmexCoverageBenefitsUpload: parses statementClaims, dropping malforme
   const parsed = parseAmexCoverageBenefitsUpload([
     coverageBenefit({ statementClaims: [{ date: "2026-02-18", amount: 300 }, { date: "", amount: 0 }] }),
   ]);
-  assert.deepEqual(parsed[0].statementClaims, [{ date: "2026-02-18", amount: 300 }]);
+  assert.deepEqual(parsed[0].statementClaims, [{ date: "2026-02-18", amount: 300, voucherGuid: undefined }]);
+});
+
+test("parseAmexCoverageBenefitsUpload: parses a statement claim's voucherGuid -- for a real claim whose own voucher narration doesn't match the regex search", () => {
+  const parsed = parseAmexCoverageBenefitsUpload([
+    coverageBenefit({ statementClaims: [{ date: "2026-02-18", amount: 300, voucherGuid: "example-voucher-guid-0001" }] }),
+  ]);
+  assert.equal(parsed[0].statementClaims?.[0].voucherGuid, "example-voucher-guid-0001");
 });
 
 test("selfReportedUberCashUsed: $15/month, with a $20 December bonus once December has arrived", () => {

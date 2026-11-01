@@ -93,8 +93,12 @@ export function parseAmexCoverageBenefitsUpload(raw: unknown): AmexCoverageBenef
     const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
     const statementClaims = Array.isArray(o.statementClaims)
       ? o.statementClaims
-          .filter((c): c is { date: unknown; amount: unknown } => typeof c === "object" && c !== null)
-          .map((c) => ({ date: typeof c.date === "string" ? c.date : "", amount: typeof c.amount === "number" ? c.amount : 0 }))
+          .filter((c): c is { date: unknown; amount: unknown; voucherGuid?: unknown } => typeof c === "object" && c !== null)
+          .map((c) => ({
+            date: typeof c.date === "string" ? c.date : "",
+            amount: typeof c.amount === "number" ? c.amount : 0,
+            voucherGuid: typeof c.voucherGuid === "string" ? c.voucherGuid : undefined,
+          }))
           .filter((c) => c.date && c.amount)
       : undefined;
     return {
