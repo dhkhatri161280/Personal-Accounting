@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: fix the runaway Used/claimed column, card-style summary stats"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: reorder table columns, add a Remaining column"
   },
   {
