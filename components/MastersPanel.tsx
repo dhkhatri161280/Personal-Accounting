@@ -2819,11 +2819,13 @@ export function MastersPanel({
             )}
             {inactiveCredits.length > 0 && (
               <>
-                <h4 style={{ margin: "1.5rem 0 0.5rem" }}>Not Yet Active</h4>
+                <h4 style={{ margin: "1.5rem 0 0.5rem" }}>Not Tracked by Amex</h4>
                 <p className="field-hint" style={{ margin: "0 0 0.5rem" }}>
                   Real credits your account has access to per Amex&apos;s own catalog, but with no active usage
-                  tracker right now -- usually because they need an extra enrollment step beyond amex.com
-                  (e.g. $200 Uber Cash needs the card linked inside the Uber app itself).
+                  tracker on Amex&apos;s side -- confirmed with Amex support for $200 Uber Cash: it&apos;s credited
+                  straight to your Uber account on the 1st of each month, bypassing Amex&apos;s own tracking
+                  entirely, so this will never show real usage numbers here regardless of enrollment. Check
+                  your Uber Wallet balance directly for this one.
                 </p>
                 <table>
                   <thead>

@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex benefits: always show the protection-claims total, not just when nonzero"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex benefits: fix understated usage for sub-annual credits"
   },
   {

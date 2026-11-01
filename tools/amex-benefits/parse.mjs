@@ -55,11 +55,12 @@ const COVERAGE_BENEFIT_KEYS = [
 // has access to per Amex's catalog but DON'T currently have an active usage tracker -- confirmed
 // live: "uber-rides-with-platinum" ($200 Uber Cash) sits in the catalog with real terms, but never
 // appears in ReadBestLoyaltyBenefitsTrackers for this account, unlike the separate, already-active
-// "$120 Uber One Credit". Per Amex's own terms text, Uber Cash specifically requires adding the
-// card inside the UBER APP itself (not just amex.com) -- the most likely reason no tracker exists
-// yet. Checked against the keyword below to avoid flagging one that's just differently-named but
-// already active (if it's a false "not active" some day, lower false-negative risk than silently
-// hiding a real, unused $200/year benefit).
+// "$120 Uber One Credit". Confirmed DIRECTLY WITH AMEX SUPPORT (not a guess): Uber Cash is never
+// tracked on Amex's side at all -- it's credited straight to the user's Uber account on the 1st of
+// each month, so this benefit will NEVER get an Amex tracker regardless of enrollment state. It's
+// surfaced here anyway (real terms, not hidden) so the value is visible, but its true usage can
+// only ever be checked in the Uber app's own wallet balance, never from Amex's data. Checked
+// against the keyword below to avoid flagging one that's just differently-named but already active.
 const INACTIVE_CREDIT_CHECKS = [{ key: "uber-rides-with-platinum", activeNameKeyword: "uber cash" }];
 
 // Amex's own marketing copy is HTML with decimal numeric character entities (e.g. &#36; for "$",

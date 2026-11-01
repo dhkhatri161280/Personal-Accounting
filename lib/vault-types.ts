@@ -800,11 +800,12 @@ export type Ledger = {
   // Real claim-based protection/insurance benefit terms. See AmexCoverageBenefit's own comment.
   amexCoverageBenefits?: AmexCoverageBenefit[];
   // Real credit-type benefits (statement credits, not protections) the account has access to per
-  // Amex's own catalog but that have NO active usage tracker right now -- e.g. $200 Uber Cash,
-  // confirmed real and separate from the already-tracked $120 Uber One Credit, but requiring the
-  // card to be linked inside the Uber app itself before Amex starts tracking it. Reuses
-  // AmexCoverageBenefit's shape (same parsed-numbers fields) since the data shape is identical;
-  // "inactive" here just means "not yet showing up," not "ineligible."
+  // Amex's own catalog but that have NO active usage tracker -- e.g. $200 Uber Cash, confirmed
+  // real and separate from the already-tracked $120 Uber One Credit. Confirmed directly with Amex
+  // support (not a guess): Uber Cash is never tracked on Amex's side at all -- it's credited
+  // straight to the Uber account on the 1st of each month, so this one specifically will NEVER
+  // get an Amex tracker; its real usage can only be checked in the Uber app's own wallet. Reuses
+  // AmexCoverageBenefit's shape (same parsed-numbers fields) since the data shape is identical.
   amexInactiveCredits?: AmexCoverageBenefit[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.

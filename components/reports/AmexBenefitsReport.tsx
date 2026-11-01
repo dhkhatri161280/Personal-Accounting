@@ -278,11 +278,13 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
 
       {inactiveCredits.length > 0 && (
         <>
-          <h4 style={{ margin: "20px 0 8px" }}>Not Yet Active</h4>
+          <h4 style={{ margin: "20px 0 8px" }}>Not Tracked by Amex</h4>
           <p style={{ fontSize: 11, opacity: 0.6, margin: "0 0 10px" }}>
             Real credits your account has access to per Amex's own catalog, but with no active usage tracker
-            right now -- usually because they need an extra enrollment step beyond amex.com (e.g. $200 Uber
-            Cash needs the card linked inside the Uber app itself, not just on Amex's site).
+            on Amex's side -- confirmed with Amex support for $200 Uber Cash: it's credited straight to your
+            Uber account on the 1st of each month, bypassing Amex's own tracking entirely, so this will never
+            show real usage numbers here regardless of enrollment. Check your Uber Wallet balance directly
+            for this one.
           </p>
           <table className="fx-ledger-table">
             <thead>
