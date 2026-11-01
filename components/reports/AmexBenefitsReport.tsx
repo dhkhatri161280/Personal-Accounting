@@ -308,15 +308,22 @@ export function AmexBenefitsReport({
                     <td className="right" style={{ fontSize: 12 }}>
                       {r.claims.length ? (
                         <>
-                          <div>{fmt(r.usedAmount)}</div>
+                          <div style={{ fontWeight: 700 }}>{fmt(r.usedAmount)}</div>
                           {r.claims.map((c, i) =>
                             c.voucher && onViewVoucher ? (
-                              <button key={i} type="button" className="columnar-cell-btn" style={{ display: "block", fontSize: 11, marginLeft: "auto" }} title={c.voucher.narration} onClick={() => onViewVoucher(c.voucher!)}>
-                                {fmtDate(c.date)}
+                              <button
+                                key={i}
+                                type="button"
+                                className="columnar-cell-btn"
+                                style={{ display: "block", fontSize: 11, marginLeft: "auto", color: "#2563eb", textDecoration: "underline" }}
+                                title={`Open the matching voucher: ${c.voucher.narration}`}
+                                onClick={() => onViewVoucher(c.voucher!)}
+                              >
+                                {fmtDate(c.date)}: {fmt(c.amount)}
                               </button>
                             ) : (
-                              <div key={i} style={{ fontSize: 11, opacity: 0.75 }} title="Confirmed from your Amex statement, no matching voucher">
-                                {fmtDate(c.date)} (statement)
+                              <div key={i} style={{ fontSize: 11, opacity: 0.75 }} title="Confirmed from your Amex statement, no matching voucher to open">
+                                {fmtDate(c.date)}: {fmt(c.amount)} (statement)
                               </div>
                             )
                           )}
