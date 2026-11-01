@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: let Benefit/Status columns fill the table's full width"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: stop the table from stretching to the full panel width"
   },
   {

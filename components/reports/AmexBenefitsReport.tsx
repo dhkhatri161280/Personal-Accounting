@@ -271,7 +271,7 @@ export function AmexBenefitsReport({
           <thead>
             <tr>
               <th>Benefit</th>
-              <th>Status</th>
+              <th style={{ width: 150 }}>Status</th>
               <th style={{ width: 110 }} className="right">Annual value</th>
               <th style={{ width: 170 }} className="right">Used / claimed</th>
               <th style={{ width: 90 }} className="right">Remaining</th>
@@ -291,7 +291,7 @@ export function AmexBenefitsReport({
                     <td className="fx-narration">{r.name}</td>
                     <td style={{ fontSize: 12 }}>
                       <div style={{ color: achieved ? "#16a34a" : undefined, fontWeight: achieved ? 700 : undefined }}>{achieved ? "✓ Achieved" : "In progress"}</div>
-                      <div style={{ background: "#edf0f4", borderRadius: 4, height: 6, overflow: "hidden", minWidth: 80, marginTop: 2 }}>
+                      <div style={{ background: "#edf0f4", borderRadius: 4, height: 6, overflow: "hidden", width: "100%", marginTop: 2 }}>
                         <div style={{ width: `${pct}%`, background: achieved ? "#16a34a" : "#2563eb", height: "100%" }} />
                       </div>
                     </td>
