@@ -1,0 +1,5 @@
+# Real Amex benefit/usage data and live browser session info -- never commit these.
+.captures/
+benefits.json
+encrypted-us-vault-before-amex-import-*.json
+node_modules/

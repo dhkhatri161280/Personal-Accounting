@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Chat assistant: add search_costco_items for per-item receipt questions"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Device pairing: survive tab suspension and a dropped poll response"
   },
   {

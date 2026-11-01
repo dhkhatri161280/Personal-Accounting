@@ -4,8 +4,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt, CostcoPriceCheck } from "@/lib/vault-types";
+import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt, CostcoPriceCheck, AmexBenefit } from "@/lib/vault-types";
 import { mergeCostcoReceipts, parseCostcoReceiptsUpload, mergeCostcoPriceChecks, parseCostcoPriceChecksUpload } from "@/lib/costco-receipts";
+import { mergeAmexBenefits, parseAmexBenefitsUpload } from "@/lib/amex-benefits";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -105,6 +106,7 @@ export type MasterLedger = {
   documents?: VaultDocument[];
   costcoReceipts?: CostcoReceipt[];
   costcoPriceChecks?: CostcoPriceCheck[];
+  amexBenefits?: AmexBenefit[];
 };
 
 const standard: MasterGroup[] = [
@@ -556,7 +558,7 @@ export function MastersPanel({
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
-  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "settings";
+  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "amexbenefits" | "settings";
   // Applies a Fixed Asset # to every voucher already posted on an untagged asset's own ledger --
   // routed through a dedicated prop (not the generic onSave above) because it needs to exempt
   // those (possibly closed-period) vouchers from the closed-period check, the same way
@@ -572,7 +574,7 @@ export function MastersPanel({
   // local hook so a standalone render (e.g. a QA route) still works without this prop.
   privacyMode?: boolean;
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "settings">(initialSection ?? "ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "amexbenefits" | "settings">(initialSection ?? "ledgers"),
     // Inline confirmation/error for the Settings form's own Save button -- see that form's
     // onSubmit and onSave's doc comment above for why this exists alongside the global toast.
     [settingsSaveState, setSettingsSaveState] = useState<"saving" | "saved" | "error" | null>(null),
@@ -624,7 +626,9 @@ export function MastersPanel({
     [editingDocumentCategory, setEditingDocumentCategory] = useState<VaultDocument["category"]>("Pay Stub"),
     [editingDocumentDate, setEditingDocumentDate] = useState(""),
     [uploadingCostcoReceipts, setUploadingCostcoReceipts] = useState(false),
-    [costcoReceiptsError, setCostcoReceiptsError] = useState("");
+    [costcoReceiptsError, setCostcoReceiptsError] = useState(""),
+    [uploadingAmexBenefits, setUploadingAmexBenefits] = useState(false),
+    [amexBenefitsError, setAmexBenefitsError] = useState("");
   const { privacyMode: privacyModeLocal } = useUiPrefs();
   const privacyMode = privacyModeProp ?? privacyModeLocal;
 
@@ -1254,6 +1258,13 @@ export function MastersPanel({
       "Receipt removed."
     );
   };
+  const deleteAmexBenefit = (b: AmexBenefit) => {
+    if (!confirm(`Remove this benefit tracker (${b.benefitName})?`)) return;
+    onSave(
+      { ...data, amexBenefits: (data.amexBenefits || []).filter((x) => x.benefitId !== b.benefitId) },
+      "Benefit tracker removed."
+    );
+  };
   // Same client-side-only read as importCostcoReceipts above -- price-checks.json comes from
   // tools/costco-receipts/check-prices.mjs, a REAL live lookup against costco.com driven through
   // an already-authenticated Chrome session (not a guess, not generic web search -- confirmed
@@ -1271,6 +1282,25 @@ export function MastersPanel({
       setCostcoReceiptsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid price-checks.json?");
     } finally {
       setUploadingCostcoReceipts(false);
+    }
+  }
+  // Same client-side-only read as importCostcoReceipts above -- benefits.json comes from
+  // tools/amex-benefits/parse.mjs, Amex's own real ReadBestLoyaltyBenefitsTrackers data captured
+  // through an already-authenticated Chrome session (Amex has no public API for this, same
+  // situation as Costco). mergeAmexBenefits dedupes by benefitId, newest import wins -- re-running
+  // this refreshes spent/remaining/status under the same key rather than growing the list.
+  async function importAmexBenefits(file: File) {
+    setUploadingAmexBenefits(true);
+    setAmexBenefitsError("");
+    try {
+      const text = await file.text();
+      const parsed = parseAmexBenefitsUpload(JSON.parse(text));
+      const merged = mergeAmexBenefits((data.amexBenefits || []) as AmexBenefit[], parsed);
+      onSave({ ...data, amexBenefits: merged }, `Imported ${parsed.length} benefit tracker(s).`);
+    } catch (err) {
+      setAmexBenefitsError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid benefits.json?");
+    } finally {
+      setUploadingAmexBenefits(false);
     }
   }
   const toggleCandidateSelected = (key: string) => {
@@ -1465,6 +1495,12 @@ export function MastersPanel({
           onClick={() => setSection("costcoreceipts")}
         >
           Costco Receipts
+        </button>
+        <button
+          className={section === "amexbenefits" ? "selected" : ""}
+          onClick={() => setSection("amexbenefits")}
+        >
+          Amex Benefits
         </button>
         <button
           className={section === "settings" ? "selected" : ""}
@@ -2569,6 +2605,80 @@ export function MastersPanel({
                       <td className="right">{r.items.length}</td>
                       <td>
                         <button className="master-delete" onClick={() => deleteCostcoReceipt(r)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        );
+      })()}
+      {section === "amexbenefits" && (() => {
+        const benefits = [...(data.amexBenefits || [])].sort((a, b) => (a.benefitName < b.benefitName ? -1 : 1));
+        const totalTarget = benefits.reduce((s, b) => s + b.targetAmount, 0);
+        const totalSpent = benefits.reduce((s, b) => s + b.spentAmount, 0);
+        return (
+          <>
+            <div className="master-toolbar">
+              <span>
+                {benefits.length} benefit tracker{benefits.length === 1 ? "" : "s"} imported
+                {benefits.length ? ` — $${totalSpent.toFixed(2)} used of $${totalTarget.toFixed(2)}` : ""}
+              </span>
+              <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
+                {uploadingAmexBenefits ? "Importing…" : "Import benefits.json…"}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  disabled={uploadingAmexBenefits}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importAmexBenefits(file);
+                  }}
+                />
+              </label>
+            </div>
+            <p className="field-hint" style={{ margin: "0 0 0.75rem" }}>
+              Real Amex Platinum benefit usage, captured straight from Amex&apos;s own account data (see{" "}
+              <code>tools/amex-benefits/</code> in the repo) -- not a guessed list of benefit amounts. Each
+              tracker's current spend/remaining/reset date comes directly from Amex, the same way it shows
+              on your own Benefits page. Re-importing the same file is safe -- trackers are deduped by Amex&apos;s
+              own benefit id, and a re-import refreshes the usage numbers in place.
+            </p>
+            {amexBenefitsError && <p className="equity-pdf-error">{amexBenefitsError}</p>}
+            {benefits.length === 0 ? (
+              <p style={{ opacity: 0.7 }}>
+                No benefit trackers imported yet. Run the capture tool at <code>tools/amex-benefits/</code>,
+                then import the <code>benefits.json</code> it produces.
+              </p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Benefit</th>
+                    <th>Status</th>
+                    <th>Cadence</th>
+                    <th className="right">Used</th>
+                    <th className="right">Target</th>
+                    <th>Resets</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {benefits.map((b) => (
+                    <tr key={b.benefitId}>
+                      <td>{b.benefitName}</td>
+                      <td>{b.status === "ACHIEVED" ? "✓ Achieved" : b.status || "—"}</td>
+                      <td>{b.trackerDuration || "—"}</td>
+                      <td className="right">${b.spentAmount.toFixed(2)}</td>
+                      <td className="right">${b.targetAmount.toFixed(2)}</td>
+                      <td>{b.periodEndDate ? fmtDate(b.periodEndDate) : "—"}</td>
+                      <td>
+                        <button className="master-delete" onClick={() => deleteAmexBenefit(b)}>
                           Delete
                         </button>
                       </td>

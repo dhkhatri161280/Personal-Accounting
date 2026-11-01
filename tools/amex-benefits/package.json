@@ -1,0 +1,12 @@
+{
+  "name": "amex-benefits",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Captures your real Amex Benefits page data (your own session, your own login) to track credit-card benefit utilization against the annual fee",
+  "scripts": {
+    "attach": "node attach.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

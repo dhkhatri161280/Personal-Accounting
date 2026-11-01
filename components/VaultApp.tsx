@@ -124,6 +124,7 @@ const FinancialRatios = lazy(() => import("@/components/reports/FinancialRatios"
 const CashFlowForecast = lazy(() => import("@/components/reports/CashFlowForecast").then((m) => ({ default: m.CashFlowForecast })));
 const FundSummary = lazy(() => import("@/components/reports/FundSummary").then((m) => ({ default: m.FundSummary })));
 const SpendReport = lazy(() => import("@/components/reports/SpendReport").then((m) => ({ default: m.SpendReport })));
+const AmexBenefitsReport = lazy(() => import("@/components/reports/AmexBenefitsReport").then((m) => ({ default: m.AmexBenefitsReport })));
 const CashFlowReport = lazy(() => import("@/components/reports/CashFlowReport").then((m) => ({ default: m.CashFlowReport })));
 const BalanceSheetReport = lazy(() => import("@/components/reports/BalanceSheetReport").then((m) => ({ default: m.BalanceSheetReport })));
 const NetWorthReport = lazy(() => import("@/components/reports/NetWorthReport").then((m) => ({ default: m.NetWorthReport })));
@@ -4478,6 +4479,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                   { id: "cash", label: "Cash and Bank", onClick: () => setReport("cash") },
                   { id: "fundsummary", label: "Fund Summary", onClick: () => setReport("fundsummary") },
                   { id: "spend", label: "Spend Report", onClick: () => setReport("spend") },
+                  ...(book !== "india" ? [{ id: "amexbenefits", label: "Amex Benefits", onClick: () => setReport("amexbenefits") }] : []),
                 ],
               },
               {
@@ -5508,6 +5510,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
             />
           )}
           {report === "spend" && data && <SpendReport data={data} fmt={fmt} onSave={(next) => save(next, "spend-report")} />}
+          {report === "amexbenefits" && data && <AmexBenefitsReport data={data} fmt={fmt} />}
         </Suspense>
       )}
       {tab === "new" && (

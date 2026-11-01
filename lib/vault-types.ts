@@ -518,6 +518,32 @@ export type CostcoPriceCheck = {
   checkedAt: string;
 };
 
+// One real Amex "benefit tracker" -- a statement credit (Airline Fee Credit, Digital
+// Entertainment, Uber One, etc.) with its own real-time usage status, imported from Amex's own
+// account data (tools/amex-benefits/, the same no-public-API browser-capture pattern as
+// tools/costco-receipts/). Field names/values deliberately mirror Amex's own API verbatim
+// (status: "IN_PROGRESS"/"ACHIEVED", trackerDuration: "CalenderYear"/"Monthly"/etc -- yes,
+// "CalenderYear" is Amex's own spelling) rather than being reinterpreted into this app's own
+// vocabulary, since Amex is the authoritative source and re-deriving these from Plaid transaction
+// text would be strictly less accurate than what Amex's own account already tracks directly.
+// Scoped to category "usage" trackers only (real statement credits) -- Amex's data also includes
+// "spend" trackers (progress toward a spend-based perk like lounge access tier) and "access"
+// trackers (a visit/pass count, not a dollar credit), neither of which is "what I utilize" in the
+// sense this feature tracks.
+export type AmexBenefit = {
+  benefitId: string; // Amex's own stable id, e.g. "200-afc-tracker" -- used as the merge key
+  benefitName: string; // e.g. "$200 Airline Fee Credit"
+  periodStartDate: string; // YYYY-MM-DD, the CURRENT cycle's start (re-imported each refresh)
+  periodEndDate: string; // YYYY-MM-DD, when this credit resets/expires
+  trackerDuration: string; // Amex's own cadence label verbatim
+  status: string; // Amex's own status verbatim, e.g. "IN_PROGRESS", "ACHIEVED"
+  targetAmount: number;
+  spentAmount: number;
+  remainingAmount: number;
+  currency: string;
+  lastCheckedAt: string; // ISO timestamp -- when this was captured from Amex
+};
+
 export type BudgetLine = {
   id: string;
   accountId: number;
@@ -729,6 +755,9 @@ export type Ledger = {
   // from the Price Match Watchlist itself (Spend report) so an already-refunded item stops
   // showing as an open "match" and isn't double-counted in Total potential savings.
   costcoPriceMatchClaimed?: string[];
+  // Real Amex card benefit usage, imported from Amex's own account data. See AmexBenefit's own
+  // comment and lib/amex-benefits.ts.
+  amexBenefits?: AmexBenefit[];
   // Change history for vouchers and master data. See lib/audit.ts. Capped to the most recent
   // 5000 entries (appendAuditEntry trims the oldest) to bound blob growth over years of use.
   auditLog?: AuditEntry[];
