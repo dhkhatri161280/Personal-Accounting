@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: stop the table from stretching to the full panel width"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: fix the runaway Used/claimed column, card-style summary stats"
   },
   {

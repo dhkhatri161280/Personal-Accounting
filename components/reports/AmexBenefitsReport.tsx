@@ -263,17 +263,15 @@ export function AmexBenefitsReport({
         // table-layout: fixed -- .fx-ledger-table defaults to "auto", which sizes every column to
         // its widest cell's un-wrapped content; the claims list below (multiple "date: amount"
         // lines, each nowrap by that shared class) was stretching the whole Used/claimed column
-        // far past its declared 170px. Fixed layout holds each column to the <th> widths declared
-        // below -- but ONLY once width:auto also overrides .fx-ledger-table's own width:100%;
-        // confirmed live that width:100% + table-layout:fixed does NOT cap columns at their
-        // declared pixel widths, it just uses those widths as a RATIO to stretch proportionally
-        // across the full 100%-wide table, so every column still grew well past its own number.
-        // width:auto lets the table shrink to the sum of its declared column widths instead.
-        <table className="fx-ledger-table" style={{ tableLayout: "fixed", width: "auto" }}>
+        // far past its declared 170px. Fixed layout holds the four dollar/icon columns to the
+        // widths declared on their own <th> -- Benefit and Status deliberately have NO declared
+        // width, so (confirmed live) they're the only two that absorb whatever space is left once
+        // the table fills its container, instead of all six columns stretching proportionally.
+        <table className="fx-ledger-table" style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th style={{ width: 170 }}>Benefit</th>
-              <th style={{ width: 110 }}>Status</th>
+              <th>Benefit</th>
+              <th>Status</th>
               <th style={{ width: 110 }} className="right">Annual value</th>
               <th style={{ width: 170 }} className="right">Used / claimed</th>
               <th style={{ width: 90 }} className="right">Remaining</th>
