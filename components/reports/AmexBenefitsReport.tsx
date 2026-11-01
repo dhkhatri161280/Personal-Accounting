@@ -34,14 +34,13 @@ const COVERAGE_SEARCH_TERMS: Record<string, string[][]> = {
   "credit-secure": [["creditsecure"], ["credit", "secure"]],
 };
 
-// Amex's own cadence labels (verbatim, including the "Calender" misspelling) -- used for the
-// Benefit column's subtitle line, so the now-wider column shows something useful (what kind of
-// credit this is) rather than sitting half-empty.
+// Amex's own cadence labels, translated to short, single-word-ish tags that fit inline next to
+// the benefit name on one line (the full "resets on" date is still in that row's ⓘ popover).
 const CADENCE_LABEL: Record<string, string> = {
-  CalenderYear: "Annual statement credit",
-  Monthly: "Monthly statement credit",
-  QuarterYear: "Quarterly statement credit",
-  HalfYear: "Semi-annual statement credit",
+  CalenderYear: "Annual",
+  Monthly: "Monthly",
+  QuarterYear: "Quarterly",
+  HalfYear: "Semi-annual",
 };
 
 // A single real claim/credit event, however it was found -- a matched ledger voucher (clickable)
@@ -278,18 +277,18 @@ export function AmexBenefitsReport({
       </div>
 
       {rows.length > 0 && (
-        // table-layout:fixed, table width:100% (the shared class's own default) -- Benefit/Status
-        // deliberately have NO declared width, so they're the two that stretch to use whatever
-        // page space the four fixed-width amount/icon columns don't need, filling the table out to
-        // the page instead of leaving it stranded at a narrow fixed width. This exact layout
-        // previously pushed the icon column out of view on this page; it's safe now specifically
-        // because the .table-scroll wrapper above makes that a local scrollbar, never a silent
-        // cutoff, if the same thing happens again.
+        // table-layout:fixed, table width:100% (the shared class's own default) -- Benefit is sized
+        // to fit its own (now single-line) content, Status deliberately has NO declared width so IT
+        // is the one that stretches to use whatever page space the other five columns don't need,
+        // filling the table out to the page instead of leaving it stranded at a narrow fixed width.
+        // This exact "one flexible column" shape previously pushed the icon column out of view on
+        // this page; it's safe now specifically because the .table-scroll wrapper above makes that
+        // a local scrollbar, never a silent cutoff, if the same thing happens again.
         <table className="fx-ledger-table" style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th>Benefit</th>
-              <th style={{ width: 160 }}>Status</th>
+              <th style={{ width: 340 }}>Benefit</th>
+              <th>Status</th>
               <th style={{ width: 130 }} className="right">Annual value</th>
               <th style={{ width: 190 }} className="right">Used / claimed</th>
               <th style={{ width: 110 }} className="right">Remaining</th>
@@ -304,14 +303,12 @@ export function AmexBenefitsReport({
                 const achieved = b.status === "ACHIEVED" || (b.annualTargetAmount > 0 && used >= b.annualTargetAmount);
                 const pct = b.annualTargetAmount > 0 ? Math.min(100, Math.round((used / b.annualTargetAmount) * 100)) : 0;
                 const statementOverride = used > b.yearToDateAmount;
-                const cadenceLabel = CADENCE_LABEL[b.trackerDuration] || (b.trackerDuration ? `${b.trackerDuration} statement credit` : "Statement credit");
+                const cadenceLabel = CADENCE_LABEL[b.trackerDuration] || b.trackerDuration || "";
                 return (
                   <tr key={r.key}>
-                    <td style={{ verticalAlign: "top" }}>
-                      <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
-                      <div style={{ fontSize: 11, opacity: 0.6, marginTop: 1 }}>
-                        {cadenceLabel}{b.periodEndDate ? ` · resets ${fmtDate(b.periodEndDate)}` : ""}
-                      </div>
+                    <td style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {r.name}
+                      {cadenceLabel && <span style={{ fontSize: 11, opacity: 0.6 }}> · {cadenceLabel}</span>}
                     </td>
                     <td style={{ fontSize: 12 }}>
                       <div style={{ color: achieved ? "#16a34a" : undefined, fontWeight: achieved ? 700 : undefined }}>{achieved ? "✓ Achieved" : "In progress"}</div>
@@ -350,11 +347,9 @@ export function AmexBenefitsReport({
                 if (b.monthlyCost != null) limitBits.push(`${fmt(b.monthlyCost)}/mo after trial`);
                 return (
                   <tr key={r.key}>
-                    <td style={{ verticalAlign: "top" }}>
-                      <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
-                      <div style={{ fontSize: 11, opacity: 0.6, marginTop: 1 }}>
-                        {limitBits.length ? limitBits.join(" · ") : "Protection & insurance claim"}
-                      </div>
+                    <td style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {r.name}
+                      {limitBits.length > 0 && <span style={{ fontSize: 11, opacity: 0.6 }}> · {limitBits.join(" · ")}</span>}
                     </td>
                     <td style={{ fontSize: 12, color: r.claims.length ? "#16a34a" : undefined, fontWeight: r.claims.length ? 700 : undefined }}>
                       {r.claims.length ? `${r.claims.length} claim${r.claims.length === 1 ? "" : "s"}` : "Not claimed"}
@@ -412,10 +407,7 @@ export function AmexBenefitsReport({
               const supportsSelfReport = b.benefitKey === "uber-rides-with-platinum";
               return (
                 <tr key={r.key}>
-                  <td style={{ verticalAlign: "top" }}>
-                    <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
-                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 1 }}>Not tracked by Amex</div>
-                  </td>
+                  <td style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</td>
                   <td style={{ fontSize: 12, color: b.selfReportedFullyUsed ? "#2563eb" : undefined, fontWeight: b.selfReportedFullyUsed ? 700 : undefined }}>
                     {b.selfReportedFullyUsed ? "Self-reported" : "Not tracked"}
                   </td>
