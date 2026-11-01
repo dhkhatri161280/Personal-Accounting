@@ -2421,6 +2421,24 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       });
     }
   }
+  // Amex Benefits refreshes once a day on its own (tools/amex-benefits/run-scheduled.ps1) with no
+  // manual step needed -- UNLESS the debug Chrome's Amex session has signed out, in which case
+  // that daily run silently captures 0 trackers and nothing in the vault changes. The only
+  // visible symptom is every benefit's own lastCheckedAt quietly going stale, so that's exactly
+  // what this checks (no new API call -- the data's already in the vault). 36h gives the daily
+  // schedule a buffer before flagging, same reasoning as Tally's 2x-normal-cycle threshold above.
+  // US-only (book !== "india"): Amex Platinum benefits are a US card.
+  if (book !== "india" && data?.amexBenefits?.length) {
+    const mostRecentCheck = data.amexBenefits.reduce((latest, b) => (b.lastCheckedAt > latest ? b.lastCheckedAt : latest), "");
+    const AMEX_STALE_HOURS = 36;
+    const ageHours = (Date.now() - new Date(mostRecentCheck).getTime()) / 3600000;
+    if (ageHours > AMEX_STALE_HOURS) {
+      attentionItems.push({
+        label: "Amex benefits haven't updated recently",
+        detail: `Last refreshed ${timeAgoLabel(mostRecentCheck)} -- it normally updates on its own every day. This usually means the debug Chrome's Amex sign-in expired: open that Chrome window, log into americanexpress.com again, and it'll pick back up automatically tomorrow.`,
+      });
+    }
+  }
   // Plaid connection failures (e.g. ITEM_LOGIN_REQUIRED after a bank forces a password reset)
   // are otherwise invisible unless the user happens to revisit Import → Plaid and fetch again --
   // this just reads what PlaidImport.tsx already persisted on its last on-demand fetch, never

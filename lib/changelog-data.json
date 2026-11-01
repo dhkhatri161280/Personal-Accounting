@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex benefits: fully automated daily refresh, zero clicking"
+  },
+  {
+    "date": "2026-10-31",
+    "summary": "Add Amex Platinum Benefits tracker, using real data from your own account"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Chat assistant: add search_costco_items for per-item receipt questions"
   },
   {
