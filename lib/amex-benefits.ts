@@ -49,7 +49,14 @@ export function mergeAmexCoverageBenefits(existing: AmexCoverageBenefit[], incom
   const byKey = new Map(existing.map((b) => [b.benefitKey, b]));
   for (const b of incoming) {
     const prev = byKey.get(b.benefitKey);
-    byKey.set(b.benefitKey, { ...b, selfReportedFullyUsed: b.selfReportedFullyUsed ?? prev?.selfReportedFullyUsed });
+    byKey.set(b.benefitKey, {
+      ...b,
+      selfReportedFullyUsed: b.selfReportedFullyUsed ?? prev?.selfReportedFullyUsed,
+      // Same preservation reasoning as selfReportedFullyUsed just above -- parse.mjs's daily
+      // tracker/catalog re-import has no way to know about hand-reconciled statement claims, so a
+      // straight overwrite would silently wipe them.
+      statementClaims: b.statementClaims ?? prev?.statementClaims,
+    });
   }
   return [...byKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
 }
@@ -62,6 +69,12 @@ export function parseAmexCoverageBenefitsUpload(raw: unknown): AmexCoverageBenef
     if (typeof o.benefitKey !== "string" || !o.benefitKey) throw new Error(`Coverage benefit ${i}: missing "benefitKey".`);
     if (typeof o.title !== "string" || !o.title) throw new Error(`Coverage benefit ${i} (${o.benefitKey}): missing "title".`);
     const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+    const statementClaims = Array.isArray(o.statementClaims)
+      ? o.statementClaims
+          .filter((c): c is { date: unknown; amount: unknown } => typeof c === "object" && c !== null)
+          .map((c) => ({ date: typeof c.date === "string" ? c.date : "", amount: typeof c.amount === "number" ? c.amount : 0 }))
+          .filter((c) => c.date && c.amount)
+      : undefined;
     return {
       benefitKey: o.benefitKey,
       title: o.title,
@@ -75,6 +88,7 @@ export function parseAmexCoverageBenefitsUpload(raw: unknown): AmexCoverageBenef
       trialCost: num(o.trialCost),
       trialDays: num(o.trialDays),
       selfReportedFullyUsed: typeof o.selfReportedFullyUsed === "boolean" ? o.selfReportedFullyUsed : undefined,
+      statementClaims,
       lastCheckedAt: typeof o.lastCheckedAt === "string" ? o.lastCheckedAt : new Date().toISOString(),
     };
   });

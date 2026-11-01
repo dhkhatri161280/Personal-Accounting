@@ -144,6 +144,24 @@ test("mergeAmexCoverageBenefits: an explicit incoming value still overrides (e.g
   assert.equal(merged[0].selfReportedFullyUsed, false);
 });
 
+test("mergeAmexCoverageBenefits: preserves statementClaims from the existing record across a re-import", () => {
+  // Same reasoning as selfReportedFullyUsed above -- parse.mjs's daily tracker/catalog re-import
+  // has no way to know about hand-reconciled Amex statement claims, so a straight overwrite would
+  // silently wipe them.
+  const existing = [coverageBenefit({ statementClaims: [{ date: "2026-02-18", amount: 300 }] })];
+  const incoming = [coverageBenefit({ summary: "Refreshed terms" })];
+  const merged = mergeAmexCoverageBenefits(existing, incoming);
+  assert.equal(merged[0].summary, "Refreshed terms");
+  assert.deepEqual(merged[0].statementClaims, [{ date: "2026-02-18", amount: 300 }]);
+});
+
+test("parseAmexCoverageBenefitsUpload: parses statementClaims, dropping malformed entries", () => {
+  const parsed = parseAmexCoverageBenefitsUpload([
+    coverageBenefit({ statementClaims: [{ date: "2026-02-18", amount: 300 }, { date: "", amount: 0 }] }),
+  ]);
+  assert.deepEqual(parsed[0].statementClaims, [{ date: "2026-02-18", amount: 300 }]);
+});
+
 test("selfReportedUberCashUsed: $15/month, with a $20 December bonus once December has arrived", () => {
   assert.equal(selfReportedUberCashUsed("2026-01-15"), 15);
   assert.equal(selfReportedUberCashUsed("2026-03-15"), 45);

@@ -3,7 +3,9 @@
 benefits.json
 coverage-benefits.json
 inactive-credits.json
+statement-claims.json
 encrypted-us-vault-before-amex-import-*.json
+encrypted-us-vault-before-statement-claims-*.json
 node_modules/
 # Scheduled-run log/status -- local run artifacts, regenerated every run, same as
 # ../costco-receipts's own gitignore.

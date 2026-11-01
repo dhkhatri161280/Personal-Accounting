@@ -589,6 +589,16 @@ export type AmexCoverageBenefit = {
   // Preserved across re-imports (see mergeAmexCoverageBenefits) since parse.mjs has no way to know
   // about it -- a daily refresh must never silently clear the user's own stated claim.
   selfReportedFullyUsed?: boolean;
+  // Real claim-payment credits reconciled by hand against Amex's own downloadable "Account
+  // Activity" (credit transactions) export -- NOT inferred, NOT the ledger's own voucher-narration
+  // search below. Added because that narration search (COVERAGE_SEARCH_TERMS in the report) can
+  // both miss real claims (the ledger's own posting narration doesn't always say "return"/
+  // "protection" etc.) and wrongly include claims from a PRIOR calendar year (Amex resets these
+  // claim caps -- e.g. Return Protection's $1,000 -- every calendar year, so a 2025 claim must
+  // never count against 2026's cap). Each entry is {date, amount} exactly as it posted on Amex's
+  // own statement -- the report filters this to the CURRENT calendar year itself, same as the
+  // voucher-matched claims, so this array may validly hold prior years' confirmed claims too.
+  statementClaims?: { date: string; amount: number }[];
   lastCheckedAt: string;
 };
 

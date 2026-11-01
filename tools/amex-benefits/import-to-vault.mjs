@@ -66,6 +66,12 @@ function parseCoverageBenefits(raw) {
     if (typeof b.benefitKey !== "string" || !b.benefitKey) throw new Error(`Coverage benefit ${i}: missing "benefitKey".`);
     if (typeof b.title !== "string" || !b.title) throw new Error(`Coverage benefit ${i} (${b.benefitKey}): missing "title".`);
     const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+    const statementClaims = Array.isArray(b.statementClaims)
+      ? b.statementClaims
+          .filter((c) => typeof c === "object" && c !== null)
+          .map((c) => ({ date: typeof c.date === "string" ? c.date : "", amount: typeof c.amount === "number" ? c.amount : 0 }))
+          .filter((c) => c.date && c.amount)
+      : undefined;
     return {
       benefitKey: b.benefitKey,
       title: b.title,
@@ -79,6 +85,7 @@ function parseCoverageBenefits(raw) {
       trialCost: num(b.trialCost),
       trialDays: num(b.trialDays),
       selfReportedFullyUsed: typeof b.selfReportedFullyUsed === "boolean" ? b.selfReportedFullyUsed : undefined,
+      statementClaims,
       lastCheckedAt: typeof b.lastCheckedAt === "string" ? b.lastCheckedAt : new Date().toISOString(),
     };
   });
@@ -93,7 +100,11 @@ function mergeCoverageBenefits(existing, incoming) {
   const byKey = new Map(existing.map((b) => [b.benefitKey, b]));
   for (const b of incoming) {
     const prev = byKey.get(b.benefitKey);
-    byKey.set(b.benefitKey, { ...b, selfReportedFullyUsed: b.selfReportedFullyUsed ?? prev?.selfReportedFullyUsed });
+    byKey.set(b.benefitKey, {
+      ...b,
+      selfReportedFullyUsed: b.selfReportedFullyUsed ?? prev?.selfReportedFullyUsed,
+      statementClaims: b.statementClaims ?? prev?.statementClaims,
+    });
   }
   return [...byKey.values()].sort((a, b) => (a.title < b.title ? -1 : 1));
 }
