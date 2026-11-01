@@ -207,6 +207,14 @@ export function AmexBenefitsReport({
           )}
         </span>
       </h3>
+      {/* table-scroll -- the same established inner-scroll wrapper roughly a dozen other reports
+          already use for this exact shape (wide report content inside .data-panel's own
+          overflow:auto, see that class's own comment for why double-nesting the scroll like that
+          breaks touch-drag). Fixed column/card widths below keep this report comfortably within a
+          normal window in practice, but wrapping it here means nothing can ever be silently cut off
+          outside the visible area the way it kept doing wrapped directly in .data-panel -- worst
+          case, the content scrolls with a visible scrollbar instead of vanishing past the edge. */}
+      <div className="table-scroll">
       <div style={{ marginBottom: 16 }}>
         {!benefits.length ? (
           <p style={{ opacity: 0.7 }}>
@@ -424,6 +432,7 @@ export function AmexBenefitsReport({
           </tfoot>
         </table>
       )}
+      </div>
     </div>
   );
 }
