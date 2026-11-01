@@ -149,12 +149,12 @@ export function AmexBenefitsReport({ data, fmt }: { data: Ledger; fmt: (n: numbe
               <div style={{ fontSize: 12, opacity: 0.7 }}>Annual potential</div>
               <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(summary.totalTarget)}</div>
             </span>
-            {totalCoverageClaims > 0 && (
-              <span>
-                <div style={{ fontSize: 12, opacity: 0.7 }}>Protection claims found in your vouchers</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{fmt(totalCoverageClaims)}</div>
-              </span>
-            )}
+            <span>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Protection claims found in your vouchers</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: totalCoverageClaims > 0 ? "#16a34a" : undefined }}>
+                {fmt(totalCoverageClaims)}
+              </div>
+            </span>
             {netSoFarWithClaims != null && (
               <span>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>

@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex benefits: fix understated usage for sub-annual credits"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex benefits: fix a real data-stripping bug, fold claims into net, surface Uber Cash"
   },
   {
