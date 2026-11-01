@@ -56,7 +56,7 @@ function InfoIcon({ id, open, setOpen, children }: { id: string; open: string | 
       <button type="button" className="info-icon-btn" aria-label="More information" onClick={() => setOpen(isOpen ? null : id)}>
         ⓘ
       </button>
-      {isOpen && <div className="info-icon-popover" style={{ textAlign: "left" }}>{children}</div>}
+      {isOpen && <div className="info-icon-popover info-icon-popover-left" style={{ textAlign: "left" }}>{children}</div>}
     </span>
   );
 }

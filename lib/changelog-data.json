@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-31",
+    "summary": "Amex Benefits: restore per-claim amounts, make drill-down links visible"
+  },
+  {
+    "date": "2026-10-31",
     "summary": "Amex Benefits: calendar-year claim reset, compact table"
   },
   {

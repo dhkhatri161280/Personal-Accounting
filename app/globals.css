@@ -3787,6 +3787,14 @@ aside .install-app span {
   line-height: 1.5;
   color: #45526b;
 }
+/* An icon sitting at the far-right edge of a wide table (e.g. a per-row "more info" column) would
+   otherwise open its popover further right, past both the viewport and any ancestor with
+   overflow:auto (.data-panel included) -- clipped away entirely, so clicking it looks like it does
+   nothing. Opens leftward instead, back over the table, so it actually stays visible. */
+.info-icon-popover-left {
+  left: auto;
+  right: 0;
+}
 .master-toolbar input {
   border: 1px solid #d8e0eb;
   border-radius: 8px;
