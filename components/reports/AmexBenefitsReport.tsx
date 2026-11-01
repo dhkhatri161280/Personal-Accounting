@@ -1,8 +1,17 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Ledger, Tx, AmexBenefit, AmexCoverageBenefit } from "@/lib/vault-types";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { summarizeAmexBenefits, selfReportedUberCashUsed, effectiveYearToDate } from "@/lib/amex-benefits";
+import { ColResizeHandle } from "@/components/TransactionTable";
+
+// Column widths are user-adjustable (ColResizeHandle, the same Excel-style drag-to-resize border
+// Day Book's own table already uses) and persisted to localStorage -- after several rounds of
+// guessing at a layout that would suit everyone, letting the user set their own is the only
+// approach that actually settles it, for them and for any other screen size/window width.
+type ColKey = "benefit" | "status" | "annual" | "used" | "remaining" | "icon";
+const DEFAULT_COL_WIDTHS: Record<ColKey, number> = { benefit: 340, status: 200, annual: 130, used: 190, remaining: 110, icon: 40 };
+const COL_WIDTHS_STORAGE_KEY = "amex-benefits-col-widths";
 
 // Matched-voucher amount -- whichever entry has the larger magnitude (the card's own liability
 // leg, not a tiny tax/rounding leg on the same voucher). Shared by the fee match and every
@@ -83,6 +92,29 @@ export function AmexBenefitsReport({
 }) {
   const [showInfo, setShowInfo] = useState(false);
   const [rowInfo, setRowInfo] = useState<string | null>(null);
+  const [colWidths, setColWidths] = useState<Record<ColKey, number>>(DEFAULT_COL_WIDTHS);
+  // Read the saved widths after mount, not in useState's initializer -- this component renders
+  // server-side first (no localStorage there), so an initializer that read it would either throw
+  // or silently diverge between server and client markup. A one-time effect avoids both.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COL_WIDTHS_STORAGE_KEY);
+      if (raw) setColWidths((w) => ({ ...w, ...JSON.parse(raw) }));
+    } catch {
+      // Private browsing / blocked storage -- fall back to the defaults already in state.
+    }
+  }, []);
+  function resizeCol(key: ColKey, deltaX: number) {
+    setColWidths((w) => {
+      const next = { ...w, [key]: Math.max(40, w[key] + deltaX) };
+      try {
+        window.localStorage.setItem(COL_WIDTHS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Private browsing / blocked storage -- resize still works for this session, just doesn't persist.
+      }
+      return next;
+    });
+  }
   const currentYear = useMemo(() => todayLocalIso().slice(0, 4), []);
 
   const benefits = useMemo(
@@ -215,6 +247,24 @@ export function AmexBenefitsReport({
             </div>
           )}
         </span>
+        {JSON.stringify(colWidths) !== JSON.stringify(DEFAULT_COL_WIDTHS) && (
+          <button
+            type="button"
+            className="columnar-cell-btn"
+            style={{ fontSize: 11, opacity: 0.6, fontWeight: 400 }}
+            title="Column widths are saved to this browser -- drag any column's right edge to resize"
+            onClick={() => {
+              setColWidths(DEFAULT_COL_WIDTHS);
+              try {
+                window.localStorage.removeItem(COL_WIDTHS_STORAGE_KEY);
+              } catch {
+                // Private browsing / blocked storage -- the reset still applies for this session.
+              }
+            }}
+          >
+            Reset column widths
+          </button>
+        )}
       </h3>
       {/* table-scroll -- the same established inner-scroll wrapper roughly a dozen other reports
           already use for this exact shape (wide report content inside .data-panel's own
@@ -277,22 +327,35 @@ export function AmexBenefitsReport({
       </div>
 
       {rows.length > 0 && (
-        // table-layout:fixed, table width:100% (the shared class's own default) -- Benefit is sized
-        // to fit its own (now single-line) content, Status deliberately has NO declared width so IT
-        // is the one that stretches to use whatever page space the other five columns don't need,
-        // filling the table out to the page instead of leaving it stranded at a narrow fixed width.
-        // This exact "one flexible column" shape previously pushed the icon column out of view on
-        // this page; it's safe now specifically because the .table-scroll wrapper above makes that
-        // a local scrollbar, never a silent cutoff, if the same thing happens again.
-        <table className="fx-ledger-table" style={{ tableLayout: "fixed" }}>
+        // table-layout:fixed + width:auto (overriding .fx-ledger-table's own width:100%) -- every
+        // column now has its own explicit, user-adjustable width (ColResizeHandle below, same as
+        // Day Book's table), so the table's real width is just their sum, exactly like Day Book's
+        // own table already works. The .table-scroll wrapper above is what makes a manually
+        // widened table safe here -- it scrolls locally instead of ever pushing the page wider.
+        <table className="fx-ledger-table" style={{ tableLayout: "fixed", width: "auto" }}>
           <thead>
             <tr>
-              <th style={{ width: 340 }}>Benefit</th>
-              <th>Status</th>
-              <th style={{ width: 130 }} className="right">Annual value</th>
-              <th style={{ width: 190 }} className="right">Used / claimed</th>
-              <th style={{ width: 110 }} className="right">Remaining</th>
-              <th style={{ width: 40 }}></th>
+              <th style={{ width: colWidths.benefit, position: "relative" }}>
+                Benefit
+                <ColResizeHandle onResize={(dx) => resizeCol("benefit", dx)} />
+              </th>
+              <th style={{ width: colWidths.status, position: "relative" }}>
+                Status
+                <ColResizeHandle onResize={(dx) => resizeCol("status", dx)} />
+              </th>
+              <th style={{ width: colWidths.annual, position: "relative" }} className="right">
+                Annual value
+                <ColResizeHandle onResize={(dx) => resizeCol("annual", dx)} />
+              </th>
+              <th style={{ width: colWidths.used, position: "relative" }} className="right">
+                Used / claimed
+                <ColResizeHandle onResize={(dx) => resizeCol("used", dx)} />
+              </th>
+              <th style={{ width: colWidths.remaining, position: "relative" }} className="right">
+                Remaining
+                <ColResizeHandle onResize={(dx) => resizeCol("remaining", dx)} />
+              </th>
+              <th style={{ width: colWidths.icon }}></th>
             </tr>
           </thead>
           <tbody>

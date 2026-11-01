@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-01",
+    "summary": "Amex Benefits: single-line rows, Benefit sized to content, Status flexes"
+  },
+  {
+    "date": "2026-11-01",
     "summary": "Amex Benefits: cap Status width, use the freed Benefit space for context"
   },
   {

@@ -125,7 +125,7 @@ const DEFAULT_PLAIN_WIDTHS: Record<PlainColKey, number> = {
 // resize affordance, and the fixed proportions that replaced content-width auto-sizing (see the
 // `virtualized` doc comment below) won't fit every account name/narration length for every user
 // -- this lets anyone adjust it themselves instead of the app guessing one static layout for all.
-function ColResizeHandle({ onResize }: { onResize: (deltaX: number) => void }) {
+export function ColResizeHandle({ onResize }: { onResize: (deltaX: number) => void }) {
   return (
     <span
       className="col-resize-handle"
