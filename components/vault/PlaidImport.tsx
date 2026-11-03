@@ -319,7 +319,11 @@ function isCardPayment(tx: PlaidTxRaw): boolean {
 // (built into a Contra voucher above) and a "PENDING PAYMENT" credit that mirrors the exact same
 // transfer, not a second real transaction. Force that mirror row to start pre-skipped.
 function isBofaPaymentDuplicate(tx: { institution_name?: string; name: string }): boolean {
-  return /bank of america|bofa/i.test(tx.institution_name || "") && /^pending payment$/i.test(tx.name.trim());
+  const isBofa = /bank of america|bofa/i.test(tx.institution_name || "");
+  // "PENDING PAYMENT" is the web Pay & Transfer flow's card-side echo; "PAYMENT FROM CHK ..." is
+  // the mobile app's own card-side echo (confirmed live, a format the original check never saw --
+  // see the Contra rule above for the matching checking-side narration this mirrors).
+  return isBofa && (/^pending payment$/i.test(tx.name.trim()) || /^payment from chk\b/i.test(tx.name.trim()));
 }
 
 // General version of the BofA case above, for any pair of institutions that both independently
@@ -663,6 +667,10 @@ function buildDraft(
     const multipleBofaCards = accounts.filter(
       (a) => a.active !== false && /^credit card - bofa/i.test(a.name)
     ).length > 1;
+    // "Credit Card - BofA - Hiral" -> "Hiral" -- the GL account naming convention always puts the
+    // cardholder/nickname suffix last, so stripping the fixed "Credit Card - BofA" prefix is all
+    // that's needed; the generic "Credit Card - BofA" card has no suffix to strip.
+    const holder = specific?.replace(/^credit card - bofa\s*-?\s*/i, "").trim();
     if (cardAcc && bankAcc) {
       return {
         entries: [
@@ -670,11 +678,11 @@ function buildDraft(
           { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
         ],
         voucherType: "Contra",
-        narration: specific
-          ? "BofA Credit Card Payment"
+        narration: holder
+          ? `Payment to BofA Credit Card ${holder}`
           : multipleBofaCards
-            ? `BofA Credit Card Payment — verify which card (${tx.name})`
-            : "BofA Credit Card Payment",
+            ? `Payment to BofA Credit Card — verify which card (${tx.name})`
+            : "Payment to BofA Credit Card",
         confidence: specific ? 0.9 : multipleBofaCards ? 0.4 : 0.85,
         source: "history",
       };
@@ -725,7 +733,7 @@ function buildDraft(
       for (const n of hits) counts.set(n, (counts.get(n) || 0) + 1);
       let best = "", bestC = 0;
       counts.forEach((c, n) => { if (c > bestC) { bestC = c; best = n; } });
-      return best || "American Express CC Payment";
+      return best || "Payment to AMEX Credit Card";
     })();
     if (amexAcc && bankAcc && amexAcc.id !== bankAcc.id) {
       return {
@@ -767,7 +775,7 @@ function buildDraft(
       for (const n of hits) counts.set(n, (counts.get(n) || 0) + 1);
       let best = "", bestC = 0;
       counts.forEach((c, n) => { if (c > bestC) { bestC = c; best = n; } });
-      return best || "Citi CC Payment";
+      return best || "Payment to Citi Credit Card";
     })();
     if (citiAcc && bankAcc && citiAcc.id !== bankAcc.id) {
       return {
@@ -798,7 +806,7 @@ function buildDraft(
             { accountId: bankAcc.id, accountName: bankAcc.name, amount: netDeposit },
           ],
           voucherType: "Payment",
-          narration: "American Express CC Payment",
+          narration: "Payment to AMEX Credit Card",
           confidence: 0.8,
           source: "history",
         };
