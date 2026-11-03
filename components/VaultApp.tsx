@@ -125,6 +125,7 @@ const CashFlowForecast = lazy(() => import("@/components/reports/CashFlowForecas
 const FundSummary = lazy(() => import("@/components/reports/FundSummary").then((m) => ({ default: m.FundSummary })));
 const SpendReport = lazy(() => import("@/components/reports/SpendReport").then((m) => ({ default: m.SpendReport })));
 const AmexBenefitsReport = lazy(() => import("@/components/reports/AmexBenefitsReport").then((m) => ({ default: m.AmexBenefitsReport })));
+const PaperTradingReport = lazy(() => import("@/components/reports/PaperTradingReport").then((m) => ({ default: m.PaperTradingReport })));
 const CashFlowReport = lazy(() => import("@/components/reports/CashFlowReport").then((m) => ({ default: m.CashFlowReport })));
 const BalanceSheetReport = lazy(() => import("@/components/reports/BalanceSheetReport").then((m) => ({ default: m.BalanceSheetReport })));
 const NetWorthReport = lazy(() => import("@/components/reports/NetWorthReport").then((m) => ({ default: m.NetWorthReport })));
@@ -4551,6 +4552,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     ? [{ id: "trading", label: "Trading", onClick: () => { setTradingTab("open"); setReport("trading"); } }]
                     : []),
                   ...(book !== "india" ? [{ id: "holdings", label: "Holdings", onClick: () => setReport("holdings") }] : []),
+                  ...(book !== "india" ? [{ id: "papertrading", label: "Paper Trading", onClick: () => setReport("papertrading") }] : []),
                   { id: "tax", label: "Tax", onClick: () => { setTaxViewMode("yearly"); setReport("tax"); } },
                   ...(book === "india" ? [{ id: "fbar", label: "FBAR Report", onClick: () => setReport("fbar") }] : []),
                 ],
@@ -5536,6 +5538,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               onViewVoucher={(t) => setSelectedVoucher(t)}
             />
           )}
+          {report === "papertrading" && data && <PaperTradingReport data={data} fmt={fmt} />}
         </Suspense>
       )}
       {tab === "new" && (

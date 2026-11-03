@@ -915,6 +915,28 @@ export type Ledger = {
   // doesn't need a code change/redeploy (or this app's developer being reachable) just to add one
   // published number -- the user can type it in directly once Treasury publishes it.
   fbarManualTreasuryRates?: Record<string, number>;
+  // Real orders submitted by the standalone Alpaca paper-trading bot (separate Python project,
+  // not part of this app -- see AlpacaPaperTrade's own comment). Deliberately its own field, its
+  // own report (components/reports/PaperTradingReport.tsx), NEVER merged into `trades` (the real
+  // Schwab/Robinhood positions TradingReport.tsx tracks) -- paper money has no business in real
+  // net-worth/G&L totals, and mixing them in would corrupt those real figures for a still-
+  // experimental bot. Imported via tools/alpaca-paper-sync/, same pattern as Amex Benefits/Costco.
+  alpacaPaperTrades?: AlpacaPaperTrade[];
+};
+
+// One order the Alpaca paper-trading bot has actually submitted -- a straight copy of a row from
+// that project's own trades.csv (see tools/alpaca-paper-sync/README.md), not a reconstructed
+// position. qty/action/price/orderId/status are all real, Alpaca-confirmed values; nothing here
+// is estimated or inferred. Paper money only -- see alpacaPaperTrades's own comment on why this
+// never touches the real Trade/TradingReport data at all.
+export type AlpacaPaperTrade = {
+  timestamp: string; // ISO, from the bot's own trade_log.py
+  ticker: string;
+  action: "BUY" | "SELL";
+  qty: number;
+  price: number; // the price AT SUBMISSION time -- a market order's real fill price can differ slightly
+  orderId: string; // Alpaca's own order id, for cross-checking against the Alpaca dashboard directly
+  status: string; // Alpaca's own order status verbatim (e.g. "OrderStatus.ACCEPTED", "OrderStatus.FILLED")
 };
 
 // One archived personal document (pay stub, RSU grant agreement/award notice, offer letter, ...).

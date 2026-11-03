@@ -4,9 +4,10 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FloatingWindow } from "@/components/FloatingWindow";
 import { accountFormSchema, type AccountFormValues } from "@/lib/account-form-schema";
-import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt, CostcoPriceCheck, AmexBenefit, AmexCoverageBenefit } from "@/lib/vault-types";
+import type { RecurringTemplate, PayrollDirectDepositSplit, AuditEntry, FixedAsset, Ledger, VaultDocument, CostcoReceipt, CostcoPriceCheck, AmexBenefit, AmexCoverageBenefit, AlpacaPaperTrade } from "@/lib/vault-types";
 import { mergeCostcoReceipts, parseCostcoReceiptsUpload, mergeCostcoPriceChecks, parseCostcoPriceChecksUpload } from "@/lib/costco-receipts";
 import { mergeAmexBenefits, parseAmexBenefitsUpload, mergeAmexCoverageBenefits, parseAmexCoverageBenefitsUpload } from "@/lib/amex-benefits";
+import { mergeAlpacaPaperTrades, parseAlpacaPaperTradesUpload } from "@/lib/alpaca-paper";
 import { getAccessToken, apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -109,6 +110,7 @@ export type MasterLedger = {
   amexBenefits?: AmexBenefit[];
   amexCoverageBenefits?: AmexCoverageBenefit[];
   amexInactiveCredits?: AmexCoverageBenefit[];
+  alpacaPaperTrades?: AlpacaPaperTrade[];
 };
 
 const standard: MasterGroup[] = [
@@ -560,7 +562,7 @@ export function MastersPanel({
   // jumping to Periods) instead of always landing on Ledgers -- read once on mount, since
   // MastersPanel itself unmounts/remounts whenever the user navigates away from and back to
   // the Masters tab (see the `tab === "masters" &&` conditional render in VaultApp.tsx).
-  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "amexbenefits" | "settings";
+  initialSection?: "ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "amexbenefits" | "papertrading" | "settings";
   // Applies a Fixed Asset # to every voucher already posted on an untagged asset's own ledger --
   // routed through a dedicated prop (not the generic onSave above) because it needs to exempt
   // those (possibly closed-period) vouchers from the closed-period check, the same way
@@ -576,7 +578,7 @@ export function MastersPanel({
   // local hook so a standalone render (e.g. a QA route) still works without this prop.
   privacyMode?: boolean;
 }) {
-  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "amexbenefits" | "settings">(initialSection ?? "ledgers"),
+  const [section, setSection] = useState<"ledgers" | "groups" | "periods" | "recurring" | "directdeposit" | "fixedassets" | "documents" | "costcoreceipts" | "amexbenefits" | "papertrading" | "settings">(initialSection ?? "ledgers"),
     // Inline confirmation/error for the Settings form's own Save button -- see that form's
     // onSubmit and onSave's doc comment above for why this exists alongside the global toast.
     [settingsSaveState, setSettingsSaveState] = useState<"saving" | "saved" | "error" | null>(null),
@@ -630,7 +632,9 @@ export function MastersPanel({
     [uploadingCostcoReceipts, setUploadingCostcoReceipts] = useState(false),
     [costcoReceiptsError, setCostcoReceiptsError] = useState(""),
     [uploadingAmexBenefits, setUploadingAmexBenefits] = useState(false),
-    [amexBenefitsError, setAmexBenefitsError] = useState("");
+    [amexBenefitsError, setAmexBenefitsError] = useState(""),
+    [uploadingPaperTrades, setUploadingPaperTrades] = useState(false),
+    [paperTradesError, setPaperTradesError] = useState("");
   const { privacyMode: privacyModeLocal } = useUiPrefs();
   const privacyMode = privacyModeProp ?? privacyModeLocal;
 
@@ -1319,6 +1323,23 @@ export function MastersPanel({
       setUploadingAmexBenefits(false);
     }
   }
+  // Reads the JSON the standalone alpaca-paper-sync tool produces from the trading bot's own
+  // trades.csv -- mergeAlpacaPaperTrades dedupes by orderId, newest status wins (e.g. ACCEPTED ->
+  // FILLED), so re-importing is always safe to re-run.
+  async function importPaperTrades(file: File) {
+    setUploadingPaperTrades(true);
+    setPaperTradesError("");
+    try {
+      const text = await file.text();
+      const parsed = parseAlpacaPaperTradesUpload(JSON.parse(text));
+      const merged = mergeAlpacaPaperTrades((data.alpacaPaperTrades || []) as AlpacaPaperTrade[], parsed);
+      onSave({ ...data, alpacaPaperTrades: merged }, `Imported ${parsed.length} paper trade order(s).`);
+    } catch (err) {
+      setPaperTradesError(err instanceof Error ? err.message : "Couldn't read that file -- is it a valid paper-trades.json?");
+    } finally {
+      setUploadingPaperTrades(false);
+    }
+  }
   // Same pattern as importAmexBenefits above -- coverage-benefits.json comes from the same
   // parse.mjs run, a curated set of real claim-based protection/insurance benefits (Return
   // Protection, Purchase Protection, Cell Phone Protection, etc.) read from Amex's own full
@@ -1552,6 +1573,12 @@ export function MastersPanel({
           onClick={() => setSection("amexbenefits")}
         >
           Amex Benefits
+        </button>
+        <button
+          className={section === "papertrading" ? "selected" : ""}
+          onClick={() => setSection("papertrading")}
+        >
+          Paper Trading
         </button>
         <button
           className={section === "settings" ? "selected" : ""}
@@ -2854,6 +2881,50 @@ export function MastersPanel({
                   </tbody>
                 </table>
               </>
+            )}
+          </>
+        );
+      })()}
+      {section === "papertrading" && (() => {
+        const paperTrades = [...(data.alpacaPaperTrades || [])].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+        return (
+          <>
+            <div className="master-toolbar">
+              <span>
+                {paperTrades.length} paper trade order{paperTrades.length === 1 ? "" : "s"} imported
+              </span>
+              <label className="tr-refresh-btn" style={{ display: "inline-block", cursor: "pointer" }}>
+                {uploadingPaperTrades ? "Importing…" : "Import paper-trades.json…"}
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  disabled={uploadingPaperTrades}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importPaperTrades(file);
+                  }}
+                />
+              </label>
+            </div>
+            <p className="field-hint" style={{ margin: "0 0 0.75rem" }}>
+              Real orders from the standalone Alpaca paper-trading bot (simulated money, not real) -- see{" "}
+              <code>tools/alpaca-paper-sync/</code> in the repo. Deliberately separate from the real
+              Schwab/Robinhood Trading report; re-importing is safe, orders are deduped by Alpaca&apos;s own
+              order id and a re-import just refreshes status (e.g. ACCEPTED → FILLED) in place.
+            </p>
+            {paperTradesError && <p className="equity-pdf-error">{paperTradesError}</p>}
+            {paperTrades.length === 0 ? (
+              <p style={{ opacity: 0.7 }}>
+                No paper trades imported yet. Run the sync tool at <code>tools/alpaca-paper-sync/</code>, then
+                import the file it produces.
+              </p>
+            ) : (
+              <p style={{ opacity: 0.7 }}>
+                {paperTrades.length} order{paperTrades.length === 1 ? "" : "s"} imported -- see the full table
+                under Reports → Paper Trading.
+              </p>
             )}
           </>
         );
