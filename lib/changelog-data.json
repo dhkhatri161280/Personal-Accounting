@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-03",
+    "summary": "Update changelog data"
+  },
+  {
+    "date": "2026-11-03",
+    "summary": "Fix BofA mobile-app CC payment narration + harden Amex Benefits sync timing"
+  },
+  {
     "date": "2026-11-02",
     "summary": "Add a separate Paper Trading report + sync tool for the Alpaca paper-trading bot"
   },
