@@ -29,6 +29,29 @@ function Read-DpapiSecret([string]$Name) {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
 
+# A real sign-out is the ONE failure mode here that needs the user, not just a retry/wait --
+# everything else (a cold-start timeout, a rejected vault write) is either self-healing or an
+# engineering bug, neither of which the user can fix by looking at a screen. Shown ONLY for that
+# specific case, right after the two-attempt capture both came back empty -- the debug Chrome is
+# already open and sitting on the Benefits page at this point (auto-capture.mjs never closes the
+# real window, only detaches its own CDP connection), so this popup is the whole fix: switch to
+# that window, log in, done. No app round-trip, no Claude session needed to notice this.
+function Show-LoginNeededAlert {
+  try {
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show(
+      "Amex Benefits sync couldn't load your Benefits page -- your Amex session has likely signed out.`n`nThe debug Chrome window is already open and on the Benefits page. Just switch to it and log into americanexpress.com -- the next scheduled run will pick it back up automatically, no other steps needed.",
+      "Amex Benefits -- sign-in needed",
+      [System.Windows.MessageBoxButton]::OK,
+      [System.Windows.MessageBoxImage]::Warning
+    ) | Out-Null
+  } catch {
+    # Best-effort only -- a machine with no interactive desktop session (e.g. this ran under a
+    # non-interactive Task Scheduler context) can't show a popup at all. last-sync-status.json
+    # still has the real error either way, so nothing is actually lost if this silently no-ops.
+  }
+}
+
 Add-Content -Path $logFile -Value "`n========== $stamp =========="
 
 try {
@@ -68,6 +91,7 @@ try {
 
   if ($captureOutput -join "`n" -match '0 responses captured') {
     Pop-Location
+    Show-LoginNeededAlert
     throw "0 JSON responses captured on two attempts -- the debug Chrome's Amex session has likely signed out. Open it and log into americanexpress.com again."
   }
 
