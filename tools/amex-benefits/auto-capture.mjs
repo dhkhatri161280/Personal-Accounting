@@ -79,7 +79,10 @@ async function main() {
     // real captures), which networkidle waits forever for and reliably times out on. "load" plus
     // a fixed settle window is what actually works: the tracker/catalog API calls fire within a
     // couple seconds of the page becoming interactive, well before "networkidle" would ever fire.
-    await page.goto(url, { waitUntil: "load", timeout: 20000 }).catch((e) => {
+    // 35s, not 20s -- confirmed live this times out on a cold-started debug Chrome (freshly
+    // launched, competing with dozens of other already-open chrome.exe processes) even with a
+    // valid, still-logged-in session; run-scheduled.ps1 also retries once on top of this.
+    await page.goto(url, { waitUntil: "load", timeout: 35000 }).catch((e) => {
       console.error(`Navigation to ${url} failed or timed out: ${e.message}`);
     });
     await page.waitForTimeout(4000);

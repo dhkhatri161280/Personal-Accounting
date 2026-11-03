@@ -637,18 +637,21 @@ function buildDraft(
   }
 
   // BofA online banking "Pay & Transfer": paying a BofA-issued credit card bill from BofA checking.
-  // Plaid names the checking-side debit "PAYMENT TO ACCT #1234 ON MM/DD VIA..." and separately
+  // Plaid names the checking-side debit either "PAYMENT TO ACCT #1234 ON MM/DD VIA..." (web) or
+  // "Mobile Banking payment to CRD 1234..." (mobile app -- confirmed live, a real narration variant
+  // the original regex/last4-extraction missed entirely, which silently fell through to a generic
+  // Payment/Receipt pair against House Hold Exps instead of this Contra rule) and separately
   // mirrors the exact same transfer as a "PENDING PAYMENT" credit — that second row is Plaid's
   // duplicate report of this one movement, not a distinct transaction (force-skipped below, and at
   // the row-build call site so it can never be double-saved). Build one Contra voucher from the debit leg.
-  if (/bank of america|bofa/i.test(instLower) && /payment to acct\s*#?\s*\d+/i.test(tx.name)) {
+  if (/bank of america|bofa/i.test(instLower) && /(?:payment to acct|mobile banking payment to (?:crd|card))\s*#?\s*\d+/i.test(tx.name)) {
     // This transaction is on the CHECKING side of the payment -- tx.account_id is the bank
     // account, not the card being paid, so the per-card learned mapping (keyed by the card's
     // own Plaid account_id) can't be consulted here. But Plaid embeds the last 4 digits of the
-    // card being paid right in the transaction text ("PAYMENT TO ACCT #3096..."), and Plaid's
-    // own account objects carry that same digit string as `.mask` -- matching the two resolves
-    // which physical card this is deterministically, no guessing needed.
-    const last4 = tx.name.match(/#\s*(\d{4})\b/)?.[1];
+    // card being paid right in the transaction text ("PAYMENT TO ACCT #3096..." or "...CRD 3096
+    // ..."), and Plaid's own account objects carry that same digit string as `.mask` -- matching
+    // the two resolves which physical card this is deterministically, no guessing needed.
+    const last4 = tx.name.match(/(?:acct|crd|card)\s*#?\s*(\d{4})\b/i)?.[1];
     const matchedCardAcct = last4
       ? [...plaidAcctMap.values()].find((a) => a.mask === last4)
       : undefined;
@@ -681,6 +684,19 @@ function buildDraft(
     return {
       entries: [],
       voucherType: "Payment",
+      narration: "Duplicate — Plaid double-reports the BofA card payment above",
+      confidence: 0,
+      source: "duplicate",
+    };
+  }
+  // The mobile-app payment's mirror on the CARD's own feed -- "PAYMENT FROM CHK 5570 CONF#..."
+  // (confirmed live). Same duplicate-report situation as "PENDING PAYMENT" above: the checking-
+  // side rule just above already builds the full Contra (both legs) from its own transaction
+  // alone, so this card-side echo must be skipped, not turned into its own Receipt.
+  if (/bank of america|bofa/i.test(instLower) && /^payment from chk\b/i.test(tx.name.trim())) {
+    return {
+      entries: [],
+      voucherType: "Receipt",
       narration: "Duplicate — Plaid double-reports the BofA card payment above",
       confidence: 0,
       source: "duplicate",

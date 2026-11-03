@@ -43,16 +43,32 @@ try {
   if (-not $debugReady) {
     Add-Content -Path $logFile -Value "Debug Chrome not running -- launching it."
     Start-Process -FilePath $chromePath -ArgumentList "--remote-debugging-port=9222", "--user-data-dir=`"$profileDir`""
-    Start-Sleep -Seconds 8
+    # 15s, not 8s -- a cold Chrome launch competing with whatever else is already running on this
+    # machine (confirmed live: 48 other chrome.exe processes at once) can genuinely take longer
+    # than 8s to be ready to navigate, and a scheduled 7am run landing late (machine was off/locked,
+    # Task Scheduler catching up once it's back) is exactly the case most likely to hit this cold.
+    Start-Sleep -Seconds 15
   }
 
+  # One retry before concluding the Amex session is actually signed out -- confirmed live that a
+  # cold Chrome launch can still fail its first navigation (20s page.goto timeout) even after the
+  # Start-Sleep above, purely from being newly spun up, with the SAME session still perfectly
+  # valid a few seconds later. Only the real "signed out" case (still 0 responses after a fresh,
+  # already-warm attempt) should surface as an error.
   Push-Location $scriptDir
   $captureOutput = & node auto-capture.mjs 2>&1
   Add-Content -Path $logFile -Value ($captureOutput | Out-String)
 
   if ($captureOutput -join "`n" -match '0 responses captured') {
+    Add-Content -Path $logFile -Value "0 responses on first attempt -- retrying once after a short wait (likely just a cold-start timing issue, not a real sign-out)."
+    Start-Sleep -Seconds 10
+    $captureOutput = & node auto-capture.mjs 2>&1
+    Add-Content -Path $logFile -Value ($captureOutput | Out-String)
+  }
+
+  if ($captureOutput -join "`n" -match '0 responses captured') {
     Pop-Location
-    throw "0 JSON responses captured -- the debug Chrome's Amex session has likely signed out. Open it and log into americanexpress.com again."
+    throw "0 JSON responses captured on two attempts -- the debug Chrome's Amex session has likely signed out. Open it and log into americanexpress.com again."
   }
 
   $parseOutput = & node parse.mjs 2>&1
