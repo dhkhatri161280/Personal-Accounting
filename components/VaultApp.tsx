@@ -2436,7 +2436,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     if (ageHours > AMEX_STALE_HOURS) {
       attentionItems.push({
         label: "Amex benefits haven't updated recently",
-        detail: `Last refreshed ${timeAgoLabel(mostRecentCheck)} -- it normally updates on its own every day. This usually means the debug Chrome's Amex sign-in expired: open that Chrome window, log into americanexpress.com again, and it'll pick back up automatically tomorrow.`,
+        detail: `Last refreshed ${timeAgoLabel(mostRecentCheck)} -- it refreshes daily on its own with an automatic retry built in, so a day-plus gap usually means either the sync machine was off at refresh time, or the debug Chrome's Amex sign-in expired (a Windows popup should already be waiting there if so -- just log into americanexpress.com again in that window). Check tools/amex-benefits/last-sync-status.json on that machine for the exact reason.`,
       });
     }
   }
