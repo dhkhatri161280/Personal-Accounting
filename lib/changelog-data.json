@@ -1,6 +1,22 @@
 [
   {
     "date": "2026-11-03",
+    "summary": "Sharpen the Amex Benefits \"Needs Attention\" banner text"
+  },
+  {
+    "date": "2026-11-03",
+    "summary": "Amex Benefits sync: pop up a native Windows alert on a genuine sign-out"
+  },
+  {
+    "date": "2026-11-03",
+    "summary": "Update changelog data"
+  },
+  {
+    "date": "2026-11-03",
+    "summary": "Merge BofA mobile-app CC payment legs into one Contra row; clearer narrations"
+  },
+  {
+    "date": "2026-11-03",
     "summary": "Update changelog data"
   },
   {
