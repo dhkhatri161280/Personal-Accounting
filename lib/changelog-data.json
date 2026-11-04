@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-04",
+    "summary": "Amex Benefits sync: detect a degraded session instead of false-reporting success"
+  },
+  {
+    "date": "2026-11-04",
+    "summary": "Fix Citi own-feed payment Contra rule self-matching its own card account"
+  },
+  {
     "date": "2026-11-03",
     "summary": "Paper Trading report: real positions, current price, realized/unrealized G/L"
   },

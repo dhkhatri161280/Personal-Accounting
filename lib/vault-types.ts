@@ -922,6 +922,14 @@ export type Ledger = {
   // net-worth/G&L totals, and mixing them in would corrupt those real figures for a still-
   // experimental bot. Imported via tools/alpaca-paper-sync/, same pattern as Amex Benefits/Costco.
   alpacaPaperTrades?: AlpacaPaperTrade[];
+  // Real NVIDIA/bswift benefit-enrollment confirmation statements, one per calendar year --
+  // "where am I enrolled and what does it cost," with year-over-year comparison in mind from the
+  // start (see BenefitEnrollmentYear's own comment). Parsed from the user's own uploaded PDF when
+  // it has real extractable text (lib/parse-benefit-enrollment-pdf.ts), or entered by hand when it
+  // doesn't (a "print/save as PDF" capture can be a pure scanned image with zero text -- confirmed
+  // live on a real 2026 statement). Keyed by year, not appended -- re-uploading/re-entering the
+  // same year replaces it (see mergeBenefitEnrollmentYear in lib/benefit-enrollment.ts).
+  benefitEnrollments?: BenefitEnrollmentYear[];
 };
 
 // One order the Alpaca paper-trading bot has actually submitted -- a straight copy of a row from
@@ -937,6 +945,33 @@ export type AlpacaPaperTrade = {
   price: number; // the price AT SUBMISSION time -- a market order's real fill price can differ slightly
   orderId: string; // Alpaca's own order id, for cross-checking against the Alpaca dashboard directly
   status: string; // Alpaca's own order status verbatim (e.g. "OrderStatus.ACCEPTED", "OrderStatus.FILLED")
+};
+
+// One benefit line (Medical, Dental, Legal Services, ...) from a single year's real enrollment
+// confirmation statement. costPerPayPeriod is exactly what the statement itself prints as "Your
+// cost per pay period" for that category -- $0 for an employer-paid or waived benefit, not a null/
+// missing value, so summing every category's costPerPayPeriod reproduces the statement's own
+// printed total (used as a self-check -- see parseBenefitEnrollmentPdf).
+export type BenefitEnrollmentCategory = {
+  category: string; // e.g. "Medical", "Legal Services"
+  planName: string; // e.g. "Kaiser CA HMO", or "Waived"/"No Coverage" when not enrolled
+  costPerPayPeriod: number;
+};
+
+// One calendar year's full benefit enrollment -- what's elected and what it costs, kept
+// deliberately year-keyed (not a flat list of transactions) so a later year's upload naturally
+// supports month/year cost math (costPerPayPeriod * payPeriodsPerYear) and multi-year comparison,
+// without reconstructing "what was true in year X" from scattered records.
+export type BenefitEnrollmentYear = {
+  year: number;
+  asOfDate?: string; // YYYY-MM-DD, "Your Benefits as of ..." from the statement, when known
+  // 24 for NVIDIA's semi-monthly payroll (matches PAYROLL_* elsewhere in this app) -- stored per
+  // year rather than hardcoded, in case pay cadence ever changes.
+  payPeriodsPerYear: number;
+  totalCostPerPayPeriod: number; // the statement's own printed total, independent of the category sum
+  categories: BenefitEnrollmentCategory[];
+  uploadedAt: string; // ISO, when this record was saved (parsed or manually entered)
+  source: "parsed" | "manual";
 };
 
 // One archived personal document (pay stub, RSU grant agreement/award notice, offer letter, ...).

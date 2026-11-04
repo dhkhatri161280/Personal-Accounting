@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, ManualVestTax, RsuGrant, RsuVest, EsppPurchase, Account, VaultDocument, Trade } from "@/lib/vault-types";
+import type { PayrollData, PayrollRow, PayrollYear, Tx, EquityData, ManualPayrollPeriod, ManualVestTax, RsuGrant, RsuVest, EsppPurchase, Account, VaultDocument, Trade, BenefitEnrollmentYear } from "@/lib/vault-types";
+import { BenefitEnrollmentModal } from "@/components/reports/BenefitEnrollmentModal";
 import { apiFetch } from "@/lib/api-fetch";
 import { trimPdfToFit } from "@/lib/trim-pdf";
 import { DOCUMENT_MAX_SIZE_BYTES } from "@/lib/document-limits";
@@ -50,6 +51,11 @@ interface TaxReportProps {
   fmt: (n: number) => string;
   readOnly?: boolean;
   livePrice?: number | null;
+  // "Where am I enrolled and what does it cost" -- kept as its own narrow prop/callback (not
+  // folded into `payroll`) since it's a separate yearly record, not a payroll-period figure. See
+  // BenefitEnrollmentModal and lib/benefit-enrollment.ts.
+  benefitEnrollments?: BenefitEnrollmentYear[];
+  onSaveBenefitEnrollments?: (years: BenefitEnrollmentYear[]) => Promise<boolean | void>;
 }
 
 function row(rows: PayrollRow[], label: string, occurrence = 0): PayrollRow | undefined {
@@ -547,7 +553,8 @@ const BLANK_MANUAL_FORM = {
   federal: "", ssn: "", medicare: "", stateWH: "", stateSDI: "", net: "",
 };
 
-export function TaxReport({ payroll, transactions, equity, accounts, trades, onSave, onViewVoucher, onViewDocuments, book, fmt, readOnly, livePrice }: TaxReportProps) {
+export function TaxReport({ payroll, transactions, equity, accounts, trades, onSave, onViewVoucher, onViewDocuments, book, fmt, readOnly, livePrice, benefitEnrollments, onSaveBenefitEnrollments }: TaxReportProps) {
+  const [showBenefitEnrollment, setShowBenefitEnrollment] = useState(false);
   const { privacyMode } = useUiPrefs();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -1863,6 +1870,11 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             <button className="equity-refresh" onClick={() => setShowW2Preview(true)} title={`Estimated W-2 box breakdown for ${yr.year}`}>
               🧾 W2 Preview
             </button>
+            {onSaveBenefitEnrollments && (
+              <button className="equity-refresh" onClick={() => setShowBenefitEnrollment(true)} title="Benefit enrollment: where you're enrolled, what it costs, and year-over-year comparison">
+                🩺 Benefits Cost
+              </button>
+            )}
             <ExportButton
               onExport={async () => {
                 const header = ["Period", "Gross", "Federal", "SSN", "Medicare", "State W/H", "State SDI", "Total Tax", "Net"];
@@ -3030,6 +3042,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
             <button onClick={() => setShowRsuModal(false)}>Close</button>
           </div>
         </Modal>
+      )}
+
+      {showBenefitEnrollment && onSaveBenefitEnrollments && (
+        <BenefitEnrollmentModal
+          years={benefitEnrollments ?? []}
+          onSave={onSaveBenefitEnrollments}
+          onClose={() => setShowBenefitEnrollment(false)}
+          fmt={fmt}
+        />
       )}
 
       {showW2Preview && (
