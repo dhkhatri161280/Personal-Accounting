@@ -949,6 +949,15 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           // A real server-reported failure (bad request, storage unavailable, ...) -- retry once
           // or twice in case it's transient (e.g. R2 hiccup), but don't mask a genuine 400.
           lastError = new Error(`HTTP ${r.status}`);
+          if (r.status === 401) {
+            // Confirmed live: this is what Android backgrounding a PWA (e.g. switching to Google
+            // Drive to pick the file) looks like -- the access token went missing, not a real
+            // server rejection. This runs BEFORE the numeric save below, which will hit the same
+            // 401 (same missing token) -- nothing has actually saved yet at this point, unlike
+            // every other failure this function can hit here.
+            setPaystubError("Your session expired (common after switching apps on mobile, e.g. to pick a file) -- nothing was saved yet. Close and reopen this app, then try again.");
+            return null;
+          }
           if (r.status < 500 || attempt === ATTEMPTS) {
             setPaystubError(`Numbers saved, but archiving the PDF to Documents failed (${r.status}).`);
             return null;
@@ -1053,8 +1062,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
           const existing = (y.manualVestTax ?? []).filter((v) => v.date !== target.date);
           return { ...y, manualVestTax: [...existing, entry] };
         });
-        await onSave({ ...payroll!, years: updatedYears }, newDocument ?? undefined);
-        setPaystubReview(null);
+        // Checked explicitly -- onSave resolves false (never throws) on a real failure (e.g. the
+        // 401 session-expiry case above, or a 412 version conflict), and this used to close the
+        // review panel regardless, making a failed save look like it had gone through. Leaving
+        // the panel open on failure keeps paystubReview's target.id intact so a retry reuses the
+        // SAME period/vest instead of risking a second, duplicate entry.
+        const vestOk = await onSave({ ...payroll!, years: updatedYears }, newDocument ?? undefined);
+        if (vestOk !== false) setPaystubReview(null);
         return;
       }
 
@@ -1096,8 +1110,13 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         const newPeriod: ManualPayrollPeriod = { id: crypto.randomUUID(), label: target.label, periodIndex: target.periodIndex, ...fields };
         return { ...y, manualPeriods: [...existing, newPeriod] };
       });
-      await onSave({ ...payroll!, years: updatedYears }, newDocument ?? undefined);
-      setPaystubReview(null);
+      // Same ok-check as the vest branch above -- a failed save (401 session expiry, 412
+      // conflict, ...) used to close the review panel as if it had succeeded. Leaving it open
+      // keeps target.id intact (null for a brand-new period, the real id for an existing one), so
+      // retrying creates the period exactly once instead of risking a second, duplicate entry if
+      // the user had assumed the first attempt went through.
+      const periodOk = await onSave({ ...payroll!, years: updatedYears }, newDocument ?? undefined);
+      if (periodOk !== false) setPaystubReview(null);
     } finally {
       setSavingPaystub(false);
     }

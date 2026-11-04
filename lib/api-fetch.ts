@@ -1,15 +1,21 @@
 "use client";
 
 // Client-side counterpart to lib/api-auth.ts -- attaches the access-token header every
-// protected API route now requires. Held in sessionStorage (same lifetime/tradeoff as the vault
-// password itself, see VaultApp.tsx's session keys) rather than localStorage, so it doesn't
-// silently persist across browser restarts on a shared machine.
+// protected API route now requires. Held in localStorage, not sessionStorage -- confirmed live
+// (2026-11) that sessionStorage gets silently wiped on Android when the installed PWA is
+// backgrounded (e.g. switching to the Google Drive app to pick a file for upload) and the OS
+// reclaims the WebView process to free memory: the app's own React state survives and still
+// LOOKS unlocked, but every API call then fails with 401 since the token is gone, with no
+// obvious reason why ("parsing works, saving doesn't"). localStorage survives that. This does
+// mean the access code persists across a full browser restart on this device -- an accepted
+// tradeoff for a personal phone/PWA that already has its own lock screen; still cleared
+// explicitly on logout via clearAccessToken.
 const TOKEN_KEY = "dk-access-token";
 const HEADER = "x-dk-access-token";
 
 export function getAccessToken(): string | null {
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
@@ -17,13 +23,13 @@ export function getAccessToken(): string | null {
 
 export function setAccessToken(token: string) {
   try {
-    sessionStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(TOKEN_KEY, token);
   } catch {}
 }
 
 export function clearAccessToken() {
   try {
-    sessionStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_KEY);
   } catch {}
 }
 

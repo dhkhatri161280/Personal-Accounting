@@ -953,6 +953,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       setStatus("Save failed: session expired. Please lock and re-open the vault, then try again.");
       return false;
     }
+    // Distinct from 428 above -- this is the access-token header specifically missing/invalid
+    // (lib/api-auth.ts's requireAccessToken), not the vault password session. Confirmed live:
+    // this is what actually fires when Android kills a backgrounded PWA's process mid-task (e.g.
+    // switching to Google Drive to pick a file) and the saved token goes with it -- previously
+    // fell through to the generic "Save failed (401: ...)" message below, which gave no hint that
+    // simply reopening the app would fix it.
+    if (r.status === 401) {
+      setStatus("Save failed: your session expired (common after switching apps on mobile, e.g. to pick a file). Close and reopen this app, then try again -- nothing was lost.");
+      return false;
+    }
     if (!r.ok) {
       const detail = await r.text().catch(() => "");
       setStatus(`Save failed (${r.status}${detail ? ": " + detail : ""})`);

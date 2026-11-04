@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-04",
+    "summary": "Benefit Enrollment: archive the uploaded PDF into Masters > Documents"
+  },
+  {
+    "date": "2026-11-04",
     "summary": "Add Benefit Enrollment cost tracking to Tax Report, with year-over-year comparison"
   },
   {
