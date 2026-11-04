@@ -5351,8 +5351,11 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               fmt={fmt}
               livePrice={nvdaPrice}
               benefitEnrollments={data.benefitEnrollments}
-              onSaveBenefitEnrollments={async (benefitEnrollments) => {
-                return await save({ ...data, benefitEnrollments }, "reports");
+              onSaveBenefitEnrollments={async (benefitEnrollments, newDocument) => {
+                return await save(
+                  { ...data, benefitEnrollments, documents: newDocument ? [...(data.documents ?? []), newDocument] : data.documents },
+                  "reports"
+                );
               }}
             />
           )}

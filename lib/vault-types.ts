@@ -979,7 +979,7 @@ export type BenefitEnrollmentYear = {
 // this small metadata record lives in the encrypted vault blob, same split as Attachment/Tx.
 export type VaultDocument = {
   id: string;
-  category: "Pay Stub" | "Grant Agreement" | "Grant Award" | "Offer Letter" | "Other";
+  category: "Pay Stub" | "Grant Agreement" | "Grant Award" | "Offer Letter" | "Benefit Enrollment" | "Other";
   label: string;
   // Optional date the document is "about" (a pay period, a grant date) -- distinct from
   // uploadedAt below, which is just when the file was archived here.

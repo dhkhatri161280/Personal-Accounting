@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
 import { FloatingWindow as Modal } from "@/components/FloatingWindow";
-import type { BenefitEnrollmentYear, BenefitEnrollmentCategory } from "@/lib/vault-types";
+import type { BenefitEnrollmentYear, BenefitEnrollmentCategory, VaultDocument } from "@/lib/vault-types";
 import {
   DEFAULT_PAY_PERIODS_PER_YEAR,
   mergeBenefitEnrollmentYear,
@@ -24,11 +24,17 @@ function draftFrom(categories: BenefitEnrollmentCategory[]): DraftCategory[] {
 export function BenefitEnrollmentModal({
   years,
   onSave,
+  archiveDocument,
   onClose,
   fmt,
 }: {
   years: BenefitEnrollmentYear[];
-  onSave: (years: BenefitEnrollmentYear[]) => Promise<boolean | void>;
+  onSave: (years: BenefitEnrollmentYear[], newDocument?: VaultDocument) => Promise<boolean | void>;
+  // Obvious, same as every other upload in this app: the PDF itself gets archived into
+  // Masters > Documents (category "Benefit Enrollment"), not just read-and-discarded. Takes an
+  // error setter instead of throwing -- archival failing is a soft warning, not a blocker; the
+  // numeric save it rides alongside is the part that actually matters.
+  archiveDocument: (file: File, label: string, date: string, setError: (msg: string) => void) => Promise<VaultDocument | null>;
   onClose: () => void;
   fmt: (n: number) => string;
 }) {
@@ -47,11 +53,14 @@ export function BenefitEnrollmentModal({
     categories: DraftCategory[];
     source: "parsed" | "manual";
     warnings: string[];
+    // Carried along even when parsing fails (a scanned-image PDF, say) -- entering the numbers by
+    // hand doesn't mean the original PDF shouldn't still be archived into Documents.
+    file: File | null;
   } | null>(null);
 
   const [selectedYears, setSelectedYears] = useState<Set<number>>(() => new Set(years.slice(0, 2).map((y) => y.year)));
 
-  function startManualEntry() {
+  function startManualEntry(file: File | null = null) {
     setParseError("");
     const thisYear = new Date().getFullYear();
     setDraft({
@@ -62,6 +71,7 @@ export function BenefitEnrollmentModal({
       categories: MANUAL_ENTRY_DEFAULTS.map((category) => ({ category, planName: "", costPerPayPeriod: "0" })),
       source: "manual",
       warnings: [],
+      file,
     });
   }
 
@@ -83,11 +93,16 @@ export function BenefitEnrollmentModal({
         categories: draftFrom(parsed.categories),
         source: "parsed",
         warnings: parsed.warnings,
+        file,
       });
     } catch (err) {
       // Exactly the "no extractable text" / "doesn't look like a statement" cases
-      // parseBenefitEnrollmentPdf throws for -- offer manual entry right here instead of a dead end.
-      setParseError(err instanceof Error ? err.message : "Couldn't read that PDF.");
+      // parseBenefitEnrollmentPdf throws for -- fall straight into manual entry instead of a dead
+      // end, with the file still attached (so it still gets archived once saved) and the real
+      // parse error shown as the form's own warning, not a separate banner the user has to notice.
+      const message = err instanceof Error ? err.message : "Couldn't read that PDF.";
+      startManualEntry(file);
+      setDraft((d) => (d ? { ...d, warnings: [message, ...d.warnings] } : d));
     } finally {
       setParsing(false);
     }
@@ -110,6 +125,7 @@ export function BenefitEnrollmentModal({
 
   async function saveDraft() {
     if (!draft) return;
+    setParseError("");
     const year = Number(draft.year);
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
       setParseError("Enter a valid 4-digit year.");
@@ -128,8 +144,15 @@ export function BenefitEnrollmentModal({
     };
     setSaving(true);
     try {
+      // Archive the original PDF into Masters > Documents FIRST, same "one upload does both
+      // jobs" pattern as the paystub flow -- a soft failure here (reported via setParseError, not
+      // thrown) still lets the numeric save below go through; the numbers are the part that
+      // actually matters, the archive is a convenience on top.
+      const newDocument = draft.file
+        ? (await archiveDocument(draft.file, `Benefit Enrollment — ${year}`, draft.asOfDate || `${year}-01-01`, setParseError)) ?? undefined
+        : undefined;
       const merged = mergeBenefitEnrollmentYear(years, record);
-      const ok = await onSave(merged);
+      const ok = await onSave(merged, newDocument);
       if (ok !== false) {
         setDraft(null);
         setSelectedYears((prev) => new Set([...prev, record.year]));
@@ -177,26 +200,17 @@ export function BenefitEnrollmentModal({
     <Modal title="Benefit Enrollment Cost" onClose={onClose} wide>
       <div style={{ padding: "0 4px" }}>
         {!draft && (
-          <>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-              <input ref={fileInputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handleUpload} />
-              <button className="equity-refresh" onClick={() => fileInputRef.current?.click()} disabled={parsing}>
-                {parsing ? "Reading…" : "📄 Upload Enrollment PDF"}
-              </button>
-              <button className="equity-refresh" onClick={startManualEntry} disabled={parsing}>
-                ✏️ Enter Manually
-              </button>
-            </div>
-            {parseError && (
-              <p style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>
-                {parseError}{" "}
-                <button type="button" className="tr-refresh-btn" onClick={startManualEntry}>
-                  Enter this year manually instead
-                </button>
-              </p>
-            )}
-          </>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+            <input ref={fileInputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handleUpload} />
+            <button className="equity-refresh" onClick={() => fileInputRef.current?.click()} disabled={parsing}>
+              {parsing ? "Reading…" : "📄 Upload Enrollment PDF"}
+            </button>
+            <button className="equity-refresh" onClick={() => startManualEntry()} disabled={parsing}>
+              ✏️ Enter Manually
+            </button>
+          </div>
         )}
+        {parseError && <p style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{parseError}</p>}
 
         {draft && (
           <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 12, marginBottom: 16 }}>

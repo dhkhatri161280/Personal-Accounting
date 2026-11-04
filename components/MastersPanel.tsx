@@ -2481,6 +2481,7 @@ export function MastersPanel({
                 <option value="Grant Agreement">Grant Agreement</option>
                 <option value="Grant Award">Grant Award</option>
                 <option value="Offer Letter">Offer Letter</option>
+                <option value="Benefit Enrollment">Benefit Enrollment</option>
                 <option value="Other">Other</option>
               </select>
               <input
@@ -2551,6 +2552,7 @@ export function MastersPanel({
                             <option value="Grant Agreement">Grant Agreement</option>
                             <option value="Grant Award">Grant Award</option>
                             <option value="Offer Letter">Offer Letter</option>
+                            <option value="Benefit Enrollment">Benefit Enrollment</option>
                             <option value="Other">Other</option>
                           </select>
                         </td>

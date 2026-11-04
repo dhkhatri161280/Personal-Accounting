@@ -55,7 +55,7 @@ interface TaxReportProps {
   // folded into `payroll`) since it's a separate yearly record, not a payroll-period figure. See
   // BenefitEnrollmentModal and lib/benefit-enrollment.ts.
   benefitEnrollments?: BenefitEnrollmentYear[];
-  onSaveBenefitEnrollments?: (years: BenefitEnrollmentYear[]) => Promise<boolean | void>;
+  onSaveBenefitEnrollments?: (years: BenefitEnrollmentYear[], newDocument?: VaultDocument) => Promise<boolean | void>;
 }
 
 function row(rows: PayrollRow[], label: string, occurrence = 0): PayrollRow | undefined {
@@ -968,6 +968,56 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
     setPaystubError(
       `Numbers saved, but archiving the PDF to Documents failed after ${ATTEMPTS} attempts (${lastError instanceof Error ? lastError.message : "network error"}). Try again, or use Masters > Documents to upload it directly.`
     );
+    return null;
+  }
+
+  // Same archival as archivePaystubDocument above, generalized to take category/label/date and
+  // report failures through a caller-supplied setter instead of the paystub-specific error state --
+  // BenefitEnrollmentModal has its own error display, separate from this report's paystub flow.
+  async function archiveDocument(
+    file: File,
+    category: VaultDocument["category"],
+    label: string,
+    date: string,
+    setError: (msg: string) => void
+  ): Promise<VaultDocument | null> {
+    let toUpload = file;
+    if (file.size > DOCUMENT_MAX_SIZE_BYTES) {
+      const trimmed = file.type === "application/pdf" || /\.pdf$/i.test(file.name) ? await trimPdfToFit(file, DOCUMENT_MAX_SIZE_BYTES) : null;
+      if (!trimmed) {
+        setError(`Saved, but the PDF itself was too large to archive (${(file.size / 1024 / 1024).toFixed(1)}MB, limit ~${DOCUMENT_MAX_SIZE_BYTES / 1024 / 1024}MB).`);
+        return null;
+      }
+      toUpload = trimmed.file;
+    }
+    const ATTEMPTS = 3;
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      try {
+        const form = new FormData();
+        form.append("file", toUpload);
+        form.append("book", book);
+        form.append("folder", "documents");
+        const r = await apiFetch("/api/attachments", { method: "POST", body: form });
+        if (!r.ok) {
+          lastError = new Error(`HTTP ${r.status}`);
+          if (r.status < 500 || attempt === ATTEMPTS) {
+            setError(`Saved, but archiving the PDF to Documents failed (${r.status}).`);
+            return null;
+          }
+          continue;
+        }
+        const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
+        return { id: crypto.randomUUID(), category, label, date, ...meta };
+      } catch (e) {
+        lastError = e;
+        if (attempt < ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+          continue;
+        }
+      }
+    }
+    setError(`Saved, but archiving the PDF to Documents failed after ${ATTEMPTS} attempts (${lastError instanceof Error ? lastError.message : "network error"}). Try again, or use Masters > Documents to upload it directly.`);
     return null;
   }
 
@@ -3048,6 +3098,7 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
         <BenefitEnrollmentModal
           years={benefitEnrollments ?? []}
           onSave={onSaveBenefitEnrollments}
+          archiveDocument={(file, label, date, setError) => archiveDocument(file, "Benefit Enrollment", label, date, setError)}
           onClose={() => setShowBenefitEnrollment(false)}
           fmt={fmt}
         />
