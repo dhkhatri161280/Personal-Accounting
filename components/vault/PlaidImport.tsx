@@ -762,9 +762,17 @@ function buildDraft(
   const citiFromBankFeed = /citi(?!zen)/i.test(tx.name) && /pmt|payment|ach|autopay|hold/i.test(tx.name);
   if (citiFromOwnFeed || citiFromBankFeed) {
     const citiAcc = findAcct(accounts, "Citi Credit Card", "Citibank", "Citi");
+    // matchVaultAccount(plaidAcct, ...) resolves a Plaid account to ITS OWN vault ledger -- correct
+    // for citiFromBankFeed (plaidAcct there is the real paying bank's own account), but WRONG for
+    // citiFromOwnFeed: plaidAcct there IS the Citi card's own account, so matchVaultAccount just
+    // resolves back to Citi again, making bankAcc === citiAcc and silently killing this whole rule
+    // (confirmed live: a real Citi own-feed payment fell through to a low-confidence generic guess
+    // because of exactly this). Only consult it for the bank-feed case; the own-feed case has no
+    // reliable signal for which bank paid it, so it goes straight to the same best-guess fallback
+    // list the BofA/Amex rules already use.
     const bankAcc =
-      (plaidAcct && matchVaultAccount(plaidAcct, accounts)) ||
-      findAcct(accounts, tx.institution_name, "Bank Of America", "Bank of America", "BofA", "Chase Bank", "Chase");
+      (citiFromBankFeed && plaidAcct && matchVaultAccount(plaidAcct, accounts)) ||
+      findAcct(accounts, ...(citiFromBankFeed ? [tx.institution_name] : []), "Bank Of America", "Bank of America", "BofA", "Chase Bank", "Chase");
     // Look up the most common narration used in past Citi payment vouchers
     const pastNarr = (() => {
       const hits = ledger.transactions
