@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-04",
+    "summary": "Fix mobile paystub/document upload failing silently after a Drive file pick"
+  },
+  {
+    "date": "2026-11-04",
     "summary": "Benefit Enrollment: archive the uploaded PDF into Masters > Documents"
   },
   {

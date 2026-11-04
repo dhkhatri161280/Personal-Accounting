@@ -177,15 +177,21 @@ export function BenefitEnrollmentModal({
     () => sortedYears.filter((y) => selectedYears.has(y.year)).sort((a, b) => a.year - b.year),
     [sortedYears, selectedYears]
   );
+  const [showAllCategories, setShowAllCategories] = useState(false);
   // Union of every category name across the selected years, in first-seen order -- a category
   // enrolled one year but dropped (or newly added) the next still gets its own row, reading as
   // "—" for the year it didn't appear in rather than being silently left out of the comparison.
+  // Every saved year still keeps its full category list (including $0/Waived) regardless -- this
+  // only trims what the COMPARISON shows, since a dozen+ always-$0 rows (HSA, Accident Insurance,
+  // every Critical Illness/AD&D variant, ...) just buries the handful that actually cost money
+  // and are worth comparing. "Show all categories" below opts back into the full list.
   const allCategoryNames = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
     for (const y of compareYears) for (const c of y.categories) if (!seen.has(c.category)) { seen.add(c.category); out.push(c.category); }
-    return out;
-  }, [compareYears]);
+    if (showAllCategories) return out;
+    return out.filter((name) => compareYears.some((y) => (y.categories.find((c) => c.category === name)?.costPerPayPeriod ?? 0) !== 0));
+  }, [compareYears, showAllCategories]);
 
   function toggleYear(year: number) {
     setSelectedYears((prev) => {
@@ -346,7 +352,13 @@ export function BenefitEnrollmentModal({
 
             {compareYears.length >= 2 ? (
               <>
-                <h4 style={{ margin: "0 0 8px" }}>Comparison — {compareYears.map((y) => y.year).join(" vs ")}</h4>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                  <h4 style={{ margin: 0 }}>Comparison — {compareYears.map((y) => y.year).join(" vs ")}</h4>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, opacity: 0.75, cursor: "pointer" }}>
+                    <input type="checkbox" checked={showAllCategories} onChange={(e) => setShowAllCategories(e.target.checked)} />
+                    Show all categories (including $0 / Waived)
+                  </label>
+                </div>
                 <table className="fx-ledger-table">
                   <thead>
                     <tr>
