@@ -82,25 +82,38 @@ try {
   $captureOutput = & node auto-capture.mjs 2>&1
   Add-Content -Path $logFile -Value ($captureOutput | Out-String)
 
-  if ($captureOutput -join "`n" -match '0 responses captured') {
-    Add-Content -Path $logFile -Value "0 responses on first attempt -- retrying once after a short wait (likely just a cold-start timing issue, not a real sign-out)."
+  # Matches EITHER failure auto-capture.mjs can report: zero responses at all (a true cold
+  # sign-out) or zero of the real benefits API responses specifically (confirmed live 2026-11-04:
+  # a degraded session stuck on Amex's own device/passkey verification challenge still returns
+  # plenty of OTHER JSON -- nav headers, marketing payloads -- so "any response at all" alone
+  # silently passed for 3+ days straight while every benefit figure sat frozen on stale data).
+  $captureFailed = { param($out) $out -join "`n" -match '0 responses captured|0 real benefits-trackers API' }
+
+  if (& $captureFailed $captureOutput) {
+    Add-Content -Path $logFile -Value "Capture didn't reach the real benefits data on the first attempt -- retrying once after a short wait (likely just a cold-start timing issue, not a real sign-out)."
     Start-Sleep -Seconds 10
     $captureOutput = & node auto-capture.mjs 2>&1
     Add-Content -Path $logFile -Value ($captureOutput | Out-String)
   }
 
-  if ($captureOutput -join "`n" -match '0 responses captured') {
+  if (& $captureFailed $captureOutput) {
     Pop-Location
     Show-LoginNeededAlert
-    throw "0 JSON responses captured on two attempts -- the debug Chrome's Amex session has likely signed out. Open it and log into americanexpress.com again."
+    throw "Didn't reach the real benefits data on two attempts -- the debug Chrome's Amex session has likely signed out or hit a verification challenge. Open it and log into americanexpress.com again."
   }
 
   $parseOutput = & node parse.mjs 2>&1
   Add-Content -Path $logFile -Value ($parseOutput | Out-String)
 
-  if ($parseOutput -join "`n" -match 'No usage trackers found') {
+  # Two different messages parse.mjs can print for "found nothing usable" -- confirmed live
+  # (2026-11-04) that restricting parse.mjs to the latest capture only (see its own comment) makes
+  # the EARLIER, stricter "No benefit data found in any capture" message the one that actually
+  # fires when the real benefits API wasn't reached at all, not the "No usage trackers found" one
+  # this previously only checked for.
+  if ($parseOutput -join "`n" -match 'No usage trackers found|No benefit data found') {
     Pop-Location
-    throw "No usage trackers found in the capture -- the Benefits pages may not have loaded correctly."
+    Show-LoginNeededAlert
+    throw "Parse found no usable benefit data in the latest capture -- the Benefits pages likely didn't load correctly (see auto-capture.mjs's own output above for why)."
   }
 
   $env:PL_SITE_PASSWORD = Read-DpapiSecret 'site'

@@ -126,10 +126,27 @@ function* walkJsonFiles(dir) {
   }
 }
 
+// ONLY the most recent capture, not every capture ever taken. Confirmed live (2026-11-04): with
+// every historical capture folder scanned, a benefit whose tracker API simply wasn't reached on a
+// given run (e.g. Amex's own ReadLoyaltyBenefits.v2 blocked by a device/passkey verification
+// challenge) kept silently serving its last-seen value from Nov 1 -- stamped with THAT run's
+// current timestamp regardless, so it looked fresh every single day for 3+ days while nothing had
+// actually been re-checked. Restricting to the latest folder means a run that doesn't reach the
+// real data now correctly produces fewer/zero trackers, surfacing as "No usage trackers found"
+// (run-scheduled.ps1 already treats that as an error) instead of quietly serving stale numbers.
+// import-to-vault.mjs's own merge-by-id still preserves any benefit this run didn't see at all,
+// so nothing is deleted -- it just stops getting a bogus fresh timestamp it didn't earn.
+function latestCaptureDir(dir) {
+  const subdirs = readdirSync(dir).filter((name) => statSync(join(dir, name)).isDirectory()).sort();
+  return subdirs.length > 0 ? join(dir, subdirs[subdirs.length - 1]) : null;
+}
+
 function main() {
   let files;
   try {
-    files = [...walkJsonFiles(CAPTURES_DIR)].sort(); // chronological -- timestamp folder names sort lexically
+    const latest = latestCaptureDir(CAPTURES_DIR);
+    if (!latest) throw new Error("no capture folders");
+    files = [...walkJsonFiles(latest)].sort();
   } catch {
     console.error(`No .captures folder found at ${CAPTURES_DIR} -- run attach.mjs first.`);
     process.exit(1);

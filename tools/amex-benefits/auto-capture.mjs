@@ -37,6 +37,23 @@ const captureDir = join(CAPTURES_DIR, new Date().toISOString().replace(/[:.]/g, 
 mkdirSync(captureDir, { recursive: true });
 
 let seq = 0;
+// The response that actually matters -- confirmed live (2026-11-04) that a degraded session
+// (Amex gating full account access behind a device/passkey verification challenge an unattended
+// script obviously can't complete) still returns plenty of OTHER JSON (nav headers/footers,
+// marketing payloads, verification-challenge responses) while never reaching the real benefits
+// data at all. "seq > 0" alone passed every day for 3+ days straight while every benefit figure
+// sat frozen on stale data.
+//
+// Specifically ReadBestLoyaltyBenefitsTrackers -- NOT the same endpoint as ReadLoyaltyBenefits.v2
+// (the coverage/catalog one) despite the similar name; confirmed live these are two genuinely
+// separate API calls (an earlier version of this check matched only ReadLoyaltyBenefits.v2,
+// which "ReadBestLoyaltyBenefitsTrackers" does NOT contain as a substring -- "ReadBest" breaks
+// up "Read"+"Loyalty" -- so a run that captured catalog/coverage data but not the actual usage
+// trackers still passed). Trackers are what matters most here: that's where every tracked
+// benefit's real spent/remaining numbers (Uber One Credit, Airline Fee Credit, etc.) come from --
+// same two URL patterns parse.mjs itself uses (TRACKERS_URL_RE/CATALOG_URL_RE), kept in sync here
+// deliberately rather than duplicating slightly-different regex logic.
+let sawTrackersApi = false;
 function wireUp(page) {
   page.on("response", async (res) => {
     try {
@@ -45,6 +62,7 @@ function wireUp(page) {
       if (!contentType.includes("application/json")) return;
       const body = await res.json().catch(() => null);
       if (!body) return;
+      if (res.url().includes("ReadBestLoyaltyBenefitsTrackers")) sawTrackersApi = true;
       seq += 1;
       writeFileSync(join(captureDir, `${String(seq).padStart(4, "0")}.json`), JSON.stringify({ url: res.url(), status: res.status(), body }, null, 2));
     } catch {
@@ -92,6 +110,8 @@ async function main() {
   console.log(`Captured ${seq} JSON response(s) to:\n  ${captureDir}`);
   if (seq === 0) {
     console.log("0 responses captured -- the debug Chrome's Amex session may have signed out. Log in again manually, then re-run.");
+  } else if (!sawTrackersApi) {
+    console.log("0 real benefits-trackers API (ReadBestLoyaltyBenefitsTrackers) responses captured -- the session reached americanexpress.com but not your actual account data (likely a device/passkey verification challenge blocking it). Open the debug Chrome and log in / complete that verification manually, then re-run.");
   }
 }
 
