@@ -40,6 +40,10 @@ export function BenefitEnrollmentModal({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsing, setParsing] = useState(false);
+  // OCR (a text-less/scanned PDF) genuinely takes a while -- 10 real pages took real wall-clock
+  // time in testing -- so a static "Reading…" label would look stuck. Set from
+  // parseBenefitEnrollmentPdf's own onProgress callback.
+  const [parsingProgress, setParsingProgress] = useState("");
   const [parseError, setParseError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -81,9 +85,10 @@ export function BenefitEnrollmentModal({
     e.target.value = "";
     setParseError("");
     setParsing(true);
+    setParsingProgress("");
     try {
       const { parseBenefitEnrollmentPdf } = await import("@/lib/parse-benefit-enrollment-pdf");
-      const parsed = await parseBenefitEnrollmentPdf(file);
+      const parsed = await parseBenefitEnrollmentPdf(file, setParsingProgress);
       const inferredYear = parsed.asOfDate ? Number(parsed.asOfDate.slice(0, 4)) : new Date().getFullYear();
       setDraft({
         year: String(inferredYear),
@@ -209,7 +214,7 @@ export function BenefitEnrollmentModal({
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
             <input ref={fileInputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={handleUpload} />
             <button className="equity-refresh" onClick={() => fileInputRef.current?.click()} disabled={parsing}>
-              {parsing ? "Reading…" : "📄 Upload Enrollment PDF"}
+              {parsing ? (parsingProgress || "Reading…") : "📄 Upload Enrollment PDF"}
             </button>
             <button className="equity-refresh" onClick={() => startManualEntry()} disabled={parsing}>
               ✏️ Enter Manually

@@ -13,6 +13,11 @@
 # testing
 /coverage
 
+# tesseract.js downloads its OCR language model here when run under Node (e.g. local dev/test
+# scripts) -- in production the browser build loads it from tesseract.js's own CDN at runtime,
+# never from this file, so it's local dev noise, not a build artifact.
+*.traineddata
+
 # next.js
 /.next/
 /.vinext/
