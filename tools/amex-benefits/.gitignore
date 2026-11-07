@@ -12,3 +12,4 @@ node_modules/
 # ../costco-receipts's own gitignore.
 last-sync-status.json
 sync-log.txt
+trigger-check-log.txt

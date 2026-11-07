@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { Ledger, Tx, AmexBenefit, AmexCoverageBenefit } from "@/lib/vault-types";
 import { fmtDate, todayLocalIso } from "@/lib/format-date";
 import { summarizeAmexBenefits, selfReportedUberCashUsed, effectiveYearToDate } from "@/lib/amex-benefits";
+import { matchAmexBenefitCredits, type StatementCredit } from "@/lib/amex-credit-match";
+import { apiFetch } from "@/lib/api-fetch";
 import { ColResizeHandle } from "@/components/TransactionTable";
 
 // Column widths are user-adjustable (ColResizeHandle, the same Excel-style drag-to-resize border
@@ -144,6 +146,50 @@ export function AmexBenefitsReport({
     onSave({ ...data, amexInactiveCredits: next });
   }
 
+  const [syncingCredits, setSyncingCredits] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  // Reads real Amex card transactions via the already-connected Plaid item (no scraping, no
+  // debug-Chrome login -- see lib/amex-credit-match.ts's own comment for how the matched names
+  // were captured and cross-validated against the live scraped tracker totals) and merges any
+  // newly-found benefit credits straight into statementCredits. Safe to re-run any time, from any
+  // device that can open this app -- matchAmexBenefitCredits dedupes against what's already on
+  // file, so clicking this twice never double-counts.
+  async function syncCreditsFromTransactions() {
+    if (!onSave) return;
+    setSyncingCredits(true);
+    setSyncMsg(null);
+    try {
+      const start = `${Number(currentYear) - 1}-01-01`;
+      const end = todayLocalIso();
+      const res = await apiFetch(
+        `/api/plaid/transactions?institution=${encodeURIComponent("American Express")}&norefresh=1&start=${start}&end=${end}`
+      );
+      if (!res.ok) throw new Error(`Transactions fetch failed (HTTP ${res.status})`);
+      const json = (await res.json()) as { transactions?: { date: string; name: string; amount: number }[]; errors?: string[] };
+      if (json.errors?.length) throw new Error(json.errors.join("; "));
+      const existing: Record<string, StatementCredit[]> = {};
+      for (const b of benefits) if (b.statementCredits?.length) existing[b.benefitId] = b.statementCredits;
+      const matched = matchAmexBenefitCredits(
+        (json.transactions ?? []).map((t) => ({ date: t.date, name: t.name, amount: t.amount })),
+        existing
+      );
+      const matchedIds = Object.keys(matched);
+      if (!matchedIds.length) {
+        setSyncMsg("No new benefit credits found in your card transactions.");
+        return;
+      }
+      const addedCount = matchedIds.reduce((s, id) => s + (matched[id].length - (existing[id]?.length ?? 0)), 0);
+      const nextBenefits = (data.amexBenefits ?? []).map((b) => (matched[b.benefitId] ? { ...b, statementCredits: matched[b.benefitId] } : b));
+      onSave({ ...data, amexBenefits: nextBenefits });
+      setSyncMsg(`Found ${addedCount} new credit${addedCount === 1 ? "" : "s"} across ${matchedIds.length} benefit${matchedIds.length === 1 ? "" : "s"}.`);
+    } catch (e: any) {
+      setSyncMsg(`Sync failed: ${e?.message || e}`);
+    } finally {
+      setSyncingCredits(false);
+    }
+  }
+
   const feeMatch = useMemo(() => {
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - 13);
@@ -265,6 +311,19 @@ export function AmexBenefitsReport({
             Reset column widths
           </button>
         )}
+        {onSave && (
+          <button
+            type="button"
+            className="columnar-cell-btn"
+            style={{ fontSize: 11, fontWeight: 400 }}
+            disabled={syncingCredits}
+            title="Pull real Amex card transactions (via Plaid, already connected -- no login needed) and auto-fill any benefit credits that posted, no scraping involved"
+            onClick={syncCreditsFromTransactions}
+          >
+            {syncingCredits ? "Syncing…" : "Sync credits from card transactions"}
+          </button>
+        )}
+        {syncMsg && <span style={{ fontSize: 11, opacity: 0.7 }}>{syncMsg}</span>}
       </h3>
       {/* table-scroll -- the same established inner-scroll wrapper roughly a dozen other reports
           already use for this exact shape (wide report content inside .data-panel's own
