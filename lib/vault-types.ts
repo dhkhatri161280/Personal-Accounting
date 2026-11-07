@@ -1031,3 +1031,12 @@ export type SyncHealth = {
   errors?: number;
   message?: string | null;
 };
+
+// Published by tools/amex-benefits/run-scheduled.ps1 (via /api/amex-sync-status) after every
+// run -- simpler than SyncHealth since there's nothing like matched/tallyToApp counts here, just
+// whether the daily refresh succeeded and the real reason if it didn't.
+export type AmexSyncHealth = {
+  status?: string | null;
+  lastCheckedAt?: string | null;
+  message?: string | null;
+};

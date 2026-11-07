@@ -19,6 +19,8 @@ $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 $profileDir = "C:\Users\dikhatri\ChromeDebugProfile"
 $stamp      = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 
+$siteUrl = 'https://personal-ledger-dk.digneshkhatri.workers.dev'
+
 function Read-DpapiSecret([string]$Name) {
   $state = Join-Path $env:LOCALAPPDATA 'PersonalLedgerTallySync'
   $file = Join-Path $state "$Name.dpapi"
@@ -27,6 +29,27 @@ function Read-DpapiSecret([string]$Name) {
   $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
   try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+}
+
+# Publishes the REAL result (success, or the actual reason it failed) to the Worker so the app's
+# own "Amex benefits haven't updated" banner can show the true reason instead of guessing from
+# staleness alone -- same PUT/Bearer-SYNC_SECRET pattern ../tally-sync's unattended-cycle.ps1
+# already uses for /api/sync-status. Best-effort: a publish failure here (no internet, Worker
+# down) must never make an otherwise-successful local run look like it failed, and the local
+# last-sync-status.json below is still written either way as the fallback source of truth.
+function Publish-AmexHealth([string]$Status, [string]$Message) {
+  try {
+    $body = @{ status = $Status; message = $Message } | ConvertTo-Json -Compress
+    Invoke-WebRequest "$siteUrl/api/amex-sync-status" `
+      -Method PUT `
+      -Headers @{ Authorization = "Bearer $(Read-DpapiSecret 'sync-secret')" } `
+      -ContentType 'application/json' `
+      -Body $body `
+      -TimeoutSec 15 `
+      -UseBasicParsing | Out-Null
+  } catch {
+    Add-Content -Path $logFile -Value "Status publish to app failed (non-fatal): $($_.Exception.Message)"
+  }
 }
 
 # A real sign-out is the ONE failure mode here that needs the user, not just a retry/wait --
@@ -131,10 +154,12 @@ try {
 
   @{ status = 'success'; timestamp = $stamp; message = 'Amex benefits refreshed.' } |
     ConvertTo-Json | Set-Content -LiteralPath $statusFile -Encoding UTF8
+  Publish-AmexHealth 'success' 'Amex benefits refreshed.'
 } catch {
   $errMsg = $_.Exception.Message
   Add-Content -Path $logFile -Value "ERROR: $_"
   @{ status = 'error'; timestamp = $stamp; message = $errMsg } |
     ConvertTo-Json | Set-Content -LiteralPath $statusFile -Encoding UTF8
+  Publish-AmexHealth 'error' $errMsg
   exit 1
 }

@@ -4,9 +4,14 @@ import { requireAccessToken } from "@/lib/api-auth";
 const bindings = env as unknown as AppBindings;
 export const dynamic = "force-dynamic";
 
+// "amex" reuses this same generic trigger mechanism for the Amex Benefits scheduled refresh
+// (tools/amex-benefits/trigger-check.ps1 polls it), not just the two Tally books -- the flag
+// storage/consume semantics below don't care what the book string actually means.
 function bookOf(request: Request) {
   const b = (new URL(request.url).searchParams.get("book") || "us").toLowerCase();
-  return b === "india" ? "india" : "us";
+  if (b === "india") return "india";
+  if (b === "amex") return "amex";
+  return "us";
 }
 function triggerKey(book: string) {
   return `fintech-by-dk.sync-trigger.${book}`;

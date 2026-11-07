@@ -101,6 +101,30 @@ schtasks /create /tn "Amex Benefits Refresh" /tr "wscript.exe \"C:\Users\dikhatr
 
 To remove it later: `schtasks /delete /tn "Amex Benefits Refresh" /f`
 
+### Retry sync from the app
+
+`run-scheduled.ps1` also publishes its real result (success, or the actual reason it failed --
+e.g. a genuine Amex sign-out vs. a cold-start timeout) to the Worker via `/api/amex-sync-status`,
+using the same DPAPI `sync-secret` `../tally-sync` already uses on this machine. The app's own
+"Needs Attention" banner reads that and shows the real reason, with a **Retry sync** button.
+
+That button just sets a flag (`/api/sync-trigger?book=amex`, same mechanism `../tally-sync`
+already uses for its own "Sync Now") -- something on this machine has to actually be polling for
+it, or tapping Retry would silently do nothing until tomorrow's scheduled run. `trigger-check.ps1`
+is that poller: a cheap no-op most of the time, and only runs `run-scheduled.ps1` immediately when
+the flag is set.
+
+**Register the poller** (every 5 minutes -- frequent enough that a Retry tap feels responsive,
+cheap enough it's a non-issue to run that often):
+```powershell
+schtasks /create /tn "Amex Benefits Trigger Check" /tr "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\Users\dikhatri\Documents\Codex\personal-accounting-app\tools\amex-benefits\trigger-check.ps1\"" /sc minute /mo 5 /f
+```
+To remove it later: `schtasks /delete /tn "Amex Benefits Trigger Check" /f`
+
+So after a real sign-out: log into americanexpress.com in the debug Chrome window, then either
+wait up to 5 minutes for the poller to notice on its own, or tap **Retry sync** in the app's
+Needs Attention banner to force it immediately.
+
 ## Output
 
 `.captures/<timestamp>/<NNNN>.json` -- one file per captured JSON response, each with `url`,

@@ -21,6 +21,7 @@ import type {
   Ledger,
   Vault,
   SyncHealth,
+  AmexSyncHealth,
   Budget,
   RecurringTemplate,
   Attachment,
@@ -294,6 +295,7 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
     [editingTagNameValue, setEditingTagNameValue] = useState(""),
     [r2Usage, setR2Usage] = useState<{ totalBytes: number; objectCount: number } | null>(null),
     [tallySyncHealth, setTallySyncHealth] = useState<SyncHealth | null>(null),
+    [amexSyncHealth, setAmexSyncHealth] = useState<AmexSyncHealth | null>(null),
     [vaultEtag, setVaultEtag] = useState(""),
     [nvdaPrice, setNvdaPrice] = useState<number | null>(null),
     [nvdaPrevClose, setNvdaPrevClose] = useState<number | null>(null),
@@ -1282,6 +1284,20 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       fetch(`/api/sync-status?book=${book}`, { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((h: unknown) => setTallySyncHealth(h as SyncHealth | null))
+        .catch(() => {});
+    check();
+    const timer = setInterval(check, 120000);
+    return () => clearInterval(timer);
+  }, [!!data, book]);
+
+  // Same pattern, Amex Benefits instead of Tally -- US-only (book !== "india"), see the
+  // attentionItems block below for why.
+  useEffect(() => {
+    if (!data || book === "india") return;
+    const check = () =>
+      fetch(`/api/amex-sync-status`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((h: unknown) => setAmexSyncHealth(h as AmexSyncHealth | null))
         .catch(() => {});
     check();
     const timer = setInterval(check, 120000);
@@ -2434,20 +2450,43 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   }
   // Amex Benefits refreshes once a day on its own (tools/amex-benefits/run-scheduled.ps1) with no
   // manual step needed -- UNLESS the debug Chrome's Amex session has signed out, in which case
-  // that daily run silently captures 0 trackers and nothing in the vault changes. The only
-  // visible symptom is every benefit's own lastCheckedAt quietly going stale, so that's exactly
-  // what this checks (no new API call -- the data's already in the vault). 36h gives the daily
-  // schedule a buffer before flagging, same reasoning as Tally's 2x-normal-cycle threshold above.
+  // that daily run silently captures 0 trackers and nothing in the vault changes. Prefers the
+  // REAL reason published by run-scheduled.ps1 itself (amexSyncHealth, via /api/amex-sync-status)
+  // over guessing from staleness alone -- previously this could only infer "something's wrong"
+  // from every benefit's lastCheckedAt going stale and had to GUESS the cause in its own text
+  // ("either the machine was off, or Amex signed out"); now it shows the actual reason the local
+  // script reported. Falls back to the old staleness-only check if nothing's ever been published
+  // (e.g. right after this shipped, before the local script's next run) or the published status
+  // is itself stale (machine off for days -- no fresh error OR success ever arrived).
+  // The "Retry sync" action sets the same flag tools/amex-benefits/trigger-check.ps1 polls every
+  // few minutes on that machine -- tap it right after logging back into americanexpress.com in
+  // the debug Chrome window, instead of waiting for tomorrow's scheduled run.
   // US-only (book !== "india"): Amex Platinum benefits are a US card.
   if (book !== "india" && data?.amexBenefits?.length) {
-    const mostRecentCheck = data.amexBenefits.reduce((latest, b) => (b.lastCheckedAt > latest ? b.lastCheckedAt : latest), "");
     const AMEX_STALE_HOURS = 36;
-    const ageHours = (Date.now() - new Date(mostRecentCheck).getTime()) / 3600000;
-    if (ageHours > AMEX_STALE_HOURS) {
+    const retryAction = {
+      label: "Retry sync",
+      onClick: () => { apiFetch(`/api/sync-trigger?book=amex`, { method: "POST" }).catch(() => {}); },
+    };
+    const healthAgeHours = amexSyncHealth?.lastCheckedAt
+      ? (Date.now() - new Date(amexSyncHealth.lastCheckedAt).getTime()) / 3600000
+      : Infinity;
+    if (amexSyncHealth?.status === "error" && healthAgeHours <= AMEX_STALE_HOURS) {
       attentionItems.push({
-        label: "Amex benefits haven't updated recently",
-        detail: `Last refreshed ${timeAgoLabel(mostRecentCheck)} -- it refreshes daily on its own with an automatic retry built in, so a day-plus gap usually means either the sync machine was off at refresh time, or the debug Chrome's Amex sign-in expired (a Windows popup should already be waiting there if so -- just log into americanexpress.com again in that window). Check tools/amex-benefits/last-sync-status.json on that machine for the exact reason.`,
+        label: "Amex benefits sync failed",
+        detail: `${amexSyncHealth.message || "Sync failed"} — last reported ${timeAgoLabel(amexSyncHealth.lastCheckedAt || "")}. If this is a sign-in issue, log into americanexpress.com in the debug Chrome window first, then tap Retry (it's checked every few minutes).`,
+        action: retryAction,
       });
+    } else {
+      const mostRecentCheck = data.amexBenefits.reduce((latest, b) => (b.lastCheckedAt > latest ? b.lastCheckedAt : latest), "");
+      const ageHours = (Date.now() - new Date(mostRecentCheck).getTime()) / 3600000;
+      if (ageHours > AMEX_STALE_HOURS) {
+        attentionItems.push({
+          label: "Amex benefits haven't updated recently",
+          detail: `Last refreshed ${timeAgoLabel(mostRecentCheck)} -- it refreshes daily on its own, so a day-plus gap usually means the sync machine was off at refresh time. Tap Retry once it's back on, or check tools/amex-benefits/last-sync-status.json there for the exact reason.`,
+          action: retryAction,
+        });
+      }
     }
   }
   // Plaid connection failures (e.g. ITEM_LOGIN_REQUIRED after a bank forces a password reset)

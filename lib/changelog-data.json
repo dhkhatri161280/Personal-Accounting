@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-06",
+    "summary": "Amex Benefits: show the real sync failure reason, add a Retry sync button"
+  },
+  {
+    "date": "2026-11-04",
+    "summary": "Benefit Enrollment: OCR fallback for scanned/image-only PDFs (free, local)"
+  },
+  {
     "date": "2026-11-04",
     "summary": "Benefit Enrollment comparison: hide always-\\$0/Waived categories by default"
   },
