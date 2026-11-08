@@ -1,15 +1,6 @@
-# Real Amex benefit/usage data and live browser session info -- never commit these.
-.captures/
-benefits.json
-coverage-benefits.json
-inactive-credits.json
+# Real Amex benefit/usage data -- never commit these.
 statement-claims.json
 statement-credits.json
 encrypted-us-vault-before-amex-import-*.json
 encrypted-us-vault-before-statement-claims-*.json
 node_modules/
-# Scheduled-run log/status -- local run artifacts, regenerated every run, same as
-# ../costco-receipts's own gitignore.
-last-sync-status.json
-sync-log.txt
-trigger-check-log.txt
