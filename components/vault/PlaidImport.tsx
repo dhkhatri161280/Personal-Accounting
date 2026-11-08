@@ -1182,8 +1182,12 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
       const amtMatch = Math.abs(vDebit(v) - amt) < 0.05;
       if (!amtMatch) return false;
       const daysDiff = Math.abs(txMs - new Date(v.date + "T12:00:00Z").getTime()) / 86400000;
-      // Explicit pending save (bank-pending): allow ±1 day for same-charge detection
-      if (v.syncStatus === "bank-pending") return daysDiff <= 1;
+      // Explicit pending save (bank-pending): allow ±5 days for same-charge detection -- some
+      // issuers (confirmed live: Citi) pull a pending authorization/credit off the feed entirely
+      // for a day or two before reposting it as the real posted transaction, same multi-day lag
+      // DATE_TOL_DAYS already accounts for in lib/plaid-recon.ts. ±1 day was too tight for that gap
+      // and let the repost come in as a brand-new, unmatched (and duplicate-risking) transaction.
+      if (v.syncStatus === "bank-pending") return daysDiff <= 5;
       // Any other vault entry: require exact same date to avoid cross-day false positives
       return v.date === tx.date;
     });
@@ -3441,7 +3445,10 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                             .sort((a, b) => b.date.localeCompare(a.date))
                         : [];
 
-                      // Match vault entries against Plaid transactions (amount ±$0.05, date ±3 days).
+                      // Match vault entries against Plaid transactions (amount ±$0.05, date ±5 days --
+                      // widened from ±3 to cover an issuer pulling a pending item off the feed for a
+                      // day or two before reposting it, same lag lib/plaid-recon.ts's DATE_TOL_DAYS
+                      // already accounts for; confirmed live: a Citi Costco return credit).
                       // For credit cards: charge = positive on both Plaid and vault Cr entry.
                       // For depository: deposit = negative on both Plaid and vault Dr entry.
                       //
@@ -3460,7 +3467,7 @@ export function PlaidImport({ data, onSave, initialTab }: Props) {
                         plaidTxsForGroup.forEach((pr, pi) => {
                           const dayDiff = Math.abs(new Date(pr.plaidTx.date + "T12:00:00Z").getTime() - vMs) / 86400000;
                           const amtDiff = Math.abs(pr.plaidTx.amount - ve.amount);
-                          if (dayDiff <= 3 && amtDiff < 0.05) candidatePairs.push({ vi, pi, dayDiff, amtDiff });
+                          if (dayDiff <= 5 && amtDiff < 0.05) candidatePairs.push({ vi, pi, dayDiff, amtDiff });
                         });
                       });
                       candidatePairs.sort((a, b) => a.dayDiff - b.dayDiff || a.amtDiff - b.amtDiff);

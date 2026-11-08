@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-08",
+    "summary": "Decommission the Amex debug-Chrome browser-capture automation"
+  },
+  {
+    "date": "2026-11-07",
+    "summary": "Amex Benefits: auto-fill statement credits from card transactions (Plaid), no scraping needed"
+  },
+  {
     "date": "2026-11-06",
     "summary": "Amex Benefits: show the real sync failure reason, add a Retry sync button"
   },
