@@ -98,6 +98,7 @@ import { FloatingWindow } from "@/components/FloatingWindow";
 import { ChatAssistant } from "@/components/ChatAssistant";
 import { AssetTagPicker } from "@/components/AssetTagPicker";
 import { PairDeviceModal } from "@/components/DevicePairing";
+import { signOutDevice } from "@/components/AccessGate";
 
 // Every "Reports" tab component below is lazy-loaded: VaultApp.tsx used to statically import all
 // 26 of these (15,676 combined lines), so every user got every report's JS on first load even
@@ -1630,6 +1631,16 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
   // the first real render once data loads (hook now runs) -- React fatally errors on that
   // mismatch, which is what produced the blank white screen after deploy.
   const [showPeriodInfo, setShowPeriodInfo] = useState(false);
+  // Hover-preview for the Needs Attention bell -- deliberately a SEPARATE flag from
+  // dashboardDetail (which the bell's click also sets, same as the dashboard's own cash/
+  // investments/capital/etc. cards): if hover reused dashboardDetail directly, hovering the bell
+  // while some other card's detail was already open (click-pinned) would silently close it the
+  // moment the cursor passed over the bell. Mouse-leave only ever clears THIS flag, so a
+  // click-pinned popover (dashboardDetail === "attention") still stays open until the user clicks
+  // elsewhere, exactly as before -- hover only ever adds a preview on top, never changes the
+  // click behavior. Touch devices never fire a real hover (see the mouseenter handler below), so
+  // this has no effect there -- tapping the bell still behaves exactly as it does today.
+  const [attentionHoverPreview, setAttentionHoverPreview] = useState(false);
 
   // NOT fundSummaryStart/End's "0000-00-00"/"9999-99-99" sentinels -- those are safe ONLY for
   // simple string >=/<= comparisons (Fund Summary's own use), not as real date-arithmetic input.
@@ -3622,6 +3633,28 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                     {data?.lastBackupAt ? new Date(data.lastBackupAt).toLocaleDateString() : "never"}
                   </small>
                 </button>
+                <button
+                  type="button"
+                  className="header-settings-row"
+                  onClick={() => {
+                    setSettingsMenuOpen(false);
+                    if (
+                      window.confirm(
+                        "Sign out of this device completely? You'll need your access code (or a QR scan from another signed-in device) to get back in."
+                      )
+                    ) {
+                      signOutDevice();
+                    }
+                  }}
+                  title="Forget this device's saved sign-in and biometric -- back to the access-code screen"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <path d="M16 17l5-5-5-5" />
+                    <path d="M21 12H9" />
+                  </svg>
+                  Sign out of this device
+                </button>
               </div>
             )}
           </div>
@@ -3637,7 +3670,17 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
           >
             <StatIcon kind="search" color="#fff" />
           </button>
-          <div className="attention-bell-wrap">
+          <div
+            className="attention-bell-wrap"
+            onMouseEnter={() => {
+              // Only real mouse/trackpad hover, not a touch device's synthetic one -- see the
+              // state's own comment above for why this stays separate from click/tap entirely.
+              if (typeof window !== "undefined" && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches) {
+                setAttentionHoverPreview(true);
+              }
+            }}
+            onMouseLeave={() => setAttentionHoverPreview(false)}
+          >
             <button
               type="button"
               className={`attention-bell ${attentionItems.length > 0 ? "attention-bell--flagged" : ""} ${dashboardDetail === "attention" ? "menu-open" : ""}`}
@@ -3649,32 +3692,41 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
               {attentionItems.length > 0 && <span className="attention-bell-badge">{attentionItems.length}</span>}
             </button>
             {dashboardDetail === "attention" && (
-              <>
-                <div className="new-voucher-fab-backdrop" onClick={() => setDashboardDetail(null)} />
-                <div className="attention-popover">
-                  <div className="attention-popover-heading">
-                    <strong>Needs Attention</strong>
-                    <button type="button" onClick={() => setDashboardDetail(null)} aria-label="Close">✕</button>
-                  </div>
-                  {attentionItems.length === 0 ? (
-                    <p className="dashboard-inline-empty">Nothing needs your attention right now.</p>
-                  ) : (
-                    attentionItems.map((item, i) => (
-                      <div className="dashboard-inline-row" key={i}>
-                        <span>
-                          {item.label}
-                          <small className="attention-item-detail">{item.detail}</small>
-                        </span>
-                        {item.action && (
-                          <button type="button" className="tr-refresh-btn" onClick={item.action.onClick}>
-                            {item.action.label}
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  )}
+              <div className="new-voucher-fab-backdrop" onClick={() => setDashboardDetail(null)} />
+            )}
+            {(dashboardDetail === "attention" || attentionHoverPreview) && (
+              <div className="attention-popover">
+                <div className="attention-popover-heading">
+                  <strong>Needs Attention</strong>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDashboardDetail(null);
+                      setAttentionHoverPreview(false);
+                    }}
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
                 </div>
-              </>
+                {attentionItems.length === 0 ? (
+                  <p className="dashboard-inline-empty">Nothing needs your attention right now.</p>
+                ) : (
+                  attentionItems.map((item, i) => (
+                    <div className="dashboard-inline-row" key={i}>
+                      <span>
+                        {item.label}
+                        <small className="attention-item-detail">{item.detail}</small>
+                      </span>
+                      {item.action && (
+                        <button type="button" className="tr-refresh-btn" onClick={item.action.onClick}>
+                          {item.action.label}
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             )}
           </div>
           <div className="new-voucher-fab-wrap" ref={newVoucherMenuRef}>

@@ -82,8 +82,9 @@ export function QrSignInPanel({ onPaired }: { onPaired: (secret: PairedSecret) =
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qrDataUrl} alt="Scan with your phone to sign in" width={200} height={200} />
           <p style={{ fontSize: 13, textAlign: "center", maxWidth: 260 }}>
-            On your phone, open this app → Settings → "Pair a device" and scan this code.
-            Expires in about a minute.
+            Scan this with your phone's camera app and tap the link that pops up — it signs this
+            device in automatically. (Or, in the app: Settings → "Pair a device".) Expires in
+            about a minute.
           </p>
         </>
       )}

@@ -49,8 +49,13 @@ export async function startLaptopPairing(): Promise<{ session: LaptopPairingSess
   const { sessionId } = (await res.json()) as { sessionId: string };
   const keyPair = await generateEcdhKeyPair();
   const pub = await exportRawPublicKey(keyPair.publicKey);
-  const payload: QrPayload = { v: QR_VERSION, sid: sessionId, pub, origin: location.origin };
-  return { session: { sessionId, qrText: JSON.stringify(payload) }, keyPair };
+  // A real https:// link (not raw JSON) -- a phone's native camera/QR scanner recognizes this as
+  // something it can open directly (tap the banner -> launches the installed app/browser straight
+  // to /pair, already signed in, no manual "Settings -> Pair a device" detour needed), instead of
+  // just dumping unrecognized text into Notes. The in-app scanner (parseQrPayload below) still
+  // reads this same URL, so both scan paths keep working off one QR code.
+  const qrText = `${location.origin}/pair?sid=${encodeURIComponent(sessionId)}&pub=${encodeURIComponent(pub)}`;
+  return { session: { sessionId, qrText }, keyPair };
 }
 
 export type PollResult = { status: "pending" } | { status: "expired" } | { status: "ready"; secret: PairedSecret } | { status: "error"; error: string };
@@ -81,6 +86,15 @@ export async function pollLaptopPairing(sessionId: string, keyPair: CryptoKeyPai
 // ── Phone side (authenticated -- this runs from the already-unlocked app) ──────────────────────
 
 export function parseQrPayload(text: string): QrPayload | null {
+  // Current format: a real https://.../pair?sid=...&pub=... link (see startLaptopPairing above).
+  try {
+    const url = new URL(text);
+    const sid = url.searchParams.get("sid");
+    const pub = url.searchParams.get("pub");
+    if (sid && pub) return { v: QR_VERSION, sid, pub, origin: url.origin };
+  } catch {}
+  // Legacy format (pre-URL QR codes, raw JSON) -- kept so an old, already-displayed/cached QR
+  // image still scans correctly instead of erroring.
   try {
     const parsed = JSON.parse(text);
     if (parsed && parsed.v === QR_VERSION && typeof parsed.sid === "string" && typeof parsed.pub === "string" && typeof parsed.origin === "string") {

@@ -61,6 +61,27 @@ export function applyVaultSessions(s: { us?: string; india?: string; shared?: st
   sessionStorage.setItem(VAULT_SESSION_KEYS.biometricFlag, "1");
 }
 
+// Full sign-out of THIS device from the Settings menu -- clears everything AccessGate itself
+// owns (the saved access token + the combined biometric credential + whatever vault sessions
+// happen to be cached), then reloads so AccessGate re-mounts into a genuinely clean "locked"
+// state, showing the access-code screen (and its QR sign-in option) the way a never-signed-in
+// device would. Distinct from VaultApp's own lockVault(), which only re-locks the vault
+// password and leaves this device's saved outer sign-in/biometric alone -- that's a quick
+// re-lock for walking away, this is "forget this device entirely." The per-book vault-password
+// biometric (UnlockScreen's own, a separate credential) is deliberately left alone: it's
+// unreachable anyway until the outer gate is passed again, and leaving it configured means
+// signing back in still offers the same one-tap vault unlock as before.
+export function signOutDevice() {
+  clearAccessToken();
+  removeBiometricSeal(COMBINED_BIO_KEY);
+  sessionStorage.removeItem(VAULT_SESSION_KEYS.us);
+  sessionStorage.removeItem(VAULT_SESSION_KEYS.india);
+  sessionStorage.removeItem(VAULT_SESSION_KEYS.shared);
+  sessionStorage.removeItem(VAULT_SESSION_KEYS.biometricFlag);
+  sessionStorage.removeItem(PAIRED_SESSION_FLAG);
+  location.reload();
+}
+
 // Outermost gate for the whole app (wired into app/layout.tsx) -- separate from the vault
 // password, which is never sent to the server at all (decryption happens entirely client-side,
 // see VaultApp.tsx's decryptVault). Before this existed, every API route that touches real

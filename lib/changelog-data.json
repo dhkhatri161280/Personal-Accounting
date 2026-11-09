@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-08",
+    "summary": "Widen Plaid pending-match date tolerance to 5 days"
+  },
+  {
+    "date": "2026-11-08",
     "summary": "Decommission the Amex debug-Chrome browser-capture automation"
   },
   {
