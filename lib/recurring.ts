@@ -192,13 +192,49 @@ export function lastPaidDate(template: RecurringTemplate, transactions: Recurrin
 // month to gate on. `transactions` is optional for backward compatibility with any caller that
 // hasn't been updated to pass it -- omitting it falls back to only checking explicit postings,
 // same as before this function gained live matching.
+// A bill's nominal due day can land on a weekend -- most billers (and this reminder) don't
+// expect a payment to actually go out on a Saturday/Sunday, so the flagging threshold rolls
+// forward to the next weekday instead of nagging a day or two early for no real reason. Weekends
+// only (no public-holiday calendar) -- that would need a maintained, country-specific holiday
+// list (US vs. India books) that's a separate feature of its own.
+function isWeekend(dateStr: string): boolean {
+  const day = new Date(dateStr + "T12:00:00Z").getUTCDay();
+  return day === 0 || day === 6;
+}
+function nextWorkingDay(dateStr: string): string {
+  let d = new Date(dateStr + "T12:00:00Z");
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// The actual flagging threshold date for a template due on `dayOfMonth` within `yearMonth`:
+// the raw due day (clamped to that month's real last day, e.g. day 31 in a 30-day month), rolled
+// forward to the next working day if it lands on a weekend -- then `graceDays` calendar days
+// added on top of THAT already-rolled date, rolled forward again itself if the resulting
+// grace-expiry date also lands on a weekend. Same "roll forward" treatment applied twice, not
+// just once, per the user's own ask: a Friday due date with a 2-day grace period expires Sunday
+// before rolling, which itself rolls forward to Monday -- never flags mid-weekend either way.
+function effectiveDueThreshold(yearMonth: string, dayOfMonth: number, graceDays: number): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const rawDue = `${yearMonth}-${String(Math.min(dayOfMonth, lastDay)).padStart(2, "0")}`;
+  const effectiveDue = nextWorkingDay(rawDue);
+  return graceDays > 0 ? nextWorkingDay(addDays(effectiveDue, graceDays)) : effectiveDue;
+}
+
 export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDate: string, transactions?: RecurringCheckTx[], accounts?: Account[]): DueTemplate[] {
-  const todayOfMonth = Number(asOfDate.slice(8, 10));
   const todayIdx = monthIndex(asOfDate.slice(0, 7));
-  // dayOfMonth itself stays the bill's true usual due day; graceDays shifts only the flagging
-  // threshold, so a template with jitter (see graceDays's comment in vault-types.ts) doesn't have
-  // to misrepresent its own due day just to stop premature flagging.
-  const dueDayFor = (t: RecurringTemplate) => (t.dayOfMonth == null ? null : t.dayOfMonth + (t.graceDays ?? 0));
+  // dayOfMonth itself stays the bill's true usual due day; graceDays (and the weekend-rolling
+  // above) shift only the flagging threshold, so a template with jitter (see graceDays's comment
+  // in vault-types.ts) doesn't have to misrepresent its own due day just to stop premature
+  // flagging.
+  const isDue = (t: RecurringTemplate, yearMonth: string) =>
+    t.dayOfMonth == null || asOfDate >= effectiveDueThreshold(yearMonth, t.dayOfMonth, t.graceDays ?? 0);
   return (templates ?? [])
     .filter((t) => t.active)
     .filter((t) => {
@@ -207,15 +243,15 @@ export function dueTemplates(templates: RecurringTemplate[] | undefined, asOfDat
         const dueMonth = Number(t.anchorMonth.slice(5, 7));
         const todayMonth = Number(asOfDate.slice(5, 7));
         if (todayMonth < dueMonth) return false;
-        if (todayMonth === dueMonth) { const d = dueDayFor(t); return d == null || todayOfMonth >= d; }
+        if (todayMonth === dueMonth) return isDue(t, `${asOfDate.slice(0, 4)}-${t.anchorMonth.slice(5, 7)}`);
         return true; // past the due month entirely -- definitely due
       }
       const n = intervalMonthsFor(t);
-      if (n === 1) { const d = dueDayFor(t); return d == null || todayOfMonth >= d; }
+      if (n === 1) return isDue(t, asOfDate.slice(0, 7));
       const periodKey = currentPeriodKey(t, asOfDate);
       const lastMonthIdx = monthIndex(periodKey) + n - 1;
       if (todayIdx < lastMonthIdx) return false;
-      if (todayIdx === lastMonthIdx) { const d = dueDayFor(t); return d == null || todayOfMonth >= d; }
+      if (todayIdx === lastMonthIdx) return isDue(t, ymOf(lastMonthIdx));
       return true; // past the period's last month entirely -- definitely due
     })
     .map((t) => {

@@ -71,7 +71,11 @@ test("currentPeriodKey falls back to asOfDate's own month as anchor when none is
 test("dueTemplates withholds a quarterly template until the LAST month of its bucket, even past dayOfMonth in an earlier month", () => {
   const t = template({ frequency: "quarterly", anchorMonth: "2026-01", dayOfMonth: 1 });
   assert.equal(dueTemplates([t], "2026-02-15").length, 0, "Feb is inside the Jan-Mar bucket, but not its last month");
-  assert.equal(dueTemplates([t], "2026-03-01").length, 1, "Mar is the bucket's last month, day 1 >= dayOfMonth 1");
+  // 2026-03-01 is a Sunday -- the weekend-rolling logic correctly pushes the threshold to Monday
+  // the 2nd (see the dedicated weekend-rolling tests below), so day-of-bucket due-ness is checked
+  // one day later than the raw dayOfMonth here.
+  assert.equal(dueTemplates([t], "2026-03-01").length, 0, "Mar 1 is a Sunday -- due date rolls to Mar 2");
+  assert.equal(dueTemplates([t], "2026-03-02").length, 1, "Mar is the bucket's last month, Monday the 2nd is the rolled-forward due day");
 });
 
 test("dueTemplates gates a quarterly template's dayOfMonth within the bucket's last month", () => {
@@ -131,6 +135,25 @@ test("dueTemplates delays flagging by graceDays past dayOfMonth, without changin
 test("dueTemplates ignores graceDays when dayOfMonth isn't set", () => {
   const t = template({ dayOfMonth: undefined, graceDays: 2 });
   assert.equal(dueTemplates([t], "2026-10-01").length, 1);
+});
+
+test("dueTemplates rolls a due day landing on a weekend forward to the next working day", () => {
+  // 2026-08-01 is a Saturday, 2026-08-02 a Sunday, 2026-08-03 the next Monday.
+  const t = template({ dayOfMonth: 1 });
+  assert.equal(dueTemplates([t], "2026-08-01").length, 0, "Saturday -- not flagged yet");
+  assert.equal(dueTemplates([t], "2026-08-02").length, 0, "Sunday -- still not flagged");
+  assert.equal(dueTemplates([t], "2026-08-03").length, 1, "Monday -- rolled-forward due day reached");
+  assert.equal(t.dayOfMonth, 1, "dayOfMonth itself stays the bill's real due day, untouched by weekend rolling");
+});
+
+test("dueTemplates rolls the grace-period deadline forward too, if IT also lands on a weekend", () => {
+  // dayOfMonth 3 (a Monday, no roll needed) + 5 calendar days of grace = the 8th (a Saturday),
+  // which itself rolls forward to Monday the 10th -- the same "roll forward if weekend" treatment
+  // applied to the grace deadline, not just the primary due date.
+  const t = template({ dayOfMonth: 3, graceDays: 5 });
+  assert.equal(dueTemplates([t], "2026-08-08").length, 0, "raw grace deadline (Saturday) -- not flagged yet");
+  assert.equal(dueTemplates([t], "2026-08-09").length, 0, "Sunday -- still not flagged");
+  assert.equal(dueTemplates([t], "2026-08-10").length, 1, "Monday -- rolled-forward grace deadline reached");
 });
 
 test("dueTemplates does NOT gate a YEARLY template with no anchorMonth -- there's no known due month to anchor a day against", () => {
