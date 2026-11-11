@@ -95,6 +95,16 @@ export function matchVaultAccount(plaidAcct: PlaidAccountSummary, vaultAccounts:
   return undefined;
 }
 
+// Every Plaid-linked account `matchVaultAccount` couldn't place (an institution outside its
+// recognized list -- only BofA/Amex/Chase/Citi/Wells Fargo/Fidelity-HSA today). Without this,
+// `reconciliationStatusForAccounts` just silently drops these accounts from `groups` (see the
+// `if (!account) continue;` below) -- the report then looks fully clean for an institution that
+// was never actually checked at all, not one that genuinely reconciles. Exposed separately so a
+// caller can surface "N account(s) not checked" instead of a false "all good."
+export function unmatchedPlaidInstitutions(plaidAccounts: PlaidAccountSummary[], vaultAccounts: Account[]): PlaidAccountSummary[] {
+  return plaidAccounts.filter((pa) => !matchVaultAccount(pa, vaultAccounts));
+}
+
 export type ReconAccountStatus = {
   account: Account;
   // One vault account can have several physical Plaid accounts behind it (e.g. two BofA credit
@@ -241,8 +251,11 @@ export function reconciliationStatusForAccounts(
     const unmatchedPlaid = acctPlaidTxs
       .filter((pt) => {
         const expected = pt.amount;
+        // 5 cents, not 50 -- matches the amount tolerance PlaidImport.tsx's own Balances tab
+        // already uses everywhere. A 50-cent window is loose enough to coincidentally "match" two
+        // unrelated small charges (coffee, parking, a tip) and hide a genuinely missing one.
         return !acctVaultTxs.some(
-          (vt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(vaultTxAccountAmount(vt, account.id) - expected) < 0.5
+          (vt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(vaultTxAccountAmount(vt, account.id) - expected) < 0.05
         );
       })
       // "Mark as reconciled" exceptions -- a Plaid-side entry the user has said will never get a
@@ -255,7 +268,8 @@ export function reconciliationStatusForAccounts(
       : recentVaultTxs
           .filter((vt) => {
             const amt = vaultTxAccountAmount(vt, account.id);
-            return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(pt.amount - amt) < 0.5);
+            // 5 cents, not 50 -- see unmatchedPlaid's own comment above for why.
+            return !acctPlaidTxs.some((pt) => daysApart(vt.date, pt.date) <= DATE_TOL_DAYS && Math.abs(pt.amount - amt) < 0.05);
           })
           // Same "mark as reconciled" override, for a vault voucher that will never have a Plaid
           // match (e.g. a cash transaction with no corresponding bank line).

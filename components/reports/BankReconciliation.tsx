@@ -7,6 +7,7 @@ import {
   vaultExceptionKey,
   plaidExceptionKey,
   findHistoricalReconcileCandidates,
+  unmatchedPlaidInstitutions,
   DIFF_TOL,
   type PlaidAccountSummary,
   type PlaidTxSummary,
@@ -94,6 +95,11 @@ export function BankReconciliation({
   const rows = plaidData
     ? reconciliationStatusForAccounts(data, plaidData.accounts, plaidData.transactions, todayLocalIso(), data.bankReconExceptions)
     : null;
+
+  // Plaid-linked accounts matchVaultAccount couldn't place (institution outside its recognized
+  // list) -- without surfacing these, the report above looks fully clean for an account that was
+  // never actually checked at all, not one that genuinely reconciles.
+  const unmatchedInstitutions = plaidData ? unmatchedPlaidInstitutions(plaidData.accounts, data.accounts) : [];
 
   const historicalCandidates = plaidData
     ? findHistoricalReconcileCandidates(
@@ -224,6 +230,23 @@ export function BankReconciliation({
           </div>
         ))}
       </div>
+      {unmatchedInstitutions.length > 0 && (
+        <div
+          style={{
+            marginBottom: "0.75rem",
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: "#fff7df",
+            border: "1px solid #e8c46b",
+            fontSize: 13,
+            color: "#825300",
+          }}
+        >
+          {unmatchedInstitutions.length} Plaid account{unmatchedInstitutions.length !== 1 ? "s" : ""} not checked above
+          — institution not recognized yet:{" "}
+          {Array.from(new Set(unmatchedInstitutions.map((a) => a.institution_name || a.name))).join(", ")}
+        </div>
+      )}
       <details style={{ marginBottom: "0.75rem" }}>
         <summary style={{ cursor: "pointer", fontSize: 13, color: "#475569" }}>
           Always-reconciled accounts{(data.alwaysReconciledAccountIds?.length ?? 0) > 0 ? ` (${data.alwaysReconciledAccountIds!.length})` : ""}

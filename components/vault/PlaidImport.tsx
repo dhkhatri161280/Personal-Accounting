@@ -1173,7 +1173,10 @@ function alreadyImported(tx: PlaidTxRaw, allPending: PlaidTxRaw[], ledger: Ledge
       const v = ledger.transactions.find((vv) => vv.id === m.vault_voucher_id);
       if (!v || v.deleted || v.cancelled) return false;
       const daysDiff = Math.abs(txMs - new Date(v.date + "T12:00:00Z").getTime()) / 86400000;
-      return daysDiff <= 3;
+      // ±5 days, not ±3 -- same Citi-repost lag as the "bank-pending" branch a few lines below
+      // (see its own comment). This is the exact same scenario: a reissued transaction_id for a
+      // previously-confirmed pending item, so it should tolerate the same gap, not a tighter one.
+      return daysDiff <= 5;
     })) return true;
     const vDebit = (v: { entries: { amount: number }[] }) =>
       v.entries.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0);

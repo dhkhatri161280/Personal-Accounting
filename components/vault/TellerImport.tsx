@@ -5,6 +5,7 @@ import { nextVoucherNumber, nextTransactionIds } from "@/lib/vault-accounting";
 import { fmtDate } from "@/lib/format-date";
 import { apiFetch } from "@/lib/api-fetch";
 import { isCcAcct, isBankAcct, inferReversalVoucherType } from "@/lib/plaid-classify";
+import { findAcct } from "@/lib/plaid-recon";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -122,23 +123,6 @@ function isDrEntry(amount: number): boolean {
 const STANDARD_VOUCHER_TYPES = new Set(["Payment", "Receipt", "Contra", "Journal"]);
 function correctedVoucherType(voucherType: string, entries: { accountId: number; amount: number }[], accounts: Account[]): string {
   return STANDARD_VOUCHER_TYPES.has(voucherType) ? inferReversalVoucherType(entries, accounts) : voucherType;
-}
-
-// ── Account finder helpers ─────────────────────────────────────────────────────
-
-function findAcct(accounts: Account[], ...names: string[]): Account | undefined {
-  // Exact match for every candidate first, THEN substring fallback -- see PlaidImport.tsx's
-  // findAcct for why (a later, more specific exact match shouldn't lose to an earlier
-  // candidate's accidental substring match).
-  for (const name of names) {
-    const exact = accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
-    if (exact) return exact;
-  }
-  for (const name of names) {
-    const lc = name.toLowerCase();
-    const partial = accounts.find((a) => a.name.toLowerCase().includes(lc));
-    if (partial) return partial;
-  }
 }
 
 // ── House Hold Exps monthly helpers ───────────────────────────────────────────
