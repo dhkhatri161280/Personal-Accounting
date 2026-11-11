@@ -77,7 +77,7 @@ import {
 } from "@/lib/fixed-assets";
 import { autoSyncTaggedAssets, tagExistingAsset } from "@/lib/fixed-assets-ledger";
 import type { BudgetRow } from "@/lib/budget";
-import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, frequencyLabel, type DueTemplate } from "@/lib/recurring";
+import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, frequencyLabel, detectRecurringPriceIncreases, priceIncreaseDismissKey, type DueTemplate } from "@/lib/recurring";
 import { appendAuditEntry } from "@/lib/audit";
 import { exportWorkbook } from "@/lib/export-excel";
 import { apiFetch, getAccessToken } from "@/lib/api-fetch";
@@ -2381,6 +2381,46 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
         label: `Recurring: ${due.template.label} due`,
         detail: `${due.periodLabel} — no matching transaction found yet between these two ledgers. If it's already paid some other way, it'll clear itself once that transaction syncs in; "Post" below is just a manual shortcut if you'd rather record it now.`,
         action: { label: "Post", onClick: () => void postRecurringTemplate(due.template) },
+      });
+    }
+    // Same "recurring bill" data as above, but watching for an AMOUNT jump rather than a due
+    // date -- a subscription price hike, an insurance renewal increase -- that would otherwise
+    // only ever be noticed by accident scrolling through the Day Book. See
+    // detectRecurringPriceIncreases's own comment for why a naturally variable (usage-based)
+    // bill deliberately stays quiet here.
+    for (const hit of detectRecurringPriceIncreases(data.recurringTemplates, data.transactions, data.accounts, data.recurringPriceIncreaseDismissed)) {
+      const key = priceIncreaseDismissKey(hit.template.id, hit.latestDate);
+      attentionItems.push({
+        label: `Recurring: ${hit.template.label} price increased`,
+        detail: `${fmt(hit.previousAvg)} → ${fmt(hit.latestAmount)} (+${(hit.pctIncrease * 100).toFixed(0)}%) on ${hit.latestDate.split("-").reverse().join("-")}, vs. a steady recent history — worth a quick check it's a real price change, not a billing error.`,
+        action: {
+          label: "Not a concern",
+          onClick: () => void save({ ...data, recurringPriceIncreaseDismissed: [...(data.recurringPriceIncreaseDismissed ?? []), key] }, "settings"),
+        },
+      });
+    }
+  }
+  // Costco price-drop watchlist (Masters → Costco Receipts → check-prices.mjs) -- previously sat
+  // in that report only, easy to forget to go check. Dismissed per checkedAt snapshot, so a
+  // fresh check-prices.mjs run (a new checkedAt) surfaces again even for the same item.
+  if (data?.costcoPriceChecks?.length) {
+    const dismissedSet = new Set(data.costcoPriceDropDismissed ?? []);
+    const drops = data.costcoPriceChecks.filter(
+      (c) => c.priceDropped && !dismissedSet.has(`${c.itemNumber}:${c.checkedAt}`)
+    );
+    if (drops.length) {
+      const totalSavings = drops.reduce((s, c) => s + Math.max(0, c.pricePaid - (c.currentPrice ?? c.pricePaid)), 0);
+      attentionItems.push({
+        label: "Costco price drop on your watchlist",
+        detail: `${drops.length} item(s) now cheaper than what you paid (up to ${fmt(totalSavings)} total) — still inside the price-adjustment window; see Masters → Costco Receipts.`,
+        action: {
+          label: "Reviewed",
+          onClick: () =>
+            void save(
+              { ...data, costcoPriceDropDismissed: [...(data.costcoPriceDropDismissed ?? []), ...drops.map((c) => `${c.itemNumber}:${c.checkedAt}`)] },
+              "settings"
+            ),
+        },
       });
     }
   }

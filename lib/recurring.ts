@@ -177,6 +177,80 @@ export function lastPaidDate(template: RecurringTemplate, transactions: Recurrin
   return latest;
 }
 
+// Every real transaction that has ever satisfied this template, via the same account-pair match
+// lastPaidDate uses just above, but keeping the REAL amount actually paid each time (not the
+// template's own fixed entries.amount, which never changes) -- the raw material
+// detectRecurringPriceIncreases needs to compare a bill's latest payment against its own recent
+// history.
+function paidOccurrences(template: RecurringTemplate, transactions: RecurringCheckTx[], accounts?: Account[]): { date: string; amount: number }[] {
+  const debit = template.entries.find((e) => e.amount < 0);
+  const credit = template.entries.find((e) => e.amount > 0);
+  if (!debit || !credit) return [];
+  const out: { date: string; amount: number }[] = [];
+  for (const t of transactions) {
+    if (t.deleted || t.cancelled) continue;
+    const debitId = resolveAccountIdForDate(debit.accountId, accounts, t.date);
+    const creditId = resolveAccountIdForDate(credit.accountId, accounts, t.date);
+    const debitEntry = t.entries.find((e) => e.accountId === debitId && e.amount < 0);
+    const hasCredit = t.entries.some((e) => e.accountId === creditId && e.amount > 0);
+    if (debitEntry && hasCredit) out.push({ date: t.date, amount: Math.abs(debitEntry.amount) });
+  }
+  return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+export type RecurringPriceIncrease = {
+  template: RecurringTemplate;
+  latestAmount: number;
+  latestDate: string;
+  previousAvg: number;
+  pctIncrease: number;
+};
+
+export function priceIncreaseDismissKey(templateId: string, latestDate: string): string {
+  return `${templateId}:${latestDate}`;
+}
+
+const PRICE_INCREASE_MIN_HISTORY = 3; // prior occurrences needed before the latest, to have a real baseline
+const PRICE_INCREASE_MAX_COV = 0.12; // prior occurrences varying >12% already -- a usage-based bill, not flagged
+const PRICE_INCREASE_MIN_PCT = 0.08; // the jump itself must be at least 8%...
+const PRICE_INCREASE_MIN_DOLLARS = 1; // ...AND at least $1, so rounding noise on a tiny bill doesn't flag
+
+// Flags a recurring bill whose MOST RECENT real payment jumped meaningfully above its own recent
+// history -- a subscription price hike, an insurance renewal increase, a rate change -- while
+// deliberately staying quiet for a bill that's naturally variable cycle to cycle. Judged from the
+// PRIOR occurrences' own coefficient of variation (stdev / mean): a usage-based bill like
+// electricity or water (see isTemplateSatisfiedForPeriod's own comment on these) routinely swings
+// 20-30%+ season to season, so a plain "is the latest amount higher than average" check would
+// nag on every one of those cycles -- real noise, not a real price change. A bill that's instead
+// been flat for months and then jumps past both the %-and-$ threshold is exactly the "did a price
+// quietly go up" case worth surfacing.
+export function detectRecurringPriceIncreases(
+  templates: RecurringTemplate[] | undefined,
+  transactions: RecurringCheckTx[],
+  accounts?: Account[],
+  dismissed?: string[]
+): RecurringPriceIncrease[] {
+  const dismissedSet = new Set(dismissed ?? []);
+  const out: RecurringPriceIncrease[] = [];
+  for (const t of templates ?? []) {
+    if (!t.active) continue;
+    const occ = paidOccurrences(t, transactions, accounts);
+    if (occ.length < PRICE_INCREASE_MIN_HISTORY + 1) continue;
+    const latest = occ[occ.length - 1];
+    if (dismissedSet.has(priceIncreaseDismissKey(t.id, latest.date))) continue;
+    const prior = occ.slice(0, -1).slice(-6); // trailing up to 6 prior occurrences
+    const mean = prior.reduce((s, o) => s + o.amount, 0) / prior.length;
+    if (mean <= 0) continue;
+    const variance = prior.reduce((s, o) => s + (o.amount - mean) ** 2, 0) / prior.length;
+    const cov = Math.sqrt(variance) / mean;
+    if (cov > PRICE_INCREASE_MAX_COV) continue;
+    const pctIncrease = (latest.amount - mean) / mean;
+    if (pctIncrease < PRICE_INCREASE_MIN_PCT || latest.amount - mean < PRICE_INCREASE_MIN_DOLLARS) continue;
+    out.push({ template: t, latestAmount: latest.amount, latestDate: latest.date, previousAvg: mean, pctIncrease });
+  }
+  return out;
+}
+
 // Active templates not yet satisfied for the current period (see isTemplateSatisfiedForPeriod).
 // A MONTHLY (or bimonthly/quarterly/custom) template with a dayOfMonth set is due starting that
 // day of the month, not from the 1st -- flagging "HOA due" on the 1st when the bill isn't

@@ -8,6 +8,8 @@ import {
   matchRecurringTemplate,
   isTemplateSatisfiedForPeriod,
   lastPaidDate,
+  detectRecurringPriceIncreases,
+  priceIncreaseDismissKey,
   type RecurringCheckTx,
 } from "../lib/recurring.ts";
 import type { Account, RecurringTemplate } from "../lib/vault-types.ts";
@@ -251,6 +253,59 @@ test("lastPaidDate falls back to the most recent explicit posting when no live t
 test("lastPaidDate is undefined when there's no sign of the bill ever being paid", () => {
   const t = template();
   assert.equal(lastPaidDate(t, []), undefined);
+});
+
+function occTx(date: string, amount: number): RecurringCheckTx {
+  return { date, entries: [{ accountId: 9, amount: -amount }, { accountId: 1, amount }] };
+}
+
+test("detectRecurringPriceIncreases flags a bill that's been flat and then jumps", () => {
+  const t = template();
+  // ~25% jump on the 4th occurrence, well past both thresholds
+  const txs = [occTx("2026-06-01", 15.99), occTx("2026-07-01", 15.99), occTx("2026-08-01", 15.99), occTx("2026-09-01", 19.99)];
+  const [hit] = detectRecurringPriceIncreases([t], txs);
+  assert.ok(hit, "a flat $15.99 x3 history followed by $19.99 should be flagged");
+  assert.equal(hit.latestAmount, 19.99);
+  assert.equal(hit.latestDate, "2026-09-01");
+  assert.ok(Math.abs(hit.previousAvg - 15.99) < 0.01);
+  assert.ok(hit.pctIncrease > 0.2 && hit.pctIncrease < 0.3);
+});
+
+test("detectRecurringPriceIncreases stays quiet for a naturally variable (usage-based) bill", () => {
+  const t = template();
+  // Swings 60-110 every cycle already -- the kind of variance a real electricity/water bill has.
+  const txs = [occTx("2026-05-01", 60), occTx("2026-06-01", 90), occTx("2026-07-01", 70), occTx("2026-08-01", 110)];
+  assert.equal(detectRecurringPriceIncreases([t], txs).length, 0, "high prior variance -- a jump here is normal, not flagged");
+});
+
+test("detectRecurringPriceIncreases needs at least 3 prior occurrences before judging a jump", () => {
+  const t = template();
+  const txs = [occTx("2026-07-01", 15.99), occTx("2026-08-01", 19.99)];
+  assert.equal(detectRecurringPriceIncreases([t], txs).length, 0, "only 1 prior occurrence -- not enough history to judge");
+});
+
+test("detectRecurringPriceIncreases ignores a jump below the %/$ threshold", () => {
+  const t = template();
+  const txs = [occTx("2026-06-01", 15.99), occTx("2026-07-01", 15.99), occTx("2026-08-01", 15.99), occTx("2026-09-01", 16.49)];
+  assert.equal(detectRecurringPriceIncreases([t], txs).length, 0, "~3% / $0.50 bump -- below both the 8% and $1 thresholds");
+});
+
+test("detectRecurringPriceIncreases respects a dismissed key for that specific detected date", () => {
+  const t = template();
+  const txs = [occTx("2026-06-01", 15.99), occTx("2026-07-01", 15.99), occTx("2026-08-01", 15.99), occTx("2026-09-01", 19.99)];
+  const dismissed = [priceIncreaseDismissKey(t.id, "2026-09-01")];
+  assert.equal(detectRecurringPriceIncreases([t], txs, undefined, dismissed).length, 0);
+  // A LATER increase (different date) on the same bill still surfaces despite the old dismissal.
+  const txs2 = [...txs, occTx("2026-10-01", 24.99)];
+  const [hit] = detectRecurringPriceIncreases([t], txs2, undefined, dismissed);
+  assert.ok(hit, "a newer jump on the same bill isn't suppressed by an older dismissal");
+  assert.equal(hit.latestDate, "2026-10-01");
+});
+
+test("detectRecurringPriceIncreases skips inactive templates", () => {
+  const t = template({ active: false });
+  const txs = [occTx("2026-06-01", 15.99), occTx("2026-07-01", 15.99), occTx("2026-08-01", 15.99), occTx("2026-09-01", 19.99)];
+  assert.equal(detectRecurringPriceIncreases([t], txs).length, 0);
 });
 
 test("isTemplateSatisfiedForPeriod covers a quarterly template's whole 3-month bucket, not just one month", () => {
