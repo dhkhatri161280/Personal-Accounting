@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-11",
+    "summary": "Vault engine: fix a -0 edge case, a stale comment, and remove a noisy log"
+  },
+  {
+    "date": "2026-11-11",
     "summary": "Bank sync: close a sibling match-window gap, tighten tolerance, dedupe findAcct"
   },
   {

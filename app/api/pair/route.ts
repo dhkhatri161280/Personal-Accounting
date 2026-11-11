@@ -20,9 +20,9 @@ export const dynamic = "force-dynamic";
 //     Submits the phone's ECDH public key + AES-GCM ciphertext for a pending session. Refuses to
 //     overwrite a session that's already been completed or consumed.
 //   GET ?sessionId=...   (no auth -- reached from the still-LOCKED laptop, polling)
-//     Returns the submitted bundle once present, and atomically deletes the session on that same
-//     read -- single-use, so a laptop that already unlocked (or an eavesdropper who somehow saw
-//     the sessionId) can never replay it to get the bundle a second time.
+//     Returns the submitted bundle once present. NOT deleted on read -- left to expire on its own
+//     90s TTL instead, so a dropped response can still be recovered by polling again. See the GET
+//     handler's own comment below for why that's still safe to replay.
 function pairKey(sessionId: string) {
   return `fintech-by-dk.pair.${sessionId}`;
 }
