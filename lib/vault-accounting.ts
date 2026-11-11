@@ -247,10 +247,12 @@ export function currentMonthSiblingAccount(account: Account, accounts: Account[]
 export const isProfitAndLossAccountName = (name: string): boolean =>
   /profit\s*&\s*loss|income\s*&\s*expenditure/i.test(name);
 
-// Authoritative nature classifier -- mirrors natureFor() in VaultApp.tsx and natureForRecon()
-// in ReconReport.tsx exactly. The account's own `category` field can go stale (set once at
-// master-sync link time); the group name (`parent`) plus any user-configured MasterGroup
-// override is the live source of truth everywhere else in this app.
+// Authoritative nature classifier -- VaultApp.tsx already imports this directly rather than
+// keeping its own copy, and ReconReport.tsx has no separate nature-classification logic of its
+// own anymore either (both checked as of this comment; this note used to warn about two other
+// copies that no longer exist, so don't reintroduce them). The account's own `category` field can
+// go stale (set once at master-sync link time); the group name (`parent`) plus any
+// user-configured MasterGroup override is the live source of truth everywhere else in this app.
 export function accountNature(a: { parent: string }, masterGroups: Map<string, { nature: string }>): string {
   const group = (a.parent || "").toLowerCase(), configured = masterGroups.get(group);
   if (group.includes("(asset)")) return "Asset";
@@ -433,7 +435,6 @@ export function recomputeVoucherNumbers(data: Ledger): RenumberResult {
     const after = txList.slice(-3).map((t) => `${t.date}:#${t.number}`).join(", ");
     if (before !== after) console.log(`[recompute] ${group}: ...${before} → ...${after}`);
   }
-  console.log(`[recompute] done, changed=${changed}, hadDuplicate=${hadDuplicate}`);
   return { changed, hadDuplicate };
 }
 
@@ -580,9 +581,13 @@ export const voucherSideLedgerNames = (
 ): string => {
   const entries = Array.isArray(tx?.entries) ? tx.entries : [];
   return entries
-    .filter((entry) =>
-      side === "dr" ? Number(entry?.amount ?? 0) < -0.004 : Number(entry?.amount ?? 0) > 0.004
-    )
+    .filter((entry) => {
+      const amt = Number(entry?.amount ?? 0);
+      // Same -0 fix as isDrEntry just above -- a genuine $0.00 debit leg can be stored as IEEE-754
+      // negative zero, and `-0 < -0.004` is false, so without this it fell out of BOTH the dr and
+      // cr filters here and its ledger name silently vanished from the voucher-side display.
+      return side === "dr" ? amt < -0.004 || Object.is(amt, -0) : amt > 0.004;
+    })
     .map((entry) =>
       cleanVoucherDisplay(
         entry?.accountName ?? entry?.ledgerName ?? entry?.ledger ?? entry?.name ?? ""

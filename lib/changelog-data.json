@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-11",
+    "summary": "Bank sync: close a sibling match-window gap, tighten tolerance, dedupe findAcct"
+  },
+  {
+    "date": "2026-11-11",
+    "summary": "Fix stale/incomplete state tax tables: NJ, AZ, CA"
+  },
+  {
     "date": "2026-11-09",
     "summary": "Device pairing: scan with the phone's native camera, not just the in-app scanner"
   },
