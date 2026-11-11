@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-11",
+    "summary": "Fix a stale comment in the device-pairing relay route"
+  },
+  {
+    "date": "2026-11-11",
     "summary": "Vault engine: fix a -0 edge case, a stale comment, and remove a noisy log"
   },
   {

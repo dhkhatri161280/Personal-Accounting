@@ -885,6 +885,10 @@ export type Ledger = {
   // downloadVaultBackup) -- purely informational, drives the overdue-backup reminder dot on the
   // settings gear icon. Never set any other way; undefined means "never backed up".
   lastBackupAt?: string;
+  // User-set target net worth, shown as a reference line on the Net Worth Over Time chart
+  // (components/reports/NetWorthReport.tsx) -- purely a personal goal marker, never read or
+  // enforced anywhere else. Undefined means no goal has been set yet.
+  netWorthGoal?: number;
   // Filer's own identity details for FinCEN Form 114 (FBAR) Part I -- has nothing to do with
   // ledger accounts, entered once in Masters > Settings so the FBAR Worksheet's pre-filled PDF
   // export (see components/reports/FbarReport.tsx, lib/fbar-pdf.ts) doesn't need these re-typed

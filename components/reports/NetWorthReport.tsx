@@ -83,11 +83,18 @@ export function NetWorthReport({
   currency = "INR",
   onSelectAccount,
   onNavigateSource,
+  netWorthGoal,
+  onSetNetWorthGoal,
 }: {
   assets: NWRow[];
   liabilities: NWRow[];
   trend: NetWorthPoint[];
   fmt: (n: number) => string;
+  // A user-set target net worth, shown as a dashed reference line on the Over Time chart plus a
+  // "% to goal" readout. Optional -- a caller that doesn't pass both of these (GrApp.tsx's
+  // consolidated view, today) just gets the chart with no goal line, same as before this existed.
+  netWorthGoal?: number;
+  onSetNetWorthGoal?: (value: number | null) => void;
   // Drives the Net Worth Over Time bar chart's per-bar label abbreviation (Lakh/Crore for INR,
   // K/M/B otherwise -- see lib/compact-currency.ts). Defaults to INR since every current caller
   // (GR Consolidated is always INR; the main book defaults there too) is INR today, but a caller
@@ -106,6 +113,18 @@ export function NetWorthReport({
   const liabMembers = groupMembers(liabilities, 1, (r) => liabilityCategory(r.parent || r.category || "", r.name));
   const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
   const [expandedLiab, setExpandedLiab] = useState<string | null>(null);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalDraft, setGoalDraft] = useState("");
+
+  function startEditGoal() {
+    setGoalDraft(netWorthGoal != null ? String(netWorthGoal) : "");
+    setEditingGoal(true);
+  }
+  function saveGoal() {
+    const n = Number(goalDraft.replace(/,/g, ""));
+    onSetNetWorthGoal?.(goalDraft.trim() === "" || !Number.isFinite(n) || n <= 0 ? null : n);
+    setEditingGoal(false);
+  }
 
   // A real ledger row (numeric id) drills into its full ledger via onSelectAccount. A synthetic
   // row (RSU/ESPP or 401(k)/IRA live value) has no ledger behind it -- it links to the report
@@ -150,8 +169,12 @@ export function NetWorthReport({
     H = 210;
   const hasTrend = trend.length > 1;
   const vals = trend.map((p) => p.netWorth);
+  const hasGoal = netWorthGoal != null && netWorthGoal > 0;
+  // Extends the chart's own range to cover the goal, not just the trend history, so the goal
+  // line (and how far away it is) is always visible rather than clipped off the top whenever the
+  // goal is still well above every real data point.
   const min = Math.min(0, ...vals),
-    max = Math.max(0, ...vals, 1);
+    max = Math.max(0, ...vals, 1, hasGoal ? netWorthGoal! : 0);
   const range = max - min || 1;
   const plotHeight = PLOT_BOTTOM - PLOT_TOP;
   const stepX = trend.length > 1 ? (W - PAD_X * 2) / (trend.length - 1) : 0;
@@ -183,7 +206,9 @@ export function NetWorthReport({
   const canUseLogBars = hasTrend && vals.every((v) => v > 0);
   const logVals = canUseLogBars ? vals.map((v) => Math.log10(v)) : [];
   const logMin = canUseLogBars ? Math.min(...logVals) : 0;
-  const logMax = canUseLogBars ? Math.max(...logVals, logMin + 0.0001) : 1;
+  const logMax = canUseLogBars
+    ? Math.max(...logVals, logMin + 0.0001, hasGoal ? Math.log10(netWorthGoal!) : -Infinity)
+    : 1;
   const logRange = logMax - logMin || 1;
   // Reserves headroom above the tallest bar for its own label, which sits above the bar top
   // rather than inside/below it.
@@ -192,6 +217,13 @@ export function NetWorthReport({
   const barPlotHeight = PLOT_BOTTOM - barPlotTop;
   const barTopY = (v: number) => PLOT_BOTTOM - ((Math.log10(v) - logMin) / logRange) * barPlotHeight;
   const barWidth = Math.min(stepX * 0.78, 24);
+  // Goal reference line's y, in whichever scale the chart is actually using.
+  const goalY = hasGoal
+    ? canUseLogBars
+      ? barTopY(netWorthGoal!)
+      : PLOT_BOTTOM - ((netWorthGoal! - min) / range) * plotHeight
+    : null;
+  const goalProgressPct = hasGoal ? Math.max(0, Math.min(100, (netWorth / netWorthGoal!) * 100)) : null;
 
   async function exportNetWorth() {
     const summaryHeader = ["Metric", "Amount"];
@@ -239,8 +271,40 @@ export function NetWorthReport({
         {hasTrend && (
           <div className="equity-summary-col" style={{ flex: "2 1 480px" }}>
             <div className="data-panel" style={{ height: "100%" }}>
-              <h4 style={{ margin: "0 0 0.75rem" }}>Net Worth Over Time</h4>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, margin: "0 0 0.75rem" }}>
+                <h4 style={{ margin: 0 }}>Net Worth Over Time</h4>
+                {onSetNetWorthGoal && (
+                  editingGoal ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                      <span>Goal:</span>
+                      <input
+                        type="number"
+                        value={goalDraft}
+                        onChange={(e) => setGoalDraft(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && saveGoal()}
+                        placeholder="e.g. 5000000"
+                        autoFocus
+                        style={{ width: 120, padding: "2px 6px", fontSize: 13 }}
+                      />
+                      <button type="button" className="tr-refresh-btn" onClick={saveGoal}>Save</button>
+                      <button type="button" className="tr-refresh-btn" onClick={() => setEditingGoal(false)}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button type="button" className="password-fallback" onClick={startEditGoal} style={{ fontSize: 13 }}>
+                      {hasGoal ? `Goal: ${fmt(netWorthGoal!)} (${goalProgressPct!.toFixed(0)}% there) — edit` : "Set a goal"}
+                    </button>
+                  )
+                )}
+              </div>
               <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ overflow: "visible" }}>
+                {hasGoal && goalY != null && (
+                  <g>
+                    <line x1={PAD_X} y1={goalY} x2={W - PAD_X} y2={goalY} stroke="#7c3aed" strokeWidth={1.5} strokeDasharray="5 3" />
+                    <text x={W - PAD_X} y={goalY - 4} fontSize={9} fill="#7c3aed" textAnchor="end">
+                      Goal: {compactCurrency(netWorthGoal!, currency)}
+                    </text>
+                  </g>
+                )}
                 {canUseLogBars ? (
                   trend.map((p, i) => {
                     const x = PAD_X + i * stepX;

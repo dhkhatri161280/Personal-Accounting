@@ -5489,6 +5489,8 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
                 trend={netWorthTrendWithEquity}
                 fmt={fmt}
                 currency={data.currency}
+                netWorthGoal={data.netWorthGoal}
+                onSetNetWorthGoal={(v) => { save({ ...data, netWorthGoal: v ?? undefined }, "settings"); }}
                 onSelectAccount={(id) => setSelected(id)}
                 onNavigateSource={(dest) => {
                   if (dest === "retirement") {

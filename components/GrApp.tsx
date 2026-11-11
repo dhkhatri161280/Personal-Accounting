@@ -156,6 +156,27 @@ function fxCacheIsValid(cache: FxCache): boolean {
 }
 function fxCacheClear() { try { localStorage.removeItem(FX_LS_KEY); } catch {} }
 
+// Consolidated net-worth goal, localStorage only -- this view has no write path of its own back
+// to either underlying vault (it's a read-only client-side consolidation of the separately-saved
+// US and India books, see consolidateLedger below), same reasoning FX_LS_KEY above already
+// accepted for its own cache. Not synced across devices, same tradeoff as that cache.
+const NET_WORTH_GOAL_LS_KEY = "dk-gr-net-worth-goal";
+function grNetWorthGoalLoad(): number | undefined {
+  try {
+    const raw = localStorage.getItem(NET_WORTH_GOAL_LS_KEY);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function grNetWorthGoalSave(value: number | null) {
+  try {
+    if (value == null) localStorage.removeItem(NET_WORTH_GOAL_LS_KEY);
+    else localStorage.setItem(NET_WORTH_GOAL_LS_KEY, String(value));
+  } catch {}
+}
+
 function debitNames(t: GrTx) {
   return t.entries.filter((e) => e.amountInr < 0).map((e) => e.accountName).join(" / ") || "-";
 }
@@ -201,6 +222,7 @@ export function GrApp() {
   const [groupNatures, setGroupNatures] = useState<Map<string, string>>(new Map());
   const [fxRevaluation, setFxRevaluation] = useState<FxRevaluationPoint[]>([]);
   const [editMode, setEditMode] = useState(false);
+  const [netWorthGoal, setNetWorthGoal] = useState<number | undefined>(() => grNetWorthGoalLoad());
   const [tab, setTab] = useState<Tab>("dashboard");
   const [report, setReport] = useState<Report>("trial");
   const [year, setYear] = useState(() => {
@@ -1910,7 +1932,15 @@ export function GrApp() {
                 <p className="gr-report-note">
                   All-time closing balances in INR, across both books.
                 </p>
-                <NetWorthReport assets={nwAssets} liabilities={nwLiabs} trend={nwTrend} fmt={fmt} currency="INR" />
+                <NetWorthReport
+                  assets={nwAssets}
+                  liabilities={nwLiabs}
+                  trend={nwTrend}
+                  fmt={fmt}
+                  currency="INR"
+                  netWorthGoal={netWorthGoal}
+                  onSetNetWorthGoal={(v) => { setNetWorthGoal(v ?? undefined); grNetWorthGoalSave(v); }}
+                />
               </div>
             );
           })()}
