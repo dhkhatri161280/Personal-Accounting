@@ -39,8 +39,19 @@ try {
 
   Push-Location $scriptDir
   $output = & node auto-capture.mjs "--label=$label" 2>&1
+  $exitCode = $LASTEXITCODE
   Pop-Location
   Add-Content -Path $logFile -Value ($output | Out-String)
+
+  # & against an EXTERNAL process (node, here) never raises a terminating error just because it
+  # exited non-zero -- unlike calling a nested .ps1 that itself throws (see
+  # ../run-excel-updater.ps1's own identical $LASTEXITCODE check), this has to be checked
+  # explicitly or the catch block below never fires. Confirmed live: auto-capture.mjs correctly
+  # exits 1 when it can't connect to the debug Chrome (see its own "Couldn't connect to Chrome on
+  # port 9222" message), but this status file still said "success" on the exact same run --
+  # last-sync-status.json and sync-log.txt disagreed with each other, so the one place anyone
+  # actually glances at (the status file) silently lied about a real failure.
+  if ($exitCode -ne 0) { throw "auto-capture.mjs failed (exit $exitCode)" }
 
   @{ status = 'success'; timestamp = $stamp; message = 'Receipt list refreshed.' } |
     ConvertTo-Json | Set-Content -LiteralPath $statusFile -Encoding UTF8
