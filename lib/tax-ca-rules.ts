@@ -4,7 +4,13 @@
  * 2023, "2025" is actually 2024, and "2026" is actually 2025. A fresh "2026" projection (~3%
  * inflation growth from the now-correct 2025) replaces the old mislabeled one. 2017/2018 are
  * backward-extrapolated estimates (FTB doesn't publish an easily searchable historical table
- * that far back) rather than verified published figures -- treat those two as rougher. Unlike
+ * that far back) rather than verified published figures -- treat those two as rougher. 2019/2020
+ * standard deductions are the real FTB-published figures ($4,537/$9,074 and $4,601/$9,202), but
+ * their brackets are geometrically interpolated between the verified 2018 and 2021 tables -- a
+ * secondary source's "2019" bracket table turned out to be an exact copy of this file's own 2018
+ * figures (almost certainly a mislabeling, the same error class the 2024/2025/2026 tables already
+ * fell victim to once, per the note above), so interpolating from two trusted anchors was judged
+ * safer than reusing that unverifiable source. Unlike
  * federal, CA doubles every bracket (not just the lower/middle ones) for MFJ vs single.
  *
  * itemizedDeductionPhaseoutThreshold: California kept the old federal "Pease limitation" that
@@ -77,6 +83,50 @@ const RULES_BY_YEAR: Record<string, Record<UsFilingStatus, CaTaxRules>> = {
       ],
       standardDeduction: 8_802, mentalHealthTaxThreshold: 1_000_000, mentalHealthTaxRate: 0.01,
       itemizedDeductionPhaseoutThreshold: 389_045,
+    },
+  },
+  "2019": {
+    single: {
+      taxYear: "2019", ruleVersion: "CA FTB 2019 single (standard deduction published; brackets interpolated between verified 2018/2021)", filingStatus: "single",
+      brackets: [
+        { upTo: 8_796, rate: 0.01 }, { upTo: 20_854, rate: 0.02 }, { upTo: 32_912, rate: 0.04 },
+        { upTo: 45_688, rate: 0.06 }, { upTo: 57_740, rate: 0.08 }, { upTo: 294_945, rate: 0.093 },
+        { upTo: 353_928, rate: 0.103 }, { upTo: 589_884, rate: 0.113 }, { upTo: null, rate: 0.123 },
+      ],
+      standardDeduction: 4_537, mentalHealthTaxThreshold: 1_000_000, mentalHealthTaxRate: 0.01,
+      itemizedDeductionPhaseoutThreshold: 200_534,
+    },
+    mfj: {
+      taxYear: "2019", ruleVersion: "CA FTB 2019 MFJ (standard deduction published; brackets interpolated between verified 2018/2021)", filingStatus: "mfj",
+      brackets: [
+        { upTo: 17_592, rate: 0.01 }, { upTo: 41_708, rate: 0.02 }, { upTo: 65_824, rate: 0.04 },
+        { upTo: 91_376, rate: 0.06 }, { upTo: 115_480, rate: 0.08 }, { upTo: 589_890, rate: 0.093 },
+        { upTo: 707_856, rate: 0.103 }, { upTo: 1_179_768, rate: 0.113 }, { upTo: null, rate: 0.123 },
+      ],
+      standardDeduction: 9_074, mentalHealthTaxThreshold: 1_000_000, mentalHealthTaxRate: 0.01,
+      itemizedDeductionPhaseoutThreshold: 401_067,
+    },
+  },
+  "2020": {
+    single: {
+      taxYear: "2020", ruleVersion: "CA FTB 2020 single (standard deduction published; brackets interpolated between verified 2018/2021)", filingStatus: "single",
+      brackets: [
+        { upTo: 9_056, rate: 0.01 }, { upTo: 21_469, rate: 0.02 }, { upTo: 33_884, rate: 0.04 },
+        { upTo: 47_037, rate: 0.06 }, { upTo: 59_444, rate: 0.08 }, { upTo: 303_646, rate: 0.093 },
+        { upTo: 364_370, rate: 0.103 }, { upTo: 607_291, rate: 0.113 }, { upTo: null, rate: 0.123 },
+      ],
+      standardDeduction: 4_601, mentalHealthTaxThreshold: 1_000_000, mentalHealthTaxRate: 0.01,
+      itemizedDeductionPhaseoutThreshold: 203_362,
+    },
+    mfj: {
+      taxYear: "2020", ruleVersion: "CA FTB 2020 MFJ (standard deduction published; brackets interpolated between verified 2018/2021)", filingStatus: "mfj",
+      brackets: [
+        { upTo: 18_112, rate: 0.01 }, { upTo: 42_938, rate: 0.02 }, { upTo: 67_768, rate: 0.04 },
+        { upTo: 94_074, rate: 0.06 }, { upTo: 118_888, rate: 0.08 }, { upTo: 607_292, rate: 0.093 },
+        { upTo: 728_740, rate: 0.103 }, { upTo: 1_214_582, rate: 0.113 }, { upTo: null, rate: 0.123 },
+      ],
+      standardDeduction: 9_202, mentalHealthTaxThreshold: 1_000_000, mentalHealthTaxRate: 0.01,
+      itemizedDeductionPhaseoutThreshold: 406_725,
     },
   },
   "2021": {
@@ -219,6 +269,16 @@ export function listCaTaxYears(): string[] {
 
 export function resolveCaTaxRules(taxYear: string, filingStatus: UsFilingStatus): CaTaxRules {
   const key = taxYear.trim();
-  const yearTable = RULES_BY_YEAR[key] ?? RULES_BY_YEAR[listCaTaxYears()[0]!]!;
-  return yearTable[filingStatus];
+  const exact = RULES_BY_YEAR[key];
+  if (exact) return exact[filingStatus];
+  // No table for this year at all -- fall back to the newest year we do have, but say so plainly
+  // in ruleVersion (surfaced directly in TaxReport.tsx's UI) rather than silently returning that
+  // fallback year's own normal label as if it matched the year actually requested.
+  const fallbackYear = listCaTaxYears()[0]!;
+  const fallback = RULES_BY_YEAR[fallbackYear]![filingStatus];
+  return {
+    ...fallback,
+    taxYear: key,
+    ruleVersion: `CA: no rules modeled for ${key} -- showing ${fallbackYear} figures (unverified for ${key})`,
+  };
 }

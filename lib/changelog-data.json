@@ -1,5 +1,9 @@
 [
   {
+    "date": "2026-11-09",
+    "summary": "Device pairing: scan with the phone's native camera, not just the in-app scanner"
+  },
+  {
     "date": "2026-11-08",
     "summary": "Widen Plaid pending-match date tolerance to 5 days"
   },
