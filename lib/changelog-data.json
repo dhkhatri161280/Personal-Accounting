@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-11",
+    "summary": "Fix Costco price-drop Needs Attention check to match the real Watchlist"
+  },
+  {
+    "date": "2026-11-11",
     "summary": "Fix Costco receipt-discovery scheduler silently reporting success on failure"
   },
   {

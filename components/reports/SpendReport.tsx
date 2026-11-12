@@ -568,12 +568,17 @@ export function SpendReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: numb
                   </div>
                 )}
               </span>
-              {priceDropCount > 0 && (
-                <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontWeight: 400 }}>
-                  <input type="checkbox" checked={onlyPriceDrops} onChange={(e) => setOnlyPriceDrops(e.target.checked)} />
-                  Only show items with a price match ({priceDropCount})
-                </label>
-              )}
+              {/* Shown even at 0 matches -- previously only rendered when priceDropCount > 0,
+                  which meant the one way to uncheck this filter was invisible exactly when it was
+                  needed most: candidate items ARE on the watchlist (that's why this whole panel
+                  is showing at all, see costcoWatchlist.length > 0 above) but none has a confirmed
+                  price check yet, so the table rendered as a silent, unexplained blank with no way
+                  to see what's actually there -- confirmed live, this is what "where did my Costco
+                  data go?" turned out to be. */}
+              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", fontWeight: 400 }}>
+                <input type="checkbox" checked={onlyPriceDrops} onChange={(e) => setOnlyPriceDrops(e.target.checked)} />
+                Only show items with a price match ({priceDropCount})
+              </label>
             </h4>
             <table className="fx-ledger-table costco-watchlist-table">
               <colgroup>
@@ -601,6 +606,15 @@ export function SpendReport({ data, fmt, onSave }: { data: Ledger; fmt: (n: numb
                 </tr>
               </thead>
               <tbody>
+                {costcoWatchlistFiltered.length === 0 && (
+                  <tr>
+                    <td colSpan={9} style={{ opacity: 0.6, padding: "10px 6px" }}>
+                      {onlyPriceDrops
+                        ? `${costcoWatchlist.length} item(s) on your watchlist, none with a confirmed price drop yet -- uncheck "Only show items with a price match" above to see them, or run check-prices.mjs to check current prices.`
+                        : "Nothing on the watchlist right now."}
+                    </td>
+                  </tr>
+                )}
                 {costcoWatchlistFiltered.map((w, i) => {
                   const isMatch = rowIsMatch(w);
                   const diff = isMatch ? w.pricePaid - (w.priceCheck!.currentPrice ?? w.pricePaid) : null;
