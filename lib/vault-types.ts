@@ -894,10 +894,6 @@ export type Ledger = {
   // -- a specific detected jump, not the whole template, so a LATER increase on the same bill
   // still surfaces. Same "mark as known, stop flagging" pattern as bankReconExceptions above.
   recurringPriceIncreaseDismissed?: string[];
-  // "<itemNumber>:<checkedAt>" keys dismissed from the "Costco price drop" Needs Attention check
-  // -- a specific price-check snapshot, not the item itself, so a FRESH check-prices.mjs run
-  // (different checkedAt) surfaces again if the item still shows a drop. See CostcoPriceCheck.
-  costcoPriceDropDismissed?: string[];
   // Filer's own identity details for FinCEN Form 114 (FBAR) Part I -- has nothing to do with
   // ledger accounts, entered once in Masters > Settings so the FBAR Worksheet's pre-filled PDF
   // export (see components/reports/FbarReport.tsx, lib/fbar-pdf.ts) doesn't need these re-typed

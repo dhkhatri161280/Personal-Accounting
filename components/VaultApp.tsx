@@ -78,6 +78,7 @@ import {
 import { autoSyncTaggedAssets, tagExistingAsset } from "@/lib/fixed-assets-ledger";
 import type { BudgetRow } from "@/lib/budget";
 import { dueTemplates, buildVoucherFromTemplate, currentPeriodKey, frequencyLabel, detectRecurringPriceIncreases, priceIncreaseDismissKey, type DueTemplate } from "@/lib/recurring";
+import { costcoPriceMatchWatchlist, costcoAutoClaimedKeys } from "@/lib/costco-receipts";
 import { appendAuditEntry } from "@/lib/audit";
 import { exportWorkbook } from "@/lib/export-excel";
 import { apiFetch, getAccessToken } from "@/lib/api-fetch";
@@ -2400,27 +2401,32 @@ export function VaultApp({ book = "us" }: { book?: "us" | "india" }) {
       });
     }
   }
-  // Costco price-drop watchlist (Masters → Costco Receipts → check-prices.mjs) -- previously sat
-  // in that report only, easy to forget to go check. Dismissed per checkedAt snapshot, so a
-  // fresh check-prices.mjs run (a new checkedAt) surfaces again even for the same item.
-  if (data?.costcoPriceChecks?.length) {
-    const dismissedSet = new Set(data.costcoPriceDropDismissed ?? []);
-    const drops = data.costcoPriceChecks.filter(
-      (c) => c.priceDropped && !dismissedSet.has(`${c.itemNumber}:${c.checkedAt}`)
-    );
+  // Costco price-drop watchlist -- previously sat only in Reports → Spend, easy to forget to go
+  // check. Deliberately reuses the EXACT same costcoPriceMatchWatchlist + claimedKeys + per-row
+  // "is this actually a match" logic SpendReport.tsx's own table uses (not the raw
+  // CostcoPriceCheck.priceDropped flag, which that report's own comment on rowIsMatch explains
+  // isn't reliable per-row -- the same item can appear at different pricePaid on different trips).
+  // Reusing it this way also means there's no separate dismiss state to maintain here at all:
+  // once the user clicks "Refund taken" in that report, the item drops out of claimedKeys and
+  // this banner clears itself on the next render, the same way Bank Recon/Tally Recon's own
+  // "Needs Attention" rows clear themselves once their underlying diff resolves -- a SEPARATE
+  // dismiss mechanism here would have risked the two screens disagreeing with each other, the
+  // same "two screens show different numbers for the same data" bug class lib/plaid-recon.ts's
+  // own comments describe once already biting this app for real.
+  if (data?.costcoReceipts?.length) {
+    const claimedKeys = costcoAutoClaimedKeys(data.costcoReceipts);
+    for (const k of data.costcoPriceMatchClaimed ?? []) claimedKeys.add(k);
+    const checksByItem = new Map((data.costcoPriceChecks ?? []).map((c) => [c.itemNumber, c]));
+    const drops = costcoPriceMatchWatchlist(data.costcoReceipts, todayStr, undefined, claimedKeys).filter((w) => {
+      const check = checksByItem.get(w.itemNumber);
+      return check?.currentPrice != null && check.currentPrice < w.pricePaid - 0.005;
+    });
     if (drops.length) {
-      const totalSavings = drops.reduce((s, c) => s + Math.max(0, c.pricePaid - (c.currentPrice ?? c.pricePaid)), 0);
+      const totalSavings = drops.reduce((s, w) => s + (w.pricePaid - checksByItem.get(w.itemNumber)!.currentPrice!), 0);
       attentionItems.push({
         label: "Costco price drop on your watchlist",
-        detail: `${drops.length} item(s) now cheaper than what you paid (up to ${fmt(totalSavings)} total) — still inside the price-adjustment window; see Masters → Costco Receipts.`,
-        action: {
-          label: "Reviewed",
-          onClick: () =>
-            void save(
-              { ...data, costcoPriceDropDismissed: [...(data.costcoPriceDropDismissed ?? []), ...drops.map((c) => `${c.itemNumber}:${c.checkedAt}`)] },
-              "settings"
-            ),
-        },
+        detail: `${drops.length} item(s) now cheaper than what you paid (up to ${fmt(totalSavings)} total), still inside the price-adjustment window.`,
+        action: { label: "Open", onClick: () => { setReport("spend"); setTab("reports"); } },
       });
     }
   }
