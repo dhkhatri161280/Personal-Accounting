@@ -2,11 +2,11 @@ import type { AmexBenefit, AmexCoverageBenefit } from "./vault-types.ts";
 
 // Real Amex card benefit tracking -- see AmexBenefit's own comment in vault-types.ts and
 // tools/amex-benefits/ for how this data is captured (no public API, same browser-capture
-// pattern as tools/costco-receipts/).
+// pattern the now-retired tools/costco-receipts/ used).
 
 // Merges a freshly-imported batch, deduped by benefitId -- the incoming (presumably newer) one
 // wins on a collision, since Amex's own tracker is re-fetched each time and should always
-// supersede a stale one (same reasoning as mergeCostcoPriceChecks in lib/costco-receipts.ts).
+// supersede a stale one.
 // statementCredits is preserved from the existing record when incoming doesn't specify it, same
 // reasoning as mergeAmexCoverageBenefits' own preservation of statementClaims below -- parse.mjs
 // has no way to know about a hand-reconciled correction, so a straight overwrite would wipe it.

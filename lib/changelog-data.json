@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-11",
+    "summary": "Fix Costco Price Match Watchlist going silently blank with no confirmed matches"
+  },
+  {
+    "date": "2026-11-11",
     "summary": "Fix Costco price-drop Needs Attention check to match the real Watchlist"
   },
   {

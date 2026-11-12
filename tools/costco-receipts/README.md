@@ -1,159 +1,53 @@
-# Costco Receipt Capture & Price Match Watchlist
+# Costco Receipt Capture & Price Match Watchlist (retired)
 
-Goal: know which Costco purchases are still inside the 30-day (sometimes longer, e.g.
-electronics) price-adjustment window, what the real current price is, and feed real itemized
-data into the Costco Executive 2% Reward calculation -- all from real Costco data, not guessed
-from Day Book narration.
+This tool, and the app features it fed, were retired on 2026-11-12 at the user's explicit
+request -- decommissioned the same way `tools/amex-benefits/`'s earlier debug-Chrome automation
+was, but for a different reason: Amex's automation got replaced by a better (Plaid-based)
+approach; this one has no replacement, because none is possible.
 
-This app has no itemized purchase data on its own -- Day Book only has voucher totals like
-"Shopping @ Costco -- $363.01", not item names/prices. Costco has no public API, so this toolset
-drives a real, already-logged-in Chrome session through Costco's own site to get it.
+## Why this couldn't be made easier
 
-## The debug Chrome (needed by everything below)
+Costco has no public API. Unlike a bank (Plaid) or Amex (its own account API), there is no
+official, sanctioned way to pull a Costco purchase history programmatically -- the only way in
+was driving a real, logged-in Chrome session through Costco's own website.
 
-Every script here connects to a real Chrome window running with remote debugging enabled, using
-its own SEPARATE profile folder (`C:\Users\dikhatri\ChromeDebugProfile`) -- not your everyday
-Chrome. That separation matters: it means launching it never requires closing your normal
-browsing, and it's a one-time setup.
+Worse: itemized receipt DETAIL (what you actually bought, not just a trip total) is actively
+blocked from automation by Costco's own anti-bot protection (Kasada), which issues a fresh
+cryptographic challenge per request that only resolves from genuine, human-driven browser
+interaction -- confirmed live, every attempt to script around it was flatly rejected. The only
+way to get item-level detail was clicking "View Receipt" on every purchase, by hand, forever.
+Even the list-level discovery (which *was* fully automatable) still needed a dedicated, already
+logged-in Chrome window kept around just for it.
 
-**First time only** -- seed the debug profile from your real one (picks up your Costco login):
-```bash
-robocopy "C:\Users\dikhatri\AppData\Local\Google\Chrome\User Data" "C:\Users\dikhatri\ChromeDebugProfile" /E /XD "Cache" "Code Cache" "GPUCache" "CacheStorage" "blob_storage" "shared_proto_db" "component_crx_cache" "extensions_crx_cache" "Crashpad" "ShaderCache" "GrShaderCache" "Service Worker" "IndexedDB"
-```
+Asked to weigh that ongoing manual burden against what it bought -- a cross-check on the
+Executive 2% Reward estimate (which already works, less precisely, from voucher narration alone
+with zero manual effort) and a Price Match Watchlist -- the user decided it wasn't worth it.
+That's a reasonable call, not a failure of the tooling: this is a case where the honest answer is
+"this app cannot make that effort go away," not "try harder."
 
-**Every time you want to use any script below** -- launch it:
-```bash
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\Users\dikhatri\ChromeDebugProfile"
-```
-If it's not already logged into Costco, log in there once (check "Keep me signed in") -- it'll
-stay logged in across future launches. Also confirm **My Warehouse** (top of costco.com) is set
-to the real store you shop at -- it drives real in-warehouse pricing (see check-prices.mjs).
+## What was removed
 
-## Setup (one time)
+- **Scripts** (`attach.mjs`, `auto-capture.mjs`, `capture.mjs`, `check-prices.mjs`, `parse.mjs`,
+  `import-to-vault.mjs`/`.ps1`, `analyze-price-gaps.mjs`, `gap-log.mjs`, `run-scheduled.ps1`,
+  `silent-launch.vbs`) and their `node_modules`/`package.json` -- all deleted.
+- **The weekly Windows Scheduled Task** ("Costco Receipt Discovery") -- removed by the user
+  directly (`schtasks /delete /tn "Costco Receipt Discovery" /f`).
+- **App features that depended on imported receipt data**: the "Costco Price Match Watchlist"
+  table and the receipt-verified reward cross-check (Reports -> Spend), the "Costco Receipts"
+  upload section (Masters), the `search_costco_items` chat-assistant tool, and the
+  `CostcoReceipt`/`CostcoPriceCheck` types and vault fields themselves (`lib/vault-types.ts`).
+- **Local capture data** (`.captures/`, `.profiles/`, `last-sync-status.json`, `sync-log.txt`,
+  gitignored vault backups) -- deleted; this was never committed to git in the first place.
 
-```bash
-cd tools/costco-receipts
-npm install
-```
+## What was deliberately kept
 
-## The scripts
+- **The Costco Executive 2% Reward estimate** (`lib/costco-reward.ts`, shown on Reports -> Spend)
+  -- this needs zero manual effort, works entirely from your existing voucher narration ("Shopping
+  @ Costco -- $363.01"), and was never receipt-dependent. Still fully live.
+- Whatever receipt/item data had already been imported into the vault before this retirement
+  stays there as real historical data -- only the ongoing capture mechanism was removed, not
+  anything already recorded.
 
-### `auto-capture.mjs` -- find new receipts, zero clicking
-```bash
-node auto-capture.mjs --label=dignesh
-```
-Calls Costco's own receipt-LIST API directly (the same thing Order & Purchase History loads on
-its own) and tells you exactly which **recent** receipts (inside the price-match window) still
-need a manual click for item detail -- not the whole history, just what's actually actionable.
-Safe to run anytime, including on a schedule (see below) -- it never clicks anything itself, so
-there's nothing to go wrong.
-
-It deliberately does NOT auto-fetch itemized detail per receipt. Costco protects that endpoint
-with Kasada (anti-bot), which issues a fresh cryptographic token per request -- replaying a
-captured token for a different request is flatly rejected (confirmed live: every attempt 400'd).
-That's Costco's security working correctly; this script doesn't try to get around it.
-
-### `attach.mjs` -- capture item detail (still needs your actual clicks)
-```bash
-node attach.mjs --label=dignesh
-```
-Attaches to the debug Chrome and silently records every JSON response while **you** browse --
-every click and keystroke is genuinely yours, so there's nothing for Costco to flag. Go to
-**Order & Purchase History**, click "View Receipt" on whichever receipts `auto-capture.mjs` just
-told you still need it, then press Enter in the terminal when done.
-
-### `check-prices.mjs` -- live current-price check, zero clicking
-```bash
-node check-prices.mjs
-```
-For every item still in the price-match window (from `.captures/watchlist.json`), searches
-costco.com and pulls the REAL current price -- preferring the true in-warehouse price (at
-whichever store "My Warehouse" is set to) over the online/delivery price, which can legitimately
-differ. Fully automated, no clicking.
-
-Whenever Costco's own response carries BOTH a real warehouse price and a real online price for
-the same item, it also logs that real gap to `.captures/price-gap-observations.json` (by
-category) -- see `analyze-price-gaps.mjs` below.
-
-### `analyze-price-gaps.mjs` -- review real warehouse-vs-online gaps by category
-```bash
-node analyze-price-gaps.mjs
-```
-No browser, no Costco calls -- just summarizes what `check-prices.mjs` has logged so far (count,
-average, median, range per category). The apparel-only $2 estimate in `check-prices.mjs` was
-derived from a real, confirmed pattern, not invented -- this is how you'd build a similar,
-reviewed estimate for another category once there's enough real data (10+ observations is a
-reasonable floor), rather than guessing. Never auto-applied anywhere.
-
-### `parse.mjs` -- turn raw captures into clean, importable files
-```bash
-node parse.mjs
-```
-Reads everything under `.captures/<name>/`, writes `.captures/receipts.json` and
-`.captures/price-checks.json` (either import these into **Masters → Costco Receipts** in the app
-by hand, or use `import-to-vault.ps1` below to skip that step) and `.captures/watchlist.json`
-(used by `check-prices.mjs`).
-
-### `import-to-vault.ps1` -- push receipts/price-checks straight into the vault, no browser step
-```powershell
-powershell -File import-to-vault.ps1
-```
-Writes `.captures/receipts.json` and `.captures/price-checks.json` directly into the encrypted
-US-book vault -- same merge rules as the Masters → Costco Receipts upload, just skipping the
-manual file-picker. Reads the vault/site/access-token credentials from the same DPAPI-encrypted
-secret files `../tally-sync`'s own scheduled sync already uses on this machine
-(`%LOCALAPPDATA%\PersonalLedgerTallySync\*.dpapi`). One-time setup if `access-code.dpapi` doesn't
-exist yet (the other two already do, from the Tally sync setup):
-```powershell
-Read-Host -Prompt "Access token" -AsSecureString | ConvertFrom-SecureString |
-  Set-Content -LiteralPath "$env:LOCALAPPDATA\PersonalLedgerTallySync\access-code.dpapi"
-```
-Writes a timestamped encrypted backup of the whole vault (`encrypted-us-vault-before-costco-import-*.json`,
-gitignored) before every write, same safety pattern as the Tally sync scripts.
-
-## Typical workflow
-
-```bash
-# 1. Launch the debug Chrome (see above) if it's not already running.
-# 2. See what's new:
-node auto-capture.mjs --label=dignesh
-# 3. If it lists anything, click those few receipts in the Chrome window, then:
-node attach.mjs --label=dignesh
-# (click the listed receipts, press Enter when done)
-# 4. Check current prices:
-node check-prices.mjs
-# 5. Build the clean output files:
-node parse.mjs
-# 6. Get it into the app -- either:
-powershell -File import-to-vault.ps1
-#    ...or manually import .captures/receipts.json and .captures/price-checks.json via
-#    Masters -> Costco Receipts in the app.
-```
-
-## Scheduled run (optional)
-
-`run-scheduled.ps1` + `silent-launch.vbs` run `auto-capture.mjs` automatically (launching the
-debug Chrome itself if it isn't already running) -- same pattern as `../excel-sync`'s own
-scheduled sync. This only ever runs the safe, zero-click list discovery; it never auto-clicks
-through item detail.
-
-**Test it once manually first:**
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File run-scheduled.ps1
-```
-Check `sync-log.txt` and `last-sync-status.json` afterward to confirm it worked.
-
-**Register it with Windows Task Scheduler** (weekly, Monday 8 AM -- adjust as you like):
-```powershell
-schtasks /create /tn "Costco Receipt Discovery" /tr "wscript.exe \"C:\Users\dikhatri\Documents\Codex\personal-accounting-app\tools\costco-receipts\silent-launch.vbs\"" /sc weekly /d MON /st 08:00 /f
-```
-
-To remove it later: `schtasks /delete /tn "Costco Receipt Discovery" /f`
-
-## Output
-
-Everything lands in `.captures/<name>/<timestamp>/` -- one `.json` file per captured API
-response. `.captures/receipts.json`, `.captures/watchlist.json`, and `.captures/price-checks.json`
-are the three files `parse.mjs`/`check-prices.mjs` produce for import into the app. Both
-`.profiles/` (session cookies, legacy `capture.mjs` only) and `.captures/` (real purchase data)
-are gitignored and must never be committed.
+If this is ever worth revisiting, the real options are: (a) accept the manual click-through as an
+occasional light-touch habit (a few minutes, a few times a year) rather than a backlog to clear,
+or (b) wait for Costco to ever offer a real API, which as of this writing it does not.

@@ -456,72 +456,10 @@ export type PayrollDirectDepositSplit = {
   active: boolean;
 };
 
-// One line item on a real Costco receipt, as captured straight from Costco's own order-history
-// API (see tools/costco-receipts/) -- NOT derived or guessed from Day Book narration. `amount` is
-// what was actually paid for this line (qty x unit price), always positive; a return/adjustment
-// line is dropped during import rather than carried as a negative amount here.
-export type CostcoReceiptItem = {
-  itemNumber: string;
-  description: string;
-  amount: number;
-  qty: number;
-};
-
-// One real Costco receipt (one till transaction), imported via Masters -> Costco Receipts. The
-// one real source for BOTH the Executive 2% Reward calculation and the Price Match Watchlist --
-// see lib/costco-receipts.ts -- instead of guessing either from voucher narration the way
-// lib/costco-reward.ts's older estimate still does for periods with no receipt on file.
-export type CostcoReceipt = {
-  // Stable identity (warehouse+register+transaction number+date) so re-importing the same
-  // receipt from a later capture run never creates a duplicate -- MUST stay in sync with
-  // receiptKey() in tools/costco-receipts/parse.mjs, the only thing that generates these.
-  key: string;
-  cardholder: string; // whichever --label/--profile the capture was run under (e.g. "dignesh")
-  date: string; // YYYY-MM-DD
-  warehouse: string;
-  receiptType: string; // Costco's own field verbatim -- "In-Warehouse", "Gas Station", etc.
-  total: number;
-  items: CostcoReceiptItem[];
-  // Real Costco-issued price adjustments found ON this receipt -- a standalone "Price Adjustment"
-  // transaction Costco itself generates when you claim a lower price at the desk: the item shows
-  // up with unit 0 (not a new purchase) alongside a separate line crediting the difference back.
-  // This receipt's own `date` is when Costco actually processed it. See parse.mjs's
-  // buildDiscountMap/priceAdjustments comment and costcoAutoClaimedKeys in lib/costco-receipts.ts
-  // -- this is what lets the watchlist auto-clear an item once you've actually gotten the refund,
-  // instead of requiring a manual "Refund taken" click for every single one.
-  priceAdjustments?: { itemNumber: string; amount: number }[];
-};
-
-// A real, live current-price lookup against costco.com for one item, produced by
-// tools/costco-receipts/check-prices.mjs (driven through an already-authenticated Chrome session
-// -- no generic web search, which proved unreliable/stale when tried). `currentPrice` is null
-// either because costco.com had no clean single-product match for the search (ambiguous results)
-// or because `notSoldOnline` is true (the item is warehouse-only, confirmed by a zero-result
-// search -- common for fresh produce/grocery, nothing to look up online in that case).
-export type CostcoPriceCheck = {
-  itemNumber: string;
-  description: string;
-  pricePaid: number;
-  currentPrice: number | null;
-  // "warehouse" = Costco's own real in-store/pickup price at the account's "My Warehouse" setting
-  // (confirmed live to genuinely differ from online pricing) -- always preferred when available.
-  // "estimated-warehouse" = no real warehouse price was available, but the item is clothing/shoes
-  // -- per the user's own real shopping experience, in-warehouse apparel/shoe pricing typically
-  // runs about $2 under online, so the online price minus $2 is used as the estimate instead of
-  // the raw online figure. "online" = plain ship-to-home/delivery price, used only when neither
-  // of the above applies. null = currentPrice itself is null (not checked, no match, or not sold
-  // online).
-  priceSource?: "warehouse" | "estimated-warehouse" | "online" | null;
-  currentPriceWarehouse?: string | null;
-  notSoldOnline: boolean;
-  priceDropped: boolean;
-  checkedAt: string;
-};
-
 // One real Amex "benefit tracker" -- a statement credit (Airline Fee Credit, Digital
 // Entertainment, Uber One, etc.) with its own real-time usage status, imported from Amex's own
-// account data (tools/amex-benefits/, the same no-public-API browser-capture pattern as
-// tools/costco-receipts/). Field names/values deliberately mirror Amex's own API verbatim
+// account data (tools/amex-benefits/, the same no-public-API browser-capture pattern the now-
+// retired tools/costco-receipts/ used). Field names/values deliberately mirror Amex's own API verbatim
 // (status: "IN_PROGRESS"/"ACHIEVED", trackerDuration: "CalenderYear"/"Monthly"/etc -- yes,
 // "CalenderYear" is Amex's own spelling) rather than being reinterpreted into this app's own
 // vocabulary, since Amex is the authoritative source and re-deriving these from Plaid transaction
@@ -814,18 +752,6 @@ export type Ledger = {
   // Deposit -- see PayrollDirectDepositSplit above. Empty/unset falls back to depositing the
   // whole paycheck in whichever account the Plaid transaction's own institution matches.
   payrollDirectDeposit?: PayrollDirectDepositSplit[];
-  // Real itemized Costco receipts imported from Masters -> Costco Receipts. See CostcoReceipt's
-  // own comment and lib/costco-receipts.ts.
-  costcoReceipts?: CostcoReceipt[];
-  // Real, live current-price lookups imported from Masters -> Costco Receipts. See
-  // CostcoPriceCheck's own comment and lib/costco-receipts.ts.
-  costcoPriceChecks?: CostcoPriceCheck[];
-  // Watchlist rows the user has already taken the real in-store price adjustment for -- keyed
-  // "<itemNumber>|<date>" (not itemNumber alone, since the same item bought on two different
-  // dates needs to be tracked separately; see costcoClaimKey in lib/costco-receipts.ts). Marked
-  // from the Price Match Watchlist itself (Spend report) so an already-refunded item stops
-  // showing as an open "match" and isn't double-counted in Total potential savings.
-  costcoPriceMatchClaimed?: string[];
   // Real Amex card benefit usage, imported from Amex's own account data. See AmexBenefit's own
   // comment and lib/amex-benefits.ts.
   amexBenefits?: AmexBenefit[];
