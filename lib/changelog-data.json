@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-11-11",
+    "summary": "Decommission the Costco receipt-capture automation and its app features"
+  },
+  {
+    "date": "2026-11-11",
     "summary": "Fix Costco Price Match Watchlist going silently blank with no confirmed matches"
   },
   {

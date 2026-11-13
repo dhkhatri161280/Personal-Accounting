@@ -142,6 +142,75 @@ function employerTickerSet(equity: EquityData | undefined): Set<string> {
   return tickers;
 }
 
+// Shared by archivePaystubDocument and archiveDocument below -- uploads a file to /api/attachments
+// with retry on a network-level failure (fetch() throwing before any response at all -- "Failed to
+// fetch"). Confirmed live this kept failing on mobile even with the original fixed 3-attempt/~3s-
+// total retry: switching to Google Drive to pick a file backgrounds the Android WebView, and
+// Android can easily take longer than 3 seconds to actually resume real network connectivity once
+// the app is foregrounded again -- a short fixed backoff just kept retrying into the same
+// still-suspended window. This now (a) waits for the page to actually be visible again, not a
+// blind timer, before each retry -- retrying while still backgrounded is pointless regardless of
+// attempts left -- and (b) backs off longer between attempts (exponential, capped at 8s) with more
+// attempts, giving a slow-to-resume connection a real window to recover instead of a token one.
+async function uploadAttachmentWithRetry(
+  file: File,
+  book: string,
+  attempts = 5
+): Promise<
+  | { ok: true; meta: { key: string; filename: string; size: number; contentType: string; uploadedAt: string } }
+  | { ok: false; sessionExpired: true }
+  | { ok: false; sessionExpired: false; message: string }
+> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      await new Promise<void>((resolve) => {
+        const onVisible = () => {
+          if (document.visibilityState === "visible") {
+            document.removeEventListener("visibilitychange", onVisible);
+            resolve();
+          }
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        // Don't wait forever if the tab never comes back to the foreground -- fall through to the
+        // normal retry/backoff below instead of hanging this upload indefinitely.
+        setTimeout(() => {
+          document.removeEventListener("visibilitychange", onVisible);
+          resolve();
+        }, 8000);
+      });
+    }
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("book", book);
+      form.append("folder", "documents");
+      const r = await apiFetch("/api/attachments", { method: "POST", body: form });
+      if (!r.ok) {
+        // Confirmed live: this is what Android backgrounding a PWA (e.g. switching to Google Drive
+        // to pick the file) looks like -- the access token went missing, not a real server
+        // rejection. Not worth retrying; nothing short of reopening the app fixes it.
+        if (r.status === 401) return { ok: false, sessionExpired: true };
+        lastError = new Error(`HTTP ${r.status}`);
+        // A real server-reported failure (bad request, storage unavailable, ...) -- retry in case
+        // it's transient (e.g. an R2 hiccup), but don't mask a genuine 4xx by retrying it forever.
+        if (r.status < 500 || attempt === attempts) return { ok: false, sessionExpired: false, message: `HTTP ${r.status}` };
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 8000)));
+        continue;
+      }
+      const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
+      return { ok: true, meta };
+    } catch (e) {
+      lastError = e;
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 8000)));
+        continue;
+      }
+    }
+  }
+  return { ok: false, sessionExpired: false, message: lastError instanceof Error ? lastError.message : "network error" };
+}
+
 // Same aggregation formulas the single-year view below uses (override-aware: a manual period
 // correction replaces that period's Excel-imported value, a voucher-derived period adds on top,
 // a row's separate "Stocks" vesting-tax-event columns always add in) -- reimplemented here as a
@@ -827,13 +896,25 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
   // auto-draft), then an existing manual/estimated period with the same inferred label, and
   // only creates a brand-new one if neither exists yet.
   async function handlePaystubUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const pickedFile = e.target.files?.[0];
+    if (!pickedFile) return;
     e.target.value = "";
     setPaystubError("");
     setPaystubReview(null);
     setParsingPaystub(true);
     try {
+      // Rebuild a plain in-memory File from the picked one's bytes, read ONCE right here, instead
+      // of holding onto the original File object for later (the archive upload, on Save -- which
+      // can be a while after this, once the user's reviewed the numbers). A file picked via
+      // Android's Storage Access Framework (e.g. choosing Google Drive as the source) can be
+      // backed by a content:// URI with only a temporary, single-use read grant -- confirmed live:
+      // the PDF parses fine immediately (this first read), but re-reading that SAME original File
+      // object later for the archive upload consistently failed with "Failed to fetch" no matter
+      // how many times or how long it retried, because the underlying grant was already gone, not
+      // because of the network. Every later read (parsing, then the upload) now comes from this
+      // plain in-memory copy instead, so the original content:// handle is only ever touched once.
+      const bytes = await pickedFile.arrayBuffer();
+      const file = new File([bytes], pickedFile.name, { type: pickedFile.type || "application/pdf" });
       const { parsePaystubPdf } = await import("@/lib/parse-paystub-pdf");
       const parsed = await parsePaystubPdf(file);
       if (!parsed.periodEnd) {
@@ -931,53 +1012,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       }
       toUpload = trimmed.file;
     }
-    // Retries a couple times on a network-level failure (fetch() throwing before any response --
-    // no HTTP status at all) before giving up -- confirmed live this upload fails this way from a
-    // phone on a flaky connection (tab backgrounded mid-upload, signal drop), not from anything
-    // the server itself does (its own route always returns a clean status code on every failure
-    // path it controls). A transient blip shouldn't need the user to redo this by hand every time.
-    const ATTEMPTS = 3;
-    let lastError: unknown = null;
-    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-      try {
-        const form = new FormData();
-        form.append("file", toUpload);
-        form.append("book", book);
-        form.append("folder", "documents");
-        const r = await apiFetch("/api/attachments", { method: "POST", body: form });
-        if (!r.ok) {
-          // A real server-reported failure (bad request, storage unavailable, ...) -- retry once
-          // or twice in case it's transient (e.g. R2 hiccup), but don't mask a genuine 400.
-          lastError = new Error(`HTTP ${r.status}`);
-          if (r.status === 401) {
-            // Confirmed live: this is what Android backgrounding a PWA (e.g. switching to Google
-            // Drive to pick the file) looks like -- the access token went missing, not a real
-            // server rejection. This runs BEFORE the numeric save below, which will hit the same
-            // 401 (same missing token) -- nothing has actually saved yet at this point, unlike
-            // every other failure this function can hit here.
-            setPaystubError("Your session expired (common after switching apps on mobile, e.g. to pick a file) -- nothing was saved yet. Close and reopen this app, then try again.");
-            return null;
-          }
-          if (r.status < 500 || attempt === ATTEMPTS) {
-            setPaystubError(`Numbers saved, but archiving the PDF to Documents failed (${r.status}).`);
-            return null;
-          }
-          continue;
-        }
-        const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
-        return { id: crypto.randomUUID(), category: "Pay Stub", label, date, ...meta };
-      } catch (e) {
-        lastError = e;
-        if (attempt < ATTEMPTS) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-          continue;
-        }
-      }
+    const result = await uploadAttachmentWithRetry(toUpload, book);
+    if (!result.ok) {
+      setPaystubError(
+        result.sessionExpired
+          ? "Your session expired (common after switching apps on mobile, e.g. to pick a file) -- nothing was saved yet. Close and reopen this app, then try again."
+          : `Numbers saved, but archiving the PDF to Documents failed (${result.message}). Try again, or use Masters > Documents to upload it directly.`
+      );
+      return null;
     }
-    setPaystubError(
-      `Numbers saved, but archiving the PDF to Documents failed after ${ATTEMPTS} attempts (${lastError instanceof Error ? lastError.message : "network error"}). Try again, or use Masters > Documents to upload it directly.`
-    );
-    return null;
+    return { id: crypto.randomUUID(), category: "Pay Stub", label, date, ...result.meta };
   }
 
   // Same archival as archivePaystubDocument above, generalized to take category/label/date and
@@ -999,35 +1043,16 @@ export function TaxReport({ payroll, transactions, equity, accounts, trades, onS
       }
       toUpload = trimmed.file;
     }
-    const ATTEMPTS = 3;
-    let lastError: unknown = null;
-    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
-      try {
-        const form = new FormData();
-        form.append("file", toUpload);
-        form.append("book", book);
-        form.append("folder", "documents");
-        const r = await apiFetch("/api/attachments", { method: "POST", body: form });
-        if (!r.ok) {
-          lastError = new Error(`HTTP ${r.status}`);
-          if (r.status < 500 || attempt === ATTEMPTS) {
-            setError(`Saved, but archiving the PDF to Documents failed (${r.status}).`);
-            return null;
-          }
-          continue;
-        }
-        const meta = (await r.json()) as { key: string; filename: string; size: number; contentType: string; uploadedAt: string };
-        return { id: crypto.randomUUID(), category, label, date, ...meta };
-      } catch (e) {
-        lastError = e;
-        if (attempt < ATTEMPTS) {
-          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-          continue;
-        }
-      }
+    const result = await uploadAttachmentWithRetry(toUpload, book);
+    if (!result.ok) {
+      setError(
+        result.sessionExpired
+          ? "Your session expired (common after switching apps on mobile, e.g. to pick a file) -- nothing was saved yet. Close and reopen this app, then try again."
+          : `Saved, but archiving the PDF to Documents failed (${result.message}). Try again, or use Masters > Documents to upload it directly.`
+      );
+      return null;
     }
-    setError(`Saved, but archiving the PDF to Documents failed after ${ATTEMPTS} attempts (${lastError instanceof Error ? lastError.message : "network error"}). Try again, or use Masters > Documents to upload it directly.`);
-    return null;
+    return { id: crypto.randomUUID(), category, label, date, ...result.meta };
   }
 
   async function savePaystubReview() {

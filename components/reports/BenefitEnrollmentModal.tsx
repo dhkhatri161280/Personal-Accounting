@@ -80,13 +80,25 @@ export function BenefitEnrollmentModal({
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const pickedFile = e.target.files?.[0];
+    if (!pickedFile) return;
     e.target.value = "";
     setParseError("");
     setParsing(true);
     setParsingProgress("");
+    // Rebuild a plain in-memory File from the picked one's bytes, read ONCE right here -- same fix
+    // as TaxReport.tsx's handlePaystubUpload (see its own comment for the full story): a file
+    // picked via Android's Storage Access Framework (e.g. choosing Google Drive as the source) can
+    // be backed by a content:// URI with only a temporary, single-use read grant, so re-reading the
+    // SAME original File object later (the archive upload on Save, after the user's reviewed the
+    // parsed numbers) can fail with "Failed to fetch" no matter how long that retries -- the grant
+    // is gone, not the network. Every later read now comes from this in-memory copy instead.
+    // Declared with `let` (not inside the try below) so the catch branch's own fallback to manual
+    // entry still has it, in whichever state it reached by the time parsing threw.
+    let file: File = pickedFile;
     try {
+      const bytes = await pickedFile.arrayBuffer();
+      file = new File([bytes], pickedFile.name, { type: pickedFile.type || "application/pdf" });
       const { parseBenefitEnrollmentPdf } = await import("@/lib/parse-benefit-enrollment-pdf");
       const parsed = await parseBenefitEnrollmentPdf(file, setParsingProgress);
       const inferredYear = parsed.asOfDate ? Number(parsed.asOfDate.slice(0, 4)) : new Date().getFullYear();
